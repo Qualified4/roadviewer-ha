@@ -1,0 +1,9 @@
+-------------------------------------------------------------------------------
+Test set: io.homeassistant.companion.android.webview.LegacyWebViewParserTest
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.913 s -- in io.homeassistant.companion.android.webview.LegacyWebViewParserTest
+
+-------------------------------------------------------------------------------
+Test set: io.homeassistant.companion.android.webview.ShowWebFileChooserTest
+-------------------------------------------------------------------------------
+Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.091 s -- in io.homeassistant.companion.android.webview.ShowWebFileChooserTest

@@ -1,0 +1,22 @@
+--- a/app/src/main/kotlin/io/homeassistant/companion/android/frontend/filechooser/FileChooserEffect.kt
++++ b/app/src/main/kotlin/io/homeassistant/companion/android/frontend/filechooser/FileChooserEffect.kt
+@@ -6,6 +6,7 @@
+ import android.webkit.WebChromeClient
+ import androidx.activity.compose.rememberLauncherForActivityResult
+ import androidx.activity.result.contract.ActivityResultContract
++import androidx.activity.result.contract.ActivityResultContracts
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+@@ -22,7 +23,10 @@
+     }
+ 
+     override fun parseResult(resultCode: Int, intent: Intent?): Array<Uri>? {
+-        return WebChromeClient.FileChooserParams.parseResult(resultCode, intent)
++        return ActivityResultContracts.GetMultipleContents()
++            .parseResult(resultCode, intent)
++            .takeIf { it.isNotEmpty() }
++            ?.toTypedArray()
+     }
+ }
+ 
