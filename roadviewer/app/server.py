@@ -1,5 +1,6 @@
 from pathlib import Path,PurePosixPath
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
+from werkzeug.datastructures import FileStorage
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask,request,jsonify,send_file,send_from_directory,abort
 BASE=Path(__file__).resolve().parent
@@ -43,7 +44,7 @@ def submit(id):pool.submit(run_job,id)
 def access():
  # Supervisor is the only accepted network peer in a Home Assistant installation.
  if os.environ.get('RV_INGRESS_ONLY','1')=='1' and request.remote_addr!='172.30.32.2':abort(403)
- if request.method in ('POST','DELETE') and request.headers.get('X-RoadViewer-Request')!='1':abort(403)
+ if request.method in ('POST','PUT','DELETE') and request.headers.get('X-RoadViewer-Request')!='1':abort(403)
 @app.errorhandler(413)
 def too_large(e):return jsonify(error='업로드 용량 제한을 초과했습니다.'),413
 @app.errorhandler(404)
@@ -60,7 +61,9 @@ def logs():
  return jsonify(logs=sorted(items,key=lambda m:m['uploaded'],reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024)
 @app.route('/api/upload',methods=['POST'])
 def upload():
- files=request.files.getlist('files')
+ return register_files(request.files.getlist('files'))
+
+def register_files(files):
  if not files or len(files)>100:return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
  if shutil.disk_usage(ROOT).free<(request.content_length or 0)+100*1024*1024:return jsonify(error='로그를 저장할 디스크 공간이 부족합니다.'),507
  staged=[]
@@ -89,6 +92,67 @@ def upload():
   for m in staged:submit(m['id'])
   return jsonify(logs=staged),201
  except ValueError as e:return jsonify(error=str(e)),400
+# Small requests pass through HA Ingress and remote proxy upload limits.
+UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)
+CHUNK_SIZE=1024*1024
+
+def upload_session(id):
+ if not ID.fullmatch(id):abort(404)
+ p=UPLOADS/id
+ if not (p/'manifest.json').is_file():abort(404)
+ return p,json.loads((p/'manifest.json').read_text())
+
+@app.route('/api/uploads',methods=['POST'])
+def begin_upload():
+ body=request.get_json(silent=True) or {};files=body.get('files')
+ if not isinstance(files,list) or not 1<=len(files)<=100:return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
+ for f in files:
+  if not isinstance(f,dict) or not isinstance(f.get('name'),str) or type(f.get('size')) is not int or f['size']<=0:return jsonify(error='파일 이름 또는 크기가 잘못되었습니다.'),400
+  path=PurePosixPath(f['name'].replace('\\','/'))
+  if path.is_absolute() or '..' in path.parts or not (path.name in ('rlog.zst','qcamera.ts') or FLAT.fullmatch(path.name)):return jsonify(error='지원하지 않는 파일 경로입니다.'),400
+ total=sum(f['size'] for f in files)
+ if total>app.config['MAX_CONTENT_LENGTH']:return too_large(None)
+ if shutil.disk_usage(ROOT).free<total*2+100*1024*1024:return jsonify(error='저장 공간이 부족합니다.'),507
+ with lock:
+  for old in UPLOADS.iterdir():
+   if old.is_dir() and time.time()-old.stat().st_mtime>86400:shutil.rmtree(old)
+  id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir();(p/'manifest.json').write_text(json.dumps(files))
+ return jsonify(id=id,chunk_size=CHUNK_SIZE),201
+
+@app.route('/api/uploads/<id>/files/<int:index>',methods=['PUT'])
+def upload_chunk(id,index):
+ with lock:
+  p,files=upload_session(id)
+  if index>=len(files):abort(404)
+  try:offset=int(request.args.get('offset','-1'))
+  except ValueError:return jsonify(error='잘못된 업로드 위치입니다.'),400
+  target=p/str(index);current=target.stat().st_size if target.exists() else 0
+  if offset!=current:return jsonify(error='업로드 위치가 일치하지 않습니다. 다시 업로드해 주세요.'),409
+  payload=request.stream.read(CHUNK_SIZE+1)
+  if not payload or len(payload)>CHUNK_SIZE or current+len(payload)>files[index]['size']:return jsonify(error='업로드 조각의 크기가 잘못되었습니다.'),400
+  if shutil.disk_usage(ROOT).free<len(payload)+100*1024*1024:return jsonify(error='저장 공간이 부족합니다.'),507
+  with target.open('ab') as out:out.write(payload)
+  os.utime(p,None)
+ return jsonify(received=current+len(payload))
+
+@app.route('/api/uploads/<id>/finish',methods=['POST'])
+def finish_upload(id):
+ with lock:
+  p,files=upload_session(id)
+  if any(not (p/str(i)).is_file() or (p/str(i)).stat().st_size!=f['size'] for i,f in enumerate(files)):return jsonify(error='아직 전송되지 않은 파일이 있습니다.'),409
+  streams=[FileStorage(stream=(p/str(i)).open('rb'),filename=f['name']) for i,f in enumerate(files)]
+  try:result=register_files(streams)
+  finally:
+   for f in streams:f.close()
+  if result[1]==201:shutil.rmtree(p)
+  return result
+
+@app.route('/api/uploads/<id>',methods=['DELETE'])
+def cancel_upload(id):
+ with lock:
+  p,_=upload_session(id);shutil.rmtree(p)
+ return jsonify(deleted=id)
+
 @app.route('/api/logs/<id>',methods=['DELETE'])
 def delete(id):
  with lock:
