@@ -81,4 +81,6 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 @media(max-width:440px){.layout-toggles{gap:6px}.layout-toggles .view-toggle{gap:6px;padding:9px 10px}}
 
 /* Keep log navigation in flow until it reaches the viewport top. */
-.replay-page .log-navigation{position:sticky;top:0;z-index:90;background:var(--bg);box-shadow:0 6px 12px #0003}
+.replay-page .log-navigation{position:sticky;top:0;z-index:90;background:var(--bg)}
+/* Overlap the top edge to hide fractional-pixel seams without moving buttons. */
+.replay-page .log-navigation::before{content:"";position:absolute;inset:-2px 0 0;z-index:-1;background:var(--bg);pointer-events:none}
