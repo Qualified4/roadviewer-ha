@@ -12,3 +12,10 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 .app-brand{display:flex;align-items:center;gap:12px}.app-icon{width:44px;height:44px;flex-shrink:0}
 
 .steering-status{display:flex;align-items:center;flex-direction:column;flex-shrink:0}.steering-status svg{width:96px;height:60px;display:block}.panel-head .steering-status span{font-size:10px}.camera-panel .panel-head{flex-wrap:wrap}
+
+/* Keep replay controls within the Home Assistant ingress viewport. */
+.replay-page{--playback-height:190px;scroll-padding-bottom:calc(var(--playback-height) + 20px)}
+.replay-page main{padding-bottom:calc(var(--playback-height) + 24px)}
+.replay-page .playback{position:fixed;z-index:100;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:1356px;margin:0;border-radius:10px 10px 0 0;background:var(--panel);box-shadow:0 -6px 24px #0006;padding:12px max(18px,env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left))}
+.replay-page #seek{display:block;margin:10px 0 6px;min-height:24px}
+@media(max-width:550px){.replay-page .playback{padding-top:10px}.replay-page .playrow{gap:8px}.replay-page .playrow button{padding:8px 10px}.replay-page .playrow output{margin-left:0;font-size:12px}.replay-page .playrow label{margin-left:auto}}

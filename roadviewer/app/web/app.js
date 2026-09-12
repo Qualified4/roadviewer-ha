@@ -89,3 +89,8 @@ function render(){
  $('left').textContent=valid?percent(f.lp[1]):'—';$('right').textContent=valid?percent(f.lp[2]):'—';$('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'미선택';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent='FRAME '+f.id;
 }
 new ResizeObserver(render).observe(canvas);loadData().catch(e=>showError(e.message));requestAnimationFrame(tick);
+
+// Follow wrapped controls, font scaling and safe-area changes without hiding the last rows.
+const playback=document.querySelector('.playback');
+function sizePlayback(){document.body.style.setProperty('--playback-height',`${Math.ceil(playback.getBoundingClientRect().height)}px`)}
+new ResizeObserver(sizePlayback).observe(playback);sizePlayback();
