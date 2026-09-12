@@ -13,7 +13,7 @@ function showError(message){$('error').textContent=message;$('error').hidden=!me
 async function loadData(){const id=location.pathname.split('/').filter(Boolean).at(-1);const res=await fetch('../../api/logs/'+id+'/data');if(!res.ok)throw Error('로그가 아직 준비되지 않았거나 삭제되었습니다. 목록을 확인하세요.');data=await res.json();$('route').textContent=data.route;$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){v.src='../../api/logs/'+id+'/video';v.load()}$('play').disabled=false;$('status').textContent='재생 준비 완료';setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{pause();setTime(Number($('seek').value))};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 v.onloadedmetadata=()=>{v.playbackRate=Number($('speed').value);setTime(t)};v.onended=pause;v.onerror=()=>{if(data?.video)showError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
-for(const id of ['range','lanes','edges','leads','uncertain','radarCenter','radarLeft','radarRight','liveTracks','trackLabels'])$(id).onchange=render;
+for(const id of ['range','lanes','edges','leads','uncertain','radarCenter','radarLeft','radarRight','liveTracks','trackLabels','yRelLabels'])$(id).onchange=render;
 document.onkeydown=e=>{if(['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
 function renderSteering(f){
@@ -37,14 +37,16 @@ function render(){
  for(let y=-Math.floor((w/2-40)/scale/5)*5;y<(w/2-20)/scale;y+=5){ctx.beginPath();ctx.moveTo(X(y),24);ctx.lineTo(X(y),cy);ctx.stroke();ctx.textAlign='center';ctx.fillText(y,X(y),h-13)}ctx.textAlign='left';ctx.fillText('전방 x ↑',12,16);ctx.textAlign='right';ctx.fillText('좌우 y → (m)',w-10,16);ctx.textAlign='left';
  ctx.save();ctx.beginPath();ctx.rect(38,22,w-50,cy-20);ctx.clip();
  const labels=[];
+ const lateralLabel=value=>checked('yRelLabels')&&Number.isFinite(value)?`yRel ${value.toFixed(2)}m`:'';
+ const withLateral=(text,value)=>[text,lateralLabel(value)].filter(Boolean).join('\n');
  function annotate(text,x,y,color,side=1){
-  const width=ctx.measureText(text).width;let box=null;
+  const lines=text.split('\n'),width=Math.max(...lines.map(line=>ctx.measureText(line).width)),height=lines.length*13;let box=null;
   for(const offset of [-8,12,-28,32,-48,52,-68,72]){
-   const left=Math.max(42,Math.min(w-16-width,x+(side>0?12:-width-12))),top=Math.max(26,Math.min(cy-16,y+offset));
-   const next={left,top,right:left+width,bottom:top+13};
+   const left=Math.max(42,Math.min(w-16-width,x+(side>0?12:-width-12))),top=Math.max(26,Math.min(cy-height-3,y+offset));
+   const next={left,top,right:left+width,bottom:top+height};
    if(!labels.some(b=>next.left<b.right+4&&next.right>b.left-4&&next.top<b.bottom+3&&next.bottom>b.top-3)){box=next;break}
   }
-  if(!box)return;labels.push(box);ctx.strokeStyle=color;ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(side>0?box.left:box.right,box.top+6);ctx.stroke();ctx.fillStyle=color;ctx.textAlign='left';ctx.fillText(text,box.left,box.top+10);
+  if(!box)return;labels.push(box);ctx.strokeStyle=color;ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(side>0?box.left:box.right,box.top+6);ctx.stroke();ctx.fillStyle=color;ctx.textAlign='left';lines.forEach((line,i)=>ctx.fillText(line,box.left,box.top+10+i*13));
  }
  function path(points){ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(X(y),Y(x)):ctx.moveTo(X(y),Y(x)))}
  function line(points,color,dashed,alpha){path(points);ctx.strokeStyle=color;ctx.lineWidth=2;ctx.globalAlpha=alpha;ctx.setLineDash(dashed?[6,5]:[]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1}
@@ -53,12 +55,12 @@ function render(){
   if(checked('edges'))f.edges.forEach((l,i)=>line(l,'#ffa665',f.es[i]>1,.95));
   if(checked('leads')){
    f.leads.forEach((l,i)=>{if(!checked('uncertain')&&l.p<.5)return;if(l.x<0||l.x>range)return;ctx.globalAlpha=l.p<.5?.45:1;ctx.strokeStyle='#81b5ff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(X(l.y),Y(l.x),7,0,Math.PI*2);ctx.stroke();annotate(`모델 ${i+1} · ${l.x.toFixed(1)}m`,X(l.y),Y(l.x),'#c5daff',i===0?1:-1);ctx.globalAlpha=1});
-   const l=f.selected;if(l&&l.x>=0&&l.x<=range){const x=X(l.y),y=Y(l.x);ctx.strokeStyle='#eee7bc';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+7,y);ctx.lineTo(x,y+7);ctx.lineTo(x-7,y);ctx.closePath();ctx.stroke();annotate(`선택 · ${l.x.toFixed(1)}m`,x,y,'#eee7bc')}
+   const l=f.selected;if(l&&l.x>=0&&l.x<=range){const x=X(l.y),y=Y(l.x);ctx.strokeStyle='#eee7bc';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+7,y);ctx.lineTo(x,y+7);ctx.lineTo(x-7,y);ctx.closePath();ctx.stroke();annotate(withLateral(`선택 · ${l.x.toFixed(1)}m`,-l.y),x,y,'#eee7bc')}
   }
   for(const target of f.radarTargets||[]){
    const style=targetStyle[target.group];if(!style||!checked(style.toggle)||target.x<0||target.x>range)continue;
    const x=X(target.y),y=Y(target.x);ctx.strokeStyle=style.color;ctx.lineWidth=2;ctx.strokeRect(x-5,y-8,10,16);
-   annotate(`${style.label} ${target.index+1} · ${target.x.toFixed(1)}m`,x,y,style.color,target.group==='left'?-1:1);
+   annotate(withLateral(`${style.label} ${target.index+1} · ${target.x.toFixed(1)}m`,target.yRel),x,y,style.color,target.group==='left'?-1:1);
   }
  }
  const rawVisible=Math.abs(f.t-t)<.16&&f.liveTracksValid;
@@ -68,7 +70,8 @@ function render(){
   const x=X(target.y),y=Y(target.x);ctx.strokeStyle='#78e9fa';ctx.lineWidth=1.5;ctx.globalAlpha=target.measured?.9:.5;ctx.beginPath();
   if(target.measured){ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.moveTo(x,y-4);ctx.lineTo(x,y+4)}else ctx.arc(x,y,4,0,Math.PI*2);
   ctx.stroke();ctx.globalAlpha=1;
-  if(checked('trackLabels'))annotate(`T${target.trackId}`,x,y,'#78e9fa',target.y<0?-1:1);
+  const label=withLateral(checked('trackLabels')?`T${target.trackId}`:'',target.yRel);
+  if(label)annotate(label,x,y,'#78e9fa',target.y<0?-1:1);
  }
  ctx.restore();
  ctx.fillStyle='#e6edf5';ctx.beginPath();ctx.moveTo(cx,cy-14);ctx.lineTo(cx-7,cy+4);ctx.lineTo(cx+7,cy+4);ctx.closePath();ctx.fill();ctx.textAlign='center';ctx.fillText('내 차량',cx,cy+20);ctx.textAlign='left';
