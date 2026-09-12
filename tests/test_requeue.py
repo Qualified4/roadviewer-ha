@@ -28,6 +28,17 @@ class RequeueTests(unittest.TestCase):
    self.assertEqual(server.read_meta(paths[3])['status'],'ready')
    self.assertTrue((paths[3]/'prepared/camera.mp4').exists())
 
+ def test_requeue_is_oldest_first_and_reverses_library_order(self):
+  with tempfile.TemporaryDirectory() as root,patch.object(server,'ROOT',Path(root)):
+   for n,uploaded in [(4,200),(2,300),(1,200),(3,100)]:
+    p=Path(root)/f'{n:032x}';p.mkdir()
+    server.save_meta(p,dict(id=p.name,status='ready',decoder_version='old',uploaded=uploaded))
+   rows=server.app.test_client().get('/api/logs',environ_overrides={'REMOTE_ADDR':'172.30.32.2'}).json['logs']
+   with patch.object(server,'submit') as submit:server.requeue_startup()
+   actual=[call.args[0] for call in submit.call_args_list]
+   self.assertEqual(actual,[f'{n:032x}' for n in [3,1,4,2]])
+   self.assertEqual(actual,[m['id'] for m in reversed(rows)])
+
  def test_video_unavailable_until_ready_even_if_file_exists(self):
   with tempfile.TemporaryDirectory() as root,patch.object(server,'ROOT',Path(root)):
    p=Path(root)/('a'*32);p.mkdir();(p/'prepared').mkdir();(p/'prepared/camera.mp4').write_bytes(b'mp4')

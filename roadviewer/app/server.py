@@ -122,7 +122,7 @@ def storage_used_bytes():
 @app.route('/api/logs')
 def logs():
  with lock:items=[dict(read_meta(p),video=(p/'qcamera.ts').is_file()) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
- return jsonify(logs=sorted(items,key=lambda m:m['uploaded'],reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes())
+ return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes())
 @app.route('/api/upload',methods=['POST'])
 def upload():
  return register_files(request.files.getlist('files'))
@@ -292,7 +292,8 @@ def requeue_startup():
   if not (p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()):continue
   m=read_meta(p)
   if m['status'] in ('queued','processing') or (m['status']=='ready' and m.get('decoder_version')!='v12-union-timeline'):
-   pending.append((p,m))
+   pending.append((p,m)) # Reverse of library order: oldest upload first, with a stable tie-breaker.
+ pending.sort(key=lambda item:(item[1].get('uploaded',0),item[0].name))
  for p,m in pending:
   m.update(status='queued',video=(p/'qcamera.ts').is_file(),duration=None,model_frames=None,warnings=[],error=None)
   save_meta(p,m)
