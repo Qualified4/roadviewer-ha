@@ -18,6 +18,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: ffmpeg -f lavfi -i color=c=black:s=160x90:r=10 -t 2 -c:v libx264 -pix_fmt yuv420p /tmp/roadviewer-test.mp4
       - run: node tests/replay_ready.cjs
+      - run: node tests/replay_coverage.cjs
   upload-tests:
     runs-on: ubuntu-latest
     steps:
@@ -29,6 +30,7 @@ jobs:
       - run: python tests/test_duplicates.py
       - run: python tests/test_requeue.py
       - run: python tests/test_storage.py
+      - run: python tests/test_timeline.py
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -49,7 +51,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           build-args: |
             BUILD_ARCH=${{ matrix.ha_arch }}
-            BUILD_VERSION=0.2.30
+            BUILD_VERSION=0.2.31
           load: true
           tags: roadviewer:test
           cache-from: type=gha,scope=${{ matrix.arch }}
@@ -62,7 +64,7 @@ jobs:
           python - <<'PYTHON'
           import json, os
           labels = json.load(open('image.json'))[0]['Config']['Labels']
-          assert labels['io.hass.version'] == '0.2.30'
+          assert labels['io.hass.version'] == '0.2.31'
           assert labels['io.hass.type'] == 'app'
           assert labels['io.hass.arch'] == os.environ['EXPECTED_ARCH']
           PYTHON

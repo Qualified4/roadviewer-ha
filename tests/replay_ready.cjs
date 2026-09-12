@@ -5,7 +5,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   const base='https://rv.test';
   let logs=[{id:'one',name:'one',status:'processing',uploaded:1,bytes:1,video:true},{id:'two',name:'two',status:'processing',uploaded:2,bytes:1,video:false}],ready=false,reads=0,videoRequests=[];
-  const data={route:'one',key:'new-video-version',duration:2,warnings:[],video:{start:0},frames:Array.from({length:21},(_,i)=>({t:i/10,id:i,valid:false,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}))};
+  const data={route:'one',key:'new-video-version',duration:2,warnings:[],video:{start:0,duration:2},frames:Array.from({length:21},(_,i)=>({t:i/10,id:i,valid:false,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}))};
   await page.route(base+'/**',async route=>{
    const url=new URL(route.request().url()),p=url.pathname;
    if(p==='/api/logs')return route.fulfill({json:{logs,max_upload_mb:512,storage_used_bytes:1}});

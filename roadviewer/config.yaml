@@ -1,5 +1,5 @@
 name: Road Viewer
-version: "0.2.30"
+version: "0.2.31"
 slug: roadviewer
 description: Openpilot 로그 업로드, 목록, 영상·도로 재생 및 삭제
 arch:

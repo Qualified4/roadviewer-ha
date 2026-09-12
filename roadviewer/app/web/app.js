@@ -5,10 +5,24 @@ const checked=id=>$(id).checked;
 function clock(n){n=Math.max(0,n);return `${Math.floor(n/60)}:${(n%60).toFixed(2).padStart(5,'0')}`}
 function nearest(time){const f=data.frames;let a=0,b=f.length-1;while(a<b){const m=(a+b)>>1;if(f[m].t<time)a=m+1;else b=m}return a>0&&Math.abs(f[a-1].t-time)<Math.abs(f[a].t-time)?a-1:a}
 function pause(){playing=false;v.pause();$('play').textContent='재생'}
-function setTime(time,seekVideo=true){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;if(seekVideo&&data.video&&v.readyState>=1)v.currentTime=Math.max(0,t-data.video.start);render()}
+let videoPlayPending=false;
+function videoAvailable(){return !!data?.video&&t>=data.video.start&&t<data.video.start+data.video.duration}
+function frameAvailable(f){return t>=(data.logStart??data.frames[0].t)&&t<=(data.logEnd??data.frames.at(-1).t)&&Math.abs(f.t-t)<.16}
+function syncVideo(seek=false){
+ const visible=videoAvailable(),wasHidden=v.hidden;
+ v.hidden=!visible;$('noVideo').hidden=visible;
+ $('noVideo').textContent=data?.video?'이 구간에 영상이 없습니다.':'이 로그에 동기화 가능한 영상이 없습니다.';
+ if(!visible){v.pause();return}
+ if(v.readyState>=1&&(seek||wasHidden||Math.abs(v.currentTime-(t-data.video.start))>.35))v.currentTime=Math.max(0,t-data.video.start);
+ if(playing&&v.paused&&!videoPlayPending){
+  videoPlayPending=true;
+  v.play().catch(e=>{if(playing&&videoAvailable()){pause();showError('영상을 재생할 수 없습니다. '+e.message)}}).finally(()=>{videoPlayPending=false;if(!playing||!videoAvailable())v.pause()});
+ }
+}
+function setTime(time,seekVideo=true){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render()}
 function step(n){pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
-async function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);if(data.video){try{v.currentTime=Math.max(0,t-data.video.start);await v.play()}catch(e){showError('영상을 재생할 수 없습니다. '+e.message);return}}playing=true;last=performance.now();$('play').textContent='일시정지'}
-function tick(now){if(playing&&data){if(data.video){if(!v.seeking&&!v.paused)setTime(v.currentTime+data.video.start,false)}else setTime(t+(now-last)/1000*Number($('speed').value),false);if(t>=data.duration-.01)pause()}last=now;requestAnimationFrame(tick)}
+function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
+function tick(now){if(playing&&data){setTime(t+(now-last)/1000*Number($('speed').value),false);if(t>=data.duration-.001)pause()}last=now;requestAnimationFrame(tick)}
 function showError(message){$('error').textContent=message;$('error').hidden=!message}
 let dataRetryTimer=null;
 async function loadData(){const id=location.pathname.split('/').filter(Boolean).at(-1);clearTimeout(dataRetryTimer);const res=await fetch('../../api/logs/'+id+'/data',{cache:'no-store'});
@@ -23,12 +37,12 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
  data=await res.json();showError('');$('route').textContent=data.route;$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){v.src='../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now());loading=true;$('play').disabled=true;$('status').textContent='영상 준비 중';v.load()}else{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료'}setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{pause();setTime(Number($('seek').value))};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
-v.onloadedmetadata=()=>{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료';v.playbackRate=Number($('speed').value);setTime(t)};v.onended=pause;v.onerror=()=>{if(data?.video)showError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
+v.onloadedmetadata=()=>{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료';v.playbackRate=Number($('speed').value);setTime(t)};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)showError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
 for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 document.onkeydown=e=>{if(['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
 function renderSteering(f){
- const s=Math.abs(f.t-t)<.16?f.steering:null,labels={driver:'운전자 조향 개입',active:'조향 제어 중',inactive:'조향 제어 꺼짐',unknown:'상태 확인 불가'};
+ const s=frameAvailable(f)?f.steering:null,labels={driver:'운전자 조향 개입',active:'조향 제어 중',inactive:'조향 제어 꺼짐',unknown:'상태 확인 불가'};
  const label=labels[s?.state]||labels.unknown;
  const detail=label+(s?.angle!=null?` · ${s.angle.toFixed(1)}°`:'')+(s?.torque==null?' · 토크 정보 없음':'')+(s?.critical?' · 핸들 조작 요청':'');
  $('steeringLabel').textContent=label;$('steeringStatus').title=detail;$('steeringIcon').setAttribute('aria-label',detail);
@@ -41,7 +55,7 @@ function renderSteering(f){
 }
 function render(){
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!data)return;
- const f=data.frames[idx],valid=f.valid&&Math.abs(f.t-t)<.16;const range=Number($('range').value),scale=(h-78)/range,cx=w/2,cy=h-48;
+ const f=data.frames[idx],valid=f.valid&&frameAvailable(f);const range=Number($('range').value),scale=(h-78)/range,cx=w/2,cy=h-48;
  const X=y=>cx+y*scale,Y=x=>cy-x*scale;
  ctx.font='11px system-ui';ctx.lineWidth=1;ctx.strokeStyle='#273646';ctx.fillStyle='#8fa3b8';
  for(let x=0;x<=range;x+=10){ctx.beginPath();ctx.moveTo(38,Y(x));ctx.lineTo(w-12,Y(x));ctx.stroke();ctx.fillText(x+' m',5,Y(x)+4)}
@@ -85,7 +99,7 @@ function render(){
    annotate(`${style.label} ${target.index+1} · ${targetValue(target,target.yRel)}`,x,y,style.color,target.group==='left'?-1:1);
   }
  }
- const rawVisible=Math.abs(f.t-t)<.16&&f.liveTracksValid;
+ const rawVisible=frameAvailable(f)&&f.liveTracksValid;
  const rawTargets=rawVisible?(f.liveTracks||[]):[];
  if(checked('liveTracks'))for(const target of rawTargets){
   if(target.x<0||target.x>range)continue;
@@ -111,8 +125,8 @@ function render(){
  if(!rawTargets.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=7;cell.textContent='표시할 liveTracks 감지점이 없습니다.';row.append(cell);$('rawRows').append(row)}
  canvas.setAttribute('aria-label',`차량 중심 도로. 현재 radarState 중앙·좌우 차량 ${targets.length}개. 전방 범위 ${range}m.`);
  renderSteering(f);
- $('egoSpeed').textContent=Math.abs(f.t-t)<.16&&Number.isFinite(f.egoSpeedKph)?f.egoSpeedKph.toFixed(1):'—';
- $('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'미선택';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent='FRAME '+f.id;
+ $('egoSpeed').textContent=frameAvailable(f)&&Number.isFinite(f.egoSpeedKph)?f.egoSpeedKph.toFixed(1):'—';
+ $('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'미선택';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent=frameAvailable(f)?'FRAME '+f.id:'FRAME —';
 }
 new ResizeObserver(render).observe(canvas);loadData().catch(e=>showError(e.message));requestAnimationFrame(tick);
 

@@ -2,6 +2,7 @@ from pathlib import Path
 import sys,json,hashlib,bisect,collections,math
 import av,zstandard,capnp
 from steering import SteeringReplay
+from timeline import align_timeline
 BASE=Path(__file__).resolve().parent
 log=capnp.load(str(BASE.parent/'schema/cereal/log.capnp'))
 
@@ -22,7 +23,7 @@ def prepare(value):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v11-model-speed').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v12-union-timeline').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  if (dest/'data.json').exists():
   cached=json.loads((dest/'data.json').read_text())
@@ -94,17 +95,19 @@ def prepare(value):
       if packet.dts is None:continue
       packet.pts-=offset;packet.dts-=offset;packet.stream=target;out.mux(packet)
     with av.open(str(dest/'camera.mp4')) as check:
+     video_duration=float(check.duration)/av.time_base if check.duration is not None else pts[-1]-pts[0]+(pts[-1]-pts[-2] if len(pts)>1 else .05)
      decoded_count=0;first_pts=0
      for f in check.decode(video=0):
       if decoded_count==0:first_pts=float(f.pts*f.time_base)
       decoded_count+=1
      if decoded_count!=len(pts):raise ValueError('변환된 영상 프레임 수가 다릅니다.')
-    video_info={'start':qs[0]['timestampEof']/1e9-origin-first_pts,'duration':pts[-1]-pts[0],'frames':len(pts),'timestampSpreadMs':(max(offsets)-min(offsets))*1000}
+    video_info={'start':qs[0]['timestampEof']/1e9-origin-first_pts,'duration':video_duration,'frames':len(pts),'timestampSpreadMs':(max(offsets)-min(offsets))*1000}
    else:warnings.append('영상과 로그의 프레임 시간이 일치하지 않아 영상 동기화를 중단했습니다.')
   else:warnings.append('영상과 로그의 프레임 수가 일치하지 않아 영상 동기화를 중단했습니다.')
  elif video.exists():warnings.append('카메라 프레임 정보가 없어 영상 동기화를 사용할 수 없습니다.')
  else:warnings.append('qcamera.ts가 없어 도로 형태만 표시합니다.')
- data={'route':src.parent.name,'path':str(src.parent),'key':key,'duration':frames[-1]['t'],'frames':frames,'video':video_info,'warnings':warnings,'counts':dict(counts)}
+ bounds=align_timeline(frames,video_info)
+ data={'route':src.parent.name,'path':str(src.parent),'key':key,**bounds,'frames':frames,'video':video_info,'warnings':warnings,'counts':dict(counts)}
  (dest/'data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':'),allow_nan=False))
  print('준비 완료:',len(frames),'개 모델 프레임',flush=True)
  return dest,attach(data)
