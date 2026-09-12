@@ -136,3 +136,5 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
  .rv-choice-option{min-height:48px;padding:12px 14px}
 }
 @media(max-width:550px){#logSegmentChoice{width:76px;gap:6px;padding:6px 8px}}
+
+i.model-path{background:#c4a5ff}

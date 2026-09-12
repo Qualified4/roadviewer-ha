@@ -10,7 +10,7 @@ class RequeueTests(unittest.TestCase):
  def test_cleanup_finishes_before_any_job_and_preserves_originals(self):
   with tempfile.TemporaryDirectory() as root,patch.object(server,'ROOT',Path(root)):
    paths=[]
-   for n,status,version in [(1,'ready','old'),(2,'processing','old'),(3,'queued','old'),(4,'ready','v12-union-timeline')]:
+   for n,status,version in [(1,'ready','old'),(2,'processing','old'),(3,'queued','old'),(4,'ready','v13-model-position')]:
     p=Path(root)/f'{n:032x}';p.mkdir();paths.append(p)
     (p/'rlog.zst').write_bytes(b'original log');(p/'qcamera.ts').write_bytes(b'original video')
     (p/'prepared').mkdir();(p/'prepared/camera.mp4').write_bytes(b'old mp4');(p/'prepared/data.json').write_text('{}')

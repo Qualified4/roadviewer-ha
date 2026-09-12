@@ -108,6 +108,7 @@ function render(){
  if(valid){
   if(checked('lanes')){if(f.lanes[1]?.length&&f.lanes[2]?.length){path([...f.lanes[1],...f.lanes[2].slice().reverse()]);ctx.closePath();ctx.fillStyle='rgba(87,217,176,0.065)';ctx.fill()}f.lanes.forEach((l,i)=>line(l,'#57d9b0',f.lp[i]<.5,(i===1||i===2)?.9:.3))}
   if(checked('edges'))f.edges.forEach((l,i)=>line(l,'#ffa665',f.es[i]>1,.95));
+  if(checked('modelPath')&&f.position?.length>1)line(f.position,'#c4a5ff',false,1);
   if(checked('leads')){
    f.leads.forEach((l,i)=>{if(l.x<0||l.x>range)return;ctx.globalAlpha=l.p<.5?.45:1;ctx.strokeStyle='#81b5ff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(X(l.y),Y(l.x),7,0,Math.PI*2);ctx.stroke();annotate(`모델 ${i+1} · ${targetValue(l,-l.y)}`,X(l.y),Y(l.x),'#c5daff',i===0?1:-1);ctx.globalAlpha=1});
    const l=f.selected;if(l&&l.x>=0&&l.x<=range){const x=X(l.y),y=Y(l.x);ctx.strokeStyle='#eee7bc';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+7,y);ctx.lineTo(x,y+7);ctx.lineTo(x-7,y);ctx.closePath();ctx.stroke();annotate(`선택 · ${targetValue(l,-l.y)}`,x,y,'#eee7bc')}
@@ -142,7 +143,7 @@ function render(){
  $('rawTiming').textContent=rawVisible?`메시지 시각 차이 ${f.liveTracksDeltaMs.toFixed(1)}ms`: '이 시점의 유효한 liveTracks 메시지가 없습니다.';
  $('rawRows').replaceChildren(...rawTargets.map(target=>{const row=document.createElement('tr');for(const value of [target.trackId,target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.measured?'예':'아니오',target.source,target.trackState]){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}return row}));
  if(!rawTargets.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=7;cell.textContent='표시할 liveTracks 감지점이 없습니다.';row.append(cell);$('rawRows').append(row)}
- canvas.setAttribute('aria-label',`차량 중심 도로. 현재 radarState 중앙·좌우 차량 ${targets.length}개. 전방 범위 ${range}m.`);
+ canvas.setAttribute('aria-label',`주행 상황. 현재 radarState 중앙·좌우 차량 ${targets.length}개. 전방 범위 ${range}m.`);
  renderSteering(f);
  $('egoSpeed').textContent=frameAvailable(f)&&Number.isFinite(f.egoSpeedKph)?f.egoSpeedKph.toFixed(1):'—';
  $('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'앞차 미감지';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent=frameAvailable(f)?'FRAME '+f.id:'FRAME —';
@@ -241,3 +242,25 @@ if(replayHeading){
  window.addEventListener('pageshow',scheduleHeading);
  updateHeading();
 }
+
+// Share layer and label preferences between recordings on this browser.
+const displayPreferenceKey='roadviewer-display-preferences';
+const displayControls=[...document.querySelectorAll('.road-panel .layers input')];
+try{
+ const saved=JSON.parse(localStorage.getItem(displayPreferenceKey)||'null');
+ if(saved&&typeof saved==='object'){
+  for(const control of displayControls){
+   if(control.type==='checkbox'&&typeof saved.checks?.[control.id]==='boolean')control.checked=saved.checks[control.id];
+  }
+  const label=displayControls.find(control=>control.type==='radio'&&control.value===saved.labelMode);
+  if(label)label.checked=true;
+ }
+}catch{}
+function saveDisplayPreferences(){
+ const checks=Object.fromEntries(displayControls.filter(control=>control.type==='checkbox').map(control=>[control.id,control.checked]));
+ const labelMode=displayControls.find(control=>control.type==='radio'&&control.checked)?.value||'distance';
+ try{localStorage.setItem(displayPreferenceKey,JSON.stringify({checks,labelMode}))}catch{}
+}
+for(const control of displayControls)control.addEventListener('change',saveDisplayPreferences);
+$('modelPath').addEventListener('change',render);
+render();
