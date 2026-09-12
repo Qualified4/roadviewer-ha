@@ -13,7 +13,17 @@ function finalVideoFrame(){
  return Math.abs(data.duration-end)<=VIDEO_END_TOLERANCE&&t>=Math.min(end,data.duration)-.001;
 }
 function videoAvailable(){return !!data?.video&&t>=data.video.start&&(t<data.video.start+data.video.duration||finalVideoFrame())}
-function frameAvailable(f){return t>=(data.logStart??data.frames[0].t)&&t<=(data.logEnd??data.frames.at(-1).t)&&Math.abs(f.t-t)<.16}
+const LOG_EDGE_TOLERANCE=.1;
+function frameAvailable(f){
+ const start=data.logStart??data.frames[0].t,end=data.logEnd??data.frames.at(-1).t;
+ return t>=start-LOG_EDGE_TOLERANCE-1e-6&&t<=end+LOG_EDGE_TOLERANCE+1e-6&&Math.abs(f.t-t)<.16;
+}
+function missingModelMessage(){
+ const start=data.logStart??data.frames[0].t,end=data.logEnd??data.frames.at(-1).t;
+ if(t<start-LOG_EDGE_TOLERANCE-1e-6)return '아직 로그 데이터가 시작되지 않은 구간입니다.';
+ if(t>end+LOG_EDGE_TOLERANCE+1e-6)return '로그 데이터가 종료된 구간입니다.';
+ return '이 시점의 유효한 모델 데이터 없음';
+}
 function syncVideo(seek=false){
  const visible=videoAvailable(),wasHidden=v.hidden,hold=finalVideoFrame();
  v.hidden=!visible;$('noVideo').hidden=visible;
@@ -119,7 +129,7 @@ function render(){
  }
  ctx.restore();
  ctx.fillStyle='#e6edf5';ctx.beginPath();ctx.moveTo(cx,cy-14);ctx.lineTo(cx-7,cy+4);ctx.lineTo(cx+7,cy+4);ctx.closePath();ctx.fill();ctx.textAlign='center';ctx.fillText('내 차량',cx,cy+20);ctx.textAlign='left';
- if(!valid){ctx.fillStyle='#ffd39f';ctx.fillText('이 시점의 유효한 모델 데이터 없음',45,45)}
+ if(!valid){ctx.fillStyle='#ffd39f';ctx.fillText(missingModelMessage(),45,45)}
  const percent=n=>Number.isFinite(n)?(n*100).toFixed(1)+'%':'—';
  const distance=$('boundaryDistance').getAttribute('aria-pressed')==='true';
  const meters=value=>Number.isFinite(value)?(value>0?'+':'')+value.toFixed(3)+' m':'—';

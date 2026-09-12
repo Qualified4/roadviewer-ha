@@ -3,6 +3,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  const browser=await chromium.launch({headless:true});
  try{
   for(const scenario of [
+   {name:'model edge gaps',logStart:.05,logEnd:1.95,videoStart:0,duration:2,probe:0},
    {name:'matching end',logStart:0,logEnd:2,videoStart:0,duration:2,probe:1.4},
    {name:'tiny tail',logStart:0,logEnd:2.05,videoStart:0,duration:2.05,probe:1.4},
    {name:'video longer',logStart:0,logEnd:1,videoStart:0,duration:2,probe:1.4},
@@ -34,7 +35,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const inVideo=videoStart!==null&&probe>=videoStart&&probe<videoStart+2;
    assert.equal(await page.locator('#video').isVisible(),inVideo,scenario.name);
    assert.equal(await page.locator('#noVideo').isVisible(),!inVideo,scenario.name);
-   if(probe<logStart||probe>logEnd){assert.equal(await page.locator('#left').textContent(),'—');assert.equal(await page.locator('#egoSpeed').textContent(),'—')}
+   if(probe<logStart-.100001||probe>logEnd+.100001){assert.equal(await page.locator('#left').textContent(),'—');assert.equal(await page.locator('#egoSpeed').textContent(),'—')}
    else assert.equal(await page.locator('#left').textContent(),'100.0%');
    // Range input must preserve both paused and playing states.
    const seekTo=async value=>page.evaluate(value=>{
@@ -59,6 +60,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.evaluate(()=>setTime(0));await page.selectOption('#speed','4',{force:true});await page.locator('#play').click();
    await page.waitForFunction(()=>!playing&&t>=data.duration-.001);
    assert.equal(await page.locator('#seek').inputValue(),String(duration));
+   const withinLogEdge=duration>=logStart-.100001&&duration<=logEnd+.100001;
+   assert.equal(await page.locator('#left').textContent(),withinLogEdge?'100.0%':'—',scenario.name+' final model readout');
+   if(scenario.name==='model edge gaps'){
+    assert((await page.locator('#frame').textContent()).includes('38'));
+    // Edge tolerance must not turn invalid model messages into valid data.
+    await page.evaluate(()=>{data.frames[idx].valid=false;render()});
+    assert.equal(await page.locator('#left').textContent(),'—');
+    await page.evaluate(()=>{data.frames[idx].valid=true;render()});
+   }
    const keepLast=videoStart!==null&&Math.abs(duration-(videoStart+2))<=.1;
    assert.equal(await page.locator('#video').isVisible(),keepLast,scenario.name+' end visibility');
    if(keepLast){
