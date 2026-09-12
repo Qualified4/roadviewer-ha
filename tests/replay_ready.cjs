@@ -57,6 +57,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.evaluate(y=>window.scrollTo(0,y),initial.y+100);
    await page.waitForFunction(()=>Math.abs(document.querySelector('.log-navigation').getBoundingClientRect().top)<1);
    const stuck=await nav.boundingBox();assert(Math.abs(stuck.y)<1);
+   const heading=await page.locator('.replay-heading').boundingBox();
+   const route=await page.locator('.replay-heading .route').boundingBox();
+   assert(route.y>=stuck.y+stuck.height&&route.y+route.height<=heading.y+heading.height);
+   assert.equal(await page.locator('.camera-panel .note').count(),0);
+   assert((await page.locator('.road-panel .note').textContent()).includes('차선 점선'));
+   assert.equal(await page.locator('.road-panel h2').textContent(),'주행 상황');
    for(const selector of ['.back','#previousLog','#nextLog']){
     const box=await page.locator(selector).boundingBox();
     assert(box.y>=0&&box.x>=0&&box.x+box.width<=viewport.width);

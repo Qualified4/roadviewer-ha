@@ -81,6 +81,13 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 @media(max-width:440px){.layout-toggles{gap:6px}.layout-toggles .view-toggle{gap:6px;padding:9px 10px}}
 
 /* Keep log navigation in flow until it reaches the viewport top. */
-.replay-page .log-navigation{position:sticky;top:0;z-index:90;background:var(--bg)}
+.replay-page .replay-heading{position:sticky;top:0;z-index:90;background:var(--bg);margin-bottom:12px;padding-bottom:10px}
 /* Overlap the top edge to hide fractional-pixel seams without moving buttons. */
-.replay-page .log-navigation::before{content:"";position:absolute;inset:-2px 0 0;z-index:-1;background:var(--bg);pointer-events:none}
+.replay-page .replay-heading::before{content:"";position:absolute;inset:-2px 0 0;z-index:-1;background:var(--bg);pointer-events:none}
+
+/* The log title and details travel with the navigation buttons. */
+.replay-heading .log-navigation{margin-bottom:0}
+.replay-heading .route{margin:12px 0 0}
+.replay-page .panel-head{padding-top:8px;padding-bottom:8px}
+.replay-page.split-view .views .panel-head{height:96px}
+@media(max-width:850px){.replay-page.split-view .views .panel-head{height:132px}}
