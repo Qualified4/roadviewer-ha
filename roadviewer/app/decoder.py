@@ -22,7 +22,7 @@ def prepare(value):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v10-selected-track-id').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v11-model-speed').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  if (dest/'data.json').exists():
   cached=json.loads((dest/'data.json').read_text())
@@ -75,7 +75,7 @@ def prepare(value):
       if not target.get('status'):continue
       if not all(math.isfinite(target.get(k,float('nan'))) for k in ('dRel','yRel','vRel')):continue
       radar_targets.append({'group':group,'index':number,'x':target['dRel'],'y':-target['yRel'],'yRel':target['yRel'],'vRel':target['vRel'],'radar':target.get('radar',False),'trackId':target.get('radarTrackId',-1),'modelProb':target.get('modelProb',0)})
-  leads=[{'x':l['x'][0],'y':l['y'][0],'p':l['prob']} for l in m.get('leadsV3',[])[:2] if l.get('x') and l.get('y')]
+  leads=[{'x':l['x'][0],'y':l['y'][0],'p':l['prob'],'speedKph':float(l['v'][0])*3.6 if l.get('v') and math.isfinite(l['v'][0]) else None} for l in m.get('leadsV3',[])[:2] if l.get('x') and l.get('y')]
   frames.append({'t':round(time_of(stamp,m)-origin,6),'id':m['frameId'],'egoSpeedKph':ego_speed,'steering':steering.at(time_of(stamp,m)*1e9),'valid':valid,'lanes':[points(l) for l in m['laneLines']],'laneY0':[first_y(l) for l in m['laneLines']],'lp':m['laneLineProbs'],'edges':[points(l) for l in m['roadEdges']],'edgeY0':[first_y(l) for l in m['roadEdges']],'es':m['roadEdgeStds'],'leads':leads,'selected':selected,'radarTargets':radar_targets,'liveTracks':raw_targets,'liveTracksValid':live_valid,'liveTracksDeltaMs':live_delta})
  frames.sort(key=lambda f:f['t'])
  video_info=None;warnings=[]

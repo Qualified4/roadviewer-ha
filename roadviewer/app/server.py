@@ -32,7 +32,7 @@ def run_job(id):
    if not (p/'meta.json').exists():return
    m=read_meta(p)
    if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
-   data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=bool(data['video']),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v10-selected-track-id');save_meta(p,m)
+   data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=bool(data['video']),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v11-model-speed');save_meta(p,m)
  except Exception as e:
   if proc.poll() is None:proc.kill();proc.communicate()
   with lock:
@@ -262,7 +262,7 @@ def requeue_startup():
  for p in ROOT.iterdir():
   if not (p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()):continue
   m=read_meta(p)
-  if m['status'] in ('queued','processing') or (m['status']=='ready' and m.get('decoder_version')!='v10-selected-track-id'):
+  if m['status'] in ('queued','processing') or (m['status']=='ready' and m.get('decoder_version')!='v11-model-speed'):
    pending.append((p,m))
  for p,m in pending:
   m.update(status='queued',video=False,duration=None,model_frames=None,warnings=[],error=None)
