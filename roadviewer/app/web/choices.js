@@ -56,7 +56,7 @@
   if(items[next]){items.forEach(item=>item.tabIndex=-1);items[next].tabIndex=0;items[next].focus()}
  };
  close.onclick=()=>closeChoice();
- dialog.onclick=e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}};
+ dialog.onclick=e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeChoice()}};
  function finishClose(){
   if(!active)return;
   document.body.style.overflow=oldOverflow;
