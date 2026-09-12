@@ -17,12 +17,27 @@ class OverlayTests(unittest.TestCase):
   model={'position':{'x':[10,20],'y':[0,0],'z':[0,0]},'laneLines':[{'x':[10,20],'y':[1,1],'z':[1.2,1.2]}]}
   frame={'leads':[{'x':10,'y':0}], 'radarTargets':[{'x':10,'y':-1}]}
   p=OverlayProjector(streams)
-  self.assertIsNone(p.project(99,model,frame))
+  self.assertEqual(p.project(99,model,frame),p.project(100,model,frame))
   self.assertIsNone(p.project(11_000_000_100,model,frame))
   out=p.project(100,model,frame)
   self.assertEqual(out['path'][0],out['markers'][0]['point'])
   self.assertEqual(out['lanes'][0][0][1],out['path'][0][1])
   self.assertLess(out['markers'][1]['point'][0],.5)
   self.assertIsNone(OverlayProjector({}).project(100,model,frame))
+
+ def test_startup_metadata_arrives_after_first_model(self):
+  second=1_000_000_000
+  calibration={'calStatus':'calibrated','rpyCalib':[0,0,0]}
+  streams={'liveCalibration':[(2*second,True,calibration)],'deviceState':[(second,True,{'deviceType':'mici'})],'roadCameraState':[(second//10,True,{'sensor':'os04c10'})]}
+  p=OverlayProjector(streams)
+  self.assertIsNotNone(p.project(0,{},{}))
+  self.assertIsNone(p.project(-1,{},{}))
+  self.assertIsNone(OverlayProjector({**streams,'roadCameraState':[]}).project(0,{},{}))
+  for valid,status in [(False,'calibrated'),(True,'uncalibrated')]:
+   rows=[(second,valid,{**calibration,'calStatus':status}),(2*second,True,calibration)]
+   q=OverlayProjector({**streams,'liveCalibration':rows})
+   self.assertIsNone(q.project(0,{},{}))
+   self.assertIsNone(q.project(second+1,{},{}))
+   self.assertIsNotNone(q.project(2*second,{},{}))
 
 if __name__=='__main__':unittest.main()

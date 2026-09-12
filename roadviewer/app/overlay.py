@@ -31,7 +31,11 @@ class OverlayProjector:
   self.times={k:[r[0] for r in rows] for k,rows in self.rows.items()}
  def at(self,kind,stamp,max_age=None):
   rows=self.rows[kind];index=bisect.bisect_right(self.times[kind],stamp)-1
-  if index<0:return None
+  # Segment boundaries can precede the first low-frequency metadata message.
+  # Only fill the leading gap; never skip invalid records or fill internal gaps.
+  if index<0:
+   if not rows or rows[0][0]-stamp>2_000_000_000:return None
+   index=0
   time,valid,value=rows[index]
   return value if valid and (max_age is None or stamp-time<=max_age) else None
  def project(self,stamp,model,frame):
