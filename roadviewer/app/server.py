@@ -237,10 +237,26 @@ def data(id):
  return send_file(p/'prepared/data.json',mimetype='application/json',conditional=True)
 @app.route('/api/logs/<id>/video')
 def video(id):
- p=folder(id);file=p/'prepared/camera.mp4'
+ p=folder(id)
+ if read_meta(p)['status']!='ready':return jsonify(error='로그를 준비 중이거나 변환에 실패했습니다.'),409
+ file=p/'prepared/camera.mp4'
  if not file.exists():abort(404)
  return send_file(file,mimetype='video/mp4',conditional=True)
-# Requeue unfinished conversions after an app restart.
-for p in ROOT.iterdir():
- if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file() and (read_meta(p)['status'] in ('queued','processing') or (read_meta(p)['status']=='ready' and read_meta(p).get('decoder_version')!='v10-selected-track-id')):submit(p.name)
+def requeue_startup():
+ # Invalidate every stale result before starting even the first conversion.
+ pending=[]
+ for p in ROOT.iterdir():
+  if not (p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()):continue
+  m=read_meta(p)
+  if m['status'] in ('queued','processing') or (m['status']=='ready' and m.get('decoder_version')!='v10-selected-track-id'):
+   pending.append((p,m))
+ for p,m in pending:
+  m.update(status='queued',video=False,duration=None,model_frames=None,warnings=[],error=None)
+  save_meta(p,m)
+ for p,_ in pending:
+  prepared=p/'prepared'
+  if prepared.exists():shutil.rmtree(prepared)
+ for p,_ in pending:submit(p.name)
+
+requeue_startup()
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)
