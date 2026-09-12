@@ -101,3 +101,7 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 .replay-page .replay-heading{top:10px}
 .replay-page .replay-heading.is-stuck{background:var(--panel)}
 .replay-page .replay-heading.is-stuck::before{inset:-12px -12px 0;background:var(--panel);border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px;box-shadow:0 6px 24px #0006}
+
+/* Match the pinned heading background: main content plus 12px on each side. */
+.replay-page .playback{width:calc(100% - 40px);max-width:1380px}
+@media(max-width:850px){.replay-page .playback{width:calc(100% - 12px)}}
