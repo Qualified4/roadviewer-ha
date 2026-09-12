@@ -17,6 +17,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType});
   });
   await page.goto(base+'/');await page.waitForFunction(()=>document.querySelectorAll('.log-row').length===2);
+  for(const [progress,text] of [
+   [{stage:'log_analysis',frames:1234},'프레임 분석 완료'],
+   [{stage:'video_convert',percent:65},'영상 변환 중 · 65%'],
+   [{stage:'video_verify',percent:80},'영상 검증 중 · 80%'],
+   [{stage:'saving'},'마무리 중']
+  ]){
+   logs[0].progress=progress;await page.evaluate(()=>refresh());
+   assert((await page.locator('.state-processing').first().textContent()).includes(text));
+  }
   logs[0].status='ready';await page.evaluate(()=>refresh());
   await page.evaluate(()=>window.savedReplay=document.querySelector('.replay'));
   await page.evaluate(()=>refresh());assert(await page.evaluate(()=>savedReplay===document.querySelector('.replay')));

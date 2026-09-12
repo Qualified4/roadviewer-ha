@@ -3,6 +3,7 @@ import sys,json,hashlib,bisect,collections,math
 import av,zstandard,capnp
 from steering import SteeringReplay
 from timeline import align_timeline
+from progress import Reporter
 BASE=Path(__file__).resolve().parent
 log=capnp.load(str(BASE.parent/'schema/cereal/log.capnp'))
 
@@ -19,6 +20,7 @@ def first_y(line):
  return float(values[0]) if values and math.isfinite(values[0]) else None
 
 def prepare(value):
+ progress=Reporter();progress.update('log_read')
  src=Path(value).resolve();video=src.parent/'qcamera.ts';log_entry={'label':src.parent.name};choices=[]
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
@@ -37,7 +39,8 @@ def prepare(value):
  for e in log.Event.read_multiple_bytes(raw):
   kind=e.which();counts[kind]+=1
   if kind in ('carState','carControl','controlsState','carOutput','selfdriveState','liveParameters','carParams'):streams[kind].append((e.logMonoTime,e.valid,getattr(e,kind).to_dict()))
-  if kind=='modelV2':models.append((e.logMonoTime,e.valid,e.modelV2.to_dict()))
+  if kind=='modelV2':
+   models.append((e.logMonoTime,e.valid,e.modelV2.to_dict()));progress.update('log_read',frames=len(models))
   elif kind=='radarState':radars.append((e.logMonoTime,e.valid,e.radarState.to_dict()))
   elif kind=='liveTracks':live_tracks.append((e.logMonoTime,e.valid,e.liveTracks.to_dict()))
   elif kind=='carState':car_states.append((e.logMonoTime,e.valid,float(e.carState.vEgo)))
@@ -54,6 +57,7 @@ def prepare(value):
  models.sort(key=lambda row:time_of(row[0],row[2]))
  frames=[]
  def points(line):return [[round(float(x),3),round(float(y),3)] for x,y in zip(line['x'],line['y']) if math.isfinite(x) and math.isfinite(y)]
+ progress.update('log_analysis',frames=0)
  for stamp,valid,m in models:
   ego_speed=speed_at(car_states,car_times,time_of(stamp,m)*1e9)
   selected=None;radar_targets=[];raw_targets=[];live_valid=False;live_delta=None
@@ -78,34 +82,48 @@ def prepare(value):
       radar_targets.append({'group':group,'index':number,'x':target['dRel'],'y':-target['yRel'],'yRel':target['yRel'],'vRel':target['vRel'],'radar':target.get('radar',False),'trackId':target.get('radarTrackId',-1),'modelProb':target.get('modelProb',0)})
   leads=[{'x':l['x'][0],'y':l['y'][0],'p':l['prob'],'speedKph':float(l['v'][0])*3.6 if l.get('v') and math.isfinite(l['v'][0]) else None} for l in m.get('leadsV3',[])[:2] if l.get('x') and l.get('y')]
   frames.append({'t':round(time_of(stamp,m)-origin,6),'id':m['frameId'],'egoSpeedKph':ego_speed,'steering':steering.at(time_of(stamp,m)*1e9),'valid':valid,'lanes':[points(l) for l in m['laneLines']],'laneY0':[first_y(l) for l in m['laneLines']],'lp':m['laneLineProbs'],'edges':[points(l) for l in m['roadEdges']],'edgeY0':[first_y(l) for l in m['roadEdges']],'es':m['roadEdgeStds'],'leads':leads,'selected':selected,'radarTargets':radar_targets,'liveTracks':raw_targets,'liveTracksValid':live_valid,'liveTracksDeltaMs':live_delta})
+  progress.update('log_analysis',frames=len(frames))
+ progress.update('log_analysis',frames=len(frames),force=True)
  frames.sort(key=lambda f:f['t'])
  video_info=None;warnings=[]
  if video.exists() and cameras:
   print('전방 영상 준비 중…',flush=True)
   qs=sorted(cameras,key=lambda q:q['segmentId'])
+  progress.update('video_read',frames=0)
   pts=[]
   with av.open(str(video)) as c:
-   for f in c.decode(video=0):pts.append(float(f.pts*f.time_base))
+   for f in c.decode(video=0):
+    pts.append(float(f.pts*f.time_base));progress.update('video_read',frames=len(pts))
   if len(pts)==len(qs) and [q['segmentId'] for q in qs]==list(range(len(qs))):
    offsets=[q['timestampEof']/1e9-p for q,p in zip(qs,pts)]
    if max(offsets)-min(offsets)<.005:
+    converted_percent=0
+    progress.update('video_convert',percent=0)
     with av.open(str(video)) as inp, av.open(str(dest/'camera.mp4'),'w',options={'movflags':'+faststart'}) as out:
      stream=inp.streams.video[0]; target=out.add_stream_from_template(stream);offset=round(pts[0]/float(stream.time_base))
      for packet in inp.demux(stream):
       if packet.dts is None:continue
-      packet.pts-=offset;packet.dts-=offset;packet.stream=target;out.mux(packet)
+      packet.pts-=offset;packet.dts-=offset;packet.stream=target
+      position=float(packet.pts*stream.time_base) if packet.pts is not None else 0
+      out.mux(packet)
+      converted_percent=max(converted_percent,min(99,100*position/max(pts[-1]-pts[0],.001)))
+      progress.update('video_convert',percent=converted_percent)
+    progress.update('video_convert',percent=100,force=True)
+    progress.update('video_verify',percent=0)
     with av.open(str(dest/'camera.mp4')) as check:
      video_duration=float(check.duration)/av.time_base if check.duration is not None else pts[-1]-pts[0]+(pts[-1]-pts[-2] if len(pts)>1 else .05)
      decoded_count=0;first_pts=0
      for f in check.decode(video=0):
       if decoded_count==0:first_pts=float(f.pts*f.time_base)
       decoded_count+=1
+      progress.update('video_verify',percent=min(99,100*decoded_count/len(pts)))
      if decoded_count!=len(pts):raise ValueError('변환된 영상 프레임 수가 다릅니다.')
     video_info={'start':qs[0]['timestampEof']/1e9-origin-first_pts,'duration':video_duration,'frames':len(pts),'timestampSpreadMs':(max(offsets)-min(offsets))*1000}
    else:warnings.append('영상과 로그의 프레임 시간이 일치하지 않아 영상 동기화를 중단했습니다.')
   else:warnings.append('영상과 로그의 프레임 수가 일치하지 않아 영상 동기화를 중단했습니다.')
  elif video.exists():warnings.append('카메라 프레임 정보가 없어 영상 동기화를 사용할 수 없습니다.')
  else:warnings.append('qcamera.ts가 없어 도로 형태만 표시합니다.')
+ progress.update('saving')
  bounds=align_timeline(frames,video_info)
  data={'route':src.parent.name,'path':str(src.parent),'key':key,**bounds,'frames':frames,'video':video_info,'warnings':warnings,'counts':dict(counts)}
  (dest/'data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':'),allow_nan=False))

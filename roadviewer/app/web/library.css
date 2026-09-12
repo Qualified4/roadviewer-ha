@@ -22,4 +22,4 @@
 
 .upload-row button:disabled{cursor:default}
 
-.state-processing{display:inline-block;padding:3px 9px;border:1px solid #d5a14b66;border-radius:6px;background:#d5a14b1a;color:#ffd28a;font-weight:700;white-space:nowrap}
+.state-processing{display:inline-block;padding:3px 9px;border:1px solid #d5a14b66;border-radius:6px;background:#d5a14b1a;color:#ffd28a;font-weight:700;white-space:normal}

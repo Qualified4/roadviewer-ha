@@ -1,6 +1,7 @@
 from pathlib import Path,PurePosixPath
 import hashlib
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
+from progress import ProgressChannel
 from werkzeug.datastructures import FileStorage
 from concurrent.futures import ThreadPoolExecutor
 from flask import Flask,request,jsonify,send_file,send_from_directory,abort
@@ -9,7 +10,7 @@ ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,
 options_path=Path('/data/options.json');options=json.loads(options_path.read_text()) if options_path.exists() else {}
 app=Flask(__name__,static_folder=None)
 app.config.update(MAX_CONTENT_LENGTH=int(options.get('max_upload_mb',512))*1024*1024,MAX_FORM_PARTS=220)
-lock=threading.RLock();pool=ThreadPoolExecutor(max_workers=1);processes={}
+lock=threading.RLock();pool=ThreadPoolExecutor(max_workers=1);processes={};job_progress={}
 ID=re.compile(r'^[a-f0-9]{32}$');FLAT=re.compile(r'^(?P<route>.{20})--(?P<segment>\d+)--(?P<kind>rlog\.zst|qcamera\.ts)$')
 def folder(id):
  if not ID.fullmatch(id):abort(404)
@@ -22,29 +23,41 @@ def save_meta(p,m):
  temp=p/'meta.tmp';temp.write_text(json.dumps(m,ensure_ascii=False));temp.replace(p/'meta.json')
 def run_job(id):
  p=ROOT/id
- with lock:
-  if not (p/'meta.json').exists():return
-  m=read_meta(p)
-  if m['status']!='queued':return
-  revision=m.get('conversion_revision',0)
-  m.update(status='processing');save_meta(p,m)
-  proc=subprocess.Popen([sys.executable,'-B',str(BASE/'decoder.py'),str(p/'rlog.zst')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);processes[id]=proc
- try:
-  stdout,stderr=proc.communicate(timeout=600)
+ proc=None;revision=None
+ def update_progress(event):
   with lock:
-   if not (p/'meta.json').exists():return
-   m=read_meta(p)
-   if m.get('conversion_revision',0)!=revision:return
-   if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
-   data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=(p/'qcamera.ts').is_file(),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v12-union-timeline');save_meta(p,m)
+   if processes.get(id) is proc:job_progress[id]=event
+ try:
+  with ProgressChannel(update_progress) as channel:
+   with lock:
+    if not (p/'meta.json').exists():return
+    m=read_meta(p)
+    if m['status']!='queued':return
+    revision=m.get('conversion_revision',0)
+    m.update(status='processing');save_meta(p,m)
+    job_progress[id]={'stage':'log_read'}
+    proc=subprocess.Popen([sys.executable,'-B',str(BASE/'decoder.py'),str(p/'rlog.zst')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,**channel.options());processes[id]=proc
+   channel.start()
+   try:
+    stdout,stderr=proc.communicate(timeout=600)
+    with lock:
+     if not (p/'meta.json').exists():return
+     m=read_meta(p)
+     if m.get('conversion_revision',0)!=revision:return
+     if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
+     data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=(p/'qcamera.ts').is_file(),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v12-union-timeline');save_meta(p,m)
+   except Exception:
+    if proc.poll() is None:proc.kill();proc.communicate()
+    raise
  except Exception as e:
-  if proc.poll() is None:proc.kill();proc.communicate()
   with lock:
    if (p/'meta.json').exists():
     m=read_meta(p)
-    if m.get('conversion_revision',0)==revision:m.update(status='error',error=str(e));save_meta(p,m)
+    if revision is not None and m.get('conversion_revision',0)==revision:m.update(status='error',error=str(e));save_meta(p,m)
  finally:
-  with lock:processes.pop(id,None)
+  with lock:
+   if processes.get(id) is proc:
+    processes.pop(id,None);job_progress.pop(id,None)
 
 def submit(id):pool.submit(run_job,id)
 @app.before_request
@@ -121,7 +134,7 @@ def storage_used_bytes():
 
 @app.route('/api/logs')
 def logs():
- with lock:items=[dict(read_meta(p),video=(p/'qcamera.ts').is_file()) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
+ with lock:items=[dict(read_meta(p),video=(p/'qcamera.ts').is_file(),progress=job_progress.get(p.name)) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
  return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes())
 @app.route('/api/upload',methods=['POST'])
 def upload():

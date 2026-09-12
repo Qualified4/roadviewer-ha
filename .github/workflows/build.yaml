@@ -31,6 +31,8 @@ jobs:
       - run: python tests/test_requeue.py
       - run: python tests/test_storage.py
       - run: python tests/test_timeline.py
+      - run: python tests/test_progress.py
+      - run: python tests/test_job_progress.py
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -51,7 +53,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           build-args: |
             BUILD_ARCH=${{ matrix.ha_arch }}
-            BUILD_VERSION=0.2.35
+            BUILD_VERSION=0.2.36
           load: true
           tags: roadviewer:test
           cache-from: type=gha,scope=${{ matrix.arch }}
@@ -64,12 +66,14 @@ jobs:
           python - <<'PYTHON'
           import json, os
           labels = json.load(open('image.json'))[0]['Config']['Labels']
-          assert labels['io.hass.version'] == '0.2.35'
+          assert labels['io.hass.version'] == '0.2.36'
           assert labels['io.hass.type'] == 'app'
           assert labels['io.hass.arch'] == os.environ['EXPECTED_ARCH']
           PYTHON
       - name: API and decoder smoke test
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/smoke.py
+      - name: Decoder progress tests
+        run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_decoder_progress.py
       - name: Speed alignment tests
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_speed.py
 
