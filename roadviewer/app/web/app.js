@@ -119,3 +119,20 @@ $('boundaryDistance').onclick=()=>{
  $('edge1Label').textContent=enabled?'오른쪽 로드엣지 y[0]':'오른쪽 로드엣지 Std';
  render();
 };
+
+async function loadLogNavigation(){
+ const buttons=[$('previousLog'),$('nextLog')];
+ try{
+  const response=await fetch('../../api/logs');
+  if(!response.ok)throw Error('로그 목록을 불러오지 못했습니다.');
+  const {logs}=await response.json(),current=location.pathname.split('/').filter(Boolean).at(-1);
+  const index=logs.findIndex(log=>log.id===current);
+  const neighbors=index<0?[]:[logs.slice(0,index).reverse().find(log=>log.status==='ready'),logs.slice(index+1).find(log=>log.status==='ready')];
+  buttons.forEach((button,i)=>{
+   const log=neighbors[i];button.disabled=!log;
+   button.title=log?log.name:'이동할 재생 가능한 로그가 없습니다.';
+   button.onclick=log?()=>location.assign('../'+encodeURIComponent(log.id)+'/'):null;
+  });
+ }catch{buttons.forEach(button=>{button.disabled=true;button.title='로그 목록을 불러오지 못했습니다. 새로고침해 주세요.'})}
+}
+loadLogNavigation();
