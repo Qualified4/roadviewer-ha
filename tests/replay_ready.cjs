@@ -73,6 +73,25 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.waitForFunction(y=>Math.abs(document.querySelector('.log-navigation').getBoundingClientRect().top-y)<1,initial.y);
   }
   await page.locator('#play').click();await page.waitForFunction(()=>document.getElementById('video').currentTime>0.1);
+  assert(await page.locator('#logSegment').isHidden());
+  logs=[
+   {id:'one',name:'00000356--148eb5e823 / 구간 13',status:'ready'},
+   {id:'two',name:'00000356--148eb5e823 / 구간 12',status:'ready'},
+   {id:'pending',name:'00000356--148eb5e823 / 구간 2',status:'processing'},
+   {id:'other',name:'00000357--148eb5e823 / 구간 11',status:'ready'}
+  ];
+  await page.evaluate(()=>loadLogNavigation());
+  assert.equal(await page.locator('#logSegment').inputValue(),'one');
+  assert.deepEqual(await page.locator('#logSegment option').allTextContents(),['구간 2 · 준비 중','구간 12','구간 13']);
+  assert(await page.locator('#logSegment option').first().isDisabled());
+  for(const width of [320,390,1280]){
+   await page.setViewportSize({width,height:844});
+   for(const selector of ['.back','#logSegment','#previousLog','#nextLog']){
+    const box=await page.locator(selector).boundingBox();assert(box.x>=0&&box.x+box.width<=width);
+   }
+  }
+  await page.selectOption('#logSegment','two');await page.waitForURL('**/view/two/');
+  await page.waitForFunction(()=>document.getElementById('logSegment').value==='two');
   assert.deepEqual(errors,[]);console.log('PASS: stable replay links during refresh and click, pending to ready without reload, versioned video loads and plays');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

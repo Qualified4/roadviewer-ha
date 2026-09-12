@@ -105,3 +105,8 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 /* Match the pinned heading background: main content plus 12px on each side. */
 .replay-page .playback{width:calc(100% - 40px);max-width:1380px}
 @media(max-width:850px){.replay-page .playback{width:calc(100% - 12px)}}
+
+.log-navigation{flex-wrap:wrap}
+.log-origin{display:flex;align-items:center;gap:8px;min-width:0}
+#logSegment{width:100px;min-width:0;min-height:40px;cursor:pointer}
+@media(max-width:550px){#logSegment{width:76px}}

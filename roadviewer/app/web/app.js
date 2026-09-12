@@ -165,12 +165,38 @@ $('boundaryDistance').onclick=()=>{
  render();
 };
 
+function logSegmentInfo(name){
+ const match=/^(.+?)\s*\/\s*구간\s*(\d+)$/.exec(name||'')||/^(.{20})--(\d+)$/.exec(name||'');
+ if(!match)return null;
+ const number=Number(match[2]);
+ return Number.isSafeInteger(number)?{route:match[1],number}:null;
+}
+function populateSegments(logs,current){
+ const select=$('logSegment');select.replaceChildren();select.hidden=true;select.onchange=null;
+ const active=logs.find(log=>log.id===current),info=logSegmentInfo(active?.name);
+ if(!info)return;
+ const segments=logs.map(log=>({log,info:logSegmentInfo(log.name)})).filter(item=>item.info?.route===info.route).sort((a,b)=>a.info.number-b.info.number||a.log.id.localeCompare(b.log.id));
+ if(segments.length<2)return;
+ for(const {log,info} of segments){
+  const option=document.createElement('option');option.value=log.id;
+  const status={queued:'대기 중',processing:'준비 중',error:'변환 실패'}[log.status];
+  option.textContent=`구간 ${info.number}${status?' · '+status:''}`;
+  option.disabled=log.status!=='ready'&&log.id!==current;
+  select.append(option);
+ }
+ select.value=current;select.hidden=false;
+ select.onchange=()=>{
+  const target=segments.find(item=>item.log.id===select.value)?.log;
+  if(target?.status==='ready'&&target.id!==current)location.assign('../'+encodeURIComponent(target.id)+'/');
+ };
+}
 async function loadLogNavigation(){
  const buttons=[$('previousLog'),$('nextLog')];
  try{
   const response=await fetch('../../api/logs');
   if(!response.ok)throw Error('로그 목록을 불러오지 못했습니다.');
   const {logs}=await response.json(),current=location.pathname.split('/').filter(Boolean).at(-1);
+  populateSegments(logs,current);
   const index=logs.findIndex(log=>log.id===current);
   const neighbors=index<0?[]:[logs.slice(index+1).find(log=>log.status==='ready'),logs.slice(0,index).reverse().find(log=>log.status==='ready')];
   buttons.forEach((button,i)=>{
