@@ -22,7 +22,7 @@ def prepare(value):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v9-boundary-y0').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v10-selected-track-id').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  if (dest/'data.json').exists():
   cached=json.loads((dest/'data.json').read_text())
@@ -67,7 +67,7 @@ def prepare(value):
    k=bisect.bisect_left(rt,stamp);i=min(range(max(0,k-1),min(len(rt),k+1)),key=lambda i:abs(rt[i]-stamp))
    _,rv,r=radars[i];l=r['leadOne']
    fresh=rv and abs(rt[i]-stamp)<150_000_000
-   if fresh and l['status']:selected={'x':l['dRel'],'y':-l['yRel'],'radar':l['radar'],'vRel':l['vRel']}
+   if fresh and l['status']:selected={'x':l['dRel'],'y':-l['yRel'],'radar':l['radar'],'vRel':l['vRel'],'trackId':l.get('radarTrackId',-1)}
    if fresh:
     groups=[('center',r.get('leadsCenter',[])),('left',r.get('leadsLeft',[])),('right',r.get('leadsRight',[]))]
     for group,values in groups:
