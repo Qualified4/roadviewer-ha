@@ -46,3 +46,7 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
  .split-view .layers{padding:10px;gap:10px;font-size:11px}
  .split-view .layers label{max-width:100%;overflow-wrap:anywhere}
 }
+
+/* Reserve space independently of digit shapes and frame/speed changes. */
+.camera-status #frame{flex:0 0 auto;width:16ch;max-width:100%;white-space:nowrap;text-align:right;font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;font-size:11px;font-variant-numeric:tabular-nums}
+.ego-speed strong{width:5ch;text-align:right;flex-shrink:0}
