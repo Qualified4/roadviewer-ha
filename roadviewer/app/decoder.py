@@ -13,12 +13,16 @@ def speed_at(states,times,stamp):
  time,valid,speed=states[i]
  return speed*3.6 if valid and abs(time-stamp)<150_000_000 and math.isfinite(speed) else None
 
+def first_y(line):
+ values=line.get('y',[])
+ return float(values[0]) if values and math.isfinite(values[0]) else None
+
 def prepare(value):
  src=Path(value).resolve();video=src.parent/'qcamera.ts';log_entry={'label':src.parent.name};choices=[]
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v8-steering-wheel').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v9-boundary-y0').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  if (dest/'data.json').exists():
   cached=json.loads((dest/'data.json').read_text())
@@ -72,7 +76,7 @@ def prepare(value):
       if not all(math.isfinite(target.get(k,float('nan'))) for k in ('dRel','yRel','vRel')):continue
       radar_targets.append({'group':group,'index':number,'x':target['dRel'],'y':-target['yRel'],'yRel':target['yRel'],'vRel':target['vRel'],'radar':target.get('radar',False),'trackId':target.get('radarTrackId',-1),'modelProb':target.get('modelProb',0)})
   leads=[{'x':l['x'][0],'y':l['y'][0],'p':l['prob']} for l in m.get('leadsV3',[])[:2] if l.get('x') and l.get('y')]
-  frames.append({'t':round(time_of(stamp,m)-origin,6),'id':m['frameId'],'egoSpeedKph':ego_speed,'steering':steering.at(time_of(stamp,m)*1e9),'valid':valid,'lanes':[points(l) for l in m['laneLines']],'lp':m['laneLineProbs'],'edges':[points(l) for l in m['roadEdges']],'es':m['roadEdgeStds'],'leads':leads,'selected':selected,'radarTargets':radar_targets,'liveTracks':raw_targets,'liveTracksValid':live_valid,'liveTracksDeltaMs':live_delta})
+  frames.append({'t':round(time_of(stamp,m)-origin,6),'id':m['frameId'],'egoSpeedKph':ego_speed,'steering':steering.at(time_of(stamp,m)*1e9),'valid':valid,'lanes':[points(l) for l in m['laneLines']],'laneY0':[first_y(l) for l in m['laneLines']],'lp':m['laneLineProbs'],'edges':[points(l) for l in m['roadEdges']],'edgeY0':[first_y(l) for l in m['roadEdges']],'es':m['roadEdgeStds'],'leads':leads,'selected':selected,'radarTargets':radar_targets,'liveTracks':raw_targets,'liveTracksValid':live_valid,'liveTracksDeltaMs':live_delta})
  frames.sort(key=lambda f:f['t'])
  video_info=None;warnings=[]
  if video.exists() and cameras:

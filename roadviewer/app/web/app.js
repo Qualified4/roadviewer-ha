@@ -77,8 +77,10 @@ function render(){
  ctx.fillStyle='#e6edf5';ctx.beginPath();ctx.moveTo(cx,cy-14);ctx.lineTo(cx-7,cy+4);ctx.lineTo(cx+7,cy+4);ctx.closePath();ctx.fill();ctx.textAlign='center';ctx.fillText('내 차량',cx,cy+20);ctx.textAlign='left';
  if(!valid){ctx.fillStyle='#ffd39f';ctx.fillText('이 시점의 유효한 모델 데이터 없음',45,45)}
  const percent=n=>Number.isFinite(n)?(n*100).toFixed(1)+'%':'—';
- $('lane0').textContent=valid?percent(f.lp[0]):'—';$('lane3').textContent=valid?percent(f.lp[3]):'—';
- $('edge0').textContent=valid&&Number.isFinite(f.es[0])?f.es[0].toFixed(3)+' m':'—';$('edge1').textContent=valid&&Number.isFinite(f.es[1])?f.es[1].toFixed(3)+' m':'—';
+ const distance=$('boundaryDistance').getAttribute('aria-pressed')==='true';
+ const meters=value=>Number.isFinite(value)?(value>0?'+':'')+value.toFixed(3)+' m':'—';
+ ['lane0','left','right','lane3'].forEach((id,i)=>{$(id).textContent=valid?(distance?meters(f.laneY0?.[i]):percent(f.lp[i])):'—'});
+ ['edge0','edge1'].forEach((id,i)=>{$(id).textContent=valid?(distance?meters(f.edgeY0?.[i]):Number.isFinite(f.es[i])?f.es[i].toFixed(3)+' m':'—'):'—'});
  const targets=valid?(f.radarTargets||[]):[];
  $('radarRows').replaceChildren(...targets.map(target=>{const row=document.createElement('tr');const style=targetStyle[target.group];const values=[style.label+' '+(target.index+1),target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.radar?'예':'아니오',String(target.trackId)];for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}row.firstChild.style.color=style.color;return row}));
  if(!targets.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=6;cell.textContent='이 시점에 유효한 중앙·좌우 차량이 없습니다.';row.append(cell);$('radarRows').append(row)}
@@ -89,7 +91,7 @@ function render(){
  canvas.setAttribute('aria-label',`차량 중심 도로. 현재 radarState 중앙·좌우 차량 ${targets.length}개. 전방 범위 ${range}m.`);
  renderSteering(f);
  $('egoSpeed').textContent=Math.abs(f.t-t)<.16&&Number.isFinite(f.egoSpeedKph)?f.egoSpeedKph.toFixed(1):'—';
- $('left').textContent=valid?percent(f.lp[1]):'—';$('right').textContent=valid?percent(f.lp[2]):'—';$('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'미선택';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent='FRAME '+f.id;
+ $('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'미선택';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent='FRAME '+f.id;
 }
 new ResizeObserver(render).observe(canvas);loadData().catch(e=>showError(e.message));requestAnimationFrame(tick);
 
@@ -109,4 +111,13 @@ splitView.onclick=()=>{
  const enabled=splitView.getAttribute('aria-pressed')!=='true';
  setSplitView(enabled);
  try{localStorage.setItem(viewPreferenceKey,String(enabled))}catch{}
+};
+
+$('boundaryDistance').onclick=()=>{
+ const enabled=$('boundaryDistance').getAttribute('aria-pressed')!=='true';
+ $('boundaryDistance').setAttribute('aria-pressed',String(enabled));
+ $('boundaryMode').textContent=enabled?'첫 점 y[0] · 왼쪽 − / 오른쪽 + · m':'차선 확률 · 로드엣지 표준편차';
+ $('edge0Label').textContent=enabled?'왼쪽 로드엣지 y[0]':'왼쪽 로드엣지 Std';
+ $('edge1Label').textContent=enabled?'오른쪽 로드엣지 y[0]':'오른쪽 로드엣지 Std';
+ render();
 };
