@@ -35,7 +35,7 @@
     select.value=option.value;
     select.dispatchEvent(new Event('input',{bubbles:true}));
     select.dispatchEvent(new Event('change',{bubbles:true}));
-    dialog.close();
+    closeChoice();
    };
    list.append(item);
   }
@@ -55,12 +55,18 @@
   e.preventDefault();
   if(items[next]){items.forEach(item=>item.tabIndex=-1);items[next].tabIndex=0;items[next].focus()}
  };
- close.onclick=()=>dialog.close();
+ close.onclick=()=>closeChoice();
  dialog.onclick=e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}};
- dialog.addEventListener('close',()=>{
+ function finishClose(){
+  if(!active)return;
   document.body.style.overflow=oldOverflow;
-  opener?.setAttribute('aria-expanded','false');opener?.focus({preventScroll:true});active=null;
- });
+  opener?.setAttribute('aria-expanded','false');
+  const previous=opener;active=null;
+  previous?.focus({preventScroll:true});
+ }
+ function closeChoice(){dialog.close();finishClose()}
+ dialog.addEventListener('cancel',e=>{e.preventDefault();closeChoice()});
+ dialog.addEventListener('close',()=>{if(!dialog.open)finishClose()});
  window.addEventListener('resize',position);
  for(const [id,label] of Object.entries(labels)){
   const select=document.getElementById(id);if(!select)continue;
@@ -71,7 +77,7 @@
    button.hidden=select.hidden;button.disabled=select.disabled;
    button.textContent=select.selectedOptions[0]?.textContent||label;
    button.title=label+' · '+button.textContent;
-   if(active===select&&(select.hidden||select.disabled))dialog.close();
+   if(active===select&&(select.hidden||select.disabled))closeChoice();
   };
   button.onclick=()=>open(select,button);
   button.onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();open(select,button)}};
