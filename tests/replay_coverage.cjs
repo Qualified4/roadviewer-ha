@@ -27,6 +27,25 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert.equal(await page.locator('#noVideo').isVisible(),!inVideo,scenario.name);
    if(probe<logStart||probe>logEnd){assert.equal(await page.locator('#left').textContent(),'—');assert.equal(await page.locator('#egoSpeed').textContent(),'—')}
    else assert.equal(await page.locator('#left').textContent(),'100.0%');
+   // Range input must preserve both paused and playing states.
+   const seekTo=async value=>page.evaluate(value=>{
+    const seek=document.getElementById('seek');seek.value=value;seek.dispatchEvent(new Event('input',{bubbles:true}));
+    return {playing,t};
+   },value);
+   assert.deepEqual(await seekTo(.3),{playing:false,t:.3},scenario.name+' paused seek');
+   await page.waitForTimeout(150);
+   assert.equal(await page.evaluate(()=>t),.3,scenario.name+' remains paused');
+   await page.locator('#play').click();
+   await page.waitForFunction(()=>playing&&t>.35);
+   assert.deepEqual(await seekTo(.6),{playing:true,t:.6},scenario.name+' playing seek');
+   await page.waitForFunction(()=>playing&&t>.7);
+   assert.deepEqual(await seekTo(.2),{playing:true,t:.2},scenario.name+' backward seek');
+   await page.waitForFunction(()=>playing&&t>.3);
+   assert.equal(await page.locator('#play').textContent(),'일시정지');
+   await page.locator('#play').click();
+   assert.deepEqual(await seekTo(.5),{playing:false,t:.5},scenario.name+' paused again');
+   await page.waitForTimeout(150);
+   assert.equal(await page.evaluate(()=>t),.5);
    // Run across both start and end boundaries at 4x.
    await page.evaluate(()=>setTime(0));await page.selectOption('#speed','4');await page.locator('#play').click();
    await page.waitForFunction(()=>!playing&&t>=data.duration-.001);
@@ -35,6 +54,6 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(videoStart!==null){await page.evaluate(start=>setTime(start+.2),videoStart);assert(await page.locator('#video').isVisible())}
    assert.deepEqual(errors,[]);await page.close();
   }
-  console.log('PASS: longer video/log, offset starts, no-video gaps, full playback and seek at 4x, missing log readouts hidden');
+  console.log('PASS: longer video/log, offset starts, no-video gaps, playback state preserved on seek, full playback and seek at 4x, missing log readouts hidden');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});
