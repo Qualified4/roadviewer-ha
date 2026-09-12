@@ -94,3 +94,16 @@ new ResizeObserver(render).observe(canvas);loadData().catch(e=>showError(e.messa
 const playback=document.querySelector('.playback');
 function sizePlayback(){document.body.style.setProperty('--playback-height',`${Math.ceil(playback.getBoundingClientRect().height)}px`)}
 new ResizeObserver(sizePlayback).observe(playback);sizePlayback();
+
+// Layout changes leave the video element and playback state intact.
+const splitView=$('splitView'),viewPreferenceKey='roadviewer-replay-split-view';
+function setSplitView(enabled){
+ document.body.classList.toggle('split-view',enabled);
+ splitView.setAttribute('aria-pressed',String(enabled));
+}
+try{setSplitView(localStorage.getItem(viewPreferenceKey)==='true')}catch{}
+splitView.onclick=()=>{
+ const enabled=splitView.getAttribute('aria-pressed')!=='true';
+ setSplitView(enabled);
+ try{localStorage.setItem(viewPreferenceKey,String(enabled))}catch{}
+};
