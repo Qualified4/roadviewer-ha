@@ -24,19 +24,25 @@ def run_job(id):
  p=ROOT/id
  with lock:
   if not (p/'meta.json').exists():return
-  m=read_meta(p);m.update(status='processing');save_meta(p,m)
+  m=read_meta(p)
+  if m['status']!='queued':return
+  revision=m.get('conversion_revision',0)
+  m.update(status='processing');save_meta(p,m)
   proc=subprocess.Popen([sys.executable,'-B',str(BASE/'decoder.py'),str(p/'rlog.zst')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True);processes[id]=proc
  try:
   stdout,stderr=proc.communicate(timeout=600)
   with lock:
    if not (p/'meta.json').exists():return
    m=read_meta(p)
+   if m.get('conversion_revision',0)!=revision:return
    if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
-   data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=bool(data['video']),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v11-model-speed');save_meta(p,m)
+   data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=(p/'qcamera.ts').is_file(),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v11-model-speed');save_meta(p,m)
  except Exception as e:
   if proc.poll() is None:proc.kill();proc.communicate()
   with lock:
-   if (p/'meta.json').exists():m=read_meta(p);m.update(status='error',error=str(e));save_meta(p,m)
+   if (p/'meta.json').exists():
+    m=read_meta(p)
+    if m.get('conversion_revision',0)==revision:m.update(status='error',error=str(e));save_meta(p,m)
  finally:
   with lock:processes.pop(id,None)
 
@@ -109,7 +115,7 @@ def storage_used_bytes():
 
 @app.route('/api/logs')
 def logs():
- with lock:items=[read_meta(p) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
+ with lock:items=[dict(read_meta(p),video=(p/'qcamera.ts').is_file()) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
  return jsonify(logs=sorted(items,key=lambda m:m['uploaded'],reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes())
 @app.route('/api/upload',methods=['POST'])
 def upload():
@@ -134,7 +140,7 @@ def stored_digests(path,meta):
 def register_files(files):
  if not files or len(files)>100:return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
  if shutil.disk_usage(ROOT).free<(request.content_length or 0)+100*1024*1024:return jsonify(error='로그를 저장할 디스크 공간이 부족합니다.'),507
- staged=[];duplicates=[]
+ staged=[];duplicates=[];updated=[]
  try:
   with tempfile.TemporaryDirectory(dir=ROOT,prefix='.upload-') as temp:
    groups={}
@@ -165,13 +171,30 @@ def register_files(files):
      match=existing.get(g['hashes']['rlog.zst'])
      if match:
       meta,hashes=match
+      p=ROOT/meta['id']
+      if 'qcamera.ts' in g['hashes'] and not (p/'qcamera.ts').is_file():
+       # Cancel the old conversion before removing any of its output files.
+       proc=processes.get(meta['id'])
+       if proc and proc.poll() is None:
+        proc.terminate()
+        try:proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:proc.kill();proc.wait()
+       (g['dir']/'qcamera.ts').replace(p/'qcamera.ts')
+       meta.setdefault('files',{})['qcamera.ts']=g['files']['qcamera.ts']
+       meta.update(status='queued',video=True,duration=None,model_frames=None,warnings=[],error=None,conversion_revision=meta.get('conversion_revision',0)+1,bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts')))
+       save_meta(p,meta)
+       if (p/'prepared').exists():shutil.rmtree(p/'prepared')
+       hashes=stored_digests(p,meta)
+       existing[g['hashes']['rlog.zst']]=(meta,hashes)
+       updated.append(meta)
+       continue
       video_diff='qcamera.ts' in g['hashes'] and g['hashes']['qcamera.ts']!=hashes.get('qcamera.ts')
       duplicates.append({'id':meta['id'],'name':g['label'],'video_differs':video_diff})
       continue
      id=uuid.uuid4().hex;p=ROOT/id;g['dir'].rename(p)
      m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None};save_meta(p,m);stored_digests(p,m);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
-  for m in staged:submit(m['id'])
-  return jsonify(logs=staged,duplicates=duplicates),201
+  for id in dict.fromkeys(m['id'] for m in staged+updated):submit(id)
+  return jsonify(logs=staged,duplicates=duplicates,updated=updated),201
  except ValueError as e:return jsonify(error=str(e)),400
 # Small requests pass through HA Ingress and remote proxy upload limits.
 UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)
@@ -265,7 +288,7 @@ def requeue_startup():
   if m['status'] in ('queued','processing') or (m['status']=='ready' and m.get('decoder_version')!='v11-model-speed'):
    pending.append((p,m))
  for p,m in pending:
-  m.update(status='queued',video=False,duration=None,model_frames=None,warnings=[],error=None)
+  m.update(status='queued',video=(p/'qcamera.ts').is_file(),duration=None,model_frames=None,warnings=[],error=None)
   save_meta(p,m)
  for p,_ in pending:
   prepared=p/'prepared'

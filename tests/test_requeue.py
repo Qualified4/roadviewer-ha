@@ -18,7 +18,7 @@ class RequeueTests(unittest.TestCase):
    def submitted(id):
     for p in paths[:3]:
      self.assertEqual(server.read_meta(p)['status'],'queued')
-     self.assertFalse(server.read_meta(p)['video'])
+     self.assertTrue(server.read_meta(p)['video'])
      self.assertIsNone(server.read_meta(p)['duration'])
      self.assertFalse((p/'prepared').exists())
      self.assertEqual((p/'rlog.zst').read_bytes(),b'original log')
