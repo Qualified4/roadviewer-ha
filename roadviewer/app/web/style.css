@@ -71,3 +71,11 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 .log-navigation{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.log-navigation .back{margin:0;color:var(--lane);text-decoration:none}.log-neighbors{display:flex;gap:8px;margin-left:auto}.log-neighbors button{font-size:12px;padding:9px 12px;min-height:40px}.log-neighbors button:disabled{cursor:default}@media(max-width:360px){.log-navigation{gap:6px}.log-neighbors{gap:5px}.log-neighbors button{padding:9px 8px}}
 
 .log-navigation .back{display:inline-flex;align-items:center;min-height:40px;padding:9px 12px;border:1px solid var(--line);border-radius:7px;background:#1b2938;font-size:12px;white-space:nowrap;cursor:pointer;transition:background .12s,border-color .12s}.log-navigation .back:hover{background:#283b4e;border-color:var(--lane)}.log-navigation .back:active{background:#17362f;border-color:var(--lane);transform:translateY(1px)}.log-navigation .back:focus-visible{outline:2px solid var(--lead);outline-offset:3px}@media(max-width:360px){.log-navigation .back{padding:9px 8px}}
+
+/* Both toggles off preserve the original responsive layout. */
+.layout-toggles{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-left:auto}
+.view-toolbar{flex-wrap:wrap}
+.stack-view .views{grid-template-columns:minmax(0,1fr)}
+.stack-view .views article{min-width:0;width:100%}
+.stack-view .road-wrap{height:clamp(450px,60vw,760px)}
+@media(max-width:440px){.layout-toggles{gap:6px}.layout-toggles .view-toggle{gap:6px;padding:9px 10px}}
