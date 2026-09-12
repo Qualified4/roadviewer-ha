@@ -1,6 +1,6 @@
 'use strict';
 (()=>{
- const labels={logSegment:'구간 선택',speed:'재생 속도',range:'전방 표시 거리'};
+ const labels={concurrency:'동시 처리 개수',logSegment:'구간 선택',speed:'재생 속도',range:'전방 표시 거리'};
  const dialog=document.createElement('dialog');dialog.className='rv-choice-dialog';
  dialog.setAttribute('aria-labelledby','rv-choice-title');
  const header=document.createElement('div');header.className='rv-choice-header';
@@ -82,6 +82,7 @@
   button.onclick=()=>open(select,button);
   button.onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();open(select,button)}};
   select.addEventListener('change',sync);
+  select.addEventListener('rv:sync',sync);
   new MutationObserver(sync).observe(select,{childList:true,subtree:true,attributes:true,characterData:true});
   sync();
  }

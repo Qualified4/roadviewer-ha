@@ -23,3 +23,9 @@
 .upload-row button:disabled{cursor:default}
 
 .state-processing{display:inline-block;padding:3px 9px;border:1px solid #d5a14b66;border-radius:6px;background:#d5a14b1a;color:#ffd28a;font-weight:700;white-space:normal}
+
+.library-tools,.concurrency-control{display:flex;align-items:center;gap:8px}
+.library-tools{flex-wrap:wrap;justify-content:flex-end}
+.concurrency-control{font-size:12px;color:var(--muted)}
+#concurrencyStatus{font-size:12px;color:var(--muted);margin:8px 0}
+@media(max-width:440px){.library-head{flex-wrap:wrap;gap:10px}.library-tools{margin-left:auto}}

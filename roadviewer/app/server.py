@@ -3,14 +3,14 @@ import hashlib
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
 from progress import ProgressChannel
 from werkzeug.datastructures import FileStorage
-from concurrent.futures import ThreadPoolExecutor
+from work_queue import ProcessingQueue
 from flask import Flask,request,jsonify,send_file,send_from_directory,abort
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
 options_path=Path('/data/options.json');options=json.loads(options_path.read_text()) if options_path.exists() else {}
 app=Flask(__name__,static_folder=None)
 app.config.update(MAX_CONTENT_LENGTH=int(options.get('max_upload_mb',512))*1024*1024,MAX_FORM_PARTS=220)
-lock=threading.RLock();pool=ThreadPoolExecutor(max_workers=1);processes={};job_progress={}
+lock=threading.RLock();processes={};job_progress={}
 ID=re.compile(r'^[a-f0-9]{32}$');FLAT=re.compile(r'^(?P<route>.{20})--(?P<segment>\d+)--(?P<kind>rlog\.zst|qcamera\.ts)$')
 def folder(id):
  if not ID.fullmatch(id):abort(404)
@@ -59,7 +59,28 @@ def run_job(id):
    if processes.get(id) is proc:
     processes.pop(id,None);job_progress.pop(id,None)
 
-def submit(id):pool.submit(run_job,id)
+PROCESSING_SETTINGS=ROOT/'.processing-settings.json'
+def read_processing_limit():
+ try:
+  value=json.loads(PROCESSING_SETTINGS.read_text()).get('concurrency',1)
+  return value if type(value) is int and value in (1,2) else 1
+ except (OSError,ValueError,AttributeError):return 1
+
+pool=ProcessingQueue(run_job,read_processing_limit())
+def submit(id):pool.submit(id)
+
+@app.route('/api/settings/processing',methods=['GET','POST'])
+def processing_settings():
+ with lock:
+  if request.method=='POST':
+   body=request.get_json(silent=True)
+   value=body.get('concurrency') if isinstance(body,dict) else None
+   if type(value) is not int or value not in (1,2):return jsonify(error='동시 처리 개수는 1 또는 2여야 합니다.'),400
+   temp=PROCESSING_SETTINGS.with_suffix('.tmp')
+   temp.write_text(json.dumps({'concurrency':value}));temp.replace(PROCESSING_SETTINGS)
+   pool.set_limit(value)
+  return jsonify(concurrency=pool.limit)
+
 @app.before_request
 def access():
  # Supervisor is the only accepted network peer in a Home Assistant installation.
@@ -67,7 +88,7 @@ def access():
  if request.method in ('POST','PUT','DELETE') and request.headers.get('X-RoadViewer-Request')!='1':abort(403)
 @app.after_request
 def fresh_replay_state(response):
- if request.path.startswith('/view/') or request.path in ('/api/logs','/api/progress') or (request.path.startswith('/api/logs/') and request.path.endswith('/data')):
+ if request.path.startswith('/view/') or request.path in ('/api/logs','/api/progress','/api/settings/processing') or (request.path.startswith('/api/logs/') and request.path.endswith('/data')):
   response.headers['Cache-Control']='no-store'
  return response
 
@@ -141,7 +162,7 @@ def processing_progress():
 @app.route('/api/logs')
 def logs():
  with lock:items=[dict(read_meta(p),video=(p/'qcamera.ts').is_file(),progress=job_progress.get(p.name)) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
- return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes())
+ return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit)
 @app.route('/api/upload',methods=['POST'])
 def upload():
  return register_files(request.files.getlist('files'))
