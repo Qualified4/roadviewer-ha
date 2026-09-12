@@ -12,6 +12,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   });
   await page.goto('https://rv.test/view/one/');
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  assert(await page.locator('#trackLabels').isChecked());
+  assert.deepEqual(await page.locator('.target-label-mode input').evaluateAll(inputs=>inputs.map(input=>input.id)),['hideLabels','trackLabels','distanceLabels','yRelLabels','speedLabels','relativeSpeedLabels','liveTrackLabels']);
   assert(await page.locator('#modelPath').isChecked());
   await page.evaluate(()=>{
    window.pathDraws=0;const stroke=ctx.stroke.bind(ctx);
@@ -28,7 +30,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#modelPath').uncheck();await page.locator('#hideLabels').check();
   await page.reload();assert(!(await page.locator('#modelPath').isChecked()));assert(await page.locator('#hideLabels').isChecked());
   await page.evaluate(()=>localStorage.setItem('roadviewer-display-preferences','invalid JSON'));
-  await page.reload();assert(await page.locator('#modelPath').isChecked());assert(await page.locator('#distanceLabels').isChecked());
+  await page.reload();assert(await page.locator('#modelPath').isChecked());assert(await page.locator('#trackLabels').isChecked());
   assert.deepEqual(errors,[]);console.log('PASS: model path default/drawing, checkbox and label persistence, malformed preference fallback');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

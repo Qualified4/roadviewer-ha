@@ -1,7 +1,7 @@
 /* Bounded diagnostic metadata only: never reads file contents or ingress URLs. */
 'use strict';
 window.pickerDiagnostics=(()=>{
- const version='0.2.54',queueKey='roadviewer-picker-events-v1',pendingKey='roadviewer-picker-pending-v1';
+ const version='0.2.55',queueKey='roadviewer-picker-events-v1',pendingKey='roadviewer-picker-pending-v1';
  const uuid=()=>globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
  const page=uuid();let memory=[],sending=false,attempt=null,lastAttempt=null;
  const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem(key))||fallback}catch{return fallback}};

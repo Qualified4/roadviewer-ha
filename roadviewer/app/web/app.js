@@ -258,7 +258,7 @@ try{
 }catch{}
 function saveDisplayPreferences(){
  const checks=Object.fromEntries(displayControls.filter(control=>control.type==='checkbox').map(control=>[control.id,control.checked]));
- const labelMode=displayControls.find(control=>control.type==='radio'&&control.checked)?.value||'distance';
+ const labelMode=displayControls.find(control=>control.type==='radio'&&control.checked)?.value||'trackId';
  try{localStorage.setItem(displayPreferenceKey,JSON.stringify({checks,labelMode}))}catch{}
 }
 for(const control of displayControls)control.addEventListener('change',saveDisplayPreferences);
