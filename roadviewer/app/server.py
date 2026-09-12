@@ -52,6 +52,12 @@ def access():
  # Supervisor is the only accepted network peer in a Home Assistant installation.
  if os.environ.get('RV_INGRESS_ONLY','1')=='1' and request.remote_addr!='172.30.32.2':abort(403)
  if request.method in ('POST','PUT','DELETE') and request.headers.get('X-RoadViewer-Request')!='1':abort(403)
+@app.after_request
+def fresh_replay_state(response):
+ if request.path.startswith('/view/') or request.path=='/api/logs' or (request.path.startswith('/api/logs/') and request.path.endswith('/data')):
+  response.headers['Cache-Control']='no-store'
+ return response
+
 @app.errorhandler(413)
 def too_large(e):return jsonify(error='업로드 용량 제한을 초과했습니다.'),413
 @app.errorhandler(404)
@@ -269,8 +275,8 @@ def delete(id):
  return jsonify(deleted=id)
 @app.route('/api/logs/<id>/data')
 def data(id):
- p=folder(id)
- if read_meta(p)['status']!='ready':return jsonify(error='로그를 준비 중이거나 변환에 실패했습니다.'),409
+ p=folder(id);meta=read_meta(p)
+ if meta['status']!='ready':return jsonify(status=meta['status'],error=meta.get('error') or '로그를 준비 중입니다.'),409
  return send_file(p/'prepared/data.json',mimetype='application/json',conditional=True)
 @app.route('/api/logs/<id>/video')
 def video(id):
