@@ -10,3 +10,5 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 
 .camera-status{display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:flex-end}.ego-speed{display:flex;align-items:baseline;gap:5px}.ego-speed strong{font-size:25px;color:#57d9b0;font-variant-numeric:tabular-nums}.ego-speed span{font-size:11px;color:#9caec0}
 .app-brand{display:flex;align-items:center;gap:12px}.app-icon{width:44px;height:44px;flex-shrink:0}
+
+.steering-status{display:flex;align-items:center;flex-direction:column;flex-shrink:0}.steering-status svg{width:96px;height:60px;display:block}.panel-head .steering-status span{font-size:10px}.camera-panel .panel-head{flex-wrap:wrap}

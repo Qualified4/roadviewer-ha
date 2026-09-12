@@ -61,3 +61,14 @@ amd64 Docker 이미지 빌드, 실제 로그 변환, 업로드·목록·재생·
 ## 내 차량 속도
 
 카메라 상단에 carState.vEgo × 3.6 값을 km/h로 표시합니다. 계기판 표시 속도와 차이가 있을 수 있습니다. 영상 프레임 시각과 가장 가까운 carState를 사용하며, 유효하지 않거나 150ms 이상 떨어진 값은 —로 표시합니다. 업데이트 시 기존 로그도 자동 재변환됩니다.
+
+
+## 조향 핸들 표시 (0.2.5)
+
+속도 옆 원본 mici 당근 핸들이 carState.steeringAngleDeg의 음수 각도로 회전합니다. carState.steeringPressed가 참이면 운전자 조향 개입으로 흰색을 우선 적용합니다. 이는 조향 개입 신호이며 가속·브레이크 개입이나 손을 단순히 얹었는지를 판정하지 않습니다. carControl.latActive가 참이면 토크에 따라 원본 HSV 녹색→주황색 및 1~1.5배 확대를 적용합니다. 비활성은 원본 밝은 회색, 필수 상태 누락·무효·150ms 경과는 확인 불가로 표시합니다. 원본 휠 PNG와 틴트 없는 중앙 당근 이미지를 사용합니다.
+
+토크는 carOutput.actuatorsOutput.torque를 사용하며 angleState는 desiredCurvature, vEgo, liveParameters.roll, carParams.maxLateralAccel로 원본 보상식을 계산합니다. 0.1초 저역통과 필터는 재생 프레임의 로그 시간 간격을 사용하므로 기기의 GUI 프레임 속도와 차이가 날 수 있습니다. liveParameters는 2초, carParams는 마지막 유효 설정을 사용합니다. 토크가 없으면 기본 크기로 표시합니다.
+
+controlsState.activeLaneLine으로 레인 이미지를 표시합니다. selfdriveState.alertHudVisual=steerRequired 및 표시 중인 alertSize로 위험 휠과 느낌표를 표시합니다. 원본 UI의 경고 퇴장 애니메이션·차선 변경 의도 애니메이션은 재현하지 않습니다. 기존 업로드는 업데이트 시 자동 재변환됩니다.
+
+아이콘 출처: 사용자 지정 openpilot selfdrive/assets/icons_mici 및 selfdrive/ui/mici/onroad/hud_renderer.py. 원본 라이선스는 schema/OPENPILOT-LICENSE에 포함됩니다.

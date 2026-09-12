@@ -31,7 +31,7 @@ def run_job(id):
    if not (p/'meta.json').exists():return
    m=read_meta(p)
    if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
-   data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=bool(data['video']),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v7-ego-speed');save_meta(p,m)
+   data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=bool(data['video']),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v8-steering-wheel');save_meta(p,m)
  except Exception as e:
   if proc.poll() is None:proc.kill();proc.communicate()
   with lock:
@@ -175,5 +175,5 @@ def video(id):
  return send_file(file,mimetype='video/mp4',conditional=True)
 # Requeue unfinished conversions after an app restart.
 for p in ROOT.iterdir():
- if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file() and (read_meta(p)['status'] in ('queued','processing') or (read_meta(p)['status']=='ready' and read_meta(p).get('decoder_version')!='v7-ego-speed')):submit(p.name)
+ if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file() and (read_meta(p)['status'] in ('queued','processing') or (read_meta(p)['status']=='ready' and read_meta(p).get('decoder_version')!='v8-steering-wheel')):submit(p.name)
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)

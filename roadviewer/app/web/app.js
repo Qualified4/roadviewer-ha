@@ -16,6 +16,18 @@ v.onloadedmetadata=()=>{v.playbackRate=Number($('speed').value);setTime(t)};v.on
 for(const id of ['range','lanes','edges','leads','uncertain','radarCenter','radarLeft','radarRight','liveTracks','trackLabels'])$(id).onchange=render;
 document.onkeydown=e=>{if(['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
+function renderSteering(f){
+ const s=Math.abs(f.t-t)<.16?f.steering:null,labels={driver:'운전자 조향 개입',active:'조향 제어 중',inactive:'조향 제어 꺼짐',unknown:'상태 확인 불가'};
+ const label=labels[s?.state]||labels.unknown;
+ const detail=label+(s?.angle!=null?` · ${s.angle.toFixed(1)}°`:'')+(s?.torque==null?' · 토크 정보 없음':'')+(s?.critical?' · 핸들 조작 요청':'');
+ $('steeringLabel').textContent=label;$('steeringStatus').title=detail;$('steeringIcon').setAttribute('aria-label',detail);
+ const [r,g,b]=(s?.color||[148,165,184]).map(v=>v/255);
+ $('wheelColor').setAttribute('values',`${r} 0 0 0 0 0 ${g} 0 0 0 0 0 ${b} 0 0 0 0 0 ${['driver','active'].includes(s?.state)?1:242/255} 0`);
+ $('wheelRotate').setAttribute('transform',`translate(64 40) rotate(${-(s?.angle||0)}) scale(${s?.scale||1}) translate(-64 -40)`);
+ $('wheelTexture').setAttribute('href',`../../assets/carrot_wheel${s?.critical?'_critical':''}.png`);
+ $('wheelLane').setAttribute('visibility',s?.lane&&!s?.critical?'visible':'hidden');
+ $('wheelCritical').setAttribute('visibility',s?.critical?'visible':'hidden');
+}
 function render(){
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!data)return;
  const f=data.frames[idx],valid=f.valid&&Math.abs(f.t-t)<.16;const range=Number($('range').value),scale=(h-78)/range,cx=w/2,cy=h-48;
@@ -72,6 +84,7 @@ function render(){
  $('rawRows').replaceChildren(...rawTargets.map(target=>{const row=document.createElement('tr');for(const value of [target.trackId,target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.measured?'예':'아니오',target.source,target.trackState]){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}return row}));
  if(!rawTargets.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=7;cell.textContent='표시할 liveTracks 감지점이 없습니다.';row.append(cell);$('rawRows').append(row)}
  canvas.setAttribute('aria-label',`차량 중심 도로. 현재 radarState 중앙·좌우 차량 ${targets.length}개. 전방 범위 ${range}m.`);
+ renderSteering(f);
  $('egoSpeed').textContent=Math.abs(f.t-t)<.16&&Number.isFinite(f.egoSpeedKph)?f.egoSpeedKph.toFixed(1):'—';
  $('left').textContent=valid?percent(f.lp[1]):'—';$('right').textContent=valid?percent(f.lp[2]):'—';$('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'미선택';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent='FRAME '+f.id;
 }

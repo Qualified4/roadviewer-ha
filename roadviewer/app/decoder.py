@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys,json,hashlib,bisect,collections,math
 import av,zstandard,capnp
+from steering import SteeringReplay
 BASE=Path(__file__).resolve().parent
 log=capnp.load(str(BASE.parent/'schema/cereal/log.capnp'))
 
@@ -17,7 +18,7 @@ def prepare(value):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v7-ego-speed').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v8-steering-wheel').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  if (dest/'data.json').exists():
   cached=json.loads((dest/'data.json').read_text())
@@ -26,9 +27,11 @@ def prepare(value):
  with src.open('rb') as source, zstandard.ZstdDecompressor().stream_reader(source) as reader:
   raw=reader.read(512*1024*1024+1)
  if len(raw)>512*1024*1024:raise ValueError('압축 해제된 로그가 512MB 제한을 초과합니다.')
+ streams=collections.defaultdict(list)
  models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter()
  for e in log.Event.read_multiple_bytes(raw):
   kind=e.which();counts[kind]+=1
+  if kind in ('carState','carControl','controlsState','carOutput','selfdriveState','liveParameters','carParams'):streams[kind].append((e.logMonoTime,e.valid,getattr(e,kind).to_dict()))
   if kind=='modelV2':models.append((e.logMonoTime,e.valid,e.modelV2.to_dict()))
   elif kind=='radarState':radars.append((e.logMonoTime,e.valid,e.radarState.to_dict()))
   elif kind=='liveTracks':live_tracks.append((e.logMonoTime,e.valid,e.liveTracks.to_dict()))
@@ -42,6 +45,8 @@ def prepare(value):
  ordered=sorted(zip(rt,radars),key=lambda item:item[0]);rt=[a for a,b in ordered];radars=[b for a,b in ordered]
  live_tracks.sort(key=lambda row:row[0]);lt_times=[row[0] for row in live_tracks]
  car_states.sort(key=lambda row:row[0]);car_times=[row[0] for row in car_states]
+ steering=SteeringReplay(streams)
+ models.sort(key=lambda row:time_of(row[0],row[2]))
  frames=[]
  def points(line):return [[round(float(x),3),round(float(y),3)] for x,y in zip(line['x'],line['y']) if math.isfinite(x) and math.isfinite(y)]
  for stamp,valid,m in models:
@@ -67,7 +72,7 @@ def prepare(value):
       if not all(math.isfinite(target.get(k,float('nan'))) for k in ('dRel','yRel','vRel')):continue
       radar_targets.append({'group':group,'index':number,'x':target['dRel'],'y':-target['yRel'],'yRel':target['yRel'],'vRel':target['vRel'],'radar':target.get('radar',False),'trackId':target.get('radarTrackId',-1),'modelProb':target.get('modelProb',0)})
   leads=[{'x':l['x'][0],'y':l['y'][0],'p':l['prob']} for l in m.get('leadsV3',[])[:2] if l.get('x') and l.get('y')]
-  frames.append({'t':round(time_of(stamp,m)-origin,6),'id':m['frameId'],'egoSpeedKph':ego_speed,'valid':valid,'lanes':[points(l) for l in m['laneLines']],'lp':m['laneLineProbs'],'edges':[points(l) for l in m['roadEdges']],'es':m['roadEdgeStds'],'leads':leads,'selected':selected,'radarTargets':radar_targets,'liveTracks':raw_targets,'liveTracksValid':live_valid,'liveTracksDeltaMs':live_delta})
+  frames.append({'t':round(time_of(stamp,m)-origin,6),'id':m['frameId'],'egoSpeedKph':ego_speed,'steering':steering.at(time_of(stamp,m)*1e9),'valid':valid,'lanes':[points(l) for l in m['laneLines']],'lp':m['laneLineProbs'],'edges':[points(l) for l in m['roadEdges']],'es':m['roadEdgeStds'],'leads':leads,'selected':selected,'radarTargets':radar_targets,'liveTracks':raw_targets,'liveTracksValid':live_valid,'liveTracksDeltaMs':live_delta})
  frames.sort(key=lambda f:f['t'])
  video_info=None;warnings=[]
  if video.exists() and cameras:
