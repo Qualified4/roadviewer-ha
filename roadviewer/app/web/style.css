@@ -110,3 +110,29 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 .log-origin{display:flex;align-items:center;gap:8px;min-width:0}
 #logSegment{width:100px;min-width:0;min-height:40px;cursor:pointer}
 @media(max-width:550px){#logSegment{width:76px}}
+
+/* Web-owned choices avoid platform-specific Android select dialogs. */
+.rv-choice-native{display:none!important}
+.rv-choice-trigger{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;min-height:36px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-size:12px;max-width:100%}
+.rv-choice-trigger::after{content:"";width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);flex-shrink:0;margin:0 2px 4px 0}
+#logSegmentChoice{width:100px;min-height:40px}
+#logSegmentChoice{overflow:hidden;white-space:nowrap}
+.rv-choice-dialog{position:fixed;margin:0;inset:auto;padding:0;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--text);box-shadow:0 12px 40px #0008;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);overflow:hidden}
+.rv-choice-dialog::backdrop{background:transparent}
+.rv-choice-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.rv-choice-header h2{font-size:14px;color:var(--text)}
+.rv-choice-close{padding:6px 10px;font-size:12px}
+.rv-choice-list{padding:6px;overflow-y:auto;max-height:min(340px,calc(100vh - 100px));overscroll-behavior:contain}
+.rv-choice-option{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;min-height:44px;border:0;border-radius:8px;background:transparent;text-align:left;padding:10px 12px}
+.rv-choice-option[aria-selected=true]{color:var(--lane);background:#17362f}
+.rv-choice-option:disabled{cursor:default}
+.rv-choice-check{color:var(--lane);min-width:16px}
+.rv-choice-trigger:focus-visible,.rv-choice-option:focus-visible{outline:2px solid var(--lane);outline-offset:-2px}
+@media(max-width:600px){
+ .rv-choice-dialog{left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));top:auto;width:calc(100% - 16px);max-width:none;border-radius:20px;max-height:80vh;max-height:80dvh}
+ .rv-choice-dialog::backdrop{background:#0008}
+ .rv-choice-header{padding:16px 18px}
+ .rv-choice-list{padding:8px;max-height:calc(80vh - 76px);max-height:calc(80dvh - 76px)}
+ .rv-choice-option{min-height:48px;padding:12px 14px}
+}
+@media(max-width:550px){#logSegmentChoice{width:76px;gap:6px;padding:6px 8px}}

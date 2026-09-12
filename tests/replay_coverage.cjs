@@ -47,7 +47,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.waitForTimeout(150);
    assert.equal(await page.evaluate(()=>t),.5);
    // Run across both start and end boundaries at 4x.
-   await page.evaluate(()=>setTime(0));await page.selectOption('#speed','4');await page.locator('#play').click();
+   await page.evaluate(()=>setTime(0));await page.selectOption('#speed','4',{force:true});await page.locator('#play').click();
    await page.waitForFunction(()=>!playing&&t>=data.duration-.001);
    assert.equal(await page.locator('#seek').inputValue(),String(duration));
    // Seeking back into video restores the image after the video-free tail.

@@ -86,11 +86,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await page.locator('#logSegment option').first().isDisabled());
   for(const width of [320,390,1280]){
    await page.setViewportSize({width,height:844});
-   for(const selector of ['.back','#logSegment','#previousLog','#nextLog']){
+   for(const selector of ['.back','#logSegmentChoice','#previousLog','#nextLog']){
     const box=await page.locator(selector).boundingBox();assert(box.x>=0&&box.x+box.width<=width);
    }
   }
-  await page.selectOption('#logSegment','two');await page.waitForURL('**/view/two/');
+  await page.selectOption('#logSegment','two',{force:true});await page.waitForURL('**/view/two/');
   await page.waitForFunction(()=>document.getElementById('logSegment').value==='two');
   assert.deepEqual(errors,[]);console.log('PASS: stable replay links during refresh and click, pending to ready without reload, versioned video loads and plays');
  }finally{await browser.close()}
