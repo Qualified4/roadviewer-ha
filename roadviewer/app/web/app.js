@@ -37,8 +37,7 @@ function render(){
  for(let y=-Math.floor((w/2-40)/scale/5)*5;y<(w/2-20)/scale;y+=5){ctx.beginPath();ctx.moveTo(X(y),24);ctx.lineTo(X(y),cy);ctx.stroke();ctx.textAlign='center';ctx.fillText(y,X(y),h-13)}ctx.textAlign='left';ctx.fillText('전방 x ↑',12,16);ctx.textAlign='right';ctx.fillText('좌우 y → (m)',w-10,16);ctx.textAlign='left';
  ctx.save();ctx.beginPath();ctx.rect(38,22,w-50,cy-20);ctx.clip();
  const labels=[];
- const lateralLabel=value=>checked('yRelLabels')&&Number.isFinite(value)?`yRel ${value.toFixed(2)}m`:'';
- const withLateral=(text,value)=>[text,lateralLabel(value)].filter(Boolean).join('\n');
+ const targetDistance=(forward,lateral)=>checked('yRelLabels')?`yRel ${Number.isFinite(lateral)?lateral.toFixed(2)+'m':'—'}`:`${forward.toFixed(1)}m`;
  function annotate(text,x,y,color,side=1){
   const lines=text.split('\n'),width=Math.max(...lines.map(line=>ctx.measureText(line).width)),height=lines.length*13;let box=null;
   for(const offset of [-8,12,-28,32,-48,52,-68,72]){
@@ -55,12 +54,12 @@ function render(){
   if(checked('edges'))f.edges.forEach((l,i)=>line(l,'#ffa665',f.es[i]>1,.95));
   if(checked('leads')){
    f.leads.forEach((l,i)=>{if(!checked('uncertain')&&l.p<.5)return;if(l.x<0||l.x>range)return;ctx.globalAlpha=l.p<.5?.45:1;ctx.strokeStyle='#81b5ff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(X(l.y),Y(l.x),7,0,Math.PI*2);ctx.stroke();annotate(`모델 ${i+1} · ${l.x.toFixed(1)}m`,X(l.y),Y(l.x),'#c5daff',i===0?1:-1);ctx.globalAlpha=1});
-   const l=f.selected;if(l&&l.x>=0&&l.x<=range){const x=X(l.y),y=Y(l.x);ctx.strokeStyle='#eee7bc';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+7,y);ctx.lineTo(x,y+7);ctx.lineTo(x-7,y);ctx.closePath();ctx.stroke();annotate(withLateral(`선택 · ${l.x.toFixed(1)}m`,-l.y),x,y,'#eee7bc')}
+   const l=f.selected;if(l&&l.x>=0&&l.x<=range){const x=X(l.y),y=Y(l.x);ctx.strokeStyle='#eee7bc';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+7,y);ctx.lineTo(x,y+7);ctx.lineTo(x-7,y);ctx.closePath();ctx.stroke();annotate(`선택 · ${targetDistance(l.x,-l.y)}`,x,y,'#eee7bc')}
   }
   for(const target of f.radarTargets||[]){
    const style=targetStyle[target.group];if(!style||!checked(style.toggle)||target.x<0||target.x>range)continue;
    const x=X(target.y),y=Y(target.x);ctx.strokeStyle=style.color;ctx.lineWidth=2;ctx.strokeRect(x-5,y-8,10,16);
-   annotate(withLateral(`${style.label} ${target.index+1} · ${target.x.toFixed(1)}m`,target.yRel),x,y,style.color,target.group==='left'?-1:1);
+   annotate(`${style.label} ${target.index+1} · ${targetDistance(target.x,target.yRel)}`,x,y,style.color,target.group==='left'?-1:1);
   }
  }
  const rawVisible=Math.abs(f.t-t)<.16&&f.liveTracksValid;
@@ -70,8 +69,7 @@ function render(){
   const x=X(target.y),y=Y(target.x);ctx.strokeStyle='#78e9fa';ctx.lineWidth=1.5;ctx.globalAlpha=target.measured?.9:.5;ctx.beginPath();
   if(target.measured){ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.moveTo(x,y-4);ctx.lineTo(x,y+4)}else ctx.arc(x,y,4,0,Math.PI*2);
   ctx.stroke();ctx.globalAlpha=1;
-  const label=withLateral(checked('trackLabels')?`T${target.trackId}`:'',target.yRel);
-  if(label)annotate(label,x,y,'#78e9fa',target.y<0?-1:1);
+  if(checked('trackLabels'))annotate(`T${target.trackId}`,x,y,'#78e9fa',target.y<0?-1:1);
  }
  ctx.restore();
  ctx.fillStyle='#e6edf5';ctx.beginPath();ctx.moveTo(cx,cy-14);ctx.lineTo(cx-7,cy+4);ctx.lineTo(cx+7,cy+4);ctx.closePath();ctx.fill();ctx.textAlign='center';ctx.fillText('내 차량',cx,cy+20);ctx.textAlign='left';
