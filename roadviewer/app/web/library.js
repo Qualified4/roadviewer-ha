@@ -8,8 +8,8 @@ function selectionChanged(){
  $('selectedFiles').replaceChildren(...selected.map(f=>{const li=document.createElement('li');li.textContent=f.webkitRelativePath||f.name;return li}));
 }
 function filesChanged(e){
- if(busy||!e.target.files.length)return;
- const rejected=[];
+ if(busy||!e.target.files.length){window.pickerDiagnostics?.record('selection_ignored',{picker:e.target.id,busy,count:e.target.files.length});return}
+ const before=selected.length;const rejected=[];
  for(const file of e.target.files){
   const path=file.webkitRelativePath||file.name;
   if(!/(^|--)(rlog\.zst|qcamera\.ts)$/.test(file.name)){rejected.push(file.name);continue}
@@ -17,6 +17,7 @@ function filesChanged(e){
   if(index<0)selected.push(file);else selected[index]=file;
  }
  // Clear only after copying File objects; do not mutate the input during picker launch.
+ window.pickerDiagnostics?.record('selection_processed',{picker:e.target.id,received:e.target.files.length,before,after:selected.length,rejected:rejected.slice(0,20).map(name=>name.slice(0,180))});
  e.target.value='';selectionChanged();
  error(rejected.length?'지원하지 않는 파일: '+rejected.join(', ')+'. rlog.zst 또는 qcamera.ts 파일을 선택하세요.':'');
 }
@@ -34,6 +35,7 @@ async function api(url,options={}){
  return result;
 }
 $('upload').onclick=async()=>{
+ window.pickerDiagnostics?.record('upload_clicked',{busy,count:selected.length});
  if(busy||!selected.length)return;busy=true;error('');$('upload').disabled=true;pickerIds.forEach(id=>$(id).disabled=true);$('clearSelection').disabled=true;$('progress').hidden=false;$('progress').value=0;
  let session=null;let sent=0;const total=selected.reduce((sum,f)=>sum+f.size,0);
  try{
@@ -50,9 +52,10 @@ $('upload').onclick=async()=>{
   $('uploadStatus').textContent='서버에서 파일을 등록하는 중…';
   const result=await api(`api/uploads/${session.id}/finish`,{method:'POST'});session=null;
   const duplicates=result.duplicates||[];
+  window.pickerDiagnostics?.record('upload_complete',{created:result.logs.length,duplicates:duplicates.length});
   $('uploadStatus').textContent=`새 로그 ${result.logs.length}개 등록 · 중복 ${duplicates.length}개 건너뜀.${result.logs.length?' 준비가 끝나면 재생할 수 있습니다.':''}`;
   if(duplicates.some(d=>d.video_differs))error('이미 저장된 로그와 영상 구성이 다른 항목이 있습니다. 기존 로그를 보존하고 건너뛰었습니다. 영상을 변경하려면 기존 로그를 삭제한 뒤 로그와 영상을 함께 업로드하세요.');selected=[];pickerIds.forEach(id=>$(id).value='');selectionChanged();await refresh();
- }catch(e){error(e.message);$('uploadStatus').textContent='업로드 실패. 오류를 확인하고 다시 시도하세요.'}
+ }catch(e){window.pickerDiagnostics?.record('upload_failed',{errorName:e.name});error(e.message);$('uploadStatus').textContent='업로드 실패. 오류를 확인하고 다시 시도하세요.'}
  finally{
   if(session)try{await api(`api/uploads/${session.id}`,{method:'DELETE'})}catch{}
   busy=false;pickerIds.forEach(id=>$(id).disabled=false);selectionChanged();$('progress').hidden=true;

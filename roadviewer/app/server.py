@@ -59,6 +59,40 @@ def index():
 def view(id):folder(id);return send_from_directory(BASE/'web','index.html')
 @app.route('/assets/<path:name>')
 def assets(name):return send_from_directory(BASE/'web',name)
+DIAGNOSTICS=ROOT/'.picker-diagnostics.jsonl'
+diagnostic_lock=threading.Lock()
+@app.route('/api/diagnostics',methods=['GET','POST'])
+def diagnostics():
+ if request.method=='GET':
+  with diagnostic_lock:
+   old=DIAGNOSTICS.with_suffix('.previous.jsonl')
+   content=(old.read_text() if old.exists() else '')+(DIAGNOSTICS.read_text() if DIAGNOSTICS.exists() else '')
+  response=app.response_class(content,mimetype='application/x-ndjson')
+  response.headers['Content-Disposition']='attachment; filename="roadviewer-picker-diagnostics.jsonl"'
+  response.headers['Cache-Control']='no-store'
+  return response
+ raw=request.stream.read(32769)
+ if len(raw)>32768:return jsonify(error='진단 요청이 너무 큽니다.'),413
+ try:body=json.loads(raw)
+ except (ValueError,UnicodeDecodeError):return jsonify(error='잘못된 진단 요청입니다.'),400
+ events=body.get('events') if isinstance(body,dict) else None
+ if not isinstance(events,list) or not 1<=len(events)<=100:return jsonify(error='잘못된 진단 목록입니다.'),400
+ lines=[]
+ for event in events:
+  if not isinstance(event,dict) or not isinstance(event.get('event'),str) or len(event['event'])>80:return jsonify(error='잘못된 진단 항목입니다.'),400
+  item={k:event[k] for k in ('id','page','version','time','event','attempt','details') if k in event}
+  item['received_at']=time.time();line=json.dumps(item,ensure_ascii=False,separators=(',',':'))
+  if len(line.encode())>16384:return jsonify(error='진단 항목이 너무 큽니다.'),413
+  lines.append(line)
+ with diagnostic_lock:
+  # Two bounded files survive app restart, without growing indefinitely.
+  for line in lines:
+   if DIAGNOSTICS.exists() and DIAGNOSTICS.stat().st_size+len(line.encode())+1>512*1024:
+    DIAGNOSTICS.replace(DIAGNOSTICS.with_suffix('.previous.jsonl'))
+   with DIAGNOSTICS.open('a') as output:output.write(line+'\n')
+   print('[RoadViewer picker] '+line,flush=True)
+ return jsonify(saved=len(lines))
+
 @app.route('/api/logs')
 def logs():
  with lock:items=[read_meta(p) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
