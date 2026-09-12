@@ -37,7 +37,7 @@ function render(){
  for(let y=-Math.floor((w/2-40)/scale/5)*5;y<(w/2-20)/scale;y+=5){ctx.beginPath();ctx.moveTo(X(y),24);ctx.lineTo(X(y),cy);ctx.stroke();ctx.textAlign='center';ctx.fillText(y,X(y),h-13)}ctx.textAlign='left';ctx.fillText('전방 x ↑',12,16);ctx.textAlign='right';ctx.fillText('좌우 y → (m)',w-10,16);ctx.textAlign='left';
  ctx.save();ctx.beginPath();ctx.rect(38,22,w-50,cy-20);ctx.clip();
  const labels=[];
- const targetDistance=(forward,lateral)=>checked('yRelLabels')?`yRel ${Number.isFinite(lateral)?lateral.toFixed(2)+'m':'—'}`:`${forward.toFixed(1)}m`;
+ const targetDistance=(forward,lateral)=>checked('yRelLabels')?(Number.isFinite(lateral)?lateral.toFixed(2)+'m':'—'):`${forward.toFixed(1)}m`;
  function annotate(text,x,y,color,side=1){
   const lines=text.split('\n'),width=Math.max(...lines.map(line=>ctx.measureText(line).width)),height=lines.length*13;let box=null;
   for(const offset of [-8,12,-28,32,-48,52,-68,72]){
