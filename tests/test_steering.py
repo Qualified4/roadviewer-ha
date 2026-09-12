@@ -26,9 +26,9 @@ class SteeringTests(unittest.TestCase):
  def test_actual_capnp_decode(self):
   import decoder,zstandard,json
   messages=[]
-  for name,values in [('carState',{'vEgo':10,'steeringPressed':True,'steeringAngleDeg':23}),('carControl',{'latActive':True}),('controlsState',{'activeLaneLine':True}),('carOutput',{'actuatorsOutput':{'torque':.8}}),('modelV2',{'frameId':1,'timestampEof':1_010_000_000,'position':{'x':[0,10,20],'y':[0,1,-2]},'laneLines':[],'laneLineProbs':[],'roadEdges':[],'roadEdgeStds':[]})]:
+  for name,values in [('liveCalibration',{'calStatus':'calibrated','rpyCalib':[0,0,0],'height':[1.2]}),('deviceState',{'deviceType':'tici'}),('roadCameraState',{'sensor':'ar0231'}),('carState',{'vEgo':10,'steeringPressed':True,'steeringAngleDeg':23}),('carControl',{'latActive':True}),('controlsState',{'activeLaneLine':True}),('carOutput',{'actuatorsOutput':{'torque':.8}}),('modelV2',{'frameId':1,'timestampEof':1_010_000_000,'position':{'x':[0,10,20],'y':[0,1,-2],'z':[0,0,0]},'laneLines':[],'laneLineProbs':[],'roadEdges':[],'roadEdgeStds':[]})]:
    e=decoder.log.Event.new_message();e.logMonoTime=1_000_000_000;e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/'rlog.zst';p.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
-   dest,data=decoder.prepare(p);self.assertEqual(data['frames'][0]['position'],[[0,0],[10,1],[20,-2]]);s=data['frames'][0]['steering'];self.assertEqual(s['state'],'driver');self.assertEqual(s['angle'],23);self.assertEqual(s['color'],[255,255,255]);json.loads((dest/'data.json').read_text())
+   dest,data=decoder.prepare(p);self.assertEqual(data['frames'][0]['position'],[[0,0],[10,1],[20,-2]]);self.assertIsNotNone(data['frames'][0]['overlay']);self.assertEqual(len(data['frames'][0]['overlay']['path']),3);s=data['frames'][0]['steering'];self.assertEqual(s['state'],'driver');self.assertEqual(s['angle'],23);self.assertEqual(s['color'],[255,255,255]);json.loads((dest/'data.json').read_text())
 if __name__=='__main__':unittest.main()

@@ -74,7 +74,9 @@ function renderSteering(f){
 }
 function render(){
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!data)return;
- const f=data.frames[idx],valid=f.valid&&frameAvailable(f);const range=Number($('range').value),scale=(h-78)/range,lateral=Number($('lateralRange').value),manualLateral=Number.isFinite(lateral)&&lateral>0,cx=manualLateral?(38+w-12)/2:w/2,cy=h-48;
+ const f=data.frames[idx],valid=f.valid&&frameAvailable(f);
+ window.renderVideoOverlay?.(f,frameAvailable(f));
+ const range=Number($('range').value),scale=(h-78)/range,lateral=Number($('lateralRange').value),manualLateral=Number.isFinite(lateral)&&lateral>0,cx=manualLateral?(38+w-12)/2:w/2,cy=h-48;
  const lateralScale=manualLateral?(w-50)/(2*lateral):scale;
  const X=y=>cx+y*lateralScale,Y=x=>cy-x*scale;
  ctx.font='11px system-ui';ctx.lineWidth=1;ctx.strokeStyle='#273646';ctx.fillStyle='#8fa3b8';
