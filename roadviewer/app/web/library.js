@@ -1,4 +1,4 @@
-'use strict';const $=id=>document.getElementById(id);let selected=[],busy=false,refreshing=false;const logRows=new Map();
+'use strict';const $=id=>document.getElementById(id);let selected=[],busy=false,refreshing=false,progressRefreshing=false,listRevision=0;const logRows=new Map();
 const names={queued:'대기 중',processing:'준비 중',ready:'재생 가능',error:'변환 실패'};
 function processingText(m){
  if(m.status!=='processing')return names[m.status];
@@ -40,7 +40,22 @@ for(const id of pickerIds){
  const input=$(id);input.onchange=filesChanged;input.oncancel=selectionChanged;
 }
 $('clearSelection').onclick=()=>{if(busy)return;selected=[];pickerIds.forEach(id=>$(id).value='');selectionChanged();error('')};
-async function refresh(){if(refreshing)return;refreshing=true;try{const r=await fetch('api/logs',{cache:'no-store'});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const signature=JSON.stringify(m),cached=logRows.get(m.id);if(cached?.signature===signature)return cached.row;const row=document.createElement('div');row.className='log-row';const info=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div'),state=document.createElement('span');title.className='log-name';title.textContent=m.name;state.className=m.status==='processing'?'state state-processing':'state';state.textContent=processingText(m);title.append(state);meta.className='log-meta';meta.textContent=`${new Date(m.uploaded*1000).toLocaleString()} · ${(m.bytes/1048576).toFixed(1)} MB · ${m.video?'영상 있음':'영상 없음'}${m.duration!=null?' · '+m.duration.toFixed(1)+'초':''}`;info.append(title,meta);if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}const actions=document.createElement('div');actions.className='actions';if(m.status==='ready'){const a=document.createElement('a');a.className='replay';a.href=`view/${m.id}/`;a.textContent='재생';actions.append(a)}const del=document.createElement('button');del.className='delete';del.textContent='삭제';del.onclick=async()=>{if(!confirm(`${m.name}\n원본 로그·영상과 변환 데이터를 모두 삭제할까요?`))return;del.disabled=true;try{const r=await fetch(`api/logs/${m.id}`,{method:'DELETE',headers:{'X-RoadViewer-Request':'1'}});if(!r.ok)throw Error('삭제하지 못했습니다.');await refresh()}catch(e){error(e.message);del.disabled=false}};actions.append(del);row.append(info,actions);logRows.set(m.id,{signature,row});return row});const list=$('list');rows.forEach((row,i)=>{if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});while(list.children.length>rows.length)list.lastElementChild.remove();const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){error(e.message)}finally{refreshing=false}}
+async function refresh(){if(refreshing)return;refreshing=true;listRevision++;try{const r=await fetch('api/logs',{cache:'no-store'});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id);if(cached?.signature===signature){cached.state.textContent=processingText(m);return cached.row;}const row=document.createElement('div');row.className='log-row';const info=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div'),state=document.createElement('span');title.className='log-name';title.textContent=m.name;state.className=m.status==='processing'?'state state-processing':'state';state.textContent=processingText(m);title.append(state);meta.className='log-meta';meta.textContent=`${new Date(m.uploaded*1000).toLocaleString()} · ${(m.bytes/1048576).toFixed(1)} MB · ${m.video?'영상 있음':'영상 없음'}${m.duration!=null?' · '+m.duration.toFixed(1)+'초':''}`;info.append(title,meta);if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}const actions=document.createElement('div');actions.className='actions';if(m.status==='ready'){const a=document.createElement('a');a.className='replay';a.href=`view/${m.id}/`;a.textContent='재생';actions.append(a)}const del=document.createElement('button');del.className='delete';del.textContent='삭제';del.onclick=async()=>{if(!confirm(`${m.name}\n원본 로그·영상과 변환 데이터를 모두 삭제할까요?`))return;del.disabled=true;try{const r=await fetch(`api/logs/${m.id}`,{method:'DELETE',headers:{'X-RoadViewer-Request':'1'}});if(!r.ok)throw Error('삭제하지 못했습니다.');await refresh()}catch(e){error(e.message);del.disabled=false}};actions.append(del);row.append(info,actions);logRows.set(m.id,{signature,row,state,status:m.status});return row});const list=$('list');rows.forEach((row,i)=>{if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});while(list.children.length>rows.length)list.lastElementChild.remove();const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){error(e.message)}finally{refreshing=false}}
+async function refreshProgress(){
+ if(progressRefreshing||refreshing||![...logRows.values()].some(row=>row.status==='processing'||row.status==='queued'))return;
+ progressRefreshing=true;const revision=listRevision;
+ try{
+  const response=await fetch('api/progress',{cache:'no-store'});
+  if(!response.ok)return;
+  const data=await response.json();
+  // A newer full list owns status transitions and must not be overwritten.
+  if(refreshing||revision!==listRevision)return;
+  for(const [id,progress] of Object.entries(data.progress||{})){
+   const cached=logRows.get(id);
+   if(cached?.status==='processing')cached.state.textContent=processingText({status:'processing',progress});
+  }
+ }catch{}finally{progressRefreshing=false}
+}
 $('refresh').onclick=refresh;
 async function api(url,options={}){
  const response=await fetch(url,{...options,headers:{'X-RoadViewer-Request':'1',...options.headers}});
@@ -76,4 +91,4 @@ $('upload').onclick=async()=>{
   busy=false;pickerIds.forEach(id=>$(id).disabled=false);selectionChanged();$('progress').hidden=true;
  }
 };
-refresh();setInterval(refresh,3000);
+refresh();setInterval(refresh,3000);setInterval(refreshProgress,1000);

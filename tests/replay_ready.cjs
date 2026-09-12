@@ -4,10 +4,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  try{
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   const base='https://rv.test';
+  let progressReads=0;
   let logs=[{id:'one',name:'one',status:'processing',uploaded:1,bytes:1,video:true},{id:'two',name:'two',status:'processing',uploaded:2,bytes:1,video:false}],ready=false,reads=0,videoRequests=[];
   const data={route:'one',key:'new-video-version',duration:2,warnings:[],video:{start:0,duration:2},frames:Array.from({length:21},(_,i)=>({t:i/10,id:i,valid:false,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}))};
   await page.route(base+'/**',async route=>{
    const url=new URL(route.request().url()),p=url.pathname;
+   if(p==='/api/progress'){progressReads++;return route.fulfill({json:{progress:Object.fromEntries(logs.filter(m=>m.status==='processing'&&m.progress).map(m=>[m.id,m.progress]))}})}
    if(p==='/api/logs')return route.fulfill({json:{logs,max_upload_mb:512,storage_used_bytes:1}});
    if(p.endsWith('/data')){reads++;return route.fulfill(ready?{json:data}:{status:409,json:{status:'processing'}})}
    if(p.endsWith('/video')){videoRequests.push(url.searchParams.get('v'));return route.fulfill({body:fs.readFileSync('/tmp/roadviewer-test.mp4'),contentType:'video/mp4'})}
@@ -26,6 +28,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    logs[0].progress=progress;await page.evaluate(()=>refresh());
    assert((await page.locator('.state-processing').first().textContent()).includes(text));
   }
+  await page.evaluate(()=>window.savedProcessingRow=document.querySelector('.log-row'));
+  logs[0].progress={stage:'video_convert',percent:91};
+  const readsBefore=progressReads;
+  await page.waitForFunction(()=>document.querySelector('.state-processing').textContent==='영상 변환 중 · 91%');
+  assert(progressReads>readsBefore);
+  assert(await page.evaluate(()=>savedProcessingRow===document.querySelector('.log-row')));
+  logs[0].progress={stage:'video_verify',percent:92};
+  await page.evaluate(()=>refresh());
+  assert(await page.evaluate(()=>savedProcessingRow===document.querySelector('.log-row')));
+  assert.equal(await page.locator('.state-processing').first().textContent(),'영상 검증 중 · 92%');
   logs[0].status='ready';await page.evaluate(()=>refresh());
   await page.evaluate(()=>window.savedReplay=document.querySelector('.replay'));
   await page.evaluate(()=>refresh());assert(await page.evaluate(()=>savedReplay===document.querySelector('.replay')));

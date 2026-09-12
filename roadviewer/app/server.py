@@ -67,7 +67,7 @@ def access():
  if request.method in ('POST','PUT','DELETE') and request.headers.get('X-RoadViewer-Request')!='1':abort(403)
 @app.after_request
 def fresh_replay_state(response):
- if request.path.startswith('/view/') or request.path=='/api/logs' or (request.path.startswith('/api/logs/') and request.path.endswith('/data')):
+ if request.path.startswith('/view/') or request.path in ('/api/logs','/api/progress') or (request.path.startswith('/api/logs/') and request.path.endswith('/data')):
   response.headers['Cache-Control']='no-store'
  return response
 
@@ -131,6 +131,12 @@ def storage_used_bytes():
      except FileNotFoundError:pass # Upload cleanup or log deletion during the scan.
   except FileNotFoundError:pass
  return total
+
+@app.route('/api/progress')
+def processing_progress():
+ # Only memory: do not read metadata or scan storage for frequent polling.
+ with lock:progress={id:dict(event) for id,event in job_progress.items()}
+ return jsonify(progress=progress)
 
 @app.route('/api/logs')
 def logs():
