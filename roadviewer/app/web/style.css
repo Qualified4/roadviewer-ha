@@ -91,3 +91,8 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 .replay-page .panel-head{padding-top:8px;padding-bottom:8px}
 .replay-page.split-view .views .panel-head{height:96px}
 @media(max-width:850px){.replay-page.split-view .views .panel-head{height:132px}}
+
+/* Keep route metadata on the right, including narrow phone screens. */
+.replay-heading .route{flex-direction:row;align-items:center;gap:8px;min-width:0}
+.replay-heading #route{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.replay-heading #details{flex-shrink:0;white-space:nowrap;text-align:right}
