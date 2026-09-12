@@ -136,17 +136,22 @@ function sizePlayback(){document.body.style.setProperty('--playback-height',`${M
 new ResizeObserver(sizePlayback).observe(playback);sizePlayback();
 
 // Layout changes leave the video element and playback state intact.
-const splitView=$('splitView'),stackView=$('stackView');
+const splitView=$('splitView'),stackView=$('stackView'),layoutPreferenceKey='roadviewer-replay-layout';
 function setReplayLayout(mode){
  document.body.classList.toggle('split-view',mode==='split');
  document.body.classList.toggle('stack-view',mode==='stack');
  splitView.setAttribute('aria-pressed',String(mode==='split'));
  stackView.setAttribute('aria-pressed',String(mode==='stack'));
 }
-setReplayLayout('auto');
+try{
+ const saved=localStorage.getItem(layoutPreferenceKey);
+ const mode=saved===null?(localStorage.getItem('roadviewer-replay-split-view')==='true'?'split':'auto'):saved;
+ setReplayLayout(['split','stack'].includes(mode)?mode:'auto');
+}catch{setReplayLayout('auto')}
 function toggleReplayLayout(button,mode){
  const next=button.getAttribute('aria-pressed')==='true'?'auto':mode;
  setReplayLayout(next);
+ try{localStorage.setItem(layoutPreferenceKey,next)}catch{}
 }
 splitView.onclick=()=>toggleReplayLayout(splitView,'split');
 stackView.onclick=()=>toggleReplayLayout(stackView,'stack');
