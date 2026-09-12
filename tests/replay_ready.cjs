@@ -53,10 +53,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   for(const viewport of [{width:1280,height:720},{width:390,height:844}]){
    await page.setViewportSize(viewport);await page.evaluate(()=>window.scrollTo(0,0));
    const nav=page.locator('.log-navigation'),initial=await nav.boundingBox();
-   assert(initial.y>0);
+   assert(initial.y>10);
+   await page.waitForFunction(()=>!document.querySelector('.replay-heading').classList.contains('is-stuck'));
    await page.evaluate(y=>window.scrollTo(0,y),initial.y+100);
-   await page.waitForFunction(()=>Math.abs(document.querySelector('.log-navigation').getBoundingClientRect().top)<1);
-   const stuck=await nav.boundingBox();assert(Math.abs(stuck.y)<1);
+   await page.waitForFunction(()=>Math.abs(document.querySelector('.log-navigation').getBoundingClientRect().top-10)<1&&document.querySelector('.replay-heading').classList.contains('is-stuck'));
+   const stuck=await nav.boundingBox();assert(Math.abs(stuck.y-10)<1);
+   assert.equal(await page.locator('.replay-heading').evaluate(el=>getComputedStyle(el,'::before').backgroundColor),await page.locator('.playback').evaluate(el=>getComputedStyle(el).backgroundColor));
    const heading=await page.locator('.replay-heading').boundingBox();
    const route=await page.locator('.replay-heading .route').boundingBox();
    assert(route.y>=stuck.y+stuck.height&&route.y+route.height<=heading.y+heading.height);

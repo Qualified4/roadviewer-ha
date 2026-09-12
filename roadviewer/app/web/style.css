@@ -96,3 +96,8 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 .replay-heading .route{flex-direction:row;align-items:center;gap:8px;min-width:0}
 .replay-heading #route{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .replay-heading #details{flex-shrink:0;white-space:nowrap;text-align:right}
+
+/* Leave breathing room above pinned controls without changing document flow. */
+.replay-page .replay-heading{top:10px}
+.replay-page .replay-heading.is-stuck{background:var(--panel)}
+.replay-page .replay-heading.is-stuck::before{inset:-12px -12px 0;background:var(--panel);border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px;box-shadow:0 6px 24px #0006}

@@ -181,3 +181,18 @@ async function loadLogNavigation(){
  }catch{buttons.forEach(button=>{button.disabled=true;button.title='로그 목록을 불러오지 못했습니다. 새로고침해 주세요.'})}
 }
 loadLogNavigation();
+
+// Only decorate the heading after it reaches its sticky position.
+const replayHeading=document.querySelector('.replay-heading');
+if(replayHeading){
+ let headingFrame=0;
+ const updateHeading=()=>{
+  headingFrame=0;
+  replayHeading.classList.toggle('is-stuck',window.scrollY>0&&replayHeading.getBoundingClientRect().top<=10.5);
+ };
+ const scheduleHeading=()=>{if(!headingFrame)headingFrame=requestAnimationFrame(updateHeading)};
+ window.addEventListener('scroll',scheduleHeading,{passive:true});
+ window.addEventListener('resize',scheduleHeading);
+ window.addEventListener('pageshow',scheduleHeading);
+ updateHeading();
+}
