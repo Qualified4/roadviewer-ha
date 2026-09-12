@@ -11,7 +11,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            ha_arch: amd64
+          - arch: arm64
+            ha_arch: aarch64
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -20,9 +24,24 @@ jobs:
         with:
           context: roadviewer
           platforms: linux/${{ matrix.arch }}
+          build-args: |
+            BUILD_ARCH=${{ matrix.ha_arch }}
+            BUILD_VERSION=0.2.1
           load: true
           tags: roadviewer:test
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+      - name: Verify Home Assistant image metadata
+        env:
+          EXPECTED_ARCH: ${{ matrix.ha_arch }}
+        run: |
+          docker image inspect roadviewer:test > image.json
+          python - <<'PYTHON'
+          import json, os
+          labels = json.load(open('image.json'))[0]['Config']['Labels']
+          assert labels['io.hass.version'] == '0.2.1'
+          assert labels['io.hass.type'] == 'app'
+          assert labels['io.hass.arch'] == os.environ['EXPECTED_ARCH']
+          PYTHON
       - name: API and decoder smoke test
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/smoke.py
