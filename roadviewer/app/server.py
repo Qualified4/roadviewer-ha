@@ -50,7 +50,10 @@ def too_large(e):return jsonify(error='업로드 용량 제한을 초과했습�
 @app.errorhandler(404)
 def not_found(e):return jsonify(error='로그 또는 파일을 찾을 수 없습니다.'),404
 @app.route('/')
-def index():return send_from_directory(BASE/'web','library.html')
+def index():
+ response=send_from_directory(BASE/'web','library.html',conditional=False)
+ response.headers['Cache-Control']='no-store'
+ return response
 @app.route('/view/<id>/')
 def view(id):folder(id);return send_from_directory(BASE/'web','index.html')
 @app.route('/assets/<path:name>')
