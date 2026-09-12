@@ -126,7 +126,7 @@ function render(){
  canvas.setAttribute('aria-label',`차량 중심 도로. 현재 radarState 중앙·좌우 차량 ${targets.length}개. 전방 범위 ${range}m.`);
  renderSteering(f);
  $('egoSpeed').textContent=frameAvailable(f)&&Number.isFinite(f.egoSpeedKph)?f.egoSpeedKph.toFixed(1):'—';
- $('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'미선택';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent=frameAvailable(f)?'FRAME '+f.id:'FRAME —';
+ $('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'앞차 미감지';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent=frameAvailable(f)?'FRAME '+f.id:'FRAME —';
 }
 new ResizeObserver(render).observe(canvas);loadData().catch(e=>showError(e.message));requestAnimationFrame(tick);
 
