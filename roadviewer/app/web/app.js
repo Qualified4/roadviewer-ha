@@ -6,17 +6,26 @@ function clock(n){n=Math.max(0,n);return `${Math.floor(n/60)}:${(n%60).toFixed(2
 function nearest(time){const f=data.frames;let a=0,b=f.length-1;while(a<b){const m=(a+b)>>1;if(f[m].t<time)a=m+1;else b=m}return a>0&&Math.abs(f[a-1].t-time)<Math.abs(f[a].t-time)?a-1:a}
 function pause(){playing=false;v.pause();$('play').textContent='재생'}
 let videoPlayPending=false;
-function videoAvailable(){return !!data?.video&&t>=data.video.start&&t<data.video.start+data.video.duration}
+const VIDEO_END_TOLERANCE=.1;
+function finalVideoFrame(){
+ if(!data?.video)return false;
+ const end=data.video.start+data.video.duration;
+ return Math.abs(data.duration-end)<=VIDEO_END_TOLERANCE&&t>=Math.min(end,data.duration)-.001;
+}
+function videoAvailable(){return !!data?.video&&t>=data.video.start&&(t<data.video.start+data.video.duration||finalVideoFrame())}
 function frameAvailable(f){return t>=(data.logStart??data.frames[0].t)&&t<=(data.logEnd??data.frames.at(-1).t)&&Math.abs(f.t-t)<.16}
 function syncVideo(seek=false){
- const visible=videoAvailable(),wasHidden=v.hidden;
+ const visible=videoAvailable(),wasHidden=v.hidden,hold=finalVideoFrame();
  v.hidden=!visible;$('noVideo').hidden=visible;
- $('noVideo').textContent=data?.video?'이 구간에 영상이 없습니다.':'이 로그에 동기화 가능한 영상이 없습니다.';
+ $('noVideo').textContent=!data?.video?'이 로그에 동기화 가능한 영상이 없습니다.':t<data.video.start?'아직 영상이 시작되지 않은 구간입니다.':playing?'영상이 종료되었습니다. 로그 재생을 계속합니다.':'영상이 종료된 구간입니다.';
  if(!visible){v.pause();return}
- if(v.readyState>=1&&(seek||wasHidden||Math.abs(v.currentTime-(t-data.video.start))>.35))v.currentTime=Math.max(0,t-data.video.start);
+ const duration=Number.isFinite(v.duration)?v.duration:data.video.duration;
+ const target=Math.max(0,Math.min(hold?duration:t-data.video.start,duration-.001));
+ if(v.readyState>=1&&(seek||wasHidden||hold&&Math.abs(v.currentTime-target)>.0005||Math.abs(v.currentTime-target)>.35))v.currentTime=target;
+ if(hold){v.pause();return}
  if(playing&&v.paused&&!videoPlayPending){
   videoPlayPending=true;
-  v.play().catch(e=>{if(playing&&videoAvailable()){pause();showError('영상을 재생할 수 없습니다. '+e.message)}}).finally(()=>{videoPlayPending=false;if(!playing||!videoAvailable())v.pause()});
+  v.play().catch(e=>{if(playing&&videoAvailable()){pause();showError('영상을 재생할 수 없습니다. '+e.message)}}).finally(()=>{videoPlayPending=false;if(!playing||!videoAvailable()||finalVideoFrame())v.pause()});
  }
 }
 function setTime(time,seekVideo=true){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render()}

@@ -3,6 +3,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  const browser=await chromium.launch({headless:true});
  try{
   for(const scenario of [
+   {name:'matching end',logStart:0,logEnd:2,videoStart:0,duration:2,probe:1.4},
+   {name:'tiny tail',logStart:0,logEnd:2.05,videoStart:0,duration:2.05,probe:1.4},
    {name:'video longer',logStart:0,logEnd:1,videoStart:0,duration:2,probe:1.4},
    {name:'log longer',logStart:0,logEnd:3,videoStart:0,duration:3,probe:2.4},
    {name:'late video',logStart:0,logEnd:4,videoStart:1,duration:4,probe:.4},
@@ -50,6 +52,21 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.evaluate(()=>setTime(0));await page.selectOption('#speed','4',{force:true});await page.locator('#play').click();
    await page.waitForFunction(()=>!playing&&t>=data.duration-.001);
    assert.equal(await page.locator('#seek').inputValue(),String(duration));
+   const keepLast=videoStart!==null&&Math.abs(duration-(videoStart+2))<=.1;
+   assert.equal(await page.locator('#video').isVisible(),keepLast,scenario.name+' end visibility');
+   if(keepLast){
+    await page.waitForFunction(()=>!document.getElementById('video').seeking);
+    assert(await page.evaluate(()=>v.paused&&v.currentTime>v.duration-.02));
+    assert(await page.locator('#noVideo').isHidden());
+    await seekTo(0);await seekTo(duration);
+    assert(await page.locator('#video').isVisible());
+   }else if(videoStart!==null){
+    assert((await page.locator('#noVideo').textContent()).includes('영상이 종료'));
+   }
+   if(videoStart>0){
+    await seekTo(0);
+    assert.equal(await page.locator('#noVideo').textContent(),'아직 영상이 시작되지 않은 구간입니다.');
+   }
    // Seeking back into video restores the image after the video-free tail.
    if(videoStart!==null){await page.evaluate(start=>setTime(start+.2),videoStart);assert(await page.locator('#video').isVisible())}
    assert.deepEqual(errors,[]);await page.close();
