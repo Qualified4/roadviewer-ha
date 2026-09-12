@@ -138,3 +138,11 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 @media(max-width:550px){#logSegmentChoice{width:76px;gap:6px;padding:6px 8px}}
 
 i.model-path{background:#c4a5ff}
+
+.road-ranges{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.road-ranges label{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.road-panel .panel-head{gap:8px;flex-wrap:wrap}
+.heading-fold{position:absolute;left:50%;bottom:-10px;transform:translateX(-50%);width:44px;height:22px;padding:0;border-radius:0 0 9px 9px;background:var(--panel);color:var(--muted);font-size:20px;line-height:18px}
+.replay-heading.is-collapsed .route{margin-top:0}
+.replay-heading.is-collapsed{padding-bottom:14px}
+@media(max-width:600px){.road-ranges{gap:6px}.road-ranges .rv-choice-trigger{padding:5px 7px;gap:6px}}

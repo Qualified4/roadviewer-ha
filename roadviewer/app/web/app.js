@@ -74,11 +74,12 @@ function renderSteering(f){
 }
 function render(){
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!data)return;
- const f=data.frames[idx],valid=f.valid&&frameAvailable(f);const range=Number($('range').value),scale=(h-78)/range,cx=w/2,cy=h-48;
- const X=y=>cx+y*scale,Y=x=>cy-x*scale;
+ const f=data.frames[idx],valid=f.valid&&frameAvailable(f);const range=Number($('range').value),scale=(h-78)/range,lateral=Number($('lateralRange').value),manualLateral=Number.isFinite(lateral)&&lateral>0,cx=manualLateral?(38+w-12)/2:w/2,cy=h-48;
+ const lateralScale=manualLateral?(w-50)/(2*lateral):scale;
+ const X=y=>cx+y*lateralScale,Y=x=>cy-x*scale;
  ctx.font='11px system-ui';ctx.lineWidth=1;ctx.strokeStyle='#273646';ctx.fillStyle='#8fa3b8';
  for(let x=0;x<=range;x+=10){ctx.beginPath();ctx.moveTo(38,Y(x));ctx.lineTo(w-12,Y(x));ctx.stroke();ctx.fillText(x+' m',5,Y(x)+4)}
- for(let y=-Math.floor((w/2-40)/scale/5)*5;y<(w/2-20)/scale;y+=5){ctx.beginPath();ctx.moveTo(X(y),24);ctx.lineTo(X(y),cy);ctx.stroke();ctx.textAlign='center';ctx.fillText(y,X(y),h-13)}ctx.textAlign='left';ctx.fillText('전방 x ↑',12,16);ctx.textAlign='right';ctx.fillText('좌우 y → (m)',w-10,16);ctx.textAlign='left';
+ for(let y=manualLateral?-lateral:-Math.floor((w/2-40)/scale/5)*5;y<=(manualLateral?lateral:(w/2-20)/scale);y+=5){ctx.beginPath();ctx.moveTo(X(y),24);ctx.lineTo(X(y),cy);ctx.stroke();ctx.textAlign='center';ctx.fillText(y,X(y),h-13)}ctx.textAlign='left';ctx.fillText('전방 x ↑',12,16);ctx.textAlign='right';ctx.fillText('좌우 y → (m)',w-10,16);ctx.textAlign='left';
  ctx.save();ctx.beginPath();ctx.rect(38,22,w-50,cy-20);ctx.clip();
  const labels=[];
  const targetValue=(target,lateral)=>{
@@ -231,12 +232,21 @@ loadLogNavigation();
 // Only decorate the heading after it reaches its sticky position.
 const replayHeading=document.querySelector('.replay-heading');
 if(replayHeading){
- let headingFrame=0;
+ let headingFrame=0,headingCollapsed=false;
+ const fold=$('foldHeading'),navigation=$('logNavigation');
  const updateHeading=()=>{
   headingFrame=0;
-  replayHeading.classList.toggle('is-stuck',window.scrollY>0&&replayHeading.getBoundingClientRect().top<=10.5);
+  const stuck=window.scrollY>0&&replayHeading.getBoundingClientRect().top<=10.5;
+  replayHeading.classList.toggle('is-stuck',stuck);
+  const collapsed=stuck&&headingCollapsed;
+  replayHeading.classList.toggle('is-collapsed',collapsed);
+  navigation.hidden=collapsed;fold.hidden=!stuck;
+  fold.setAttribute('aria-expanded',String(!collapsed));
+  fold.setAttribute('aria-label',collapsed?'상단 이동 버튼 펼치기':'상단 이동 버튼 접기');
+  fold.textContent=collapsed?'⌄':'⌃';
  };
  const scheduleHeading=()=>{if(!headingFrame)headingFrame=requestAnimationFrame(updateHeading)};
+ fold.onclick=()=>{headingCollapsed=!headingCollapsed;updateHeading()};
  window.addEventListener('scroll',scheduleHeading,{passive:true});
  window.addEventListener('resize',scheduleHeading);
  window.addEventListener('pageshow',scheduleHeading);
@@ -263,4 +273,8 @@ function saveDisplayPreferences(){
 }
 for(const control of displayControls)control.addEventListener('change',saveDisplayPreferences);
 $('modelPath').addEventListener('change',render);
+render();
+
+try{const saved=localStorage.getItem('roadviewer-lateral-range');if([...$('lateralRange').options].some(option=>option.value===saved))$('lateralRange').value=saved}catch{}
+$('lateralRange').onchange=()=>{try{localStorage.setItem('roadviewer-lateral-range',$('lateralRange').value)}catch{}render()};
 render();

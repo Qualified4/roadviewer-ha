@@ -18,7 +18,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const contentType=name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':name.endsWith('.svg')?'image/svg+xml':'text/html';
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType});
   });
-  await page.goto(base+'/');await page.waitForFunction(()=>document.querySelectorAll('.log-row').length===2);
+  await page.goto(base+'/');assert.equal(await page.locator('.diagnostics').count(),0);assert.equal(await page.locator('script[src*="picker-diagnostics"]').count(),0);await page.waitForFunction(()=>document.querySelectorAll('.log-row').length===2);
   for(const [progress,text] of [
    [{stage:'log_analysis',frames:1234},'프레임 분석 완료'],
    [{stage:'video_convert',percent:65},'영상 변환 중 · 65%'],
@@ -69,6 +69,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     const box=await page.locator(selector).boundingBox();
     assert(box.y>=0&&box.x>=0&&box.x+box.width<=viewport.width);
    }
+   await page.locator('#foldHeading').click();
+   assert(await page.locator('.log-navigation').isHidden());
+   assert(await page.locator('.replay-heading .route').isVisible());
+   await page.locator('#foldHeading').click();
+   assert(await page.locator('.log-navigation').isVisible());
    await page.evaluate(()=>window.scrollTo(0,0));
    await page.waitForFunction(y=>Math.abs(document.querySelector('.log-navigation').getBoundingClientRect().top-y)<1,initial.y);
   }
@@ -92,6 +97,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   }
   await page.selectOption('#logSegment','two',{force:true});await page.waitForURL('**/view/two/');
   await page.waitForFunction(()=>document.getElementById('logSegment').value==='two');
+  await page.locator('#lateralRangeChoice').click();
+  await page.getByRole('option',{name:'±10 m',exact:true}).click();
+  assert.equal(await page.locator('#lateralRange').inputValue(),'10');
+  await page.reload();await page.waitForFunction(()=>document.getElementById('lateralRangeChoice')?.textContent==='±10 m');
   assert.deepEqual(errors,[]);console.log('PASS: stable replay links during refresh and click, pending to ready without reload, versioned video loads and plays');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});
