@@ -142,9 +142,9 @@ i.model-path{background:#c4a5ff}
 .road-ranges{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .road-ranges label{display:flex;align-items:center;gap:4px;white-space:nowrap}
 .road-panel .panel-head{gap:8px;flex-wrap:wrap}
-.heading-fold{display:flex;align-items:center;justify-content:center;width:72px;height:28px;margin:2px auto 0;padding:0;border:0;border-radius:6px;background:transparent;color:#6587b6;box-shadow:none}
+.heading-fold{display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:14px;margin:0;padding:0;border:0;border-radius:6px;background:transparent;color:#6587b6;box-shadow:none}
 .heading-fold:hover,.heading-fold:active{background:transparent;color:#81a4d3;box-shadow:none}
-.heading-fold svg{display:block;width:64px;height:24px;fill:none;stroke:currentColor;stroke-width:9;stroke-linecap:round;stroke-linejoin:round}
+.heading-fold svg{display:block;width:32px;height:12px;fill:none;stroke:currentColor;stroke-width:9;stroke-linecap:round;stroke-linejoin:round}
 .heading-fold[aria-expanded=false] svg{transform:rotate(180deg)}
 .replay-heading.is-collapsed .route{margin-top:0}
 .replay-heading.is-collapsed{padding-bottom:10px}

@@ -59,7 +59,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           build-args: |
             BUILD_ARCH=${{ matrix.ha_arch }}
-            BUILD_VERSION=0.2.58
+            BUILD_VERSION=0.2.59
           load: true
           tags: roadviewer:test
           cache-from: type=gha,scope=${{ matrix.arch }}
@@ -72,7 +72,7 @@ jobs:
           python - <<'PYTHON'
           import json, os
           labels = json.load(open('image.json'))[0]['Config']['Labels']
-          assert labels['io.hass.version'] == '0.2.58'
+          assert labels['io.hass.version'] == '0.2.59'
           assert labels['io.hass.type'] == 'app'
           assert labels['io.hass.arch'] == os.environ['EXPECTED_ARCH']
           PYTHON
