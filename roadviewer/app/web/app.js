@@ -245,7 +245,6 @@ if(replayHeading){
   navigation.hidden=collapsed;fold.hidden=!stuck;
   fold.setAttribute('aria-expanded',String(!collapsed));
   fold.setAttribute('aria-label',collapsed?'상단 이동 버튼 펼치기':'상단 이동 버튼 접기');
-  fold.textContent=collapsed?'⌄':'⌃';
  };
  const scheduleHeading=()=>{if(!headingFrame)headingFrame=requestAnimationFrame(updateHeading)};
  fold.onclick=()=>{headingCollapsed=!headingCollapsed;updateHeading()};
