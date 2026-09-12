@@ -79,3 +79,6 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 .stack-view .views article{min-width:0;width:100%}
 .stack-view .road-wrap{height:clamp(450px,60vw,760px)}
 @media(max-width:440px){.layout-toggles{gap:6px}.layout-toggles .view-toggle{gap:6px;padding:9px 10px}}
+
+/* Keep log navigation in flow until it reaches the viewport top. */
+.replay-page .log-navigation{position:sticky;top:0;z-index:90;background:var(--bg);box-shadow:0 6px 12px #0003}

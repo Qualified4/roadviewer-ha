@@ -49,6 +49,21 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await page.locator('#play').isDisabled());ready=true;
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert(reads>=2);assert(videoRequests.includes('new-video-version'));
+  // Navigation starts in its normal location, then sticks to the top.
+  for(const viewport of [{width:1280,height:720},{width:390,height:844}]){
+   await page.setViewportSize(viewport);await page.evaluate(()=>window.scrollTo(0,0));
+   const nav=page.locator('.log-navigation'),initial=await nav.boundingBox();
+   assert(initial.y>0);
+   await page.evaluate(y=>window.scrollTo(0,y),initial.y+100);
+   await page.waitForFunction(()=>Math.abs(document.querySelector('.log-navigation').getBoundingClientRect().top)<1);
+   const stuck=await nav.boundingBox();assert(Math.abs(stuck.y)<1);
+   for(const selector of ['.back','#previousLog','#nextLog']){
+    const box=await page.locator(selector).boundingBox();
+    assert(box.y>=0&&box.x>=0&&box.x+box.width<=viewport.width);
+   }
+   await page.evaluate(()=>window.scrollTo(0,0));
+   await page.waitForFunction(y=>Math.abs(document.querySelector('.log-navigation').getBoundingClientRect().top-y)<1,initial.y);
+  }
   await page.locator('#play').click();await page.waitForFunction(()=>document.getElementById('video').currentTime>0.1);
   assert.deepEqual(errors,[]);console.log('PASS: stable replay links during refresh and click, pending to ready without reload, versioned video loads and plays');
  }finally{await browser.close()}
