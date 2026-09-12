@@ -1,7 +1,7 @@
 /* Bounded diagnostic metadata only: never reads file contents or ingress URLs. */
 'use strict';
 window.pickerDiagnostics=(()=>{
- const version='0.2.9',queueKey='roadviewer-picker-events-v1',pendingKey='roadviewer-picker-pending-v1';
+ const version='0.2.10',queueKey='roadviewer-picker-events-v1',pendingKey='roadviewer-picker-pending-v1';
  const uuid=()=>globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(36).slice(2)}`;
  const page=uuid();let memory=[],sending=false,attempt=null,lastAttempt=null;
  const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem(key))||fallback}catch{return fallback}};
@@ -29,7 +29,7 @@ window.pickerDiagnostics=(()=>{
   finally{sending=false}
  }
  const describe=input=>({picker:input.id,multiple:input.multiple,accept:input.accept,directory:input.webkitdirectory===true,disabled:input.disabled});
- for(const id of ['singleFile','files','folder']){
+ for(const id of ['files']){
   const input=document.getElementById(id);
   input.addEventListener('pointerdown',e=>record('picker_pointerdown',{...describe(input),pointerType:e.pointerType}));
   input.addEventListener('click',e=>{

@@ -1,7 +1,7 @@
 'use strict';const $=id=>document.getElementById(id);let selected=[],busy=false;
 const names={queued:'대기 중',processing:'준비 중',ready:'재생 가능',error:'변환 실패'};
 function error(message){$('error').textContent=message;$('error').hidden=!message}
-const pickerIds=['singleFile','files','folder'];
+const pickerIds=['files'];
 function selectionChanged(){
  $('selection').textContent=selected.length?`${selected.length}개 파일 · ${(selected.reduce((a,f)=>a+f.size,0)/1048576).toFixed(1)} MB`:'선택한 파일 없음';
  $('upload').disabled=busy||!selected.length;$('clearSelection').disabled=busy||!selected.length;
