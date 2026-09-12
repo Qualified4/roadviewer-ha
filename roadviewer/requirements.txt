@@ -1,0 +1,5 @@
+Flask==3.1.2
+gunicorn==23.0.0
+pycapnp==2.2.1
+zstandard==0.25.0
+av==16.1.0

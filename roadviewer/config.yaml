@@ -1,0 +1,19 @@
+name: Road Viewer
+version: "0.2.0"
+slug: roadviewer
+description: Openpilot 로그 업로드, 목록, 영상·도로 재생 및 삭제
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+init: false
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:road-variant
+panel_title: Road Viewer
+options:
+  max_upload_mb: 512
+schema:
+  max_upload_mb: int(16,2048)
+url: https://github.com/Qualified4/roadviewer-ha
