@@ -93,10 +93,24 @@ def diagnostics():
    print('[RoadViewer picker] '+line,flush=True)
  return jsonify(saved=len(lines))
 
+def storage_used_bytes():
+ total=0
+ pending=[ROOT]
+ while pending:
+  try:
+   with os.scandir(pending.pop()) as entries:
+    for entry in entries:
+     try:
+      if entry.is_dir(follow_symlinks=False):pending.append(entry.path)
+      elif entry.is_file(follow_symlinks=False):total+=entry.stat(follow_symlinks=False).st_size
+     except FileNotFoundError:pass # Upload cleanup or log deletion during the scan.
+  except FileNotFoundError:pass
+ return total
+
 @app.route('/api/logs')
 def logs():
  with lock:items=[read_meta(p) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
- return jsonify(logs=sorted(items,key=lambda m:m['uploaded'],reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024)
+ return jsonify(logs=sorted(items,key=lambda m:m['uploaded'],reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes())
 @app.route('/api/upload',methods=['POST'])
 def upload():
  return register_files(request.files.getlist('files'))
