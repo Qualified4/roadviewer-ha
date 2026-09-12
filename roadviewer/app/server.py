@@ -1,4 +1,5 @@
 from pathlib import Path,PurePosixPath
+import hashlib
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
 from werkzeug.datastructures import FileStorage
 from concurrent.futures import ThreadPoolExecutor
@@ -66,10 +67,26 @@ def logs():
 def upload():
  return register_files(request.files.getlist('files'))
 
+def file_digest(path):
+ # Bound memory use even for large logs/videos.
+ with path.open('rb') as source:return hashlib.file_digest(source,'sha256').hexdigest()
+
+def stored_digests(path,meta):
+ cached=meta.get('content_hashes',{});updated={}
+ for kind in ('rlog.zst','qcamera.ts'):
+  file=path/kind
+  if not file.is_file():continue
+  stat=file.stat();old=cached.get(kind,{})
+  if old.get('size')==stat.st_size and old.get('mtime_ns')==stat.st_mtime_ns and old.get('sha256'):
+   updated[kind]=old
+  else:updated[kind]={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':file_digest(file)}
+ if cached!=updated:meta['content_hashes']=updated;save_meta(path,meta)
+ return {kind:value['sha256'] for kind,value in updated.items()}
+
 def register_files(files):
  if not files or len(files)>100:return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
  if shutil.disk_usage(ROOT).free<(request.content_length or 0)+100*1024*1024:return jsonify(error='로그를 저장할 디스크 공간이 부족합니다.'),507
- staged=[]
+ staged=[];duplicates=[]
  try:
   with tempfile.TemporaryDirectory(dir=ROOT,prefix='.upload-') as temp:
    groups={}
@@ -88,12 +105,25 @@ def register_files(files):
    for g in groups.values():
     if 'rlog.zst' not in g['files']:raise ValueError(g['label']+': 영상과 짝이 되는 rlog.zst를 함께 올려주세요.')
     if (g['dir']/'rlog.zst').stat().st_size==0:raise ValueError('로그 파일이 비어 있습니다.')
+    g['hashes']={kind:file_digest(g['dir']/kind) for kind in g['files']}
    with lock:
+    # Check and register under one lock: simultaneous uploads cannot both win.
+    existing={}
+    for path in ROOT.iterdir():
+     if not path.is_dir() or not ID.fullmatch(path.name) or not (path/'meta.json').is_file():continue
+     meta=read_meta(path);hashes=stored_digests(path,meta)
+     if 'rlog.zst' in hashes:existing.setdefault(hashes['rlog.zst'],(meta,hashes))
     for g in groups.values():
+     match=existing.get(g['hashes']['rlog.zst'])
+     if match:
+      meta,hashes=match
+      video_diff='qcamera.ts' in g['hashes'] and g['hashes']['qcamera.ts']!=hashes.get('qcamera.ts')
+      duplicates.append({'id':meta['id'],'name':g['label'],'video_differs':video_diff})
+      continue
      id=uuid.uuid4().hex;p=ROOT/id;g['dir'].rename(p)
-     m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None};save_meta(p,m);staged.append(m)
+     m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None};save_meta(p,m);stored_digests(p,m);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
   for m in staged:submit(m['id'])
-  return jsonify(logs=staged),201
+  return jsonify(logs=staged,duplicates=duplicates),201
  except ValueError as e:return jsonify(error=str(e)),400
 # Small requests pass through HA Ingress and remote proxy upload limits.
 UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)

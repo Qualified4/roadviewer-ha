@@ -49,7 +49,9 @@ $('upload').onclick=async()=>{
   }
   $('uploadStatus').textContent='서버에서 파일을 등록하는 중…';
   const result=await api(`api/uploads/${session.id}/finish`,{method:'POST'});session=null;
-  $('uploadStatus').textContent=`${result.logs.length}개 로그 등록 완료. 준비가 끝나면 재생할 수 있습니다.`;selected=[];pickerIds.forEach(id=>$(id).value='');selectionChanged();await refresh();
+  const duplicates=result.duplicates||[];
+  $('uploadStatus').textContent=`새 로그 ${result.logs.length}개 등록 · 중복 ${duplicates.length}개 건너뜀.${result.logs.length?' 준비가 끝나면 재생할 수 있습니다.':''}`;
+  if(duplicates.some(d=>d.video_differs))error('이미 저장된 로그와 영상 구성이 다른 항목이 있습니다. 기존 로그를 보존하고 건너뛰었습니다. 영상을 변경하려면 기존 로그를 삭제한 뒤 로그와 영상을 함께 업로드하세요.');selected=[];pickerIds.forEach(id=>$(id).value='');selectionChanged();await refresh();
  }catch(e){error(e.message);$('uploadStatus').textContent='업로드 실패. 오류를 확인하고 다시 시도하세요.'}
  finally{
   if(session)try{await api(`api/uploads/${session.id}`,{method:'DELETE'})}catch{}
