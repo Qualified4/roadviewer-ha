@@ -56,7 +56,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert.equal(await page.locator('#video').isVisible(),keepLast,scenario.name+' end visibility');
    if(keepLast){
     await page.waitForFunction(()=>!document.getElementById('video').seeking);
-    assert(await page.evaluate(()=>v.paused&&v.currentTime>v.duration-.02));
+    const endState=await page.evaluate(()=>({paused:v.paused,time:v.currentTime,duration:v.duration,ready:v.readyState}));
+    // The 10fps fixture's final displayed frame starts 0.1s before duration.
+    assert(endState.paused&&endState.time>=endState.duration-.101,JSON.stringify(endState));
     assert(await page.locator('#noVideo').isHidden());
     await seekTo(0);await seekTo(duration);
     assert(await page.locator('#video').isVisible());
