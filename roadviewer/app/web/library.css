@@ -19,3 +19,5 @@
 @media(max-width:550px){header{flex-wrap:wrap;gap:10px}.app-brand{width:100%;min-width:0}.app-brand h1{font-size:25px}.eyebrow{font-size:10px}header #summary{max-width:none;text-align:left;margin-left:56px}}
 
 .upload #uploadLimit{margin:8px 0 0;font-size:12px;color:var(--muted)}
+
+.upload-row button:disabled{cursor:default}
