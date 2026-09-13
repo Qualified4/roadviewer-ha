@@ -59,11 +59,24 @@ async function refreshProgress(){
 }
 $('refresh').onclick=refresh;
 async function api(url,options={}){
- const response=await fetch(url,{...options,headers:{'X-RoadViewer-Request':'1',...options.headers}});
- const text=await response.text();let result;
- try{result=JSON.parse(text)}catch{throw Error(response.status===413?'Home Assistant 또는 원격 프록시의 업로드 크기 제한을 초과했습니다.':`서버 응답 오류 (${response.status}). ${text.replace(/<[^>]*>/g,' ').slice(0,160)}`)}
- if(!response.ok)throw Error(result.error||`요청 실패 (${response.status})`);
- return result;
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),url.endsWith('/finish')?180000:30000);
+ try{
+  const response=await fetch(url,{...options,signal:controller.signal,headers:{'X-RoadViewer-Request':'1',...options.headers}});
+  const text=await response.text();let result;
+  try{result=JSON.parse(text)}catch{throw Error(response.status===413?'Home Assistant 또는 원격 프록시의 업로드 크기 제한을 초과했습니다.':`서버 응답 오류 (${response.status}). ${text.replace(/<[^>]*>/g,' ').slice(0,160)}`)}
+  if(!response.ok){const e=Error(result.error||`요청 실패 (${response.status})`);e.retryable=response.status>=500;throw e}
+  return result;
+ }catch(e){
+  if(controller.signal.aborted){const timeoutError=Error('업로드 응답이 지연되어 요청을 중단했습니다. 연결을 확인하고 다시 시도하세요.');timeoutError.retryable=true;throw timeoutError}
+  if(e instanceof TypeError)e.retryable=true;
+  throw e;
+ }finally{clearTimeout(timeout)}
+}
+async function uploadPart(url,part){
+ for(let attempt=0;;attempt++){
+  try{return await api(url,{method:'PUT',headers:{'Content-Type':'application/octet-stream'},body:part})}
+  catch(e){if(!e.retryable||attempt>=2)throw e}
+ }
 }
 $('upload').onclick=async()=>{
  
@@ -76,7 +89,7 @@ $('upload').onclick=async()=>{
    const file=selected[i];
    for(let offset=0;offset<file.size;offset+=session.chunk_size){
     const part=file.slice(offset,offset+session.chunk_size);
-    await api(`api/uploads/${session.id}/files/${i}?offset=${offset}`,{method:'PUT',headers:{'Content-Type':'application/octet-stream'},body:part});
+    await uploadPart(`api/uploads/${session.id}/files/${i}?offset=${offset}`,part);
     sent+=part.size;const pct=Math.round(sent/total*100);$('progress').value=pct;$('uploadStatus').textContent=`업로드 ${pct}% · 파일 ${i+1}/${selected.length}`;
    }
   }

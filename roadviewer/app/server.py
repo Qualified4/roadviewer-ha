@@ -127,6 +127,7 @@ def processing_progress():
 
 @app.route('/api/logs')
 def logs():
+ cleanup_uploads()
  with lock:items=[dict(read_meta(p),video=(p/'qcamera.ts').is_file(),progress=job_progress.get(p.name)) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
  return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit)
 @app.route('/api/upload',methods=['POST'])
@@ -205,12 +206,28 @@ def register_files(files):
       continue
      id=uuid.uuid4().hex;p=ROOT/id;g['dir'].rename(p)
      m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None};save_meta(p,m);stored_digests(p,m);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
-  for id in dict.fromkeys(m['id'] for m in staged+updated):submit(id)
   return jsonify(logs=staged,duplicates=duplicates,updated=updated),201
  except ValueError as e:return jsonify(error=str(e)),400
+ finally:
+  # A later registration failure must not strand earlier accepted logs.
+  for id in dict.fromkeys(m['id'] for m in staged+updated):submit(id)
 # Small requests pass through HA Ingress and remote proxy upload limits.
 UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)
 CHUNK_SIZE=1024*1024
+UPLOAD_IDLE_SECONDS=15*60
+
+def cleanup_uploads(startup=False):
+ with lock:
+  now=time.time()
+  for p in UPLOADS.iterdir():
+   if p.is_dir() and ID.fullmatch(p.name) and (startup or now-p.stat().st_mtime>UPLOAD_IDLE_SECONDS):
+    shutil.rmtree(p)
+  if startup:
+   # These are staging copies, never registered logs or original source files.
+   for p in ROOT.glob('.upload-*'):
+    if p.is_dir():shutil.rmtree(p)
+
+cleanup_uploads(startup=True)
 
 def upload_session(id):
  if not ID.fullmatch(id):abort(404)
@@ -220,6 +237,7 @@ def upload_session(id):
 
 @app.route('/api/uploads',methods=['POST'])
 def begin_upload():
+ cleanup_uploads()
  body=request.get_json(silent=True) or {};files=body.get('files')
  if not isinstance(files,list) or not 1<=len(files)<=100:return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
  for f in files:
@@ -230,22 +248,28 @@ def begin_upload():
  if total>app.config['MAX_CONTENT_LENGTH']:return too_large(None)
  if shutil.disk_usage(ROOT).free<total*2+100*1024*1024:return jsonify(error='저장 공간이 부족합니다.'),507
  with lock:
-  for old in UPLOADS.iterdir():
-   if old.is_dir() and time.time()-old.stat().st_mtime>86400:shutil.rmtree(old)
   id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir();(p/'manifest.json').write_text(json.dumps(files))
  return jsonify(id=id,chunk_size=CHUNK_SIZE),201
 
 @app.route('/api/uploads/<id>/files/<int:index>',methods=['PUT'])
 def upload_chunk(id,index):
+ # Never hold the shared job lock while waiting for network input.
+ payload=request.stream.read(CHUNK_SIZE+1)
  with lock:
   p,files=upload_session(id)
   if index>=len(files):abort(404)
   try:offset=int(request.args.get('offset','-1'))
   except ValueError:return jsonify(error='잘못된 업로드 위치입니다.'),400
   target=p/str(index);current=target.stat().st_size if target.exists() else 0
+  if offset<0 or not payload or len(payload)>CHUNK_SIZE or offset+len(payload)>files[index]['size']:return jsonify(error='업로드 조각의 크기가 잘못되었습니다.'),400
+  if offset<current and offset+len(payload)<=current:
+   # A lost response may cause the client to repeat an already stored chunk.
+   with target.open('rb') as source:
+    source.seek(offset)
+    if source.read(len(payload))==payload:
+     os.utime(p,None)
+     return jsonify(received=offset+len(payload))
   if offset!=current:return jsonify(error='업로드 위치가 일치하지 않습니다. 다시 업로드해 주세요.'),409
-  payload=request.stream.read(CHUNK_SIZE+1)
-  if not payload or len(payload)>CHUNK_SIZE or current+len(payload)>files[index]['size']:return jsonify(error='업로드 조각의 크기가 잘못되었습니다.'),400
   if shutil.disk_usage(ROOT).free<len(payload)+100*1024*1024:return jsonify(error='저장 공간이 부족합니다.'),507
   with target.open('ab') as out:out.write(payload)
   os.utime(p,None)
@@ -260,7 +284,7 @@ def finish_upload(id):
   try:result=register_files(streams)
   finally:
    for f in streams:f.close()
-  if result[1]==201:shutil.rmtree(p)
+   shutil.rmtree(p)
   return result
 
 @app.route('/api/uploads/<id>',methods=['DELETE'])
