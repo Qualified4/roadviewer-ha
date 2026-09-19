@@ -18,7 +18,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const name=p==='/'?'library.html':p.replace('/assets/','');return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
   await page.goto('https://rv.test/');await page.waitForFunction(()=>!document.getElementById('autoConvert').disabled);
-  assert(await page.getByRole('heading',{name:'변환 및 저장 안내'}).isVisible());assert.equal(await page.locator('.status-guide dt').count(),5);
+  assert(await page.getByRole('heading',{name:'변환 및 저장 안내'}).isVisible());assert.equal(await page.locator('.status-guide dt').count(),5);assert(await page.evaluate(()=>document.querySelector('.upload').nextElementSibling.matches('.conversion-info')));
   await page.getByRole('switch',{name:'자동 변환'}).uncheck();await page.waitForFunction(()=>document.getElementById('autoConvertInfo').textContent.includes('꺼짐'));assert.equal(automatic,false);
   await page.reload();assert.equal(await page.getByRole('switch',{name:'자동 변환'}).isChecked(),false);
   fail=true;await page.getByRole('switch',{name:'자동 변환'}).check();await page.waitForFunction(()=>document.getElementById('error').textContent==='설정 저장 실패');assert.equal(await page.getByRole('switch',{name:'자동 변환'}).isChecked(),false);fail=false;

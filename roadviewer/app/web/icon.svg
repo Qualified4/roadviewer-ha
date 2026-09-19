@@ -1,1 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><rect width="256" height="256" rx="56" fill="#0c1822"/><path d="M28 217 88 38M228 217 168 38" fill="none" stroke="#57d9b0" stroke-width="12" stroke-linecap="round"/><path d="M128 43v22m0 18v25m0 20v23" stroke="#ffa665" stroke-width="8" stroke-linecap="round"/><rect x="97" y="168" width="62" height="57" rx="18" fill="#e6edf5"/><path d="M106 186h44" stroke="#0c1822" stroke-width="9" stroke-linecap="round"/><path d="m176 102 30 19-30 19z" fill="#78e9fa"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs><clipPath id="tile"><rect width="256" height="256" rx="52"/></clipPath></defs>
+  <g clip-path="url(#tile)">
+    <rect width="256" height="256" fill="#0c1822"/>
+    <path d="M0 205 103 29h8L0 239Zm256 0L153 29h-8l111 210Z" fill="#57d9b0"/>
+    <path d="m126 29-.5 9h5l-.5-9Zm-1 19-1 13h8l-1-13Zm-2 25-1 17h12l-1-17Zm-2 31-1 21h16l-1-21Z" fill="#e6edf5"/>
+    <!-- Rear view: rear glass, high brake light, tail lamps and license plate. -->
+    <path d="m84 164 9-24q3-8 12-8h46q9 0 12 8l9 24 7 9q4 5 4 14v23q0 7-7 7h-6v5h-14v-7h-56v7H86v-5h-6q-7 0-7-7v-23q0-9 4-14Z" fill="#e6edf5"/>
+    <path d="m99 144-6 17h70l-6-17q-1-4-6-4h-46q-5 0-6 4Z" fill="#0c1822"/>
+    <rect x="119" y="137" width="18" height="3" rx="1.5" fill="#f45b60"/>
+    <path d="M82 176h25v9H82Zm67 0h25v9h-25Z" fill="#f45b60"/>
+    <rect x="116" y="187" width="24" height="9" rx="2" fill="#0c1822"/>
+    <path d="M86 205h84" stroke="#0c1822" stroke-width="5" stroke-linecap="round"/>
+  </g>
+</svg>

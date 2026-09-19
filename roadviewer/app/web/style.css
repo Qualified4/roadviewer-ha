@@ -208,3 +208,13 @@ i.model-path{background:#c4a5ff}
 #graphOptions input{accent-color:var(--lane)}
 @media(min-width:1100px){.telemetry-summary{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:550px){.split-view .telemetry-summary{grid-template-columns:1fr}.split-view .telemetry-summary strong{font-size:14px}.split-view #telemetryView{height:750px}.split-view .telemetry-toolbar{padding:0 6px 8px}.split-view #telemetryGraphs{padding:0 6px}}
+
+.graph-option{display:grid;grid-template-columns:30px minmax(0,1fr) 32px 32px;gap:3px;align-items:center;border-radius:7px}
+#graphOptions .graph-option label{min-width:0;padding:6px 4px;gap:7px;font-size:12px;overflow-wrap:anywhere}
+#graphOptions .graph-option input{flex:none}
+.graph-option button{padding:0;min-height:44px;background:transparent;border:0;color:var(--muted)}
+.graph-option button:disabled{opacity:.25;cursor:default}
+.graph-option .graph-handle{touch-action:none;cursor:grab;font-size:24px;user-select:none}
+.graph-option.graph-dragging{opacity:.55}
+.graph-option.graph-drop-target{outline:2px solid var(--lane);outline-offset:-2px}
+#graphOrderStatus{margin-top:10px}

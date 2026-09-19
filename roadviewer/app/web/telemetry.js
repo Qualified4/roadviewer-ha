@@ -17,9 +17,10 @@
   {id:'control',title:'자동 제어 상태',binary:true,lines:[cc('latActive','자동 조향'),cc('longActive','자동 가감속')]},
   {id:'stop',title:'정차·브레이크 홀드',binary:true,lines:[cs('standstill','정차'),cs('parkingBrake','주차브레이크'),cs('brakeHoldActive','브레이크 홀드')]},
  ];
- const key='roadviewer-vehicle-graphs',tabKey='roadviewer-analysis-tab';
+ const key='roadviewer-vehicle-graphs',tabKey='roadviewer-analysis-tab',orderKey='roadviewer-graph-order';
  let selected=new Set(['speed','acceleration','pedals','angle','intervention','control']),tab='road';
  try{const saved=JSON.parse(localStorage.getItem(key));if(Array.isArray(saved))selected=new Set(saved.filter(id=>graphs.some(g=>g.id===id)));if(localStorage.getItem(tabKey)==='telemetry')tab='telemetry'}catch{}
+ try{const saved=JSON.parse(localStorage.getItem(orderKey));if(Array.isArray(saved)){const order=[...new Set(saved.filter(id=>graphs.some(g=>g.id===id))),...graphs.map(g=>g.id).filter(id=>!saved.includes(id))];graphs.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id))}}catch{}
  const roadTab=$('roadTab'),telemetryTab=$('telemetryTab'),roadView=$('roadView'),view=$('telemetryView'),scroll=$('telemetryGraphs'),status=$('telemetryStatus');
  let payload=null,loadedKey=null,loadingKey=null,failedKey=null,requestId=0,span=null,start=0,gesture=null;
  const cards=new Map();
@@ -124,10 +125,54 @@
  $('retryTelemetry').onclick=()=>{failedKey=null;void load()};
  scroll.addEventListener('scroll',update,{passive:true});new ResizeObserver(update).observe(scroll);
  const dialog=$('graphDialog'),opener=$('chooseGraphs');let oldOverflow='',dialogOpen=false;
- for(const graph of graphs){const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=graph.id;input.checked=selected.has(graph.id);input.onchange=()=>{input.checked?selected.add(graph.id):selected.delete(graph.id);try{localStorage.setItem(key,JSON.stringify([...selected]))}catch{}rebuild()};label.append(input,document.createTextNode(graph.title));$('graphOptions').append(label)}
+ const options=$('graphOptions'),rows=new Map();let drag=null,dragFrame=0;
+ function arrangeOptions(){
+  graphs.forEach((graph,i)=>{const row=rows.get(graph.id);options.append(row);row.querySelector('.graph-up').disabled=i===0;row.querySelector('.graph-down').disabled=i===graphs.length-1});
+ }
+ function moveGraph(id,to){
+  const from=graphs.findIndex(g=>g.id===id);if(from===to||to<0||to>=graphs.length)return;
+  graphs.splice(to,0,graphs.splice(from,1)[0]);
+  try{localStorage.setItem(orderKey,JSON.stringify(graphs.map(g=>g.id)))}catch{}
+  arrangeOptions();rebuild();$('graphOrderStatus').textContent=graphs[to].title+' · '+(to+1)+'번째로 이동했습니다.';
+ }
+ function dragTarget(){
+  if(!drag)return;
+  const row=document.elementFromPoint(drag.x,drag.y)?.closest('.graph-option');
+  if(row&&options.contains(row)){drag.target=row.dataset.graph;for(const item of rows.values())item.classList.toggle('graph-drop-target',item===row)}
+ }
+ function dragScroll(){
+  if(!drag)return;
+  const r=dialog.getBoundingClientRect(),top=r.top+dialog.querySelector('.rv-choice-header').offsetHeight;
+  if(drag.y<top+32)dialog.scrollTop-=8;else if(drag.y>r.bottom-32)dialog.scrollTop+=8;
+  dragTarget();dragFrame=requestAnimationFrame(dragScroll);
+ }
+ function finishDrag(commit=false){
+  if(!drag)return;const current=drag;drag=null;cancelAnimationFrame(dragFrame);
+  if(current.handle.hasPointerCapture(current.pointer))current.handle.releasePointerCapture(current.pointer);
+  for(const row of rows.values())row.classList.remove('graph-dragging','graph-drop-target');
+  if(commit)moveGraph(current.id,graphs.findIndex(g=>g.id===current.target));
+  current.handle.focus({preventScroll:true});
+ }
+ for(const graph of graphs){
+  const row=document.createElement('div');row.className='graph-option';row.dataset.graph=graph.id;
+  const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=graph.id;input.checked=selected.has(graph.id);
+  input.onchange=()=>{input.checked?selected.add(graph.id):selected.delete(graph.id);try{localStorage.setItem(key,JSON.stringify([...selected]))}catch{}rebuild()};label.append(input,document.createTextNode(graph.title));
+  const handle=document.createElement('button');handle.type='button';handle.className='graph-handle';handle.textContent='⠿';handle.setAttribute('aria-label',graph.title+' 드래그하여 순서 변경');
+  handle.onpointerdown=e=>{if(e.button!==0)return;e.preventDefault();drag={id:graph.id,target:graph.id,pointer:e.pointerId,handle,x:e.clientX,y:e.clientY};handle.setPointerCapture(e.pointerId);row.classList.add('graph-dragging');dragFrame=requestAnimationFrame(dragScroll)};
+  handle.onpointermove=e=>{if(drag?.pointer!==e.pointerId)return;drag.x=e.clientX;drag.y=e.clientY;dragTarget()};
+  handle.onpointerup=e=>{if(drag?.pointer===e.pointerId)finishDrag(true)};
+  handle.onpointercancel=()=>finishDrag();handle.onlostpointercapture=()=>finishDrag();
+  row.append(handle,label);
+  for(const [direction,offset,symbol] of [['up',-1,'↑'],['down',1,'↓']]){
+   const button=document.createElement('button');button.type='button';button.className='graph-'+direction;button.textContent=symbol;button.setAttribute('aria-label',graph.title+(offset<0?' 위로 이동':' 아래로 이동'));
+   button.onclick=()=>{moveGraph(graph.id,graphs.findIndex(g=>g.id===graph.id)+offset);(button.disabled?handle:button).focus({preventScroll:true});row.scrollIntoView({block:'nearest'})};row.append(button);
+  }
+  rows.set(graph.id,row);
+ }
+ arrangeOptions();
  opener.onclick=()=>{if(dialog.open)return;oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';dialogOpen=true;dialog.showModal();$('graphDialogClose').focus({preventScroll:true})};
  function finishClose(){if(!dialogOpen)return;dialogOpen=false;document.body.style.overflow=oldOverflow;opener.focus({preventScroll:true})}
- function close(){dialog.close();finishClose()}
+ function close(){finishDrag();dialog.close();finishClose()}
  $('graphDialogClose').onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close()});dialog.addEventListener('close',()=>{if(!dialog.open)finishClose()});
  dialog.onclick=e=>{if(e.target!==dialog)return;const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()};
  window.renderTelemetry=update;rebuild();selectTab(tab,false);
