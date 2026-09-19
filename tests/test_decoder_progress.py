@@ -24,7 +24,9 @@ class DecoderProgressTests(unittest.TestCase):
     for name,values in [('modelV2',dict(frameId=i,timestampEof=stamp,laneLines=[],laneLineProbs=[],roadEdges=[],roadEdgeStds=[])),('qRoadEncodeIdx',dict(frameId=i,segmentId=i,timestampEof=stamp))]:
      e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
    for i in range(100):
-    e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10+i*.01)*1e9);e.valid=True;e.init('carState');e.carState.vEgo=20;e.carState.steeringPressed=i==31;messages.append(e.to_bytes())
+    e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10+i*.01)*1e9);e.valid=True;e.init('carState');e.carState.vEgo=20;e.carState.engineRpm=1800;e.carState.gas=.25;e.carState.steeringPressed=i==31;messages.append(e.to_bytes())
+   for name,values in [('carControl',{'latActive':True,'longActive':True,'actuators':{'steeringAngleDeg':7,'accel':-1.5,'aTarget':-1.2,'jerk':-.3,'longControlState':'stopping'}}),('carOutput',{'actuatorsOutput':{'gas':.25,'brake':.5,'accel':-1}}),('controlsState',{'lateralControlState':{'torqueState':{'active':True,'actualLateralAccel':.8,'desiredLateralAccel':1.2}}})]:
+    e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10)*1e9);e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
    src=root/'rlog.zst';src.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
    output=io.StringIO();counter=iter(range(10000));reporter=Reporter(output,clock=lambda:next(counter))
    with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src)
@@ -42,6 +44,11 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertEqual(len(state['times']),100)
    self.assertAlmostEqual(state['times'][0],data['logStart'],places=5)
    self.assertEqual(state['values']['speed'][0],72)
+   self.assertEqual(state['values']['rpm'][0],1800);self.assertEqual(state['values']['gas'][0],25)
+   control=telemetry['streams']['carControl']['values'];out=telemetry['streams']['carOutput']['values']
+   self.assertEqual(control['targetAngle'],[7]);self.assertEqual(control['decelRequested'],[True]);self.assertEqual(control['long_stopping'],[True])
+   self.assertEqual(out['outputGas'],[25]);self.assertEqual(out['outputBrake'],[50])
+   self.assertEqual(telemetry['streams']['controlsState']['values']['desiredLateralAccel'],[1.2])
    self.assertEqual(sum(value is True for value in state['values']['steeringPressed']),1)
    self.assertEqual(state['values']['steeringPressed'][31],True)
 

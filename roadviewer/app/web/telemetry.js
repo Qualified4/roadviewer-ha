@@ -1,20 +1,29 @@
 'use strict';
 (()=>{
- const colors=['#57d9b0','#bda0ff','#ffac70'];
+ const colors=['#57d9b0','#bda0ff','#ffac70','#78c7ff'];
  const line=(topic,key,label)=>({topic,key,label});
- const cs=(key,label)=>line('carState',key,label),cc=(key,label)=>line('carControl',key,label);
+ const cs=(key,label)=>line('carState',key,label),cc=(key,label)=>line('carControl',key,label),out=(key,label)=>line('carOutput',key,label),ctl=(key,label)=>line('controlsState',key,label);
+ const fallback=(primary,secondary)=>({...primary,fallback:secondary});
  const graphs=[
   {id:'speed',title:'속도',unit:'km/h',lines:[cs('speed','실제'),cs('clusterSpeed','계기판'),cs('cruiseSpeed','크루즈')]},
-  {id:'acceleration',title:'가속도',unit:'m/s²',lines:[cs('acceleration','실제'),cc('targetAcceleration','목표')]},
-  {id:'pedals',title:'페달 입력량',unit:'%',bounds:[0,100],lines:[cs('gas','액셀'),cs('brake','브레이크')]},
-  {id:'angle',title:'조향각',unit:'°',lines:[cs('steeringAngle','실제'),cc('targetAngle','목표')]},
+  {id:'acceleration',title:'가속도',unit:'m/s²',note:'요청은 자동 가감속 명령, 출력은 차량 제어기가 기록한 최종 명령입니다. 실제 차량 가속도와 구분합니다.',lines:[cs('acceleration','실제'),cc('targetAcceleration','요청'),out('outputAcceleration','출력 기록')]},
+  {id:'pedals',title:'운전자 페달 입력량',unit:'%',bounds:[0,100],checkZero:true,note:'운전자 입력입니다. 자동 가감속 명령과 별개이며 브레이크 값은 차량에 따라 압력 등으로 기록됩니다.',lines:[cs('gas','액셀'),cs('brake','브레이크')]},
+  {id:'angle',title:'조향각',unit:'°',checkZero:true,note:'목표는 제어기에 기록된 값이며 모델 경로 자체와 다릅니다. 토크 제어 차량의 목표각도 포함합니다. 출력 기록 지원은 차량마다 다릅니다.',lines:[cs('steeringAngle','실제'),fallback(cc('targetAngle','목표'),ctl('desiredAngle','목표')),out('outputAngle','출력 기록')]},
   {id:'steeringRate',title:'핸들 회전 속도',unit:'°/s',lines:[cs('steeringRate','실제')]},
   {id:'torque',title:'조향 토크',unit:'차량 원시값',lines:[cs('driverTorque','운전자'),cs('epsTorque','EPS')]},
-  {id:'command',title:'자동 조향 토크 명령',unit:'정규화 값',lines:[cc('commandTorque','요청'),line('carOutput','outputTorque','최종 출력')]},
-  {id:'rpm',title:'엔진 회전수',unit:'RPM',lines:[cs('rpm','엔진')]},
-  {id:'pedalState',title:'페달 조작 상태',binary:true,lines:[cs('gasPressed','액셀'),cs('brakePressed','브레이크'),cs('regenBraking','회생제동')]},
+  {id:'command',title:'자동 조향 토크 명령',unit:'정규화 값',checkZero:true,lines:[cc('commandTorque','요청'),out('outputTorque','출력 기록')]},
+  {id:'rpm',title:'회전수 (RPM)',unit:'RPM',checkZero:true,note:'engineRpm 필드의 기록값입니다. 차량 구현에 따라 엔진 또는 구동계 회전수이며, 필드를 채우지 않는 차량도 있습니다.',lines:[cs('rpm','기록값')]},
+  {id:'pedalState',title:'운전자 페달 조작 상태',binary:true,note:'운전자가 조작했는지 나타냅니다. 자동 감속·회생제동 명령을 의미하지 않습니다.',lines:[cs('gasPressed','액셀'),cs('brakePressed','브레이크'),cs('regenBraking','회생제동')]},
   {id:'intervention',title:'운전자 조향 개입',binary:true,lines:[cs('steeringPressed','조향 개입')]},
-  {id:'control',title:'자동 제어 상태',binary:true,lines:[cc('latActive','자동 조향'),cc('longActive','자동 가감속')]},
+  {id:'control',title:'자동 제어 상태',binary:true,lines:[cc('enabled','시스템 켜짐'),cc('latActive','자동 조향'),cc('longActive','자동 가감속')]},
+  {id:'autoPedals',title:'자동 가스·브레이크 출력',unit:'%',bounds:[0,100],checkZero:true,note:'차량에 보내는 출력 기록이며 실제 페달 이동량이 아닙니다. 가속도 명령을 사용하는 차량에서는 이 필드가 0으로 남을 수 있습니다.',lines:[out('outputGas','가스 출력'),out('outputBrake','브레이크 출력')]},
+  {id:'accelPlan',title:'자동 목표 가속도',unit:'m/s²',lines:[cc('plannedAcceleration','제어 목표'),cc('targetAcceleration','요청 명령')]},
+  {id:'jerk',title:'자동 가감속 저크',unit:'m/s³',lines:[cc('jerk','요청')]},
+  {id:'accelRequest',title:'자동 가속·감속 요청',binary:true,note:'자동 가감속이 활성화된 동안 가속도 명령의 부호를 표시합니다. 감속 요청이 곧 브레이크 페달 조작이라는 뜻은 아닙니다.',lines:[cc('accelRequested','가속 요청'),cc('decelRequested','감속 요청'),cc('longActive','제어 활성')]},
+  {id:'longState',title:'자동 가감속 제어 단계',binary:true,lines:['off','pid','stopping','starting'].map((state,i)=>fallback(cc('long_'+state,['꺼짐','속도 제어','정지 중','출발 중'][i]),ctl('long_'+state,['꺼짐','속도 제어','정지 중','출발 중'][i])))},
+  {id:'curvature',title:'주행 곡률',unit:'1/m',precision:5,checkZero:true,note:'실제 추정 곡률·제어 목표·차량 명령입니다. 각도·토크 방식에서는 곡률 명령을 사용하지 않을 수 있습니다.',lines:[ctl('actualCurvature','실제 추정'),ctl('desiredCurvature','목표'),cc('commandCurvature','요청'),out('outputCurvature','출력 기록')]},
+  {id:'lateralAccel',title:'횡가속도 제어',unit:'m/s²',note:'토크 제어기의 실제 추정값과 목표값입니다.',lines:[ctl('actualLateralAccel','실제 추정'),ctl('desiredLateralAccel','목표')]},
+  {id:'cruiseState',title:'크루즈 상태',binary:true,note:'차량의 크루즈 상태입니다. 순정 ACC 작동과 openpilot 자동 가감속 활성 여부는 다를 수 있습니다.',lines:[cs('cruiseEnabled','작동'),cs('cruiseAvailable','사용 가능'),cc('longActive','자동 가감속')]},
   {id:'stop',title:'정차·브레이크 홀드',binary:true,lines:[cs('standstill','정차'),cs('parkingBrake','주차브레이크'),cs('brakeHoldActive','브레이크 홀드')]},
  ];
  const key='roadviewer-vehicle-graphs',tabKey='roadviewer-analysis-tab',orderKey='roadviewer-graph-order';
@@ -23,12 +32,17 @@
  try{const saved=JSON.parse(localStorage.getItem(orderKey));if(Array.isArray(saved)){const order=[...new Set(saved.filter(id=>graphs.some(g=>g.id===id))),...graphs.map(g=>g.id).filter(id=>!saved.includes(id))];graphs.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id))}}catch{}
  const roadTab=$('roadTab'),telemetryTab=$('telemetryTab'),roadView=$('roadView'),view=$('telemetryView'),scroll=$('telemetryGraphs'),status=$('telemetryStatus');
  let payload=null,loadedKey=null,loadingKey=null,failedKey=null,requestId=0,span=null,start=0,gesture=null;
- const cards=new Map();
+ const cards=new Map(),seriesCache=new Map();
  const summaries=[['속도',cs('speed'),'km/h'],['가속도',cs('acceleration'),'m/s²'],['조향각',cs('steeringAngle'),'°'],['조향 개입',cs('steeringPressed'),'']].map(([label,series,unit])=>{
   const cell=document.createElement('div'),name=document.createElement('span'),value=document.createElement('strong');name.textContent=label;value.textContent='—';cell.append(name,value);$('telemetrySummary').append(cell);return {series,unit,value};
  });
  function lowerBound(times,value){let a=0,b=times.length;while(a<b){const m=(a+b)>>1;if(times[m]<value)a=m+1;else b=m}return a}
- function series(source){const stream=payload?.streams?.[source.topic];return {times:stream?.times||[],values:stream?.values?.[source.key]||[]}}
+ function series(source){
+  const cacheKey=source.topic+'.'+source.key;if(seriesCache.has(cacheKey))return seriesCache.get(cacheKey);
+  const stream=payload?.streams?.[source.topic];let result={times:stream?.times||[],values:stream?.values?.[source.key]||[]};
+  if(source.fallback&&!result.values.some(valid))result=series(source.fallback);
+  if(payload)seriesCache.set(cacheKey,result);return result;
+ }
  const valid=value=>typeof value==='boolean'||Number.isFinite(value);
  const initialPreviewTimes=new Set();
  function currentSample(source){
@@ -47,19 +61,19 @@
   if(first<0||times[first]<=t||times[first]>.25+1e-6||times[first]>data.duration)return null;
   initialPreviewTimes.add(times[first]);return values[first];
  }
- function format(value,unit=''){return value===null?'—':typeof value==='boolean'?(value?'켜짐':'꺼짐'):value.toFixed(2)+(unit?' '+unit:'')}
+ function format(value,unit='',precision=2){return value===null?'—':typeof value==='boolean'?(value?'켜짐':'꺼짐'):value.toFixed(precision)+(unit?' '+unit:'')}
  async function load(){
   if(!data||tab!=='telemetry')return;
   const version=data.key||location.pathname;
   if(loadedKey===version||loadingKey===version||failedKey===version)return;
-  payload=null;loadingKey=version;status.textContent='차량 정보를 불러오는 중…';$('retryTelemetry').hidden=true;
+  payload=null;seriesCache.clear();loadingKey=version;status.textContent='차량 정보를 불러오는 중…';$('retryTelemetry').hidden=true;
   const ticket=++requestId,controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);
   try{
    const id=location.pathname.split('/').filter(Boolean).at(-1),r=await fetch('../../api/logs/'+encodeURIComponent(id)+'/telemetry?v='+encodeURIComponent(version),{cache:'no-store',signal:controller.signal});
    if(!r.ok){let message='차량 정보를 불러오지 못했습니다.';try{message=(await r.json()).error||message}catch{}throw Error(message)}
    const result=await r.json();if(!result.streams||!Number.isFinite(result.duration))throw Error('차량 정보 형식이 올바르지 않습니다. 로그 목록에서 제거 후 변환해 주세요.');
    if(ticket!==requestId)return;
-   payload=result;loadedKey=version;failedKey=null;span=null;start=0;status.textContent='';
+   payload=result;seriesCache.clear();loadedKey=version;failedKey=null;span=null;start=0;status.textContent='';
    for(const card of cards.values())card.cache='';
   }catch(e){if(ticket===requestId){failedKey=version;status.textContent=controller.signal.aborted?'차량 정보 응답이 지연되었습니다. 다시 불러오기를 눌러 주세요.':e.message;$('retryTelemetry').hidden=false}}
   finally{clearTimeout(timeout);if(ticket===requestId){loadingKey=null;update()}}
@@ -88,7 +102,7 @@
    const title=document.createElement('h3');title.textContent=graph.title+(graph.unit?' · '+graph.unit:'');
    const legend=document.createElement('div');legend.className='telemetry-legend';const labels=graph.lines.map((s,i)=>{const label=document.createElement('span');label.style.color=colors[i%colors.length];legend.append(label);return label});
    const plot=document.createElement('div');plot.className='telemetry-plot';const canvas=document.createElement('canvas');canvas.tabIndex=0;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',graph.title+' 시간축 그래프. 클릭 또는 좌우 방향키로 재생 위치 이동');
-   const cursor=document.createElement('div');cursor.className='telemetry-cursor';cursor.setAttribute('aria-hidden','true');plot.append(canvas,cursor);card.append(title,legend,plot);scroll.append(card);cards.set(graph.id,{graph,card,canvas,cursor,labels,cache:''});installSeeking(canvas);
+   const cursor=document.createElement('div');cursor.className='telemetry-cursor';cursor.setAttribute('aria-hidden','true');plot.append(canvas,cursor);const note=document.createElement('p');note.className='telemetry-source-note';note.hidden=true;card.append(title,legend,plot,note);scroll.append(card);cards.set(graph.id,{graph,card,canvas,cursor,labels,note,noteKey:null,cache:''});installSeeking(canvas);
   }
   if(!selected.size){const empty=document.createElement('p');empty.textContent='선택된 그래프가 없습니다. 그래프 선택에서 항목을 켜 주세요.';scroll.append(empty)}
   update();
@@ -101,11 +115,11 @@
   let low=0,high=0,hasData=false;
   const gap=payload?.maxGap||.15;
   for(const s of sets)for(let i=s.begin;i<s.end;i++)if(valid(s.values[i])&&s.times[i]<=range[1]&&s.times[i]+gap>=range[0]){hasData=true;if(!graph.binary){low=Math.min(low,s.values[i]);high=Math.max(high,s.values[i])}}
-  if(graph.bounds)[low,high]=graph.bounds;else{const pad=Math.max((high-low)*.08,.1);low-=pad;high+=pad}
+  if(graph.bounds)[low,high]=graph.bounds;else{const pad=Math.max((high-low)*.08,graph.precision?10**(-graph.precision):.1);low-=pad;high+=pad}
   const Y=value=>bottom-(value-low)/(high-low)*(bottom-top);
   c.font='10px system-ui';c.lineWidth=1;c.strokeStyle='#29394a';c.fillStyle='#94a5b8';
   for(let i=0;i<=4;i++){const x=left+(right-left)*i/4;c.beginPath();c.moveTo(x,top);c.lineTo(x,bottom);c.stroke();c.textAlign=i===0?'left':i===4?'right':'center';c.fillText((range[0]+(range[1]-range[0])*i/4).toFixed(1)+'s',x,104)}
-  if(!graph.binary)for(let i=0;i<=2;i++){const value=low+(high-low)*i/2,y=Y(value);c.beginPath();c.moveTo(left,y);c.lineTo(right,y);c.stroke();c.textAlign='right';c.fillText(Math.abs(value)>=100?value.toFixed(0):value.toFixed(1),left-5,y+3)}
+  if(!graph.binary)for(let i=0;i<=2;i++){const value=low+(high-low)*i/2,y=Y(value);c.beginPath();c.moveTo(left,y);c.lineTo(right,y);c.stroke();c.textAlign='right';c.fillText(graph.precision?value.toFixed(graph.precision):Math.abs(value)>=100?value.toFixed(0):value.toFixed(1),left-5,y+3)}
   c.save();c.beginPath();c.rect(left,top,right-left,bottom-top);c.clip();
   sets.forEach((s,j)=>{
    const color=colors[j%colors.length];c.strokeStyle=color;c.fillStyle=color;c.lineWidth=1.5;
@@ -131,7 +145,12 @@
   $('graphTime').textContent=clock(t)+' · '+range[0].toFixed(1)+'–'+range[1].toFixed(1)+'s';
   const bounds=scroll.getBoundingClientRect();
   for(const card of cards.values()){
-   card.graph.lines.forEach((s,i)=>{card.labels[i].textContent=s.label+' '+format(current(s))});
+   card.graph.lines.forEach((s,i)=>{card.labels[i].textContent=s.label+' '+format(current(s),'',card.graph.precision||2)});
+   if(card.noteKey!==loadedKey){
+    const missing=[],zero=[];
+    for(const source of card.graph.lines){const samples=series(source).values.filter(valid);if(!samples.length)missing.push(source.label);else if(card.graph.checkZero&&samples.every(value=>value===0))zero.push(source.label)}
+    card.note.textContent=[card.graph.note,missing.length?missing.join('·')+': 이 로그에 유효한 기록 없음':null,zero.length?zero.join('·')+': 기록값이 모두 0입니다. 실제 0인지 미기록 기본값인지 구분할 수 없습니다.':null].filter(Boolean).join(' ');card.note.hidden=!card.note.textContent;card.noteKey=loadedKey;
+   }
    const r=card.canvas.getBoundingClientRect();if(r.bottom<bounds.top||r.top>bounds.bottom||r.width<1)continue;
    const cache=[r.width,devicePixelRatio,range[0],range[1]].join(':');if(cache!==card.cache){draw(card,range,r.width);card.cache=cache}
    card.cursor.hidden=t<range[0]||t>range[1];card.cursor.style.left=(48+(t-range[0])/(range[1]-range[0])*Math.max(1,r.width-56))+'px';
@@ -146,7 +165,7 @@
  const dialog=$('graphDialog'),opener=$('chooseGraphs');let oldOverflow='',dialogOpen=false;
  const options=$('graphOptions'),rows=new Map();let drag=null,dragFrame=0;
  function arrangeOptions(){
-  graphs.forEach((graph,i)=>{const row=rows.get(graph.id);options.append(row);row.querySelector('.graph-up').disabled=i===0;row.querySelector('.graph-down').disabled=i===graphs.length-1});
+  for(const graph of graphs)options.append(rows.get(graph.id));
  }
  function moveGraph(id,to){
   const from=graphs.findIndex(g=>g.id===id);if(from===to||to<0||to>=graphs.length)return;
@@ -190,11 +209,7 @@
   handle.onpointermove=e=>{if(drag?.pointer!==e.pointerId)return;drag.x=e.clientX;drag.y=e.clientY;dragTarget()};
   handle.onpointerup=e=>{if(drag?.pointer===e.pointerId){drag.x=e.clientX;drag.y=e.clientY;dragTarget();finishDrag(true)}};
   handle.onpointercancel=()=>finishDrag();handle.onlostpointercapture=()=>finishDrag();
-  row.append(handle,label);
-  for(const [direction,offset,symbol] of [['up',-1,'↑'],['down',1,'↓']]){
-   const button=document.createElement('button');button.type='button';button.className='graph-'+direction;button.textContent=symbol;button.setAttribute('aria-label',graph.title+(offset<0?' 위로 이동':' 아래로 이동'));
-   button.onclick=()=>{moveGraph(graph.id,graphs.findIndex(g=>g.id===graph.id)+offset);(button.disabled?handle:button).focus({preventScroll:true});row.scrollIntoView({block:'nearest'})};row.append(button);
-  }
+  row.append(label,handle);
   rows.set(graph.id,row);
  }
  arrangeOptions();

@@ -6,6 +6,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   page.on('pageerror',e=>errors.push(e.message));let reads=0,fail=false;
   const times=Array.from({length:201},(_,i)=>i/100),numeric=fn=>times.map((t,i)=>i>=30&&i<60?null:fn(t,i));
   const telemetry={duration:2,maxGap:.15,streams:{carState:{times,values:{speed:numeric(t=>72+Math.sin(t*8)),clusterSpeed:numeric(()=>73),cruiseSpeed:numeric(()=>80),acceleration:numeric(t=>Math.sin(t*6)),gas:numeric(()=>10),brake:numeric(()=>0),steeringAngle:numeric(t=>Math.sin(t*4)*8),steeringRate:numeric(t=>Math.cos(t*4)*32),driverTorque:numeric(()=>.2),epsTorque:numeric(()=>.1),rpm:numeric(()=>1500),steeringPressed:times.map((t,i)=>i===11),gasPressed:times.map(()=>true),brakePressed:times.map(()=>false),regenBraking:times.map(()=>false),standstill:times.map(()=>false),parkingBrake:times.map(()=>false),brakeHoldActive:times.map(()=>false)}},carControl:{times,values:{latActive:times.map(()=>true),longActive:times.map(()=>true),targetAcceleration:numeric(()=>.2),targetAngle:numeric(()=>2),commandTorque:numeric(()=>.1)}},carOutput:{times,values:{outputTorque:numeric(()=>.1)}}}};
+  Object.assign(telemetry.streams.carControl.values,{enabled:times.map(()=>true),plannedAcceleration:numeric(()=>.3),jerk:numeric(()=>.4),accelRequested:times.map(()=>false),decelRequested:times.map(()=>true),long_off:times.map(()=>false),long_pid:times.map(()=>true),long_stopping:times.map(()=>false),long_starting:times.map(()=>false),commandCurvature:numeric(()=>.00123)});
+  Object.assign(telemetry.streams.carOutput.values,{outputGas:numeric(()=>25),outputBrake:numeric(()=>40),outputAcceleration:numeric(()=>-.5)});
+  telemetry.streams.controlsState={times,values:{desiredAngle:numeric(()=>3),actualCurvature:numeric(()=>.0012),desiredCurvature:numeric(()=>.0013),actualLateralAccel:numeric(()=>.8),desiredLateralAccel:numeric(()=>1.2)}};
+  telemetry.streams.carControl.values.targetAngle=times.map(()=>null); // Older controller angle fallback.
   const data={route:'Telemetry test',key:'telemetry-v1',duration:2,logStart:0,logEnd:2,warnings:[],video:{start:0,duration:2},frames:Array.from({length:41},(_,i)=>({t:i/20,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}))};
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
@@ -45,7 +49,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.evaluate(()=>setTime(.1));assert.equal(await displayedRange(),'0.0–1.0s');
   await page.evaluate(()=>setTime(1.9));assert.equal(await displayedRange(),'1.0–2.0s');
   await page.locator('#graphReset').click();assert((await page.locator('#graphTime').textContent()).includes('0.0–2.0'));
-  await page.locator('#chooseGraphs').click();assert(await page.locator('#graphDialog').isVisible());assert.equal(await page.locator('#graphOptions input').count(),12);
+  await page.locator('#chooseGraphs').click();assert(await page.locator('#graphDialog').isVisible());assert.equal(await page.locator('#graphOptions input').count(),20);
   for(const input of await page.locator('#graphOptions input').all())await input.check();
   await page.locator('#graphDialog').evaluate(e=>e.scrollTop=0);
   const graphOrder=()=>page.locator('.graph-option input').evaluateAll(es=>es.map(e=>e.value));
@@ -55,9 +59,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('.graph-placeholder').count(),1);assert.equal(await page.locator('.graph-dragging').getAttribute('data-graph'),'speed');
   await page.mouse.up();assert.equal(await page.locator('.graph-placeholder').count(),0);assert.equal(await page.locator('.graph-dragging').count(),0);
   assert.deepEqual((await graphOrder()).slice(0,3),['acceleration','pedals','speed']);
-  await page.getByRole('button',{name:'속도 위로 이동',exact:true}).click();await page.getByRole('button',{name:'속도 위로 이동',exact:true}).click();
-  assert(await page.getByRole('button',{name:'속도 위로 이동',exact:true}).isDisabled());
-  await page.getByRole('button',{name:'가속도 위로 이동',exact:true}).click();
+  assert.equal(await page.locator('.graph-up,.graph-down').count(),0);
+  assert(await page.locator('.graph-option').first().evaluate(row=>row.querySelector('.graph-handle').getBoundingClientRect().left>=row.querySelector('label').getBoundingClientRect().right),'handle belongs at the right edge');
+  const moveBack=await page.locator('[data-graph="speed"] .graph-handle').boundingBox(),beforePedals=await page.locator('[data-graph="pedals"].graph-option').boundingBox();
+  await page.mouse.move(moveBack.x+moveBack.width/2,moveBack.y+moveBack.height/2);await page.mouse.down();await page.mouse.move(moveBack.x+moveBack.width/2,beforePedals.y+1,{steps:4});await page.mouse.up();
+  assert.deepEqual((await graphOrder()).slice(0,3),['acceleration','speed','pedals']);
   assert.equal((await graphOrder())[0],'acceleration');
   const cancelGrab=await page.locator('[data-graph="acceleration"] .graph-handle').boundingBox();
   await page.mouse.move(cancelGrab.x+12,cancelGrab.y+20);await page.mouse.down();await page.mouse.move(cancelGrab.x+12,cancelGrab.y+80);
@@ -65,7 +71,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#chooseGraphs').click();assert.equal((await graphOrder())[0],'acceleration');
   await page.locator('#graphOptions input[value="acceleration"]').uncheck();await page.locator('#graphOptions input[value="acceleration"]').check();
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
-  await page.keyboard.press('Escape');assert(await page.locator('#graphDialog').isHidden());assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),12);
+  await page.keyboard.press('Escape');assert(await page.locator('#graphDialog').isHidden());assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),20);
+  await page.evaluate(()=>setTime(.1));
+  for(const [id,value] of [['angle','목표 3.00'],['autoPedals','가스 출력 25.00'],['accelPlan','제어 목표 0.30'],['jerk','요청 0.40'],['accelRequest','감속 요청 켜짐'],['longState','속도 제어 켜짐'],['curvature','요청 0.00123'],['lateralAccel','목표 1.20'],['rpm','기록값 1500.00']])assert((await page.locator(`[data-graph="${id}"] .telemetry-legend`).textContent()).includes(value),id+' should show logged data');
+  assert((await page.locator('[data-graph="pedals"] .telemetry-source-note').textContent()).includes('기록값이 모두 0'));
+  assert((await page.locator('[data-graph="angle"] .telemetry-source-note').textContent()).includes('출력 기록: 이 로그에 유효한 기록 없음'));
   assert(await page.locator('#telemetryGraphs').evaluate(e=>e.scrollHeight>e.clientHeight));
   const videoTop=await page.locator('#video').evaluate(e=>e.getBoundingClientRect().top);
   await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=e.scrollHeight);await page.waitForTimeout(100);
@@ -73,11 +83,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=0);
   if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-desktop.png'});
   await page.locator('#roadTab').click();assert(await page.locator('#roadView').isVisible());await page.locator('#telemetryTab').click();assert.equal(reads,1,'switching tabs reuses data');
-  await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.locator('#telemetryTab').getAttribute('aria-selected'),'true');assert.equal(await page.locator('.telemetry-chart').count(),12);
+  await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.locator('#telemetryTab').getAttribute('aria-selected'),'true');assert.equal(await page.locator('.telemetry-chart').count(),20);
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
   await page.setViewportSize({width:390,height:844});
   await page.locator('#chooseGraphs').click();const dialog=await page.locator('#graphDialog').boundingBox();assert(dialog.x>=0&&dialog.x+dialog.width<=390&&dialog.y>=0&&dialog.y+dialog.height<=844);
   await page.locator('#graphDialog').evaluate(e=>e.scrollTop=0);
+  assert(await page.locator('.graph-option').first().evaluate(row=>row.querySelector('.graph-handle').getBoundingClientRect().left>=row.querySelector('label').getBoundingClientRect().right));
   const touchGrab=await page.locator('[data-graph="acceleration"] .graph-handle').boundingBox(),touchDrop=await page.locator('[data-graph="speed"].graph-option').boundingBox();
   const cdp=await page.context().newCDPSession(page),x=touchGrab.x+touchGrab.width/2,y=touchGrab.y+touchGrab.height/2;
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
