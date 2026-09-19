@@ -13,6 +13,9 @@ class ProcessingQueue:
    if self.closing:raise RuntimeError('Queue is shutting down')
    if id not in self.pending:self.pending.append(id)
    self._drain()
+ def discard(self,id):
+  with self.condition:
+   if id in self.pending:self.pending.remove(id)
  def set_limit(self,limit):
   if type(limit) is not int or limit not in (1,2):raise ValueError('Expected 1 or 2')
   with self.condition:self.limit=limit;self._drain()

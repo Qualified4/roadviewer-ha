@@ -33,3 +33,26 @@
 body.uploading{overscroll-behavior-y:contain}
 #cleanupStatus{color:var(--muted);font-size:12px}
 .actions{flex-wrap:wrap}
+
+.conversion-info{padding:18px 20px;margin-bottom:20px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.conversion-info summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;list-style:none;min-height:24px}
+.conversion-info summary::-webkit-details-marker{display:none}
+.conversion-info summary::after{content:'';width:7px;height:7px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);margin:0 3px 4px}
+.conversion-info[open] summary{margin-bottom:12px}
+.conversion-info[open] summary::after{transform:rotate(225deg);margin-top:5px;margin-bottom:0}
+.conversion-info summary:focus-visible{outline:2px solid var(--lane);outline-offset:5px;border-radius:3px}
+.conversion-info h2{font-size:15px;margin:0}
+#autoConvertInfo{font-size:13px;color:var(--lane);margin:0 0 14px}
+.status-guide{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:0 0 14px}
+.status-guide dt{font-size:12px;font-weight:600;margin-bottom:4px}
+.status-guide dd,.action-guide{font-size:12px;color:var(--muted);margin:0;line-height:1.6}
+.action-guide+.action-guide{margin-top:6px}
+.auto-convert-control{position:relative;display:flex;align-items:center;gap:8px;min-height:40px;font-size:12px;cursor:pointer}
+.auto-convert-control input{position:absolute;right:0;width:32px;height:24px;opacity:0;cursor:pointer}
+.auto-convert-control span{width:30px;height:18px;background:#526174;border-radius:12px;pointer-events:none}
+.auto-convert-control span::after{content:'';display:block;width:12px;height:12px;margin:3px;background:white;border-radius:50%;transition:transform .15s}
+.auto-convert-control input:checked+span{background:#269d7e}
+.auto-convert-control input:checked+span::after{transform:translateX(12px)}
+.auto-convert-control input:focus-visible+span{outline:2px solid var(--lane);outline-offset:3px}
+.auto-convert-control:has(input:disabled){opacity:.55;cursor:default}
+.actions button:disabled{cursor:default;opacity:.6}

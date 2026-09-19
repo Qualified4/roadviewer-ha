@@ -38,16 +38,22 @@ class OverlayProjector:
    index=0
   time,valid,value=rows[index]
   return value if valid and (max_age is None or stamp-time<=max_age) else None
- def project(self,stamp,model,frame):
-  cal=self.at('liveCalibration',stamp,10_000_000_000)
-  if not cal or cal.get('calStatus') not in ('calibrated','recalibrating'):return None
-  rpy=cal.get('rpyCalib',[])
-  if len(rpy)!=3 or not all(math.isfinite(v) for v in rpy):return None
+ def camera_info(self,stamp):
+  cal=self.at('liveCalibration',stamp,10_000_000_000) or {}
   device=(self.at('deviceState',stamp) or {}).get('deviceType','unknown')
   sensor=(self.at('roadCameraState',stamp) or {}).get('sensor','unknown')
-  config=camera_config(device,sensor)
+  rpy=cal.get('rpyCalib',[])
+  if len(rpy)!=3 or not all(math.isfinite(v) for v in rpy):rpy=None
+  heights=cal.get('height',[])
+  measured=bool(heights and math.isfinite(heights[0]) and .3<heights[0]<3)
+  return {'device':device,'sensor':sensor,'calibrationStatus':cal.get('calStatus','unknown'),
+          'rpy':rpy,'height':heights[0] if measured else 1.22,'heightDefault':not measured}
+ def project(self,stamp,model,frame):
+  info=frame.get('cameraInfo') or self.camera_info(stamp)
+  if info['calibrationStatus'] not in ('calibrated','recalibrating') or info['rpy'] is None:return None
+  rpy=info['rpy'];height=info['height']
+  config=camera_config(info['device'],info['sensor'])
   if config is None:return None
-  heights=cal.get('height',[]);height=heights[0] if heights and math.isfinite(heights[0]) and .3<heights[0]<3 else 1.22
   def line(value,offset=0):
    return [project_point((x,y,z+offset),rpy,config) for x,y,z in points3(value)]
   path=points3(model.get('position',{}))

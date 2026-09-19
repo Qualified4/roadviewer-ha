@@ -64,7 +64,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert(route.y>=stuck.y+stuck.height&&route.y+route.height<=heading.y+heading.height);
    assert.equal(await page.locator('.camera-panel .note').count(),0);
    assert((await page.locator('.road-panel .note').textContent()).includes('차선 점선'));
-   assert.equal(await page.locator('.road-panel h2').textContent(),'주행 상황');
+   assert.equal(await page.getByRole('tab',{name:'주행 상황',exact:true}).getAttribute('aria-selected'),'true');
    for(const selector of ['.back','#previousLog','#nextLog']){
     const box=await page.locator(selector).boundingBox();
     assert(box.y>=0&&box.x>=0&&box.x+box.width<=viewport.width);

@@ -23,9 +23,13 @@ class DecoderProgressTests(unittest.TestCase):
     stamp=round((pts_value+10)*1e9)
     for name,values in [('modelV2',dict(frameId=i,timestampEof=stamp,laneLines=[],laneLineProbs=[],roadEdges=[],roadEdgeStds=[])),('qRoadEncodeIdx',dict(frameId=i,segmentId=i,timestampEof=stamp))]:
      e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
+   for i in range(100):
+    e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10+i*.01)*1e9);e.valid=True;e.init('carState');e.carState.vEgo=20;e.carState.steeringPressed=i==31;messages.append(e.to_bytes())
    src=root/'rlog.zst';src.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
    output=io.StringIO();counter=iter(range(10000));reporter=Reporter(output,clock=lambda:next(counter))
    with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src)
+   self.assertEqual(data['frames'][0]['cameraInfo']['calibrationStatus'],'unknown')
+   self.assertTrue(data['frames'][0]['cameraInfo']['heightDefault'])
    events=[json.loads(line) for line in output.getvalue().splitlines()]
    self.assertEqual([e for e in events if e['stage']=='log_analysis'][-1]['frames'],20)
    self.assertEqual([e for e in events if e['stage']=='video_convert'][-1]['percent'],100)
@@ -33,5 +37,12 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertEqual(events[-1]['stage'],'saving')
    self.assertEqual(data['video']['frames'],20)
    self.assertTrue((dest/'camera.mp4').is_file())
+   telemetry=json.loads((dest/'telemetry.json').read_text())
+   state=telemetry['streams']['carState']
+   self.assertEqual(len(state['times']),100)
+   self.assertAlmostEqual(state['times'][0],data['logStart'],places=5)
+   self.assertEqual(state['values']['speed'][0],72)
+   self.assertEqual(sum(value is True for value in state['values']['steeringPressed']),1)
+   self.assertEqual(state['values']['steeringPressed'][31],True)
 
 if __name__=='__main__':unittest.main()

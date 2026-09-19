@@ -1,0 +1,56 @@
+const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+(async()=>{
+ const browser=await chromium.launch({headless:true});
+ try{
+  const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];
+  page.on('pageerror',e=>errors.push(e.message));let reads=0,fail=false;
+  const times=Array.from({length:201},(_,i)=>i/100),numeric=fn=>times.map((t,i)=>i>=30&&i<60?null:fn(t,i));
+  const telemetry={duration:2,maxGap:.15,streams:{carState:{times,values:{speed:numeric(t=>72+Math.sin(t*8)),clusterSpeed:numeric(()=>73),cruiseSpeed:numeric(()=>80),acceleration:numeric(t=>Math.sin(t*6)),gas:numeric(()=>10),brake:numeric(()=>0),steeringAngle:numeric(t=>Math.sin(t*4)*8),steeringRate:numeric(t=>Math.cos(t*4)*32),driverTorque:numeric(()=>.2),epsTorque:numeric(()=>.1),rpm:numeric(()=>1500),steeringPressed:times.map((t,i)=>i===11),gasPressed:times.map(()=>true),brakePressed:times.map(()=>false),regenBraking:times.map(()=>false),standstill:times.map(()=>false),parkingBrake:times.map(()=>false),brakeHoldActive:times.map(()=>false)}},carControl:{times,values:{latActive:times.map(()=>true),longActive:times.map(()=>true),targetAcceleration:numeric(()=>.2),targetAngle:numeric(()=>2),commandTorque:numeric(()=>.1)}},carOutput:{times,values:{outputTorque:numeric(()=>.1)}}}};
+  const data={route:'Telemetry test',key:'telemetry-v1',duration:2,logStart:0,logEnd:2,warnings:[],video:{start:0,duration:2},frames:Array.from({length:41},(_,i)=>({t:i/20,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}))};
+  await page.route('https://rv.test/**',route=>{
+   const p=new URL(route.request().url()).pathname;
+   if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
+   if(p.endsWith('/telemetry')){reads++;return route.fulfill(fail?{status:404,json:{error:'차량 정보가 없습니다. 재생성해 주세요.'}}:{json:telemetry})}
+   if(p.endsWith('/data'))return route.fulfill({json:data});
+   if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync('/tmp/roadviewer-test.mp4'),contentType:'video/mp4'});
+   const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
+   return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.html')?'text/html':name.endsWith('.png')?'image/png':'image/svg+xml'});
+  });
+  await page.goto('https://rv.test/view/one/');await page.waitForFunction(()=>!document.getElementById('play').disabled);assert.equal(reads,0,'road tab should not load telemetry');
+  await page.locator('#telemetryTab').click();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(reads,1);assert(await page.locator('#roadView').isHidden());assert(await page.locator('#video').isVisible());
+  assert.equal(await page.locator('.telemetry-chart').count(),6);
+  await page.evaluate(()=>setTime(.11));assert((await page.locator('#telemetrySummary strong').last().textContent()).includes('개입'),'10ms intervention must be visible between model frames');
+  await page.evaluate(()=>setTime(.45));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—');
+  assert(await page.locator('[data-graph="speed"] canvas').evaluate(c=>{const x=Math.round(48+.45/2*(c.width-56)),d=c.getContext('2d').getImageData(x,8,1,80).data;for(let i=0;i<d.length;i+=4)if(d[i]===87&&d[i+1]===217&&d[i+2]===176)return false;return true}),'invalid samples must leave a gap');
+  await page.evaluate(()=>setTime(.1));
+  const canvas=page.locator('[data-graph="speed"] canvas'),box=await canvas.boundingBox();
+  await page.mouse.click(box.x+48+.5*(box.width-56),box.y+45);
+  assert(Math.abs(await page.evaluate(()=>t)-1)<.02);assert.equal(await page.evaluate(()=>playing),false);
+  await page.evaluate(()=>{setTime(.1);toggle()});
+  await page.mouse.move(box.x+48+.25*(box.width-56),box.y+45);await page.mouse.down();await page.mouse.move(box.x+48+.4*(box.width-56),box.y+45,{steps:4});await page.mouse.up();
+  assert.equal(await page.evaluate(()=>playing),true);assert(Math.abs(await page.evaluate(()=>t)-.8)<.06);await page.evaluate(()=>pause());
+  await canvas.focus();await page.keyboard.press('ArrowRight');assert(await page.evaluate(()=>t)>.85);
+  await page.locator('#graphZoomIn').click();assert((await page.locator('#graphTime').textContent()).includes('0.3–1.3')||!(await page.locator('#graphTime').textContent()).includes('0.0–2.0'));
+  await page.locator('#graphReset').click();assert((await page.locator('#graphTime').textContent()).includes('0.0–2.0'));
+  await page.locator('#chooseGraphs').click();assert(await page.locator('#graphDialog').isVisible());assert.equal(await page.locator('#graphOptions input').count(),12);
+  for(const input of await page.locator('#graphOptions input').all())await input.check();
+  await page.keyboard.press('Escape');assert(await page.locator('#graphDialog').isHidden());assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),12);
+  assert(await page.locator('#telemetryGraphs').evaluate(e=>e.scrollHeight>e.clientHeight));
+  const videoTop=await page.locator('#video').evaluate(e=>e.getBoundingClientRect().top);
+  await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=e.scrollHeight);await page.waitForTimeout(100);
+  assert.equal(await page.locator('#video').evaluate(e=>e.getBoundingClientRect().top),videoTop,'graph scroll must not move the video');
+  await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=0);
+  if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-desktop.png'});
+  await page.locator('#roadTab').click();assert(await page.locator('#roadView').isVisible());await page.locator('#telemetryTab').click();assert.equal(reads,1,'switching tabs reuses data');
+  await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.locator('#telemetryTab').getAttribute('aria-selected'),'true');assert.equal(await page.locator('.telemetry-chart').count(),12);
+  await page.setViewportSize({width:390,height:844});
+  await page.locator('#chooseGraphs').click();const dialog=await page.locator('#graphDialog').boundingBox();assert(dialog.x>=0&&dialog.x+dialog.width<=390&&dialog.y>=0&&dialog.y+dialog.height<=844);
+  for(const input of await page.locator('#graphOptions input').all())await input.uncheck();
+  await page.locator('#graphDialogClose').click();assert((await page.locator('#telemetryGraphs').textContent()).includes('선택된 그래프가 없습니다'));
+  await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.locator('.telemetry-chart').count(),0);
+  await page.locator('#chooseGraphs').click();await page.locator('#graphOptions input[value="speed"]').check();await page.locator('#graphOptions input[value="intervention"]').check();await page.locator('#graphDialogClose').click();
+  if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-mobile.png',fullPage:true});
+  fail=true;await page.reload();await page.waitForSelector('#retryTelemetry');assert((await page.locator('#telemetryStatus').textContent()).includes('재생성'));fail=false;await page.locator('#retryTelemetry').click();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));
+  assert.deepEqual(errors,[]);console.log('PASS: telemetry tabs, lazy loading, raw timing, gaps, synchronized seeking/playback, popup choices, persistence, scrolling and retry');
+ }finally{await browser.close()}
+})().catch(e=>{console.error(e);process.exitCode=1});

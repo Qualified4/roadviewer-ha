@@ -36,6 +36,18 @@ class QueueTests(unittest.TestCase):
    with q.condition:self.assertEqual(q.pending,['same']);self.assertEqual(len(q.active),1)
   finally:gate.set();q.shutdown()
   self.assertEqual(calls,['same','same'])
+ def test_discard_pending_preserves_active_and_manual_work(self):
+  gate=threading.Event();started=threading.Event();calls=[]
+  def work(id):
+   calls.append(id)
+   if id=='running':started.set();gate.wait(5)
+  q=ProcessingQueue(work)
+  try:
+   q.submit('running');self.assertTrue(started.wait(2))
+   q.submit('automatic');q.submit('manual');q.discard('automatic');q.discard('running')
+   self.assertEqual(q.pending,['manual'])
+  finally:gate.set();q.shutdown()
+  self.assertEqual(calls,['running','manual'])
  def test_failed_job_releases_slot(self):
   done=threading.Event()
   def work(id):
@@ -49,14 +61,14 @@ class QueueTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as root,patch.object(server,'PROCESSING_SETTINGS',Path(root)/'settings.json'):
    c=server.app.test_client()
    self.assertEqual(server.read_processing_limit(),1)
-   self.assertEqual(c.post('/api/settings/processing',json={'concurrency':2},environ_overrides=peer).status_code,403)
+   self.assertEqual(c.post('/api/settings/processing',json={'concurrency':2,'auto_convert':True},environ_overrides=peer).status_code,403)
    for value in [0,3,True,'2',None]:
     self.assertEqual(c.post('/api/settings/processing',json={'concurrency':value},headers=headers,environ_overrides=peer).status_code,400)
    try:
-    r=c.post('/api/settings/processing',json={'concurrency':2},headers=headers,environ_overrides=peer)
-    self.assertEqual(r.json,{'concurrency':2})
+    r=c.post('/api/settings/processing',json={'concurrency':2,'auto_convert':True},headers=headers,environ_overrides=peer)
+    self.assertEqual(r.json,{'concurrency':2,'auto_convert':True})
     self.assertEqual(server.read_processing_limit(),2)
-    self.assertEqual(c.get('/api/settings/processing',environ_overrides=peer).json,{'concurrency':2})
+    self.assertEqual(c.get('/api/settings/processing',environ_overrides=peer).json,{'concurrency':2,'auto_convert':True})
     self.assertEqual(r.headers['Cache-Control'],'no-store')
    finally:server.pool.set_limit(1)
 

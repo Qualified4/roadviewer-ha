@@ -33,6 +33,8 @@ def run_job(id):
     if not (p/'meta.json').exists():return
     m=read_meta(p)
     if m['status']!='queued':return
+    if not auto_convert and not m.get('manual_conversion'):
+     m.update(status='unconverted');save_meta(p,m);return
     revision=m.get('conversion_revision',0)
     m.update(status='processing');save_meta(p,m)
     job_progress[id]={'stage':'log_read'}
@@ -45,7 +47,7 @@ def run_job(id):
      m=read_meta(p)
      if m.get('conversion_revision',0)!=revision:return
      if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
-     data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=(p/'qcamera.ts').is_file(),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v16-overlay-height');save_meta(p,m)
+     data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',manual_conversion=False,duration=data['duration'],video=(p/'qcamera.ts').is_file(),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v18-vehicle-telemetry');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
@@ -53,7 +55,8 @@ def run_job(id):
   with lock:
    if (p/'meta.json').exists():
     m=read_meta(p)
-    if revision is not None and m.get('conversion_revision',0)==revision:m.update(status='error',error=str(e));save_meta(p,m)
+    if revision is not None and m.get('conversion_revision',0)==revision:
+     clear_prepared(p,m);m.update(status='error',error=str(e));save_meta(p,m)
  finally:
   with lock:
    if processes.get(id) is proc:
@@ -66,20 +69,48 @@ def read_processing_limit():
   return value if type(value) is int and value in (1,2) else 1
  except (OSError,ValueError,AttributeError):return 1
 
+def read_auto_convert():
+ try:return json.loads(PROCESSING_SETTINGS.read_text()).get('auto_convert',True) is not False
+ except (OSError,ValueError,AttributeError):return True
+
+auto_convert=read_auto_convert()
 pool=ProcessingQueue(run_job,read_processing_limit())
 def submit(id):pool.submit(id)
 
+def recording_paths():
+ return [p for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
+
+def clear_prepared(p,m):
+ if (p/'prepared').exists():shutil.rmtree(p/'prepared')
+ m.update(duration=None,model_frames=None,warnings=[],error=None,conversion_revision=m.get('conversion_revision',0)+1)
+
+def queue_unconverted():
+ pending=sorted(((p,read_meta(p)) for p in recording_paths()),key=lambda row:(row[1].get('uploaded',0),row[0].name))
+ for p,m in pending:
+  if m['status']=='unconverted' and not m.get('auto_excluded'):
+   m.update(status='queued',manual_conversion=False);save_meta(p,m);submit(p.name)
+
 @app.route('/api/settings/processing',methods=['GET','POST'])
 def processing_settings():
+ global auto_convert
  with lock:
   if request.method=='POST':
    body=request.get_json(silent=True)
-   value=body.get('concurrency') if isinstance(body,dict) else None
+   if not isinstance(body,dict) or not body or set(body)-{'concurrency','auto_convert'}:return jsonify(error='처리 설정이 올바르지 않습니다.'),400
+   value=body.get('concurrency',pool.limit);automatic=body.get('auto_convert',auto_convert)
    if type(value) is not int or value not in (1,2):return jsonify(error='동시 처리 개수는 1 또는 2여야 합니다.'),400
+   if type(automatic) is not bool:return jsonify(error='자동 변환 설정은 켜짐 또는 꺼짐이어야 합니다.'),400
    temp=PROCESSING_SETTINGS.with_suffix('.tmp')
-   temp.write_text(json.dumps({'concurrency':value}));temp.replace(PROCESSING_SETTINGS)
+   temp.write_text(json.dumps({'concurrency':value,'auto_convert':automatic}));temp.replace(PROCESSING_SETTINGS)
+   auto_convert=automatic
+   if not auto_convert:
+    for p in recording_paths():
+     m=read_meta(p)
+     if m['status']=='queued' and not m.get('manual_conversion'):
+      m.update(status='unconverted');save_meta(p,m);pool.discard(p.name)
    pool.set_limit(value)
-  return jsonify(concurrency=pool.limit)
+   if auto_convert:queue_unconverted()
+  return jsonify(concurrency=pool.limit,auto_convert=auto_convert)
 
 @app.before_request
 def access():
@@ -129,7 +160,7 @@ def processing_progress():
 def logs():
  cleanup_uploads()
  with lock:items=[dict(read_meta(p),bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts') if (p/k).is_file()),video=(p/'qcamera.ts').is_file(),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared')) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
- return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit)
+ return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert)
 @app.route('/api/upload',methods=['POST'])
 def upload():
  return register_files(request.files.getlist('files'))
@@ -194,7 +225,7 @@ def register_files(files):
         except subprocess.TimeoutExpired:proc.kill();proc.wait()
        (g['dir']/'qcamera.ts').replace(p/'qcamera.ts')
        meta.setdefault('files',{})['qcamera.ts']=g['files']['qcamera.ts']
-       meta.update(status='queued',video=True,duration=None,model_frames=None,warnings=[],error=None,conversion_revision=meta.get('conversion_revision',0)+1,bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts')))
+       meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted',video=True,duration=None,model_frames=None,warnings=[],error=None,conversion_revision=meta.get('conversion_revision',0)+1,bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts')))
        save_meta(p,meta)
        if (p/'prepared').exists():shutil.rmtree(p/'prepared')
        hashes=stored_digests(p,meta)
@@ -205,12 +236,12 @@ def register_files(files):
       duplicates.append({'id':meta['id'],'name':g['label'],'video_differs':video_diff})
       continue
      id=uuid.uuid4().hex;p=ROOT/id;g['dir'].rename(p)
-     m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None};save_meta(p,m);stored_digests(p,m);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
+     m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None};save_meta(p,m);stored_digests(p,m);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
   return jsonify(logs=staged,duplicates=duplicates,updated=updated),201
  except ValueError as e:return jsonify(error=str(e)),400
  finally:
   # A later registration failure must not strand earlier accepted logs.
-  for id in dict.fromkeys(m['id'] for m in staged+updated):submit(id)
+  for id in dict.fromkeys(m['id'] for m in staged+updated if m['status']=='queued'):submit(id)
 # Small requests pass through HA Ingress and remote proxy upload limits.
 UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)
 CHUNK_SIZE=256*1024
@@ -329,24 +360,43 @@ def delete(id):
    except subprocess.TimeoutExpired:proc.kill();proc.wait()
   shutil.rmtree(p)
  return jsonify(deleted=id)
-@app.route('/api/logs/<id>/rebuild',methods=['POST'])
-def rebuild(id):
+@app.route('/api/logs/<id>/convert',methods=['POST'])
+def convert(id):
  with lock:
   p=folder(id);m=read_meta(p)
-  if m['status'] in ('queued','processing'):
-   return jsonify(error='이미 준비 중인 로그입니다.'),409
+  if m['status'] in ('queued','processing','ready'):
+   return jsonify(status=m['status'])
   if not (p/'rlog.zst').is_file():return jsonify(error='원본 로그가 없습니다.'),409
-  m.update(status='queued',duration=None,model_frames=None,warnings=[],error=None,conversion_revision=m.get('conversion_revision',0)+1)
-  save_meta(p,m)
-  if (p/'prepared').exists():shutil.rmtree(p/'prepared')
-  submit(id)
+  clear_prepared(p,m)
+  m.update(status='queued',manual_conversion=True,auto_excluded=False)
+  save_meta(p,m);submit(id)
  return jsonify(status='queued')
+
+@app.route('/api/logs/<id>/prepared',methods=['DELETE'])
+def remove_prepared(id):
+ with lock:
+  p=folder(id);m=read_meta(p)
+  if m['status'] in ('queued','processing'):return jsonify(error='대기 또는 처리 중에는 변환 데이터를 제거할 수 없습니다.'),409
+  clear_prepared(p,m)
+  m.update(status='unconverted',manual_conversion=False,auto_excluded=True)
+  save_meta(p,m)
+ return jsonify(status='unconverted')
 
 @app.route('/api/logs/<id>/data')
 def data(id):
  p=folder(id);meta=read_meta(p)
- if meta['status']!='ready':return jsonify(status=meta['status'],error=meta.get('error') or '로그를 준비 중입니다.'),409
+ if meta['status']!='ready':return jsonify(status=meta['status'],error=meta.get('error') or ('변환 데이터가 없습니다. 로그 목록에서 변환해 주세요.' if meta['status']=='unconverted' else '로그를 준비 중입니다.')),409
  return send_file(p/'prepared/data.json',mimetype='application/json',conditional=True)
+@app.route('/api/logs/<id>/telemetry')
+def telemetry(id):
+ p=folder(id)
+ if read_meta(p)['status']!='ready':return jsonify(error='로그를 준비 중입니다.'),409
+ file=p/'prepared/telemetry.json'
+ if not file.is_file():return jsonify(error='차량 정보가 없는 변환 데이터입니다. 로그 목록에서 제거 후 변환해 주세요.'),404
+ response=send_file(file,mimetype='application/json',conditional=True)
+ response.headers['Cache-Control']='no-store'
+ return response
+
 @app.route('/api/logs/<id>/video')
 def video(id):
  p=folder(id)
@@ -355,20 +405,19 @@ def video(id):
  if not file.exists():abort(404)
  return send_file(file,mimetype='video/mp4',conditional=True)
 def requeue_startup():
- # Invalidate every stale result before starting even the first conversion.
+ # Invalidate all stale results before admitting work, oldest first.
  pending=[]
- for p in ROOT.iterdir():
-  if not (p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()):continue
+ for p in recording_paths():
   m=read_meta(p)
-  if m['status'] in ('queued','processing') or (m['status']=='ready' and (m.get('decoder_version')!='v16-overlay-height' or bool(m.get('video'))!=(p/'qcamera.ts').is_file() or not (p/'prepared/data.json').is_file())):
-   pending.append((p,m)) # Reverse of library order: oldest upload first, with a stable tie-breaker.
- pending.sort(key=lambda item:(item[1].get('uploaded',0),item[0].name))
+  stale=m['status']=='ready' and (m.get('decoder_version')!='v18-vehicle-telemetry' or bool(m.get('video'))!=(p/'qcamera.ts').is_file() or not (p/'prepared/data.json').is_file())
+  if m['status'] in ('queued','processing') or stale:
+   clear_prepared(p,m)
+   m.update(status='unconverted',video=(p/'qcamera.ts').is_file())
+   save_meta(p,m)
+  if m['status']=='unconverted' and not m.get('auto_excluded') and (auto_convert or m.get('manual_conversion')):pending.append((p,m))
+ pending.sort(key=lambda row:(row[1].get('uploaded',0),row[0].name))
  for p,m in pending:
-  m.update(status='queued',video=(p/'qcamera.ts').is_file(),duration=None,model_frames=None,warnings=[],error=None)
-  save_meta(p,m)
- for p,_ in pending:
-  prepared=p/'prepared'
-  if prepared.exists():shutil.rmtree(prepared)
+  m.update(status='queued');save_meta(p,m)
  for p,_ in pending:submit(p.name)
 
 requeue_startup()

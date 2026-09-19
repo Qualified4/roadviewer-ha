@@ -42,4 +42,23 @@ class OverlayTests(unittest.TestCase):
    self.assertIsNone(q.project(second+1,{},{}))
    self.assertIsNotNone(q.project(2*second,{},{}))
 
+ def test_camera_info_measured_default_invalid_and_stale(self):
+  streams={'liveCalibration':[(0,True,{'calStatus':'uncalibrated','rpyCalib':[0,.1,-.2],'height':[1.5]}),(1_000_000_000,True,{'calStatus':'calibrated','rpyCalib':[0,0,0],'height':[]})],
+           'deviceState':[(0,True,{'deviceType':'mici'})],'roadCameraState':[(0,True,{'sensor':'os04c10'})]}
+  projector=OverlayProjector(streams)
+  first=projector.camera_info(0)
+  self.assertEqual(first['device'],'mici');self.assertEqual(first['sensor'],'os04c10')
+  self.assertEqual(first['rpy'],[0,.1,-.2]);self.assertEqual(first['height'],1.5);self.assertFalse(first['heightDefault'])
+  self.assertEqual(first['calibrationStatus'],'uncalibrated');self.assertIsNone(projector.project(0,{},{}))
+  default=projector.camera_info(1_000_000_000)
+  self.assertEqual(default['height'],1.22);self.assertTrue(default['heightDefault'])
+  self.assertIsNotNone(projector.project(1_000_000_000,{},{}))
+  stale=projector.camera_info(12_000_000_000)
+  self.assertIsNone(stale['rpy']);self.assertEqual(stale['calibrationStatus'],'unknown');self.assertEqual(stale['device'],'mici')
+  for height in [float('nan'),float('inf'),-1,9]:
+   p=OverlayProjector({'liveCalibration':[(0,True,{'rpyCalib':[0,float('nan'),0],'height':[height]})]})
+   self.assertTrue(p.camera_info(0)['heightDefault']);self.assertIsNone(p.camera_info(0)['rpy'])
+  empty=OverlayProjector({}).camera_info(0)
+  self.assertEqual(empty['device'],'unknown');self.assertEqual(empty['sensor'],'unknown')
+
 if __name__=='__main__':unittest.main()

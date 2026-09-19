@@ -73,6 +73,7 @@ function renderSteering(f){
  $('wheelCritical').setAttribute('visibility',s?.critical?'visible':'hidden');
 }
 function render(){
+ window.renderTelemetry?.();
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!data)return;
  const f=data.frames[idx],valid=f.valid&&frameAvailable(f);
  window.renderVideoOverlay?.(f,frameAvailable(f));
@@ -202,7 +203,7 @@ function populateSegments(logs,current){
  if(segments.length<2)return;
  for(const {log,info} of segments){
   const option=document.createElement('option');option.value=log.id;
-  const status={queued:'대기 중',processing:'준비 중',error:'변환 실패'}[log.status];
+  const status={unconverted:'미변환',queued:'대기 중',processing:'준비 중',error:'변환 실패'}[log.status];
   option.textContent=`구간 ${info.number}${status?' · '+status:''}`;
   option.disabled=log.status!=='ready'&&log.id!==current;
   select.append(option);

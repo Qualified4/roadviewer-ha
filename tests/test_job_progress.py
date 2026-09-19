@@ -23,7 +23,7 @@ class JobProgressTests(unittest.TestCase):
    p=Path(root)/('a'*32);p.mkdir()
    server.save_meta(p,dict(id=p.name,name='test',uploaded=0,status='queued'))
    script=Path(root)/'decoder.py'
-   script.write_text("import os,json,time,sys\nfrom pathlib import Path\nf=os.fdopen(int(os.environ['RV_PROGRESS_FD']),'w',buffering=1)\nf.write(json.dumps({'stage':'log_analysis','frames':123})+'\\n')\np=Path(sys.argv[1]).parent\nwhile not (p/'continue').exists():time.sleep(.01)\n"+("sys.exit(1)\n" if fail else "(p/'prepared').mkdir()\n(p/'prepared/data.json').write_text(json.dumps({'duration':1,'warnings':[],'frames':[{}]}))\n"))
+   script.write_text("import os,json,time,sys\nfrom pathlib import Path\nf=os.fdopen(int(os.environ['RV_PROGRESS_FD']),'w',buffering=1)\nf.write(json.dumps({'stage':'log_analysis','frames':123})+'\\n')\np=Path(sys.argv[1]).parent\nwhile not (p/'continue').exists():time.sleep(.01)\n"+("(p/'prepared').mkdir()\n(p/'prepared/partial.mp4').write_bytes(b'partial')\nsys.exit(1)\n" if fail else "(p/'prepared').mkdir()\n(p/'prepared/data.json').write_text(json.dumps({'duration':1,'warnings':[],'frames':[{}]}))\n"))
    with patch.object(server,'BASE',Path(root)):
     thread=threading.Thread(target=server.run_job,args=(p.name,));thread.start()
     try:
@@ -37,6 +37,7 @@ class JobProgressTests(unittest.TestCase):
      (p/'continue').touch();thread.join(timeout=5)
     self.assertFalse(thread.is_alive())
    self.assertEqual(server.read_meta(p)['status'],'error' if fail else 'ready')
+   if fail:self.assertFalse((p/'prepared').exists())
    self.assertNotIn(p.name,server.job_progress);self.assertNotIn(p.name,server.processes)
 
 if __name__=='__main__':unittest.main()

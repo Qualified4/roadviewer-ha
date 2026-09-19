@@ -1,8 +1,8 @@
 'use strict';const $=id=>document.getElementById(id);let selected=[],busy=false,refreshing=false,progressRefreshing=false,listRevision=0;const logRows=new Map();
-let concurrencySaving=false,concurrencyRevision=0,savedConcurrency=1;
-const names={queued:'대기 중',processing:'준비 중',ready:'재생 가능',error:'변환 실패'};
+let concurrencySaving=false,concurrencyRevision=0,savedConcurrency=1,savedAutoConvert=true;
+const names={unconverted:'미변환',queued:'대기 중',processing:'처리 중',ready:'재생 가능',error:'변환 실패'};
 function processingText(m){
- if(m.status!=='processing')return names[m.status];
+ if(m.status!=='processing')return m.status==='unconverted'&&m.auto_excluded?'미변환 · 수동 변환 필요':names[m.status];
  const p=m.progress||{},frames=Number.isFinite(p.frames)?Math.max(0,Math.floor(p.frames)).toLocaleString():'0';
  const pct=Number.isFinite(p.percent)?Math.max(0,Math.min(100,Math.floor(p.percent))):0;
  switch(p.stage){
@@ -12,7 +12,7 @@ function processingText(m){
   case 'video_convert':return `영상 변환 중 · ${pct}%`;
   case 'video_verify':return `영상 검증 중 · ${pct}%`;
   case 'saving':return '마무리 중';
-  default:return names[m.status];
+  default:return m.status==='unconverted'&&m.auto_excluded?'미변환 · 수동 변환 필요':names[m.status];
  }
 }
 function storageSize(bytes){if(!Number.isFinite(bytes))return '—';const units=['B','KB','MB','GB','TB'];let i=0;while(bytes>=1024&&i<units.length-1){bytes/=1024;i++}return `${bytes.toFixed(i?1:0)} ${units[i]}`}
@@ -40,7 +40,7 @@ for(const id of pickerIds){
  const input=$(id);input.onchange=filesChanged;input.oncancel=selectionChanged;
 }
 $('clearSelection').onclick=()=>{if(busy)return;selected=[];pickerIds.forEach(id=>$(id).value='');selectionChanged();error('')};
-async function refresh(){if(refreshing||busy)return;refreshing=true;listRevision++;const settingsRevision=concurrencyRevision;try{const r=await fetch('api/logs',{cache:'no-store'});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=data.concurrency===2?2:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'))}$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id);if(cached?.signature===signature){cached.state.textContent=processingText(m);return cached.row;}const row=document.createElement('div');row.className='log-row';const info=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div'),state=document.createElement('span');title.className='log-name';title.textContent=m.name;state.className=m.status==='processing'?'state state-processing':'state';state.textContent=processingText(m);title.append(state);meta.className='log-meta';meta.textContent=`${new Date(m.uploaded*1000).toLocaleString()} · 원본 ${storageSize(m.bytes)} · 변환 ${storageSize(m.prepared_bytes)} · ${m.video?'영상 있음':'영상 없음'}${m.duration!=null?' · '+m.duration.toFixed(1)+'초':''}`;info.append(title,meta);if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}const actions=document.createElement('div');actions.className='actions';if(m.status==='ready'){const a=document.createElement('a');a.className='replay';a.href=`view/${m.id}/`;a.textContent='재생';actions.append(a)}if(m.status==='ready'||m.status==='error'){const rebuild=document.createElement('button');rebuild.textContent='재생성';rebuild.onclick=async()=>{if(!confirm(`${m.name}\n변환 데이터를 지우고 원본으로 다시 생성할까요?`))return;rebuild.disabled=true;try{await api(`api/logs/${m.id}/rebuild`,{method:'POST'});await refresh()}catch(e){error(e.message);rebuild.disabled=false}};actions.append(rebuild)}const del=document.createElement('button');del.className='delete';del.textContent='삭제';del.onclick=async()=>{if(!confirm(`${m.name}\n원본 로그·영상과 변환 데이터를 모두 삭제할까요?`))return;del.disabled=true;try{const r=await fetch(`api/logs/${m.id}`,{method:'DELETE',headers:{'X-RoadViewer-Request':'1'}});if(!r.ok)throw Error('삭제하지 못했습니다.');await refresh()}catch(e){error(e.message);del.disabled=false}};actions.append(del);row.append(info,actions);logRows.set(m.id,{signature,row,state,status:m.status});return row});const list=$('list');rows.forEach((row,i)=>{if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});while(list.children.length>rows.length)list.lastElementChild.remove();const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){error(e.message)}finally{refreshing=false}}
+async function refresh(){if(refreshing||busy)return;refreshing=true;listRevision++;const settingsRevision=concurrencyRevision;try{const r=await fetch('api/logs',{cache:'no-store'});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=data.concurrency===2?2:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'));savedAutoConvert=data.auto_convert!==false;syncAutoConvert()}$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id);if(cached?.signature===signature){cached.state.textContent=processingText(m);return cached.row;}const row=document.createElement('div');row.className='log-row';const info=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div'),state=document.createElement('span');title.className='log-name';title.textContent=m.name;state.className=m.status==='processing'?'state state-processing':'state';state.textContent=processingText(m);title.append(state);meta.className='log-meta';meta.textContent=`${new Date(m.uploaded*1000).toLocaleString()} · 원본 ${storageSize(m.bytes)} · 변환 ${storageSize(m.prepared_bytes)} · ${m.video?'영상 있음':'영상 없음'}${m.duration!=null?' · '+m.duration.toFixed(1)+'초':''}`;info.append(title,meta);if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}const actions=document.createElement('div');actions.className='actions';if(m.status==='ready'){const a=document.createElement('a');a.className='replay';a.href=`view/${m.id}/`;a.textContent='재생';actions.append(a)}const conversion=document.createElement('button');const waiting=m.status==='queued'||m.status==='processing';conversion.textContent=waiting?names[m.status]:m.status==='ready'?'제거':'변환';conversion.disabled=waiting;conversion.onclick=async()=>{const removing=m.status==='ready';if(removing&&!confirm(`${m.name}\n변환된 영상·분석·그래프 데이터를 제거할까요? 원본은 보관되며 자동으로 다시 변환되지 않습니다.`))return;conversion.disabled=true;try{await api(`api/logs/${m.id}/${removing?'prepared':'convert'}`,{method:removing?'DELETE':'POST'});logRows.delete(m.id);await refresh()}catch(e){error(e.message);conversion.disabled=false}};actions.append(conversion);const del=document.createElement('button');del.className='delete';del.textContent='완전 삭제';del.onclick=async()=>{if(!confirm(`${m.name}\n원본 로그·영상과 변환 데이터를 완전히 삭제할까요? 이 작업은 되돌릴 수 없습니다.`))return;del.disabled=true;try{const r=await fetch(`api/logs/${m.id}`,{method:'DELETE',headers:{'X-RoadViewer-Request':'1'}});if(!r.ok)throw Error('삭제하지 못했습니다.');await refresh()}catch(e){error(e.message);del.disabled=false}};actions.append(del);row.append(info,actions);logRows.set(m.id,{signature,row,state,status:m.status});return row});const list=$('list');rows.forEach((row,i)=>{if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});while(list.children.length>rows.length)list.lastElementChild.remove();const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){error(e.message)}finally{refreshing=false}}
 async function refreshProgress(){
  if(busy||progressRefreshing||refreshing||![...logRows.values()].some(row=>row.status==='processing'||row.status==='queued'))return;
  progressRefreshing=true;const revision=listRevision;
@@ -125,18 +125,33 @@ refresh();setInterval(refresh,3000);setInterval(refreshProgress,1000);
 $('concurrency').onchange=async()=>{
  if(concurrencySaving)return;
  const select=$('concurrency'),next=Number(select.value);
- concurrencySaving=true;concurrencyRevision++;select.disabled=true;
+ concurrencySaving=true;concurrencyRevision++;select.disabled=true;$('autoConvert').disabled=true;
  try{
   const result=await api('api/settings/processing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({concurrency:next})});
   savedConcurrency=result.concurrency;
   $('concurrencyStatus').textContent=savedConcurrency===2?'최대 2개씩 처리합니다.':'최대 1개씩 처리합니다. 이미 진행 중인 작업은 완료될 때까지 계속됩니다.';
   $('concurrencyStatus').hidden=false;
  }catch(e){error(e.message)}
- finally{select.value=String(savedConcurrency);select.disabled=false;concurrencySaving=false;select.dispatchEvent(new Event('rv:sync'))}
+ finally{select.value=String(savedConcurrency);select.disabled=false;concurrencySaving=false;syncAutoConvert();select.dispatchEvent(new Event('rv:sync'))}
 };
 
 $('cleanupStorage').onclick=async()=>{
  const button=$('cleanupStorage');button.disabled=true;
  try{const result=await api('api/storage/cleanup',{method:'POST'});$('cleanupStatus').textContent=`${storageSize(result.removed_bytes)} 정리했습니다. 최근 15분 이내 업로드와 등록된 로그는 보존합니다.`;await refresh()}
  catch(e){error(e.message)}finally{button.disabled=false}
+};
+
+function syncAutoConvert(){
+ $('autoConvert').checked=savedAutoConvert;$('autoConvert').disabled=concurrencySaving;
+ $('autoConvertInfo').textContent=savedAutoConvert?'자동 변환 켜짐 · 미변환 항목을 오래된 순서부터 처리합니다. 수동 제거한 항목과 실패한 항목은 직접 변환해 주세요.':'자동 변환 꺼짐 · 업로드는 저장만 합니다. 실행 중인 작업은 완료하고, 직접 누른 변환 작업은 계속 처리합니다.';
+}
+$('autoConvert').onchange=async()=>{
+ if(concurrencySaving)return;
+ const next=$('autoConvert').checked;
+ concurrencySaving=true;concurrencyRevision++;$('autoConvert').disabled=true;$('concurrency').disabled=true;$('concurrency').dispatchEvent(new Event('rv:sync'));
+ try{
+  const result=await api('api/settings/processing',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_convert:next})});
+  savedAutoConvert=result.auto_convert;
+ }catch(e){error(e.message)}
+ finally{concurrencySaving=false;syncAutoConvert();$('concurrency').disabled=false;$('concurrency').dispatchEvent(new Event('rv:sync'));await refresh()}
 };

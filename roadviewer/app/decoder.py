@@ -5,6 +5,7 @@ from steering import SteeringReplay
 from timeline import align_timeline
 from progress import Reporter
 from overlay import OverlayProjector
+from telemetry import extract_telemetry
 BASE=Path(__file__).resolve().parent
 log=capnp.load(str(BASE.parent/'schema/cereal/log.capnp'))
 
@@ -26,11 +27,11 @@ def prepare(value):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v16-overlay-height').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v18-vehicle-telemetry').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  if (dest/'data.json').exists():
   cached=json.loads((dest/'data.json').read_text())
-  if cached.get('key')==key:return dest,attach(cached)
+  if cached.get('key')==key and (dest/'telemetry.json').is_file():return dest,attach(cached)
  print('로그 읽는 중:',src,flush=True)
  with src.open('rb') as source, zstandard.ZstdDecompressor().stream_reader(source) as reader:
   raw=reader.read(512*1024*1024+1)
@@ -86,6 +87,7 @@ def prepare(value):
       radar_targets.append({'group':group,'index':number,'x':target['dRel'],'y':-target['yRel'],'yRel':target['yRel'],'vRel':target['vRel'],'radar':target.get('radar',False),'trackId':target.get('radarTrackId',-1),'modelProb':target.get('modelProb',0)})
   leads=[{'x':l['x'][0],'y':l['y'][0],'p':l['prob'],'speedKph':float(l['v'][0])*3.6 if l.get('v') and math.isfinite(l['v'][0]) else None} for l in m.get('leadsV3',[])[:2] if l.get('x') and l.get('y')]
   frames.append({'t':round(time_of(stamp,m)-origin,6),'id':m['frameId'],'egoSpeedKph':ego_speed,'steering':steering.at(time_of(stamp,m)*1e9),'valid':valid,'position':points(m.get('position',{'x':[],'y':[]})),'lanes':[points(l) for l in m['laneLines']],'laneY0':[first_y(l) for l in m['laneLines']],'lp':m['laneLineProbs'],'edges':[points(l) for l in m['roadEdges']],'edgeY0':[first_y(l) for l in m['roadEdges']],'es':m['roadEdgeStds'],'leads':leads,'selected':selected,'radarTargets':radar_targets,'liveTracks':raw_targets,'liveTracksValid':live_valid,'liveTracksDeltaMs':live_delta})
+  frames[-1]['cameraInfo']=overlay.camera_info(time_of(stamp,m)*1e9)
   frames[-1]['overlay']=overlay.project(time_of(stamp,m)*1e9,m,frames[-1])
   progress.update('log_analysis',frames=len(frames))
  progress.update('log_analysis',frames=len(frames),force=True)
@@ -129,7 +131,11 @@ def prepare(value):
  elif video.exists():warnings.append('카메라 프레임 정보가 없어 영상 동기화를 사용할 수 없습니다.')
  else:warnings.append('qcamera.ts가 없어 도로 형태만 표시합니다.')
  progress.update('saving')
+ timeline_start=frames[0]['t']
  bounds=align_timeline(frames,video_info)
+ telemetry_origin=origin+timeline_start-frames[0]['t']
+ telemetry=extract_telemetry(streams,telemetry_origin,bounds['duration'])
+ (dest/'telemetry.json').write_text(json.dumps(telemetry,separators=(',',':'),allow_nan=False))
  data={'route':src.parent.name,'path':str(src.parent),'key':key,**bounds,'frames':frames,'video':video_info,'warnings':warnings,'counts':dict(counts)}
  (dest/'data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':'),allow_nan=False))
  print('준비 완료:',len(frames),'개 모델 프레임',flush=True)
