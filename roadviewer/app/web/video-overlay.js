@@ -1,7 +1,8 @@
 'use strict';
 (()=>{
  const layer=document.getElementById('videoOverlay'),context=layer.getContext('2d'),video=document.getElementById('video'),button=document.getElementById('videoOverlayToggle'),status=document.getElementById('overlayStatus');
- let enabled=false,raised=true;
+ let enabled=false,raised=true,heightCm=30;
+ try{const saved=localStorage.getItem('roadviewer-overlay-height-cm');if(saved!==null&&Number.isFinite(Number(saved)))heightCm=Math.max(0,Math.min(200,Math.round(Number(saved))))}catch{}
  const heightButton=document.getElementById('overlayHeight');
  try{raised=localStorage.getItem('roadviewer-overlay-height')!=='false'}catch{}
  heightButton.setAttribute('aria-pressed',String(raised));
@@ -60,7 +61,13 @@
     }
    }
    if(!target||target.x>Number(document.getElementById('range').value))continue;
-   const point=raised?marker.raised:marker.point;
+   let point=marker.point;
+   if(raised&&heightCm>0){
+    if(!marker.projection||!frame.overlay.heightDirection)continue;
+    const projected=marker.projection.map((v,i)=>v+frame.overlay.heightDirection[i]*heightCm/100);
+    if(projected[2]<=.1)continue;
+    point=[projected[0]/projected[2],projected[1]/projected[2]];
+   }
    if(!point)continue;
    const [x,y]=xy(point);
    if(x<left||x>left+vw||y<top||y>top+vh)continue;
@@ -70,7 +77,7 @@
    else if(shape==='cross'){context.moveTo(x-4,y-4);context.lineTo(x+4,y+4);context.moveTo(x-4,y+4);context.lineTo(x+4,y-4)}
    else context.arc(x,y-5,5,0,Math.PI*2);
    context.stroke();
-   if(raised){const [gx,gy]=xy(marker.point);context.beginPath();context.moveTo(x,y);context.lineTo(gx,gy);context.stroke()}
+   if(raised&&heightCm>0){const [gx,gy]=xy(marker.point);context.beginPath();context.moveTo(x,y);context.lineTo(gx,gy);context.stroke()}
    if(marker.kind!=='raw'||on('liveTrackLabels')){
     const text=label(target);if(text){context.lineWidth=3;context.strokeStyle='#000c';context.strokeText(text,x,y-15);context.fillStyle=color;context.fillText(text,x,y-15)}
    }
@@ -81,6 +88,17 @@
  };
  heightButton.onclick=()=>{raised=!raised;heightButton.setAttribute('aria-pressed',String(raised));try{localStorage.setItem('roadviewer-overlay-height',String(raised))}catch{}render()};
  button.onclick=()=>{enabled=!enabled;button.setAttribute('aria-pressed',String(enabled));try{localStorage.setItem('roadviewer-video-overlay',String(enabled))}catch{}render()};
+ const heightDialog=document.getElementById('overlayHeightDialog'),settings=document.getElementById('overlayHeightSettings'),slider=document.getElementById('overlayHeightRange'),value=document.getElementById('overlayHeightValue');
+ let oldOverflow='';
+ const syncHeight=()=>{slider.value=String(heightCm);value.textContent=heightCm+' cm';heightButton.title='차량 위치 표식을 지면에서 '+heightCm+'cm 높이고 바닥까지 연결합니다.'};
+ const setHeight=cm=>{heightCm=Math.max(0,Math.min(200,Math.round(Number(cm)||0)));syncHeight();try{localStorage.setItem('roadviewer-overlay-height-cm',String(heightCm))}catch{}render()};
+ slider.oninput=()=>setHeight(slider.value);document.getElementById('overlayHeightReset').onclick=()=>setHeight(30);
+ settings.onclick=()=>{if(heightDialog.open)return;oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';heightDialog.showModal();slider.focus({preventScroll:true})};
+ const closeHeight=()=>heightDialog.close();document.getElementById('overlayHeightClose').onclick=closeHeight;
+ heightDialog.addEventListener('cancel',e=>{e.preventDefault();closeHeight()});
+ heightDialog.addEventListener('close',()=>{document.body.style.overflow=oldOverflow;settings.focus({preventScroll:true})});
+ heightDialog.addEventListener('click',e=>{if(e.target!==heightDialog)return;const r=heightDialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeHeight()});
+ syncHeight();
  new ResizeObserver(()=>render()).observe(layer.parentElement);
  video.addEventListener('loadedmetadata',()=>render());
  render();

@@ -13,7 +13,7 @@ def camera_config(device,sensor):
  if sensor=='os04c10' and device in ('tici','tizi','mici'):return (1344,760,1141.5)
  return None
 
-def project_point(point,rpy,config):
+def projection_coordinates(point,rpy,config):
  if len(point)!=3 or not all(math.isfinite(v) for v in point):return None
  x,y,z=point;r,p,a=rpy
  cr,sr,cp,sp,ca,sa=math.cos(r),math.sin(r),math.cos(p),math.sin(p),math.cos(a),math.sin(a)
@@ -21,8 +21,13 @@ def project_point(point,rpy,config):
  depth=ca*cp*x+(ca*sp*sr-sa*cr)*y+(ca*sp*cr+sa*sr)*z
  horizontal=sa*cp*x+(sa*sp*sr+ca*cr)*y+(sa*sp*cr-ca*sr)*z
  vertical=-sp*x+cp*sr*y+cp*cr*z
- if depth<=.1:return None
- w,h,f=config;u=.5+f/w*horizontal/depth;v=.5+f/h*vertical/depth
+ w,h,f=config
+ return [.5*depth+f/w*horizontal,.5*depth+f/h*vertical,depth]
+
+def project_point(point,rpy,config):
+ projected=projection_coordinates(point,rpy,config)
+ if projected is None or projected[2]<=.1:return None
+ u,v=(projected[i]/projected[2] for i in (0,1))
  return [round(u,6),round(v,6)] if abs(u)<10 and abs(v)<10 else None
 
 class OverlayProjector:
@@ -69,5 +74,5 @@ class OverlayProjector:
    for i,target in enumerate(targets):
     x,y=target['x'],target['y']
     point=project_point((x,y,ground_z(x)),rpy,config) if x>0 else None
-    if point:markers.append({'kind':kind,'index':i,'point':point,'raised':project_point((x,y,ground_z(x)-.3),rpy,config)})
-  return {'lanes':[line(l) for l in model.get('laneLines',[])],'edges':[line(l) for l in model.get('roadEdges',[])],'path':line(model.get('position',{}),height),'markers':markers}
+    if point:markers.append({'kind':kind,'index':i,'point':point,'projection':projection_coordinates((x,y,ground_z(x)),rpy,config)})
+  return {'heightDirection':projection_coordinates((0,0,-1),rpy,config),'lanes':[line(l) for l in model.get('laneLines',[])],'edges':[line(l) for l in model.get('roadEdges',[])],'path':line(model.get('position',{}),height),'markers':markers}

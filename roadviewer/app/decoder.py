@@ -27,7 +27,7 @@ def prepare(value):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v21-marker-height-30cm').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v22-adjustable-height').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  if (dest/'data.json').exists():
   cached=json.loads((dest/'data.json').read_text())

@@ -21,18 +21,30 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const pixels=()=>page.evaluate(()=>{const c=document.getElementById('videoOverlay'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;return d.some((v,i)=>i%4===3&&v>0)});
   assert(await pixels());
   await page.locator('#modelPath').uncheck();assert(!(await pixels()));
-  await page.evaluate(()=>{data.frames[0].leads=[{x:20,y:0,p:1}];data.frames[0].overlay.markers=[{kind:'model',index:0,point:[.5,.8],raised:[.5,.5]}];document.getElementById('hideLabels').checked=true;render()});
+  await page.evaluate(()=>{data.frames[0].leads=[{x:20,y:0,p:1}];data.frames[0].overlay.markers=[{kind:'model',index:0,point:[.5,.8],projection:[.5,.8,1]}];data.frames[0].overlay.heightDirection=[0,-1,0];document.getElementById('hideLabels').checked=true;render()});
   assert(await pixels());
   const alphaAt=y=>page.evaluate(y=>{const c=document.getElementById('videoOverlay');return c.getContext('2d').getImageData(Math.floor(c.width*.5),Math.floor((c.height-c.width*90/160)/2+c.width*90/160*y),1,1).data[3]},y);
   assert(await alphaAt(.65)>0,'raised marker must connect to ground');
   await page.locator('#overlayHeight').click();
   assert.equal(await alphaAt(.65),0,'ground mode has no vertical stem');
 
+  await page.locator('#overlayHeight').click();
+  await page.locator('#overlayHeightSettings').click();
+  assert(await page.locator('#overlayHeightDialog').isVisible());
+  const setHeight=async cm=>page.locator('#overlayHeightRange').evaluate((e,cm)=>{e.value=cm;e.dispatchEvent(new Event('input'))},cm);
+  await setHeight(0);assert.equal(await alphaAt(.65),0);assert.equal(await page.locator('#overlayHeightValue').textContent(),'0 cm');
+  await setHeight(30);assert(await alphaAt(.65)>0);
+  await setHeight(200);assert.equal(await page.locator('#overlayHeightValue').textContent(),'200 cm');
+  await page.locator('#overlayHeightReset').click();assert.equal(await page.locator('#overlayHeightRange').inputValue(),'30');
+  await setHeight(75);await page.keyboard.press('Escape');assert(await page.locator('#overlayHeightDialog').isHidden());
+  assert(await page.locator('#overlayHeightSettings').evaluate(e=>e===document.activeElement));
+  await page.locator('#overlayHeight').click();
   await page.evaluate(()=>{data.frames[0].overlay=null;render()});
   assert((await page.locator('#overlayStatus').textContent()).includes('보정'));
   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true');
   assert.equal(await page.locator('#overlayHeight').getAttribute('aria-pressed'),'false');
+  assert.equal(await page.locator('#overlayHeightRange').inputValue(),'75','height setting survives reload independently of toggle');
   await page.waitForFunction(()=>document.getElementById('video').videoWidth>0);
   await page.evaluate(()=>{document.getElementById('modelPath').checked=true;render()});
   for(const viewport of [390,2200]){
@@ -51,6 +63,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     assert(result.bottom,'video must not overlap the controls below');
     assert(result.ink,'projected path must align with the contained video after resizing');
    }
+  }
+  await page.setViewportSize({width:2200,height:1000});
+  for(const width of [390,1440]){
+   await page.setViewportSize({width,height:1000});await page.evaluate(()=>setReplayLayout('split'));
+   const group=await page.locator('.height-controls').boundingBox(),panel=await page.locator('.camera-panel').boundingBox();
+   assert(group.x>=panel.x&&group.x+group.width<=panel.x+panel.width,'height settings must fit narrow panels');
+   await page.locator('#overlayHeightSettings').click();
+   const popup=await page.locator('#overlayHeightDialog').boundingBox();assert(popup.x>=0&&popup.x+popup.width<=width);
+   await page.locator('#overlayHeightClose').click();
   }
   await page.setViewportSize({width:2200,height:1000});
   const sizes=[];

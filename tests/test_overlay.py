@@ -1,7 +1,7 @@
 import math,sys,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
-from overlay import OverlayProjector,project_point,camera_config
+from overlay import OverlayProjector,project_point,camera_config,projection_coordinates
 
 class OverlayTests(unittest.TestCase):
  def test_device_id_is_session_metadata_and_missing_is_unknown(self):
@@ -25,8 +25,15 @@ class OverlayTests(unittest.TestCase):
   self.assertIsNone(p.project(11_000_000_100,model,frame))
   out=p.project(100,model,frame)
   self.assertEqual(out['path'][0],out['markers'][0]['point'])
-  self.assertLess(out['markers'][0]['raised'][1],out['markers'][0]['point'][1])
-  self.assertEqual(out['markers'][0]['raised'],project_point((10,0,.9),(0,0,0),camera_config('tici','ar0231')))
+  for height in (0,.3,1,2):
+   projected=[v+height*out['heightDirection'][i] for i,v in enumerate(out['markers'][0]['projection'])]
+   self.assertEqual([round(projected[i]/projected[2],6) for i in (0,1)],project_point((10,0,1.2-height),(0,0,0),camera_config('tici','ar0231')))
+  # Tilt changes depth too: use projective coordinates, not linear interpolation in pixels.
+  for rpy in ([.1,.2,-.1],[-.2,-.1,.3]):
+   config=camera_config('tici','ar0231');base=projection_coordinates((5,1,1.2),rpy,config);direction=projection_coordinates((0,0,-1),rpy,config)
+   for height in (0,.3,1,2):
+    projected=[v+height*direction[i] for i,v in enumerate(base)]
+    self.assertEqual([round(projected[i]/projected[2],6) for i in (0,1)],project_point((5,1,1.2-height),rpy,config))
   self.assertEqual(out['lanes'][0][0][1],out['path'][0][1])
   self.assertLess(out['markers'][1]['point'][0],.5)
   self.assertIsNone(OverlayProjector({}).project(100,model,frame))
