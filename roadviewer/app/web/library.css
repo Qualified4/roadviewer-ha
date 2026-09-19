@@ -34,7 +34,7 @@ body.uploading{overscroll-behavior-y:contain}
 #cleanupStatus{color:var(--muted);font-size:12px}
 .actions{flex-wrap:wrap}
 
-.conversion-info{padding:18px 20px;margin-bottom:20px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.conversion-info{padding:18px 20px;margin:26px 0 20px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
 .conversion-info summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;list-style:none;min-height:24px}
 .conversion-info summary::-webkit-details-marker{display:none}
 .conversion-info summary::after{content:'';width:7px;height:7px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);margin:0 3px 4px}
