@@ -148,7 +148,7 @@ function render(){
  if(checked('liveTracks'))for(const target of rawTargets){
   if(target.x<0||target.x>range)continue;
   const x=X(target.y),y=Y(target.x);ctx.strokeStyle='#78e9fa';ctx.lineWidth=1.5;ctx.globalAlpha=target.measured?.9:.5;ctx.beginPath();
-  if(target.measured){ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.moveTo(x,y-4);ctx.lineTo(x,y+4)}else ctx.arc(x,y,4,0,Math.PI*2);
+  if(target.measured){ctx.moveTo(x-4,y-4);ctx.lineTo(x+4,y+4);ctx.moveTo(x-4,y+4);ctx.lineTo(x+4,y-4)}else ctx.arc(x,y,4,0,Math.PI*2);
   ctx.stroke();ctx.globalAlpha=1;
   if(checked('liveTrackLabels'))annotate(targetValue(target,target.yRel),x,y,'#78e9fa',target.y<0?-1:1);
  }
