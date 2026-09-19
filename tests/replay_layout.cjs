@@ -19,17 +19,27 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   for(const width of [390,1440]){
    await page.setViewportSize({width,height:844});
    await page.evaluate(()=>scrollTo(0,0));
+   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+   assert(await page.locator('#foldHeading').isHidden(),'fold control must be hidden at page top');
+   assert(await page.locator('#logNavigation').isVisible());
+   await page.evaluate(()=>scrollTo(0,220));
+   await page.waitForFunction(()=>!document.getElementById('foldHeading').hidden);
    if(await page.locator('#foldHeading').getAttribute('aria-expanded')==='false')await page.locator('#foldHeading').click();
-   const fold=await page.locator('#foldHeading').boundingBox(),head=await page.locator('.replay-heading').boundingBox();
-   assert(fold.width>=head.width-1,'entire bottom row should be clickable');
-   // Fold using the far left edge, then scroll slowly through the sticky threshold.
-   await page.locator('#foldHeading').click({position:{x:4,y:10}});
+   const fold=await page.locator('#foldHeading').boundingBox(),row=await page.locator('.replay-heading .route').boundingBox();
+   for(const dimension of ['x','y','width','height'])assert(Math.abs(fold[dimension]-row[dimension])<1,'fold must overlay row: '+dimension);
+   const arrow=await page.locator('#foldHeading svg').boundingBox();
+   assert(Math.abs(arrow.x+arrow.width/2-(row.x+row.width/2))<1,'arrow must be centered');
+   await page.locator('#foldHeading').click({position:{x:4,y:row.height/2}});
    assert(await page.locator('#logNavigation').isHidden());
+   assert(Math.abs(await page.evaluate(()=>scrollY)-220)<1,'collapse must not shift scroll');
+   // Return to the top with a remembered fold state, then cross the sticky boundary slowly.
    for(let y=0;y<=220;y+=4){
     await page.evaluate(y=>scrollTo(0,y),y);
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     assert(Math.abs(await page.evaluate(()=>scrollY)-y)<1,'scroll must not jump at '+y);
-    assert(await page.locator('#logNavigation').isHidden());
+    const stuck=await page.locator('.replay-heading').evaluate(el=>el.classList.contains('is-stuck'));
+    assert.equal(await page.locator('#logNavigation').isHidden(),stuck);
+    assert.equal(await page.locator('#foldHeading').isVisible(),stuck);
    }
    assert(await page.locator('.replay-heading').evaluate(el=>el.classList.contains('is-stuck')));
    await page.locator('#foldHeading').click();

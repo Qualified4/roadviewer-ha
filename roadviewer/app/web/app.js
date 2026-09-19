@@ -241,9 +241,9 @@ if(replayHeading){
   headingFrame=0;
   const stuck=window.scrollY>0&&anchor.getBoundingClientRect().top<=10;
   replayHeading.classList.toggle('is-stuck',stuck);
-  const collapsed=headingCollapsed;
+  const collapsed=stuck&&headingCollapsed;
   replayHeading.classList.toggle('is-collapsed',collapsed);
-  navigation.hidden=collapsed;fold.hidden=false;
+  navigation.hidden=collapsed;fold.hidden=!stuck;
   fold.setAttribute('aria-expanded',String(!collapsed));
   fold.setAttribute('aria-label',collapsed?'상단 이동 버튼 펼치기':'상단 이동 버튼 접기');
  };
