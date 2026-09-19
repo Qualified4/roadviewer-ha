@@ -19,10 +19,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const button=page.locator('#cameraInfoButton'),dialog=page.locator('#cameraInfoDialog'),values=page.locator('#cameraInfoValues');
   for(const width of [390,1440]){
    await page.setViewportSize({width,height:844});
-   await page.evaluate(()=>{setTime(0);data.frames[0].cameraInfo={device:'mici',sensor:'os04c10',calibrationStatus:'calibrated',rpy:[Math.PI/180,-Math.PI/90,Math.PI/60],height:1.35,heightDefault:false}});
+   await page.evaluate(()=>{setTime(0);data.frames[0].cameraInfo={device:'mici',deviceId:'device-123',sensor:'os04c10',calibrationStatus:'calibrated',rpy:[Math.PI/180,-Math.PI/90,Math.PI/60],height:1.35,heightDefault:false}});
    await button.click();assert(await dialog.isVisible());
    const text=await values.textContent();
-   for(const value of ['mici','os04c10','보정 완료','1.00°','-2.00°','3.00°','1.35 m (로그 보정값)','좌우 설치 오프셋확인 불가'])assert(text.includes(value),value);
+   for(const value of ['mici','디바이스 IDdevice-123','os04c10','보정 완료','1.00°','-2.00°','3.00°','1.35 m (로그 보정값)','좌우 설치 오프셋확인 불가'])assert(text.includes(value),value);
    assert.equal(await page.locator('#cameraInfoClose').evaluate(el=>el===document.activeElement),true);
    const rect=await dialog.boundingBox();assert(rect.x>=0&&rect.x+rect.width<=width&&rect.y>=0&&rect.y+rect.height<=844);
    await page.evaluate(()=>{data.frames[0].cameraInfo.height=1.8;render()});
@@ -37,6 +37,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
   }
   await page.evaluate(()=>{delete data.frames[0].cameraInfo});await button.click();
+  assert((await values.textContent()).includes('디바이스 ID확인 불가'));
   assert((await page.locator('#cameraInfoSnapshot').textContent()).includes('제거 후 변환'));assert(!(await values.textContent()).includes('1.22'));
   await page.locator('#cameraInfoClose').click();
   await page.evaluate(()=>{data=null});await button.click();

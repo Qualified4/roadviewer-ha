@@ -27,7 +27,7 @@ def prepare(value):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v19-control-telemetry').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v20-device-id').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  if (dest/'data.json').exists():
   cached=json.loads((dest/'data.json').read_text())
@@ -41,6 +41,7 @@ def prepare(value):
  for e in log.Event.read_multiple_bytes(raw):
   kind=e.which();counts[kind]+=1
   if kind in ('carState','carControl','controlsState','carOutput','selfdriveState','liveParameters','carParams','liveCalibration'):streams[kind].append((e.logMonoTime,e.valid,getattr(e,kind).to_dict()))
+  if kind=='initData':streams[kind].append((e.logMonoTime,e.valid,{'dongleId':str(e.initData.dongleId)}))
   if kind=='deviceState':streams[kind].append((e.logMonoTime,e.valid,{'deviceType':str(e.deviceState.deviceType)}))
   if kind=='roadCameraState':streams[kind].append((e.logMonoTime,e.valid,{'sensor':str(e.roadCameraState.sensor)}))
   if kind=='modelV2':

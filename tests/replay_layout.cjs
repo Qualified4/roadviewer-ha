@@ -53,6 +53,25 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('#layoutWidth').inputValue(),'920');
   await page.locator('#resetLayoutWidth').click();
   assert.equal(await page.locator('#layoutWidth').inputValue(),'1420');
+  for(const width of [390,1440]){
+   await page.setViewportSize({width,height:844});
+   for(const count of [0,3,10,25]){
+    await page.evaluate(count=>{
+     setTime(0);const f=data.frames[0];f.liveTracksValid=true;f.liveTracksDeltaMs=0;
+     f.radarTargets=Array.from({length:count},(_,i)=>({group:'center',index:i,x:i+10,y:0,yRel:0,vRel:0,radar:true,trackId:i}));
+     f.liveTracks=f.radarTargets.map(v=>({...v,measured:true,source:'radar',trackState:'tracked'}));render();
+    },count);
+    for(const table of await page.locator('.radar-values>.table-scroll').all()){
+     assert.equal(await table.evaluate(e=>e.clientHeight),456,'table height must stay fixed as targets change');
+     if(count===10)assert(await table.evaluate(e=>e.scrollHeight<=e.clientHeight),'ten rows should fit');
+     if(count===25){
+      assert(await table.evaluate(e=>e.scrollHeight>e.clientHeight));
+      await table.evaluate(e=>e.scrollTop=120);
+      assert(await table.evaluate(e=>Math.abs(e.querySelector('th').getBoundingClientRect().top-e.getBoundingClientRect().top)<2),'column headers should stay at the top');
+     }
+    }
+   }
+  }
   assert.deepEqual(errors,[]);console.log('PASS: collapsed slow scrolling, full-width fold touch target and saved layout width');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

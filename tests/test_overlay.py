@@ -4,6 +4,10 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
 from overlay import OverlayProjector,project_point,camera_config
 
 class OverlayTests(unittest.TestCase):
+ def test_device_id_is_session_metadata_and_missing_is_unknown(self):
+  for rows,expected in [([],None),([(0,False,{'dongleId':'invalid'})],None),([(0,True,{'dongleId':''})],None),([(0,False,{'dongleId':'invalid'}),(10_000_000_000,True,{'dongleId':'device-123'})],'device-123')]:
+   projector=OverlayProjector({'initData':rows})
+   for stamp in (0,90_000_000_000):self.assertEqual(projector.camera_info(stamp)['deviceId'],expected)
  def test_projection_axes_and_depth(self):
   config=camera_config('tici','ar0231')
   self.assertEqual(project_point((10,0,0),(0,0,0),config),[.5,.5])

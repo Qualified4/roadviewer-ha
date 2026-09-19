@@ -18,7 +18,8 @@ class DecoderProgressTests(unittest.TestCase):
      for packet in stream.encode(frame):out.mux(packet)
     for packet in stream.encode():out.mux(packet)
    with av.open(str(video)) as inp:pts=[float(frame.pts*frame.time_base) for frame in inp.decode(video=0)]
-   messages=[]
+   e=decoder.log.Event.new_message();e.logMonoTime=0;e.valid=True;e.init('initData');e.initData.dongleId='test-device-id'
+   messages=[e.to_bytes()]
    for i,pts_value in enumerate(pts):
     stamp=round((pts_value+10)*1e9)
     for name,values in [('modelV2',dict(frameId=i,timestampEof=stamp,laneLines=[],laneLineProbs=[],roadEdges=[],roadEdgeStds=[])),('qRoadEncodeIdx',dict(frameId=i,segmentId=i,timestampEof=stamp))]:
@@ -30,6 +31,7 @@ class DecoderProgressTests(unittest.TestCase):
    src=root/'rlog.zst';src.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
    output=io.StringIO();counter=iter(range(10000));reporter=Reporter(output,clock=lambda:next(counter))
    with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src)
+   self.assertEqual(data['frames'][0]['cameraInfo']['deviceId'],'test-device-id')
    self.assertEqual(data['frames'][0]['cameraInfo']['calibrationStatus'],'unknown')
    self.assertTrue(data['frames'][0]['cameraInfo']['heightDefault'])
    events=[json.loads(line) for line in output.getvalue().splitlines()]

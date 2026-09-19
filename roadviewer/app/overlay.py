@@ -27,6 +27,7 @@ def project_point(point,rpy,config):
 
 class OverlayProjector:
  def __init__(self,streams):
+  self.device_id=next((row.get('dongleId') for _,valid,row in streams.get('initData',[]) if valid and row.get('dongleId')),None)
   self.rows={k:sorted(streams.get(k,[]),key=lambda row:row[0]) for k in ('liveCalibration','deviceState','roadCameraState')}
   self.times={k:[r[0] for r in rows] for k,rows in self.rows.items()}
  def at(self,kind,stamp,max_age=None):
@@ -46,7 +47,7 @@ class OverlayProjector:
   if len(rpy)!=3 or not all(math.isfinite(v) for v in rpy):rpy=None
   heights=cal.get('height',[])
   measured=bool(heights and math.isfinite(heights[0]) and .3<heights[0]<3)
-  return {'device':device,'sensor':sensor,'calibrationStatus':cal.get('calStatus','unknown'),
+  return {'device':device,'deviceId':self.device_id,'sensor':sensor,'calibrationStatus':cal.get('calStatus','unknown'),
           'rpy':rpy,'height':heights[0] if measured else 1.22,'heightDefault':not measured}
  def project(self,stamp,model,frame):
   info=frame.get('cameraInfo') or self.camera_info(stamp)

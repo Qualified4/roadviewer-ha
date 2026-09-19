@@ -146,7 +146,7 @@
   $('graphTime').textContent=clock(t)+' · '+range[0].toFixed(1)+'–'+range[1].toFixed(1)+'s';
   const bounds=scroll.getBoundingClientRect();
   for(const card of cards.values()){
-   card.graph.lines.forEach((s,i)=>{const value=current(s),states=card.graph.booleanLabels;card.labels[i].textContent=s.label+(states?': ':' ')+(states&&typeof value==='boolean'?states[Number(value)]:format(value,'',card.graph.precision||2))});
+   card.graph.lines.forEach((s,i)=>{const value=current(s),states=card.graph.booleanLabels;card.labels[i].textContent=s.label+': '+(states&&typeof value==='boolean'?states[Number(value)]:format(value,'',card.graph.precision||2))});
    if(card.noteKey!==loadedKey){
     const missing=[],zero=[];
     for(const source of card.graph.lines){const samples=series(source).values.filter(valid);if(!samples.length)missing.push(source.label);else if(card.graph.checkZero&&samples.every(value=>value===0))zero.push(source.label)}

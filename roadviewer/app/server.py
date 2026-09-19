@@ -47,7 +47,7 @@ def run_job(id):
      m=read_meta(p)
      if m.get('conversion_revision',0)!=revision:return
      if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
-     data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',manual_conversion=False,duration=data['duration'],video=(p/'qcamera.ts').is_file(),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v19-control-telemetry');save_meta(p,m)
+     data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',manual_conversion=False,duration=data['duration'],video=(p/'qcamera.ts').is_file(),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v20-device-id');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
@@ -409,7 +409,7 @@ def requeue_startup():
  pending=[]
  for p in recording_paths():
   m=read_meta(p)
-  stale=m['status']=='ready' and (m.get('decoder_version')!='v19-control-telemetry' or bool(m.get('video'))!=(p/'qcamera.ts').is_file() or not (p/'prepared/data.json').is_file())
+  stale=m['status']=='ready' and (m.get('decoder_version')!='v20-device-id' or bool(m.get('video'))!=(p/'qcamera.ts').is_file() or not (p/'prepared/data.json').is_file())
   if m['status'] in ('queued','processing') or stale:
    clear_prepared(p,m)
    m.update(status='unconverted',video=(p/'qcamera.ts').is_file())

@@ -73,7 +73,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
   await page.keyboard.press('Escape');assert(await page.locator('#graphDialog').isHidden());assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),20);
   await page.evaluate(()=>setTime(.1));
-  for(const [id,value] of [['angle','목표 3.00'],['autoPedals','가스 출력 25.00'],['accelPlan','제어 목표 0.30'],['jerk','요청 0.40'],['accelRequest','감속 요청 켜짐'],['longState','속도 제어: 해당'],['longState','비활성: 아님'],['curvature','요청 0.00123'],['lateralAccel','목표 1.20'],['rpm','기록값 1500.00']])assert((await page.locator(`[data-graph="${id}"] .telemetry-legend`).textContent()).includes(value),id+' should show logged data');
+  for(const [id,value] of [['angle','목표: 3.00'],['autoPedals','가스 출력: 25.00'],['accelPlan','제어 목표: 0.30'],['jerk','요청: 0.40'],['accelRequest','감속 요청: 켜짐'],['longState','속도 제어: 해당'],['longState','비활성: 아님'],['curvature','요청: 0.00123'],['lateralAccel','목표: 1.20'],['rpm','기록값: 1500.00']])assert((await page.locator(`[data-graph="${id}"] .telemetry-legend`).textContent()).includes(value),id+' should show logged data');
   assert((await page.locator('[data-graph="pedals"] .telemetry-source-note').textContent()).includes('기록값이 모두 0'));
   assert((await page.locator('[data-graph="angle"] .telemetry-source-note').textContent()).includes('출력 기록: 이 로그에 유효한 기록 없음'));
   assert(await page.locator('#telemetryGraphs').evaluate(e=>e.scrollHeight>e.clientHeight));
@@ -120,7 +120,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   for(const offset of [.04,.1]){
    telemetry.streams.carState={...structuredClone(original),times:original.times.map(t=>t+offset)};
    await reloadAtStart();assert.deepEqual(await page.locator('#telemetrySummary strong').allTextContents(),['72.00 km/h','0.00 m/s²','0.00 °','없음']);
-   assert((await page.locator('[data-graph="speed"] .telemetry-legend').textContent()).includes('실제 72.00'));
+   assert((await page.locator('[data-graph="speed"] .telemetry-legend').textContent()).includes('실제: 72.00'));
    await page.evaluate(()=>setTime(.45));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—','invalid interior data must remain unavailable');
   }
   telemetry.streams.carState.times=original.times.map(t=>t+.101);
