@@ -19,4 +19,24 @@ class StorageTests(unittest.TestCase):
    self.assertEqual(r.json['storage_used_bytes'],180)
    self.assertEqual(r.json['max_upload_mb'],server.app.config['MAX_CONTENT_LENGTH']//1024//1024)
 
+ def test_rebuild_and_converted_size(self):
+  with tempfile.TemporaryDirectory() as root,patch.object(server,'ROOT',Path(root)),patch.object(server,'submit') as submit:
+   p=Path(root)/('b'*32);p.mkdir();(p/'rlog.zst').write_bytes(b'log');(p/'prepared').mkdir();(p/'prepared/data.json').write_bytes(b'{}');(p/'prepared/camera.mp4').write_bytes(b'video')
+   server.save_meta(p,dict(id=p.name,status='ready',uploaded=1,bytes=3,conversion_revision=2))
+   c=server.app.test_client();peer={'REMOTE_ADDR':'172.30.32.2'};headers={'X-RoadViewer-Request':'1'}
+   self.assertEqual(c.get('/api/logs',environ_overrides=peer).json['logs'][0]['prepared_bytes'],7)
+   r=c.post(f'/api/logs/{p.name}/rebuild',headers=headers,environ_overrides=peer)
+   self.assertEqual(r.status_code,200);self.assertFalse((p/'prepared').exists());self.assertEqual((p/'rlog.zst').read_bytes(),b'log')
+   self.assertEqual(server.read_meta(p)['conversion_revision'],3);submit.assert_called_once_with(p.name)
+   self.assertEqual(c.post(f'/api/logs/{p.name}/rebuild',headers=headers,environ_overrides=peer).status_code,409)
+ def test_backup_patterns_keep_logs_and_settings(self):
+  # Supervisor matches each path and prunes matching directories before descent.
+  import re
+  config=(Path(__file__).resolve().parents[1]/'roadviewer/config.yaml').read_text().split('backup_exclude:',1)[1]
+  patterns=re.findall(r'"([^"\n]+)"',config)
+  root=Path('/data/addons/data/local_roadviewer/roadviewer')
+  for path in ['a/qcamera.ts','a/prepared/camera.mp4','.uploads','.upload-staging']:
+   self.assertTrue(any((root/path).match(pattern) for pattern in patterns),path)
+  for path in ['a/rlog.zst','a/meta.json','a/prepared/data.json','.processing-settings.json']:
+   self.assertFalse(any((root/path).match(pattern) for pattern in patterns),path)
 if __name__=='__main__':unittest.main()

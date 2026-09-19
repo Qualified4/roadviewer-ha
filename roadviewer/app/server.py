@@ -45,7 +45,7 @@ def run_job(id):
      m=read_meta(p)
      if m.get('conversion_revision',0)!=revision:return
      if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
-     data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=(p/'qcamera.ts').is_file(),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v15-overlay-startup');save_meta(p,m)
+     data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',duration=data['duration'],video=(p/'qcamera.ts').is_file(),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v16-overlay-height');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
@@ -105,9 +105,9 @@ def index():
 def view(id):folder(id);return send_from_directory(BASE/'web','index.html')
 @app.route('/assets/<path:name>')
 def assets(name):return send_from_directory(BASE/'web',name)
-def storage_used_bytes():
+def storage_used_bytes(root=None):
  total=0
- pending=[ROOT]
+ pending=[root or ROOT]
  while pending:
   try:
    with os.scandir(pending.pop()) as entries:
@@ -128,7 +128,7 @@ def processing_progress():
 @app.route('/api/logs')
 def logs():
  cleanup_uploads()
- with lock:items=[dict(read_meta(p),video=(p/'qcamera.ts').is_file(),progress=job_progress.get(p.name)) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
+ with lock:items=[dict(read_meta(p),bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts') if (p/k).is_file()),video=(p/'qcamera.ts').is_file(),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared')) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
  return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit)
 @app.route('/api/upload',methods=['POST'])
 def upload():
@@ -213,21 +213,47 @@ def register_files(files):
   for id in dict.fromkeys(m['id'] for m in staged+updated):submit(id)
 # Small requests pass through HA Ingress and remote proxy upload limits.
 UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)
-CHUNK_SIZE=1024*1024
+CHUNK_SIZE=256*1024
 UPLOAD_IDLE_SECONDS=15*60
 
 def cleanup_uploads(startup=False):
+ removed=0
  with lock:
   now=time.time()
   for p in UPLOADS.iterdir():
    if p.is_dir() and ID.fullmatch(p.name) and (startup or now-p.stat().st_mtime>UPLOAD_IDLE_SECONDS):
-    shutil.rmtree(p)
+    removed+=storage_used_bytes(p);shutil.rmtree(p)
   if startup:
-   # These are staging copies, never registered logs or original source files.
+   # Staging copies only; registered originals and conversions are preserved.
    for p in ROOT.glob('.upload-*'):
-    if p.is_dir():shutil.rmtree(p)
+    if p.is_dir():removed+=storage_used_bytes(p);shutil.rmtree(p)
+ return removed
 
 cleanup_uploads(startup=True)
+cleanup_stop=threading.Event()
+def cleanup_loop():
+ while not cleanup_stop.wait(60):
+  try:cleanup_uploads()
+  except OSError:app.logger.exception('Upload storage cleanup failed')
+threading.Thread(target=cleanup_loop,name='upload-cleanup',daemon=True).start()
+atexit.register(cleanup_stop.set)
+
+@app.route('/api/storage/cleanup',methods=['POST'])
+def cleanup_storage():
+ # Use the same expiry rule as the timer so another device's upload is safe.
+ return jsonify(removed_bytes=cleanup_uploads())
+
+@app.route('/api/uploads/<id>/failure',methods=['POST'])
+def upload_failure(id):
+ if not ID.fullmatch(id):abort(404)
+ if (request.content_length or 0)>2048:abort(413)
+ body=request.get_json(silent=True)
+ if not isinstance(body,dict):abort(400)
+ # No filenames or arbitrary client text in server logs.
+ fields={key:body.get(key) for key in ('stage','attempt','offset','status','errorName','visibility')}
+ fields={key:str(value)[:80] for key,value in fields.items()}
+ app.logger.warning('Upload failure session=%s details=%s',id,json.dumps(fields))
+ return jsonify(recorded=True)
 
 def upload_session(id):
  if not ID.fullmatch(id):abort(404)
@@ -303,6 +329,19 @@ def delete(id):
    except subprocess.TimeoutExpired:proc.kill();proc.wait()
   shutil.rmtree(p)
  return jsonify(deleted=id)
+@app.route('/api/logs/<id>/rebuild',methods=['POST'])
+def rebuild(id):
+ with lock:
+  p=folder(id);m=read_meta(p)
+  if m['status'] in ('queued','processing'):
+   return jsonify(error='이미 준비 중인 로그입니다.'),409
+  if not (p/'rlog.zst').is_file():return jsonify(error='원본 로그가 없습니다.'),409
+  m.update(status='queued',duration=None,model_frames=None,warnings=[],error=None,conversion_revision=m.get('conversion_revision',0)+1)
+  save_meta(p,m)
+  if (p/'prepared').exists():shutil.rmtree(p/'prepared')
+  submit(id)
+ return jsonify(status='queued')
+
 @app.route('/api/logs/<id>/data')
 def data(id):
  p=folder(id);meta=read_meta(p)
@@ -321,7 +360,7 @@ def requeue_startup():
  for p in ROOT.iterdir():
   if not (p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()):continue
   m=read_meta(p)
-  if m['status'] in ('queued','processing') or (m['status']=='ready' and m.get('decoder_version')!='v15-overlay-startup'):
+  if m['status'] in ('queued','processing') or (m['status']=='ready' and (m.get('decoder_version')!='v16-overlay-height' or bool(m.get('video'))!=(p/'qcamera.ts').is_file() or not (p/'prepared/data.json').is_file())):
    pending.append((p,m)) # Reverse of library order: oldest upload first, with a stable tie-breaker.
  pending.sort(key=lambda item:(item[1].get('uploaded',0),item[0].name))
  for p,m in pending:

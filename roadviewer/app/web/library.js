@@ -32,18 +32,17 @@ function filesChanged(e){
   const index=selected.findIndex(f=>(f.webkitRelativePath||f.name)===path);
   if(index<0)selected.push(file);else selected[index]=file;
  }
- // Clear only after copying File objects; do not mutate the input during picker launch.
- 
- e.target.value='';selectionChanged();
+ // Keep the selected input alive while Android content-provider files are in use.
+ selectionChanged();
  error(rejected.length?'지원하지 않는 파일: '+rejected.join(', ')+'. rlog.zst 또는 qcamera.ts 파일을 선택하세요.':'');
 }
 for(const id of pickerIds){
  const input=$(id);input.onchange=filesChanged;input.oncancel=selectionChanged;
 }
 $('clearSelection').onclick=()=>{if(busy)return;selected=[];pickerIds.forEach(id=>$(id).value='');selectionChanged();error('')};
-async function refresh(){if(refreshing)return;refreshing=true;listRevision++;const settingsRevision=concurrencyRevision;try{const r=await fetch('api/logs',{cache:'no-store'});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=data.concurrency===2?2:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'))}$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id);if(cached?.signature===signature){cached.state.textContent=processingText(m);return cached.row;}const row=document.createElement('div');row.className='log-row';const info=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div'),state=document.createElement('span');title.className='log-name';title.textContent=m.name;state.className=m.status==='processing'?'state state-processing':'state';state.textContent=processingText(m);title.append(state);meta.className='log-meta';meta.textContent=`${new Date(m.uploaded*1000).toLocaleString()} · ${(m.bytes/1048576).toFixed(1)} MB · ${m.video?'영상 있음':'영상 없음'}${m.duration!=null?' · '+m.duration.toFixed(1)+'초':''}`;info.append(title,meta);if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}const actions=document.createElement('div');actions.className='actions';if(m.status==='ready'){const a=document.createElement('a');a.className='replay';a.href=`view/${m.id}/`;a.textContent='재생';actions.append(a)}const del=document.createElement('button');del.className='delete';del.textContent='삭제';del.onclick=async()=>{if(!confirm(`${m.name}\n원본 로그·영상과 변환 데이터를 모두 삭제할까요?`))return;del.disabled=true;try{const r=await fetch(`api/logs/${m.id}`,{method:'DELETE',headers:{'X-RoadViewer-Request':'1'}});if(!r.ok)throw Error('삭제하지 못했습니다.');await refresh()}catch(e){error(e.message);del.disabled=false}};actions.append(del);row.append(info,actions);logRows.set(m.id,{signature,row,state,status:m.status});return row});const list=$('list');rows.forEach((row,i)=>{if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});while(list.children.length>rows.length)list.lastElementChild.remove();const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){error(e.message)}finally{refreshing=false}}
+async function refresh(){if(refreshing||busy)return;refreshing=true;listRevision++;const settingsRevision=concurrencyRevision;try{const r=await fetch('api/logs',{cache:'no-store'});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=data.concurrency===2?2:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'))}$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id);if(cached?.signature===signature){cached.state.textContent=processingText(m);return cached.row;}const row=document.createElement('div');row.className='log-row';const info=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div'),state=document.createElement('span');title.className='log-name';title.textContent=m.name;state.className=m.status==='processing'?'state state-processing':'state';state.textContent=processingText(m);title.append(state);meta.className='log-meta';meta.textContent=`${new Date(m.uploaded*1000).toLocaleString()} · 원본 ${storageSize(m.bytes)} · 변환 ${storageSize(m.prepared_bytes)} · ${m.video?'영상 있음':'영상 없음'}${m.duration!=null?' · '+m.duration.toFixed(1)+'초':''}`;info.append(title,meta);if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}const actions=document.createElement('div');actions.className='actions';if(m.status==='ready'){const a=document.createElement('a');a.className='replay';a.href=`view/${m.id}/`;a.textContent='재생';actions.append(a)}if(m.status==='ready'||m.status==='error'){const rebuild=document.createElement('button');rebuild.textContent='재생성';rebuild.onclick=async()=>{if(!confirm(`${m.name}\n변환 데이터를 지우고 원본으로 다시 생성할까요?`))return;rebuild.disabled=true;try{await api(`api/logs/${m.id}/rebuild`,{method:'POST'});await refresh()}catch(e){error(e.message);rebuild.disabled=false}};actions.append(rebuild)}const del=document.createElement('button');del.className='delete';del.textContent='삭제';del.onclick=async()=>{if(!confirm(`${m.name}\n원본 로그·영상과 변환 데이터를 모두 삭제할까요?`))return;del.disabled=true;try{const r=await fetch(`api/logs/${m.id}`,{method:'DELETE',headers:{'X-RoadViewer-Request':'1'}});if(!r.ok)throw Error('삭제하지 못했습니다.');await refresh()}catch(e){error(e.message);del.disabled=false}};actions.append(del);row.append(info,actions);logRows.set(m.id,{signature,row,state,status:m.status});return row});const list=$('list');rows.forEach((row,i)=>{if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});while(list.children.length>rows.length)list.lastElementChild.remove();const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){error(e.message)}finally{refreshing=false}}
 async function refreshProgress(){
- if(progressRefreshing||refreshing||![...logRows.values()].some(row=>row.status==='processing'||row.status==='queued'))return;
+ if(busy||progressRefreshing||refreshing||![...logRows.values()].some(row=>row.status==='processing'||row.status==='queued'))return;
  progressRefreshing=true;const revision=listRevision;
  try{
   const response=await fetch('api/progress',{cache:'no-store'});
@@ -59,12 +58,12 @@ async function refreshProgress(){
 }
 $('refresh').onclick=refresh;
 async function api(url,options={}){
- const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),url.endsWith('/finish')?180000:30000);
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),url.endsWith('/finish')?180000:60000);
  try{
   const response=await fetch(url,{...options,signal:controller.signal,headers:{'X-RoadViewer-Request':'1',...options.headers}});
   const text=await response.text();let result;
-  try{result=JSON.parse(text)}catch{throw Error(response.status===413?'Home Assistant 또는 원격 프록시의 업로드 크기 제한을 초과했습니다.':`서버 응답 오류 (${response.status}). ${text.replace(/<[^>]*>/g,' ').slice(0,160)}`)}
-  if(!response.ok){const e=Error(result.error||`요청 실패 (${response.status})`);e.retryable=response.status>=500;throw e}
+  try{result=JSON.parse(text)}catch{const e=Error(response.status===413?'Home Assistant 또는 원격 프록시의 업로드 크기 제한을 초과했습니다.':`서버 응답 오류 (${response.status}). 연결 상태를 확인해 주세요.`);e.status=response.status;e.retryable=response.status>=500||response.status===408||response.status===429;throw e}
+  if(!response.ok){const e=Error(result.error||`요청 실패 (${response.status})`);e.retryable=response.status>=500||response.status===408||response.status===429;e.status=response.status;throw e}
   return result;
  }catch(e){
   if(controller.signal.aborted){const timeoutError=Error('업로드 응답이 지연되어 요청을 중단했습니다. 연결을 확인하고 다시 시도하세요.');timeoutError.retryable=true;throw timeoutError}
@@ -72,15 +71,30 @@ async function api(url,options={}){
   throw e;
  }finally{clearTimeout(timeout)}
 }
+async function reportUploadFailure(url,details){
+ const match=url.match(/api\/uploads\/([a-f0-9]{32})/);
+ if(!match)return;
+ try{await fetch(`api/uploads/${match[1]}/failure`,{method:'POST',keepalive:true,headers:{'X-RoadViewer-Request':'1','Content-Type':'application/json'},body:JSON.stringify({...details,visibility:document.visibilityState})})}catch{}
+}
 async function uploadPart(url,part){
+ // Read the Android content-provider Blob once; retries send the same bytes.
+ let body,readTimeout;
+ try{body=await Promise.race([part.arrayBuffer(),new Promise((_,reject)=>{readTimeout=setTimeout(()=>reject(Error('file read timeout')),60000)})])}
+ catch(e){void reportUploadFailure(url,{stage:'file-read',errorName:e.name});throw Error('선택한 파일을 읽을 수 없습니다. 휴대폰에 저장된 파일을 다시 선택해 주세요.')}
+ finally{clearTimeout(readTimeout)}
  for(let attempt=0;;attempt++){
-  try{return await api(url,{method:'PUT',headers:{'Content-Type':'application/octet-stream'},body:part})}
-  catch(e){if(!e.retryable||attempt>=2)throw e}
+  try{return await api(url,{method:'PUT',headers:{'Content-Type':'application/octet-stream'},body})}
+  catch(e){
+   void reportUploadFailure(url,{stage:'chunk',attempt:attempt+1,offset:new URL(url,location.href).searchParams.get('offset'),status:e.status,errorName:e.name});
+   if(!e.retryable||attempt>=5)throw e;
+   $('uploadStatus').textContent=`연결 재시도 ${attempt+1}/5 · 전송한 위치부터 계속합니다…`;
+   await new Promise(resolve=>setTimeout(resolve,Math.min(1000*2**attempt,8000)));
+  }
  }
 }
 $('upload').onclick=async()=>{
  
- if(busy||!selected.length)return;busy=true;error('');$('upload').disabled=true;pickerIds.forEach(id=>$(id).disabled=true);$('clearSelection').disabled=true;$('progress').hidden=false;$('progress').value=0;
+ if(busy||!selected.length)return;busy=true;document.body.classList.add('uploading');error('');$('upload').disabled=true;pickerIds.forEach(id=>$(id).disabled=true);$('clearSelection').disabled=true;$('progress').hidden=false;$('progress').value=0;
  let session=null;let sent=0;const total=selected.reduce((sum,f)=>sum+f.size,0);
  try{
   $('uploadStatus').textContent='업로드 준비 중…';
@@ -102,7 +116,7 @@ $('upload').onclick=async()=>{
  }catch(e){error(e.message);$('uploadStatus').textContent='업로드 실패. 오류를 확인하고 다시 시도하세요.'}
  finally{
   if(session)try{await api(`api/uploads/${session.id}`,{method:'DELETE'})}catch{}
-  busy=false;pickerIds.forEach(id=>$(id).disabled=false);selectionChanged();$('progress').hidden=true;
+  busy=false;document.body.classList.remove('uploading');void refresh();pickerIds.forEach(id=>$(id).disabled=false);selectionChanged();$('progress').hidden=true;
  }
 };
 refresh();setInterval(refresh,3000);setInterval(refreshProgress,1000);
@@ -119,4 +133,10 @@ $('concurrency').onchange=async()=>{
   $('concurrencyStatus').hidden=false;
  }catch(e){error(e.message)}
  finally{select.value=String(savedConcurrency);select.disabled=false;concurrencySaving=false;select.dispatchEvent(new Event('rv:sync'))}
+};
+
+$('cleanupStorage').onclick=async()=>{
+ const button=$('cleanupStorage');button.disabled=true;
+ try{const result=await api('api/storage/cleanup',{method:'POST'});$('cleanupStatus').textContent=`${storageSize(result.removed_bytes)} 정리했습니다. 최근 15분 이내 업로드와 등록된 로그는 보존합니다.`;await refresh()}
+ catch(e){error(e.message)}finally{button.disabled=false}
 };

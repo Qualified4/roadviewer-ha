@@ -66,4 +66,21 @@ class RecoveryTests(unittest.TestCase):
    self.assertTrue(acquired,'network read held shared job lock')
   finally:release.set();thread.join(4)
   self.assertEqual(result,[200])
+ def test_manual_cleanup_preserves_recent_upload_and_registered_data(self):
+  old=self.begin();self.put(old);active=self.begin()
+  os.utime(server.UPLOADS/old,(0,0))
+  expected=server.storage_used_bytes(server.UPLOADS/old)
+  r=self.c.post('/api/storage/cleanup',headers=HEADERS,environ_overrides=PEER)
+  self.assertEqual(r.status_code,200);self.assertEqual(r.json['removed_bytes'],expected)
+  self.assertFalse((server.UPLOADS/old).exists());self.assertTrue((server.UPLOADS/active).exists())
+ def test_timer_runs_without_http_requests(self):
+  old=self.begin();self.put(old);os.utime(server.UPLOADS/old,(0,0))
+  with patch.object(server.cleanup_stop,'wait',side_effect=[False,True]):server.cleanup_loop()
+  self.assertFalse((server.UPLOADS/old).exists())
+ def test_failure_report_is_bounded_and_protected(self):
+  id=self.begin()
+  self.assertEqual(self.c.post(f'/api/uploads/{id}/failure',json={},environ_overrides=PEER).status_code,403)
+  with self.assertLogs(server.app.logger,level='WARNING') as logs:
+   r=self.c.post(f'/api/uploads/{id}/failure',json={'stage':'chunk','errorName':'TypeError','filename':'private'},headers=HEADERS,environ_overrides=PEER)
+  self.assertEqual(r.status_code,200);self.assertNotIn('private',''.join(logs.output))
 if __name__=='__main__':unittest.main()

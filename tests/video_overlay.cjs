@@ -21,10 +21,18 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const pixels=()=>page.evaluate(()=>{const c=document.getElementById('videoOverlay'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;return d.some((v,i)=>i%4===3&&v>0)});
   assert(await pixels());
   await page.locator('#modelPath').uncheck();assert(!(await pixels()));
+  await page.evaluate(()=>{data.frames[0].leads=[{x:20,y:0,p:1}];data.frames[0].overlay.markers=[{kind:'model',index:0,point:[.5,.8],raised:[.5,.5]}];document.getElementById('hideLabels').checked=true;render()});
+  assert(await pixels());
+  const alphaAt=y=>page.evaluate(y=>{const c=document.getElementById('videoOverlay');return c.getContext('2d').getImageData(Math.floor(c.width*.5),Math.floor((c.height-c.width*90/160)/2+c.width*90/160*y),1,1).data[3]},y);
+  assert(await alphaAt(.65)>0,'raised marker must connect to ground');
+  await page.locator('#overlayHeight').click();
+  assert.equal(await alphaAt(.65),0,'ground mode has no vertical stem');
+
   await page.evaluate(()=>{data.frames[0].overlay=null;render()});
   assert((await page.locator('#overlayStatus').textContent()).includes('보정'));
   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('#overlayHeight').getAttribute('aria-pressed'),'false');
   assert.deepEqual(errors,[]);console.log('PASS: camera overlay drawing, toggle, layer controls, missing calibration and preference restoration');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

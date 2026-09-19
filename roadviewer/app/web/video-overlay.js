@@ -1,7 +1,10 @@
 'use strict';
 (()=>{
  const layer=document.getElementById('videoOverlay'),context=layer.getContext('2d'),video=document.getElementById('video'),button=document.getElementById('videoOverlayToggle'),status=document.getElementById('overlayStatus');
- let enabled=false;
+ let enabled=false,raised=true;
+ const heightButton=document.getElementById('overlayHeight');
+ try{raised=localStorage.getItem('roadviewer-overlay-height')!=='false'}catch{}
+ heightButton.setAttribute('aria-pressed',String(raised));
  try{enabled=localStorage.getItem('roadviewer-video-overlay')==='true'}catch{}
  button.setAttribute('aria-pressed',String(enabled));
  const on=id=>document.getElementById(id).checked;
@@ -57,7 +60,9 @@
     }
    }
    if(!target||target.x>Number(document.getElementById('range').value))continue;
-   const [x,y]=xy(marker.point);
+   const point=raised?marker.raised:marker.point;
+   if(!point)continue;
+   const [x,y]=xy(point);
    if(x<left||x>left+vw||y<top||y>top+vh)continue;
    context.globalAlpha=target.p<.5?.45:1;context.strokeStyle=color;context.lineWidth=2;context.beginPath();
    if(shape==='box')context.rect(x-7,y-10,14,10);
@@ -65,6 +70,7 @@
    else if(shape==='cross'){context.moveTo(x-5,y);context.lineTo(x+5,y);context.moveTo(x,y-5);context.lineTo(x,y+5)}
    else context.arc(x,y-5,5,0,Math.PI*2);
    context.stroke();
+   if(raised){const [gx,gy]=xy(marker.point);context.beginPath();context.moveTo(x,y);context.lineTo(gx,gy);context.stroke()}
    if(marker.kind!=='raw'||on('liveTrackLabels')){
     const text=label(target);if(text){context.lineWidth=3;context.strokeStyle='#000c';context.strokeText(text,x,y-15);context.fillStyle=color;context.fillText(text,x,y-15)}
    }
@@ -73,6 +79,7 @@
   context.restore();
   status.textContent='차량은 위치 표식으로 표시됩니다.';
  };
+ heightButton.onclick=()=>{raised=!raised;heightButton.setAttribute('aria-pressed',String(raised));try{localStorage.setItem('roadviewer-overlay-height',String(raised))}catch{}render()};
  button.onclick=()=>{enabled=!enabled;button.setAttribute('aria-pressed',String(enabled));try{localStorage.setItem('roadviewer-video-overlay',String(enabled))}catch{}render()};
  new ResizeObserver(()=>render()).observe(layer.parentElement);
  video.addEventListener('loadedmetadata',()=>render());

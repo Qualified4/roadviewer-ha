@@ -142,7 +142,7 @@ i.model-path{background:#c4a5ff}
 .road-ranges{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .road-ranges label{display:flex;align-items:center;gap:4px;white-space:nowrap}
 .road-panel .panel-head{gap:8px;flex-wrap:wrap}
-.heading-fold{display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:14px;margin:0;padding:0;border:0;border-radius:6px;background:transparent;color:#6587b6;box-shadow:none}
+.heading-fold{display:flex;align-items:center;justify-content:center;width:100%;height:28px;margin:0;padding:0;border:0;border-radius:6px;background:transparent;color:#6587b6;box-shadow:none}
 .heading-fold:hover,.heading-fold:active{background:transparent;color:#81a4d3;box-shadow:none}
 .heading-fold svg{display:block;width:32px;height:12px;fill:none;stroke:currentColor;stroke-width:9;stroke-linecap:round;stroke-linejoin:round}
 .heading-fold[aria-expanded=false] svg{transform:rotate(180deg)}
@@ -154,6 +154,14 @@ i.model-path{background:#c4a5ff}
 #overlayStatus{font-size:11px;color:var(--muted)}
 #videoOverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
-/* Equal side columns keep the fold arrow centered regardless of text length. */
-.replay-heading.is-stuck .route{display:grid;grid-template-columns:minmax(0,1fr) 36px minmax(0,1fr)}
+/* The full bottom row is a touch target; the arrow stays small and centered. */
 .replay-heading.is-stuck #details{min-width:0;overflow:hidden;text-overflow:ellipsis}
+
+.replay-page{overflow-anchor:none;--layout-width:1420px}
+.replay-page main{max-width:var(--layout-width)}
+.replay-page .playback{max-width:calc(var(--layout-width) - 40px)}
+.heading-anchor{height:0;overflow-anchor:none}
+.layout-width{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;color:var(--muted);font-size:12px}
+.layout-width input{width:180px;max-width:45vw;accent-color:var(--lane)}
+.layout-width output{margin:0;min-width:55px}
+.layout-width button{padding:5px 10px}

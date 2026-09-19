@@ -88,3 +88,13 @@ controlsState.activeLaneLine으로 레인 이미지를 표시합니다. selfdriv
 `page`는 페이지 실행, `attempt`는 선택 시도를 연결합니다. `picker_open`의 multiple/accept/disabled와 `picker_change`의 원본 count를 비교하고 `selection_processed`의 received/before/after/rejected로 앱 내 필터링을 구분합니다. 파일명·크기·MIME은 첫 20개만 기록하며 전체 개수는 별도로 남깁니다. page_load의 previousAttempt는 결과를 받지 못한 이전 선택 시도입니다. focus/blur/visibility/pagehide/pageshow 및 스크립트 오류로 화면 재생성 전후를 살펴볼 수 있습니다. 전송 재시도 때문에 같은 id가 반복되면 하나의 이벤트로 봅니다.
 
 파일 내용·인증 정보·Ingress URL은 수집하지 않습니다. 선택된 파일명과 브라우저/OS 정보는 진단에 포함됩니다. Android 내부 선택창의 URI 목록·네이티브 예외는 웹 화면에서 읽을 수 없으므로 반환 전 문제의 최종 원인에는 Companion 앱 로그가 추가로 필요할 수 있습니다. 이 버전은 진단 추가이며 다중 선택 문제 해결을 보장하지 않습니다.
+
+
+## 저장소 정리와 백업
+미완료 업로드는 페이지가 닫혀 있어도 1분마다 검사하며, 15분 이상 전송이 없으면 제거합니다. **저장소 즉시 정리**도 같은 기준을 사용하므로 진행 중인 업로드와 등록된 로그는 보존합니다. 오류가 난 로그의 변환 결과는 목록의 **재생성**으로 지우고 다시 만들 수 있습니다.
+
+Home Assistant의 `backup_exclude`로 `/data/roadviewer/*/qcamera.ts`, `prepared/camera.mp4`, 업로드 임시 파일을 새 백업에서 제외합니다. 원본 로그, 분석 JSON, 목록 및 설정은 백업합니다. 기존 백업 파일은 바뀌지 않습니다. 복원 후 영상이 없으면 로그만 다시 처리하며, 같은 로그와 TS를 업로드하면 영상을 추가할 수 있습니다.
+설정 기준: https://developers.home-assistant.io/docs/apps/configuration/
+
+## 모바일 업로드 확인
+업로드 조각은 256KB이며 동일 조각을 메모리에서 재전송합니다. 일시적 네트워크 실패 시 최대 5회 간격을 두고 재시도합니다. 파일 읽기 실패와 전송 실패는 Home Assistant 앱 로그의 `Upload failure`에 단계·전송 위치·오류 종류로 남습니다. Android 앱이 페이지나 파일 접근을 종료하는 상황까지 웹에서 강제로 유지할 수는 없으며, 실제 기기에서 증상이 남으면 이 기록으로 원인을 좁힐 수 있습니다.

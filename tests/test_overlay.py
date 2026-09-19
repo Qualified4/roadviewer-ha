@@ -21,6 +21,8 @@ class OverlayTests(unittest.TestCase):
   self.assertIsNone(p.project(11_000_000_100,model,frame))
   out=p.project(100,model,frame)
   self.assertEqual(out['path'][0],out['markers'][0]['point'])
+  self.assertLess(out['markers'][0]['raised'][1],out['markers'][0]['point'][1])
+  self.assertEqual(out['markers'][0]['raised'],project_point((10,0,.2),(0,0,0),camera_config('tici','ar0231')))
   self.assertEqual(out['lanes'][0][0][1],out['path'][0][1])
   self.assertLess(out['markers'][1]['point'][0],.5)
   self.assertIsNone(OverlayProjector({}).project(100,model,frame))

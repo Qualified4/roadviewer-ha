@@ -236,13 +236,14 @@ const replayHeading=document.querySelector('.replay-heading');
 if(replayHeading){
  let headingFrame=0,headingCollapsed=false;
  const fold=$('foldHeading'),navigation=$('logNavigation');
+ const anchor=document.createElement('div');anchor.className='heading-anchor';replayHeading.before(anchor);
  const updateHeading=()=>{
   headingFrame=0;
-  const stuck=window.scrollY>0&&replayHeading.getBoundingClientRect().top<=10.5;
+  const stuck=window.scrollY>0&&anchor.getBoundingClientRect().top<=10;
   replayHeading.classList.toggle('is-stuck',stuck);
-  const collapsed=stuck&&headingCollapsed;
+  const collapsed=headingCollapsed;
   replayHeading.classList.toggle('is-collapsed',collapsed);
-  navigation.hidden=collapsed;fold.hidden=!stuck;
+  navigation.hidden=collapsed;fold.hidden=false;
   fold.setAttribute('aria-expanded',String(!collapsed));
   fold.setAttribute('aria-label',collapsed?'상단 이동 버튼 펼치기':'상단 이동 버튼 접기');
  };
@@ -279,3 +280,14 @@ render();
 try{const saved=localStorage.getItem('roadviewer-lateral-range');if([...$('lateralRange').options].some(option=>option.value===saved))$('lateralRange').value=saved}catch{}
 $('lateralRange').onchange=()=>{try{localStorage.setItem('roadviewer-lateral-range',$('lateralRange').value)}catch{}render()};
 render();
+
+// A shared content width keeps both panels and the fixed player aligned.
+const layoutWidth=$('layoutWidth'),layoutWidthValue=$('layoutWidthValue');
+function applyLayoutWidth(value){
+ const width=Math.max(720,Math.min(1920,Number(value)||1420));
+ document.body.style.setProperty('--layout-width',width+'px');
+ layoutWidth.value=String(width);layoutWidthValue.textContent=width+' px';
+}
+try{applyLayoutWidth(localStorage.getItem('roadviewer-layout-width'))}catch{applyLayoutWidth(1420)}
+layoutWidth.oninput=()=>{applyLayoutWidth(layoutWidth.value);try{localStorage.setItem('roadviewer-layout-width',layoutWidth.value)}catch{}};
+$('resetLayoutWidth').onclick=()=>{applyLayoutWidth(1420);try{localStorage.removeItem('roadviewer-layout-width')}catch{}};
