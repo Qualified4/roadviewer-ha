@@ -30,7 +30,14 @@
  function lowerBound(times,value){let a=0,b=times.length;while(a<b){const m=(a+b)>>1;if(times[m]<value)a=m+1;else b=m}return a}
  function series(source){const stream=payload?.streams?.[source.topic];return {times:stream?.times||[],values:stream?.values?.[source.key]||[]}}
  const valid=value=>typeof value==='boolean'||Number.isFinite(value);
- function current(source){const {times,values}=series(source);let i=lowerBound(times,t);if(times[i]!==t)i--;return i>=0&&t-times[i]<(payload?.maxGap||.15)&&valid(values[i])?values[i]:null}
+ function current(source){
+  const {times,values}=series(source);
+  // Match the road panel's start tolerance without filling missing samples inside the log.
+  if(t<times[0])return times[0]-t<=LOG_EDGE_TOLERANCE+1e-6&&valid(values[0])?values[0]:null;
+  if(t>times.at(-1))return recordingEndAvailable(times.at(-1),sampleEndTolerance(times))&&valid(values.at(-1))?values.at(-1):null;
+  let i=lowerBound(times,t);if(times[i]!==t)i--;
+  return i>=0&&t-times[i]<(payload?.maxGap||.15)&&valid(values[i])?values[i]:null;
+ }
  function format(value,unit=''){return value===null?'—':typeof value==='boolean'?(value?'켜짐':'꺼짐'):value.toFixed(2)+(unit?' '+unit:'')}
  async function load(){
   if(!data||tab!=='telemetry')return;
@@ -62,7 +69,7 @@
   canvas.addEventListener('pointerdown',e=>{if(!payload||e.button!==0)return;gesture={canvas,id:e.pointerId,x:e.clientX,y:e.clientY,range:domain(),horizontal:false,touch:e.pointerType==='touch'};canvas.setPointerCapture(e.pointerId);if(!gesture.touch)seekFrom(e,canvas,gesture.range)});
   canvas.addEventListener('pointermove',e=>{if(!gesture||gesture.canvas!==canvas||gesture.id!==e.pointerId)return;const dx=Math.abs(e.clientX-gesture.x),dy=Math.abs(e.clientY-gesture.y);if(dx>6&&dx>dy)gesture.horizontal=true;if(!gesture.touch||gesture.horizontal)seekFrom(e,canvas,gesture.range)});
   canvas.addEventListener('pointerup',e=>{if(!gesture||gesture.id!==e.pointerId)return;const g=gesture;gesture=null;if(!g.touch||g.horizontal||Math.hypot(e.clientX-g.x,e.clientY-g.y)<6)seekFrom(e,canvas,g.range);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);update()});
-  canvas.addEventListener('pointercancel',()=>{gesture=null;update()});canvas.addEventListener('lostpointercapture',()=>{gesture=null});
+  canvas.addEventListener('pointercancel',()=>{gesture=null;update()});canvas.addEventListener('lostpointercapture',()=>{if(gesture?.canvas===canvas){gesture=null;update()}});
   canvas.addEventListener('keydown',e=>{if(!data||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();e.stopPropagation();const range=domain();setTime(e.key==='Home'?range[0]:e.key==='End'?range[1]:t+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?1:.1));last=performance.now()});
  }
  function rebuild(){
@@ -97,7 +104,7 @@
     const band=(bottom-top)/sets.length,y=top+j*band+3;
     for(let i=s.begin;i<s.end;i++){if(typeof s.values[i]!=='boolean')continue;const end=Math.min(s.times[i]+gap,s.times[i+1]??s.times[i]+gap,range[1]);if(end<range[0])continue;const x=X(Math.max(range[0],s.times[i])),w=Math.max(s.values[i]?1:0,X(end)-x);c.globalAlpha=s.values[i]?1:.14;c.fillRect(x,y,w,Math.max(4,band-6))}c.globalAlpha=1;
    }else{
-    // Static paths retain every original sample; only the cursor moves during playback.
+    // Retain every original sample and reuse paths while the displayed range stays unchanged.
     c.beginPath();let connected=false,previous=null;
     for(let i=s.begin;i<s.end;i++){const value=s.values[i],time=s.times[i];if(!Number.isFinite(value)){connected=false;previous=null;continue}const x=X(time),y=Y(value);if(connected&&time-previous<=gap)c.lineTo(x,y);else{c.moveTo(x,y);c.fillRect(x-.8,y-.8,1.6,1.6)}connected=true;previous=time}c.stroke();
    }
@@ -110,7 +117,7 @@
   for(const summary of summaries){const value=current(summary.series);summary.value.textContent=summary.series.key==='steeringPressed'?(value===null?'확인 불가':value?'개입':'없음'):format(value,summary.unit)}
   if(!payload)return;
   let range=domain();
-  if(!gesture&&(t<range[0]||t>range[1])){start=t-(range[1]-range[0])/2;range=domain()}
+  if(!gesture&&(span!==null||t<range[0]||t>range[1])){start=t-(range[1]-range[0])/2;range=domain()}
   $('graphTime').textContent=clock(t)+' · '+range[0].toFixed(1)+'–'+range[1].toFixed(1)+'s';
   const bounds=scroll.getBoundingClientRect();
   for(const card of cards.values()){
@@ -137,8 +144,11 @@
  }
  function dragTarget(){
   if(!drag)return;
-  const row=document.elementFromPoint(drag.x,drag.y)?.closest('.graph-option');
-  if(row&&options.contains(row)){drag.target=row.dataset.graph;for(const item of rows.values())item.classList.toggle('graph-drop-target',item===row)}
+  drag.row.style.transform=`translate3d(${drag.x-drag.grabX}px,${drag.y-drag.grabY}px,0)`;
+  const others=[...options.querySelectorAll('.graph-option')].filter(row=>row!==drag.row);
+  const index=others.findIndex(row=>{const r=row.getBoundingClientRect();return drag.y<r.top+r.height/2});
+  const target=index<0?others.length:index;
+  if(target!==drag.target){drag.target=target;options.insertBefore(drag.placeholder,others[target]||null)}
  }
  function dragScroll(){
   if(!drag)return;
@@ -149,8 +159,8 @@
  function finishDrag(commit=false){
   if(!drag)return;const current=drag;drag=null;cancelAnimationFrame(dragFrame);
   if(current.handle.hasPointerCapture(current.pointer))current.handle.releasePointerCapture(current.pointer);
-  for(const row of rows.values())row.classList.remove('graph-dragging','graph-drop-target');
-  if(commit)moveGraph(current.id,graphs.findIndex(g=>g.id===current.target));
+  current.row.classList.remove('graph-dragging');current.row.style.removeProperty('width');current.row.style.removeProperty('transform');current.placeholder.remove();dialog.classList.remove('graph-sorting');
+  if(commit)moveGraph(current.id,current.target);
   current.handle.focus({preventScroll:true});
  }
  for(const graph of graphs){
@@ -158,9 +168,15 @@
   const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.value=graph.id;input.checked=selected.has(graph.id);
   input.onchange=()=>{input.checked?selected.add(graph.id):selected.delete(graph.id);try{localStorage.setItem(key,JSON.stringify([...selected]))}catch{}rebuild()};label.append(input,document.createTextNode(graph.title));
   const handle=document.createElement('button');handle.type='button';handle.className='graph-handle';handle.textContent='⠿';handle.setAttribute('aria-label',graph.title+' 드래그하여 순서 변경');
-  handle.onpointerdown=e=>{if(e.button!==0)return;e.preventDefault();drag={id:graph.id,target:graph.id,pointer:e.pointerId,handle,x:e.clientX,y:e.clientY};handle.setPointerCapture(e.pointerId);row.classList.add('graph-dragging');dragFrame=requestAnimationFrame(dragScroll)};
+  handle.onpointerdown=e=>{
+   if(e.button!==0||drag)return;e.preventDefault();
+   const r=row.getBoundingClientRect(),placeholder=document.createElement('div');placeholder.className='graph-placeholder';placeholder.style.height=r.height+'px';placeholder.setAttribute('aria-hidden','true');
+   row.before(placeholder);row.style.width=r.width+'px';row.classList.add('graph-dragging');dialog.classList.add('graph-sorting');
+   drag={id:graph.id,target:graphs.findIndex(g=>g.id===graph.id),pointer:e.pointerId,handle,row,placeholder,grabX:e.clientX-r.left,grabY:e.clientY-r.top,x:e.clientX,y:e.clientY};
+   handle.setPointerCapture(e.pointerId);dragTarget();dragFrame=requestAnimationFrame(dragScroll);
+  };
   handle.onpointermove=e=>{if(drag?.pointer!==e.pointerId)return;drag.x=e.clientX;drag.y=e.clientY;dragTarget()};
-  handle.onpointerup=e=>{if(drag?.pointer===e.pointerId)finishDrag(true)};
+  handle.onpointerup=e=>{if(drag?.pointer===e.pointerId){drag.x=e.clientX;drag.y=e.clientY;dragTarget();finishDrag(true)}};
   handle.onpointercancel=()=>finishDrag();handle.onlostpointercapture=()=>finishDrag();
   row.append(handle,label);
   for(const [direction,offset,symbol] of [['up',-1,'↑'],['down',1,'↓']]){

@@ -6,22 +6,41 @@ function clock(n){n=Math.max(0,n);return `${Math.floor(n/60)}:${(n%60).toFixed(2
 function nearest(time){const f=data.frames;let a=0,b=f.length-1;while(a<b){const m=(a+b)>>1;if(f[m].t<time)a=m+1;else b=m}return a>0&&Math.abs(f[a-1].t-time)<Math.abs(f[a].t-time)?a-1:a}
 function pause(){playing=false;v.pause();$('play').textContent='재생'}
 let videoPlayPending=false;
-const VIDEO_END_TOLERANCE=.1;
+const LOG_EDGE_TOLERANCE=.1;
+function recordingEndTolerance(cadence){
+ return Math.min(.25,Math.max(LOG_EDGE_TOLERANCE,Number.isFinite(cadence)&&cadence>0?cadence*3:0));
+}
+function sampleEndTolerance(times){
+ const recent=times.slice(-12),intervals=recent.slice(1).map((time,i)=>time-recent[i]).filter(dt=>dt>0);
+ if(intervals.length<3)return LOG_EDGE_TOLERANCE;
+ const cadence=[...intervals].sort((a,b)=>a-b)[Math.floor(intervals.length/2)];
+ // Missing tail samples are not an end-time rounding error.
+ if(intervals.slice(-3).some(dt=>dt>cadence*2+1e-6))return 0;
+ return recordingEndTolerance(cadence);
+}
+function recordingEndAvailable(end,tolerance){
+ const tail=data.duration-end;
+ return Number.isFinite(end)&&t>=end-1e-6&&t<=data.duration+1e-6&&tail>=-1e-6&&tail<=tolerance+1e-6;
+}
 function finalVideoFrame(){
  if(!data?.video)return false;
- const end=data.video.start+data.video.duration;
- return Math.abs(data.duration-end)<=VIDEO_END_TOLERANCE&&t>=Math.min(end,data.duration)-.001;
+ const video=data.video,cadence=video.frames>0?video.duration/video.frames:null;
+ return recordingEndAvailable(video.start+video.duration,recordingEndTolerance(cadence));
 }
 function videoAvailable(){return !!data?.video&&t>=data.video.start&&(t<data.video.start+data.video.duration||finalVideoFrame())}
-const LOG_EDGE_TOLERANCE=.1;
+function finalModelFrame(){
+ const frames=data.frames,last=frames.at(-1);
+ return t>=last.t&&recordingEndAvailable(last.t,sampleEndTolerance(frames.slice(-12).map(f=>f.t)));
+}
 function frameAvailable(f){
- const start=data.logStart??data.frames[0].t,end=data.logEnd??data.frames.at(-1).t;
- return t>=start-LOG_EDGE_TOLERANCE-1e-6&&t<=end+LOG_EDGE_TOLERANCE+1e-6&&Math.abs(f.t-t)<.16;
+ const start=data.logStart??data.frames[0].t,end=data.frames.at(-1).t;
+ if(t>end)return f===data.frames.at(-1)&&finalModelFrame();
+ return t>=start-LOG_EDGE_TOLERANCE-1e-6&&Math.abs(f.t-t)<.16;
 }
 function missingModelMessage(){
- const start=data.logStart??data.frames[0].t,end=data.logEnd??data.frames.at(-1).t;
+ const start=data.logStart??data.frames[0].t,end=data.frames.at(-1).t;
  if(t<start-LOG_EDGE_TOLERANCE-1e-6)return '아직 로그 데이터가 시작되지 않은 구간입니다.';
- if(t>end+LOG_EDGE_TOLERANCE+1e-6)return '로그 데이터가 종료된 구간입니다.';
+ if(t>end&&!finalModelFrame())return '로그 데이터가 종료된 구간입니다.';
  return '이 시점의 유효한 모델 데이터 없음';
 }
 function syncVideo(seek=false){

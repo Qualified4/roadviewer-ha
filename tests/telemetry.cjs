@@ -31,18 +31,38 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.evaluate(()=>playing),true);assert(Math.abs(await page.evaluate(()=>t)-.8)<.06);await page.evaluate(()=>pause());
   await canvas.focus();await page.keyboard.press('ArrowRight');assert(await page.evaluate(()=>t)>.85);
   await page.locator('#graphZoomIn').click();assert((await page.locator('#graphTime').textContent()).includes('0.3–1.3')||!(await page.locator('#graphTime').textContent()).includes('0.0–2.0'));
+  const displayedRange=async()=>(await page.locator('#graphTime').textContent()).split(' · ')[1];
+  const centered=async()=>assert(await canvas.evaluate(c=>Math.abs(parseFloat(c.parentElement.querySelector('.telemetry-cursor').style.left)-(48+(c.getBoundingClientRect().width-56)/2))<2),'zoomed playhead should be centered');
+  await page.evaluate(()=>setTime(.7));assert.equal(await displayedRange(),'0.2–1.2s');await centered();
+  await page.evaluate(()=>toggle());await page.waitForFunction(()=>t>.85);await page.evaluate(()=>pause());await centered();assert.notEqual(await displayedRange(),'0.2–1.2s','range should follow during playback before the playhead reaches an edge');
+  for(const play of [false,true]){
+   await page.evaluate(play=>{pause();setTime(1);if(play)toggle()},play);
+   const zoomBox=await canvas.boundingBox(),x=f=>zoomBox.x+48+f*(zoomBox.width-56),y=zoomBox.y+45;
+   await page.mouse.move(x(.3),y);await page.mouse.down();const frozen=await displayedRange();
+   await page.mouse.move(x(.7),y,{steps:4});assert.equal(await displayedRange(),frozen,'dragging must freeze the time axis');
+   await page.mouse.up();await centered();assert.notEqual(await displayedRange(),frozen,'release should recenter the selected time');assert.equal(await page.evaluate(()=>playing),play);await page.evaluate(()=>pause());
+  }
+  await page.evaluate(()=>setTime(.1));assert.equal(await displayedRange(),'0.0–1.0s');
+  await page.evaluate(()=>setTime(1.9));assert.equal(await displayedRange(),'1.0–2.0s');
   await page.locator('#graphReset').click();assert((await page.locator('#graphTime').textContent()).includes('0.0–2.0'));
   await page.locator('#chooseGraphs').click();assert(await page.locator('#graphDialog').isVisible());assert.equal(await page.locator('#graphOptions input').count(),12);
   for(const input of await page.locator('#graphOptions input').all())await input.check();
   await page.locator('#graphDialog').evaluate(e=>e.scrollTop=0);
   const graphOrder=()=>page.locator('.graph-option input').evaluateAll(es=>es.map(e=>e.value));
   const grab=await page.locator('[data-graph="speed"] .graph-handle').boundingBox(),drop=await page.locator('[data-graph="pedals"].graph-option').boundingBox();
-  await page.mouse.move(grab.x+grab.width/2,grab.y+grab.height/2);await page.mouse.down();await page.mouse.move(grab.x+grab.width/2,drop.y+drop.height/2,{steps:5});await page.mouse.up();
+  await page.mouse.move(grab.x+grab.width/2,grab.y+grab.height/2);await page.mouse.down();await page.mouse.move(grab.x+grab.width/2,drop.y+drop.height/2,{steps:5});
+  const floating=await page.locator('.graph-dragging .graph-handle').boundingBox();assert(Math.abs(floating.y+floating.height/2-(drop.y+drop.height/2))<2,'dragged row should follow the grabbed point');
+  assert.equal(await page.locator('.graph-placeholder').count(),1);assert.equal(await page.locator('.graph-dragging').getAttribute('data-graph'),'speed');
+  await page.mouse.up();assert.equal(await page.locator('.graph-placeholder').count(),0);assert.equal(await page.locator('.graph-dragging').count(),0);
   assert.deepEqual((await graphOrder()).slice(0,3),['acceleration','pedals','speed']);
   await page.getByRole('button',{name:'속도 위로 이동',exact:true}).click();await page.getByRole('button',{name:'속도 위로 이동',exact:true}).click();
   assert(await page.getByRole('button',{name:'속도 위로 이동',exact:true}).isDisabled());
   await page.getByRole('button',{name:'가속도 위로 이동',exact:true}).click();
   assert.equal((await graphOrder())[0],'acceleration');
+  const cancelGrab=await page.locator('[data-graph="acceleration"] .graph-handle').boundingBox();
+  await page.mouse.move(cancelGrab.x+12,cancelGrab.y+20);await page.mouse.down();await page.mouse.move(cancelGrab.x+12,cancelGrab.y+80);
+  await page.keyboard.press('Escape');await page.mouse.up();assert(await page.locator('#graphDialog').isHidden());assert.equal(await page.locator('.graph-placeholder').count(),0);assert.equal(await page.locator('.graph-dragging').count(),0);
+  await page.locator('#chooseGraphs').click();assert.equal((await graphOrder())[0],'acceleration');
   await page.locator('#graphOptions input[value="acceleration"]').uncheck();await page.locator('#graphOptions input[value="acceleration"]').check();
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
   await page.keyboard.press('Escape');assert(await page.locator('#graphDialog').isHidden());assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),12);
@@ -62,6 +82,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const cdp=await page.context().newCDPSession(page),x=touchGrab.x+touchGrab.width/2,y=touchGrab.y+touchGrab.height/2;
   await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
   await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:touchDrop.y+touchDrop.height/2}]});
+  const touchFloating=await page.locator('.graph-dragging .graph-handle').boundingBox();assert(Math.abs(touchFloating.y+touchFloating.height/2-(touchDrop.y+touchDrop.height/2))<2,'touch dragging should track the finger');
   await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
   assert.deepEqual((await graphOrder()).slice(0,2),['speed','acceleration']);await cdp.detach();
   for(const input of await page.locator('#graphOptions input').all())await input.uncheck();
@@ -70,6 +91,31 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#chooseGraphs').click();await page.locator('#graphOptions input[value="speed"]').check();await page.locator('#graphOptions input[value="intervention"]').check();await page.locator('#graphDialogClose').click();
   if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-mobile.png',fullPage:true});
   fail=true;await page.reload();await page.waitForSelector('#retryTelemetry');assert((await page.locator('#telemetryStatus').textContent()).includes('재생성'));fail=false;await page.locator('#retryTelemetry').click();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));
-  assert.deepEqual(errors,[]);console.log('PASS: telemetry tabs, lazy loading, raw timing, gaps, synchronized seeking/playback, popup choices, persistence, scrolling, mouse/touch reordering, saved order and retry');
+  // A stream starting just after the video clock should have a useful initial readout.
+  const original=structuredClone(telemetry.streams.carState);
+  async function reloadAtStart(){await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.evaluate(()=>t),0)}
+  for(const offset of [.04,.1]){
+   telemetry.streams.carState={...structuredClone(original),times:original.times.map(t=>t+offset)};
+   await reloadAtStart();assert.deepEqual(await page.locator('#telemetrySummary strong').allTextContents(),['72.00 km/h','0.00 m/s²','0.00 °','없음']);
+   assert((await page.locator('[data-graph="speed"] .telemetry-legend').textContent()).includes('실제 72.00'));
+   await page.evaluate(()=>setTime(.45));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—','invalid interior data must remain unavailable');
+  }
+  telemetry.streams.carState.times=original.times.map(t=>t+.101);
+  await reloadAtStart();assert.deepEqual(await page.locator('#telemetrySummary strong').allTextContents(),['—','—','—','확인 불가'],'a real leading gap must not display future values');
+  telemetry.streams.carState.times=original.times.map(t=>t+.04);
+  telemetry.streams.carState.values.speed[0]=null;telemetry.streams.carState.values.steeringPressed[0]=null;
+  await reloadAtStart();assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—');assert.equal(await page.locator('#telemetrySummary strong').last().textContent(),'확인 불가','invalid first samples must not be skipped');
+  const tailValues=Object.fromEntries(Object.entries(original.values).map(([key,values])=>[key,values.slice(0,19)]));
+  telemetry.streams.carState={times:Array.from({length:19},(_,i)=>i/10),values:structuredClone(tailValues)};
+  await reloadAtStart();await page.evaluate(()=>setTime(2));assert.notEqual(await page.locator('#telemetrySummary strong').first().textContent(),'—','short continuous telemetry tail should hold like model/video');assert.equal(await page.locator('#telemetrySummary strong').last().textContent(),'없음');
+  telemetry.streams.carState.values.speed[18]=null;telemetry.streams.carState.values.steeringPressed[18]=null;
+  await reloadAtStart();await page.evaluate(()=>setTime(2));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—');assert.equal(await page.locator('#telemetrySummary strong').last().textContent(),'확인 불가','invalid final values must not be held');
+  telemetry.streams.carState={times:Array.from({length:19},(_,i)=>i/10-.1),values:structuredClone(tailValues)};
+  await reloadAtStart();await page.evaluate(()=>setTime(2));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—','real short telemetry stays unavailable');
+  telemetry.streams.carState={times:[...Array.from({length:16},(_,i)=>i/10),1.8],values:Object.fromEntries(Object.entries(tailValues).map(([key,values])=>[key,values.slice(0,17)]))};
+  await reloadAtStart();await page.evaluate(()=>setTime(2));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—','missing tail samples must not be held');
+  telemetry.streams.carState={times:[],values:{}};
+  await reloadAtStart();assert.deepEqual(await page.locator('#telemetrySummary strong').allTextContents(),['—','—','—','확인 불가'],'missing streams stay unavailable');
+  assert.deepEqual(errors,[]);console.log('PASS: telemetry tabs, lazy loading, raw timing, gaps, synchronized seeking/playback, popup choices, persistence, scrolling, mouse/touch reordering, saved order, start-boundary readouts, centered zoom playback/drag and retry');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -215,6 +215,8 @@ i.model-path{background:#c4a5ff}
 .graph-option button{padding:0;min-height:44px;background:transparent;border:0;color:var(--muted)}
 .graph-option button:disabled{opacity:.25;cursor:default}
 .graph-option .graph-handle{touch-action:none;cursor:grab;font-size:24px;user-select:none}
-.graph-option.graph-dragging{opacity:.55}
-.graph-option.graph-drop-target{outline:2px solid var(--lane);outline-offset:-2px}
+.graph-option.graph-dragging{position:fixed;left:0;top:0;z-index:3;margin:0;background:var(--panel);box-shadow:0 8px 24px #0006;outline:1px solid var(--lane);pointer-events:none;will-change:transform}
+.graph-placeholder{box-sizing:border-box;border:1px dashed var(--lane);border-radius:7px;background:#57d9b014}
+.graph-sorting,.graph-sorting *{cursor:grabbing!important;user-select:none}
+.graph-sorting{overflow-anchor:none}
 #graphOrderStatus{margin-top:10px}
