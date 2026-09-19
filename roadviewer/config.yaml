@@ -1,5 +1,5 @@
 name: Road Viewer
-version: "0.2.63"
+version: "0.2.64"
 slug: roadviewer
 description: Openpilot 로그 업로드, 목록, 영상·도로 재생 및 삭제
 arch:
@@ -17,9 +17,10 @@ options:
 schema:
   max_upload_mb: int(16,2048)
 url: https://github.com/Qualified4/roadviewer-ha
+# Recording folders are named with a 32-character hexadecimal ID.
+# Preserve options.json and roadviewer/.processing-settings.json.
 backup_exclude:
-  - "roadviewer/*/qcamera.ts"
-  - "roadviewer/*/prepared/camera.mp4"
-  - "roadviewer/*/prepared/*.tmp*"
+  - "roadviewer/[0-9a-f]*"
   - "roadviewer/.uploads*"
   - "roadviewer/.upload-*"
+  - "roadviewer/.picker-diagnostics*"

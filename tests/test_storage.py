@@ -29,14 +29,21 @@ class StorageTests(unittest.TestCase):
    self.assertEqual(r.status_code,200);self.assertFalse((p/'prepared').exists());self.assertEqual((p/'rlog.zst').read_bytes(),b'log')
    self.assertEqual(server.read_meta(p)['conversion_revision'],3);submit.assert_called_once_with(p.name)
    self.assertEqual(c.post(f'/api/logs/{p.name}/rebuild',headers=headers,environ_overrides=peer).status_code,409)
- def test_backup_patterns_keep_logs_and_settings(self):
+ def test_backup_patterns_exclude_recordings_and_keep_settings(self):
   # Supervisor matches each path and prunes matching directories before descent.
   import re
   config=(Path(__file__).resolve().parents[1]/'roadviewer/config.yaml').read_text().split('backup_exclude:',1)[1]
   patterns=re.findall(r'"([^"\n]+)"',config)
-  root=Path('/data/addons/data/local_roadviewer/roadviewer')
-  for path in ['a/qcamera.ts','a/prepared/camera.mp4','.uploads','.upload-staging']:
-   self.assertTrue(any((root/path).match(pattern) for pattern in patterns),path)
-  for path in ['a/rlog.zst','a/meta.json','a/prepared/data.json','.processing-settings.json']:
-   self.assertFalse(any((root/path).match(pattern) for pattern in patterns),path)
+  root=Path('/data/addons/data/local_roadviewer')
+  def excluded(name):
+   path=root/name
+   return any(parent.match(pattern) for parent in [path,*path.parents] for pattern in patterns)
+  for id in ['0'*32,'a'*32,'f'*32]:
+   for name in ['rlog.zst','qcamera.ts','meta.json','prepared/camera.mp4','prepared/data.json']:
+    self.assertTrue(excluded(f'roadviewer/{id}/{name}'),name)
+  for name in ['.uploads/abc/0','.upload-staging/file','.picker-diagnostics.jsonl','.picker-diagnostics.previous.jsonl']:
+   self.assertTrue(excluded('roadviewer/'+name),name)
+  for name in ['options.json','roadviewer/.processing-settings.json']:
+   self.assertFalse(excluded(name),name)
+
 if __name__=='__main__':unittest.main()

@@ -93,7 +93,7 @@ controlsState.activeLaneLine으로 레인 이미지를 표시합니다. selfdriv
 ## 저장소 정리와 백업
 미완료 업로드는 페이지가 닫혀 있어도 1분마다 검사하며, 15분 이상 전송이 없으면 제거합니다. **저장소 즉시 정리**도 같은 기준을 사용하므로 진행 중인 업로드와 등록된 로그는 보존합니다. 오류가 난 로그의 변환 결과는 목록의 **재생성**으로 지우고 다시 만들 수 있습니다.
 
-Home Assistant의 `backup_exclude`로 `/data/roadviewer/*/qcamera.ts`, `prepared/camera.mp4`, 업로드 임시 파일을 새 백업에서 제외합니다. 원본 로그, 분석 JSON, 목록 및 설정은 백업합니다. 기존 백업 파일은 바뀌지 않습니다. 복원 후 영상이 없으면 로그만 다시 처리하며, 같은 로그와 TS를 업로드하면 영상을 추가할 수 있습니다.
+Home Assistant의 `backup_exclude`로 `/data/roadviewer/` 아래의 로그별 저장 폴더 전체(원본 TS 영상·rlog.zst 로그·분석 JSON·변환 MP4·목록 메타데이터), 업로드 임시 파일, 이전 파일 선택 진단 로그를 새 백업에서 제외합니다. 앱 설정(`/data/options.json`)과 동시 처리 설정(`roadviewer/.processing-settings.json`)은 백업에 유지합니다. 백업에서 복원하면 기록 목록은 비어 있으며 원본 로그와 영상을 다시 업로드해야 합니다. 기존 백업 파일은 바뀌지 않습니다. 화면 표시 선택은 브라우저의 로컬 저장소에 기억됩니다.
 설정 기준: https://developers.home-assistant.io/docs/apps/configuration/
 
 ## 모바일 업로드 확인
