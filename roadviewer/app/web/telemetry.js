@@ -30,13 +30,22 @@
  function lowerBound(times,value){let a=0,b=times.length;while(a<b){const m=(a+b)>>1;if(times[m]<value)a=m+1;else b=m}return a}
  function series(source){const stream=payload?.streams?.[source.topic];return {times:stream?.times||[],values:stream?.values?.[source.key]||[]}}
  const valid=value=>typeof value==='boolean'||Number.isFinite(value);
- function current(source){
+ const initialPreviewTimes=new Set();
+ function currentSample(source){
   const {times,values}=series(source);
   // Match the road panel's start tolerance without filling missing samples inside the log.
   if(t<times[0])return times[0]-t<=LOG_EDGE_TOLERANCE+1e-6&&valid(values[0])?values[0]:null;
   if(t>times.at(-1))return recordingEndAvailable(times.at(-1),sampleEndTolerance(times))&&valid(values.at(-1))?values.at(-1):null;
   let i=lowerBound(times,t);if(times[i]!==t)i--;
   return i>=0&&t-times[i]<(payload?.maxGap||.15)&&valid(values[i])?values[i]:null;
+ }
+ function current(source){
+  const value=currentSample(source);
+  if(value!==null||playing||t>1e-6)return value;
+  const {times,values}=series(source),first=values.findIndex(valid);
+  // Preview only the leading valid sample near zero, never an interior gap or a later control activation.
+  if(first<0||times[first]<=t||times[first]>.25+1e-6||times[first]>data.duration)return null;
+  initialPreviewTimes.add(times[first]);return values[first];
  }
  function format(value,unit=''){return value===null?'—':typeof value==='boolean'?(value?'켜짐':'꺼짐'):value.toFixed(2)+(unit?' '+unit:'')}
  async function load(){
@@ -114,6 +123,7 @@
  function update(){
   if(tab!=='telemetry')return;
   if(data&&loadedKey!==(data.key||location.pathname)){void load();return}
+  initialPreviewTimes.clear();
   for(const summary of summaries){const value=current(summary.series);summary.value.textContent=summary.series.key==='steeringPressed'?(value===null?'확인 불가':value?'개입':'없음'):format(value,summary.unit)}
   if(!payload)return;
   let range=domain();
@@ -126,6 +136,8 @@
    const cache=[r.width,devicePixelRatio,range[0],range[1]].join(':');if(cache!==card.cache){draw(card,range,r.width);card.cache=cache}
    card.cursor.hidden=t<range[0]||t>range[1];card.cursor.style.left=(48+(t-range[0])/(range[1]-range[0])*Math.max(1,r.width-56))+'px';
   }
+  const preview=[...initialPreviewTimes];
+  status.textContent=preview.length?'시작 데이터 미리보기 · '+Math.min(...preview).toFixed(3)+(preview.length>1?'–'+Math.max(...preview).toFixed(3):'')+'초의 첫 유효값':'';
  }
  function zoom(factor){if(!payload)return;const range=domain(),duration=data.duration;span=Math.min(duration,Math.max(.5,(range[1]-range[0])*factor));start=t-span/2;update()}
  $('graphZoomIn').onclick=()=>zoom(.5);$('graphZoomOut').onclick=()=>zoom(2);$('graphReset').onclick=()=>{span=null;start=0;update()};

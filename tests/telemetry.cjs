@@ -101,10 +101,19 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.evaluate(()=>setTime(.45));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—','invalid interior data must remain unavailable');
   }
   telemetry.streams.carState.times=original.times.map(t=>t+.101);
-  await reloadAtStart();assert.deepEqual(await page.locator('#telemetrySummary strong').allTextContents(),['—','—','—','확인 불가'],'a real leading gap must not display future values');
+  await reloadAtStart();assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'72.00 km/h');assert((await page.locator('#telemetryStatus').textContent()).includes('미리보기'));
+  assert.equal(await page.evaluate(()=>{playing=true;render();const value=document.querySelector('#telemetrySummary strong').textContent;pause();return value}),'—','preview must not fill a real gap during playback');
   telemetry.streams.carState.times=original.times.map(t=>t+.04);
   telemetry.streams.carState.values.speed[0]=null;telemetry.streams.carState.values.steeringPressed[0]=null;
-  await reloadAtStart();assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—');assert.equal(await page.locator('#telemetrySummary strong').last().textContent(),'확인 불가','invalid first samples must not be skipped');
+  await reloadAtStart();assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),original.values.speed[1].toFixed(2)+' km/h');assert.equal(await page.locator('#telemetrySummary strong').last().textContent(),'없음','preview should find the first valid sample after invalid leading samples');assert((await page.locator('#telemetryStatus').textContent()).includes('0.050'));
+  await page.evaluate(()=>setTime(.04));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—','invalid data at its actual timestamp must stay invalid');assert.equal(await page.locator('#telemetryStatus').textContent(),'');
+  telemetry.streams.carState={...structuredClone(original),times:original.times.map(t=>t-.02)};
+  for(const values of Object.values(telemetry.streams.carState.values))for(let i=0;i<6;i++)values[i]=null;
+  await reloadAtStart();assert.notEqual(await page.locator('#telemetrySummary strong').first().textContent(),'—','invalid samples straddling zero should still preview the first valid sample');assert((await page.locator('#telemetryStatus').textContent()).includes('0.040'));
+  telemetry.streams.carState={...structuredClone(original),times:original.times.map(t=>t+.3)};
+  await reloadAtStart();assert.deepEqual(await page.locator('#telemetrySummary strong').allTextContents(),['—','—','—','확인 불가'],'a genuinely late stream must remain unavailable');
+  telemetry.streams.carState={times:[-.02,0,.02],values:{speed:[72,null,73]}};
+  await reloadAtStart();assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—','an interior invalid sample must not borrow future data');
   const tailValues=Object.fromEntries(Object.entries(original.values).map(([key,values])=>[key,values.slice(0,19)]));
   telemetry.streams.carState={times:Array.from({length:19},(_,i)=>i/10),values:structuredClone(tailValues)};
   await reloadAtStart();await page.evaluate(()=>setTime(2));assert.notEqual(await page.locator('#telemetrySummary strong').first().textContent(),'—','short continuous telemetry tail should hold like model/video');assert.equal(await page.locator('#telemetrySummary strong').last().textContent(),'없음');
