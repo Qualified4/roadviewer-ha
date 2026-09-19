@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 class ProcessingQueue:
  def __init__(self,worker,limit=1):
   self.worker=worker;self.limit=limit
-  self.executor=ThreadPoolExecutor(max_workers=2)
+  self.executor=ThreadPoolExecutor(max_workers=4)
   self.condition=threading.Condition(threading.RLock())
   self.pending=[];self.active=set();self.closing=False
  def submit(self,id):
@@ -17,7 +17,7 @@ class ProcessingQueue:
   with self.condition:
    if id in self.pending:self.pending.remove(id)
  def set_limit(self,limit):
-  if type(limit) is not int or limit not in (1,2):raise ValueError('Expected 1 or 2')
+  if type(limit) is not int or limit not in (1,2,3,4):raise ValueError('Expected 1 to 4')
   with self.condition:self.limit=limit;self._drain()
  def _drain(self):
   while len(self.active)<self.limit:

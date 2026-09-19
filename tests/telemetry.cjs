@@ -53,17 +53,17 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   for(const input of await page.locator('#graphOptions input').all())await input.check();
   await page.locator('#graphDialog').evaluate(e=>e.scrollTop=0);
   const graphOrder=()=>page.locator('.graph-option input').evaluateAll(es=>es.map(e=>e.value));
-  const grab=await page.locator('[data-graph="speed"] .graph-handle').boundingBox(),drop=await page.locator('[data-graph="pedals"].graph-option').boundingBox();
+  const grab=await page.locator('[data-graph="speed"] .graph-handle').boundingBox(),drop=await page.locator('[data-graph="accelPlan"].graph-option').boundingBox();
   await page.mouse.move(grab.x+grab.width/2,grab.y+grab.height/2);await page.mouse.down();await page.mouse.move(grab.x+grab.width/2,drop.y+drop.height/2,{steps:5});
   const floating=await page.locator('.graph-dragging .graph-handle').boundingBox();assert(Math.abs(floating.y+floating.height/2-(drop.y+drop.height/2))<2,'dragged row should follow the grabbed point');
   assert.equal(await page.locator('.graph-placeholder').count(),1);assert.equal(await page.locator('.graph-dragging').getAttribute('data-graph'),'speed');
   await page.mouse.up();assert.equal(await page.locator('.graph-placeholder').count(),0);assert.equal(await page.locator('.graph-dragging').count(),0);
-  assert.deepEqual((await graphOrder()).slice(0,3),['acceleration','pedals','speed']);
+  assert.deepEqual((await graphOrder()).slice(0,3),['acceleration','accelPlan','speed']);
   assert.equal(await page.locator('.graph-up,.graph-down').count(),0);
   assert(await page.locator('.graph-option').first().evaluate(row=>row.querySelector('.graph-handle').getBoundingClientRect().left>=row.querySelector('label').getBoundingClientRect().right),'handle belongs at the right edge');
-  const moveBack=await page.locator('[data-graph="speed"] .graph-handle').boundingBox(),beforePedals=await page.locator('[data-graph="pedals"].graph-option').boundingBox();
+  const moveBack=await page.locator('[data-graph="speed"] .graph-handle').boundingBox(),beforePedals=await page.locator('[data-graph="accelPlan"].graph-option').boundingBox();
   await page.mouse.move(moveBack.x+moveBack.width/2,moveBack.y+moveBack.height/2);await page.mouse.down();await page.mouse.move(moveBack.x+moveBack.width/2,beforePedals.y+1,{steps:4});await page.mouse.up();
-  assert.deepEqual((await graphOrder()).slice(0,3),['acceleration','speed','pedals']);
+  assert.deepEqual((await graphOrder()).slice(0,3),['acceleration','speed','accelPlan']);
   assert.equal((await graphOrder())[0],'acceleration');
   const cancelGrab=await page.locator('[data-graph="acceleration"] .graph-handle').boundingBox();
   await page.mouse.move(cancelGrab.x+12,cancelGrab.y+20);await page.mouse.down();await page.mouse.move(cancelGrab.x+12,cancelGrab.y+80);
@@ -73,7 +73,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
   await page.keyboard.press('Escape');assert(await page.locator('#graphDialog').isHidden());assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),20);
   await page.evaluate(()=>setTime(.1));
-  for(const [id,value] of [['angle','목표 3.00'],['autoPedals','가스 출력 25.00'],['accelPlan','제어 목표 0.30'],['jerk','요청 0.40'],['accelRequest','감속 요청 켜짐'],['longState','속도 제어 켜짐'],['curvature','요청 0.00123'],['lateralAccel','목표 1.20'],['rpm','기록값 1500.00']])assert((await page.locator(`[data-graph="${id}"] .telemetry-legend`).textContent()).includes(value),id+' should show logged data');
+  for(const [id,value] of [['angle','목표 3.00'],['autoPedals','가스 출력 25.00'],['accelPlan','제어 목표 0.30'],['jerk','요청 0.40'],['accelRequest','감속 요청 켜짐'],['longState','속도 제어: 해당'],['longState','비활성: 아님'],['curvature','요청 0.00123'],['lateralAccel','목표 1.20'],['rpm','기록값 1500.00']])assert((await page.locator(`[data-graph="${id}"] .telemetry-legend`).textContent()).includes(value),id+' should show logged data');
   assert((await page.locator('[data-graph="pedals"] .telemetry-source-note').textContent()).includes('기록값이 모두 0'));
   assert((await page.locator('[data-graph="angle"] .telemetry-source-note').textContent()).includes('출력 기록: 이 로그에 유효한 기록 없음'));
   assert(await page.locator('#telemetryGraphs').evaluate(e=>e.scrollHeight>e.clientHeight));
@@ -101,6 +101,18 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.locator('.telemetry-chart').count(),0);
   await page.locator('#chooseGraphs').click();await page.locator('#graphOptions input[value="speed"]').check();await page.locator('#graphOptions input[value="intervention"]').check();await page.locator('#graphDialogClose').click();
   if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-mobile.png',fullPage:true});
+  // Reset a saved custom order without changing the selected graphs; persist across reloads.
+  await page.evaluate(()=>localStorage.setItem('roadviewer-graph-order',JSON.stringify(['intervention','speed'])));
+  await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));
+  assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'intervention');
+  await page.locator('#chooseGraphs').click();await page.locator('#graphOrderReset').click();
+  assert(await page.locator('#graphDialog').isVisible());assert.deepEqual((await graphOrder()).slice(0,5),['speed','acceleration','accelPlan','jerk','rpm']);
+  assert.deepEqual(await page.locator('#graphOptions input:checked').evaluateAll(es=>es.map(e=>e.value)),['speed','intervention']);
+  assert.deepEqual(await page.locator('.telemetry-chart').evaluateAll(es=>es.map(e=>e.dataset.graph)),['speed','intervention']);
+  assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-graph-order')),null);
+  const resetBox=await page.locator('#graphOrderReset').boundingBox(),closeBox=await page.locator('#graphDialogClose').boundingBox();assert(Math.abs(resetBox.y-closeBox.y)<2&&resetBox.x+resetBox.width<=closeBox.x&&closeBox.x+closeBox.width<=390);
+  await page.locator('#graphDialogClose').click();await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));
+  assert.deepEqual(await page.locator('.telemetry-chart').evaluateAll(es=>es.map(e=>e.dataset.graph)),['speed','intervention']);
   fail=true;await page.reload();await page.waitForSelector('#retryTelemetry');assert((await page.locator('#telemetryStatus').textContent()).includes('재생성'));fail=false;await page.locator('#retryTelemetry').click();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));
   // A stream starting just after the video clock should have a useful initial readout.
   const original=structuredClone(telemetry.streams.carState);

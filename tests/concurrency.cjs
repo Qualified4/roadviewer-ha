@@ -22,10 +22,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.goto('https://rv.test/');
   await page.waitForFunction(()=>document.getElementById('concurrencyChoice')&&!document.getElementById('concurrencyChoice').disabled);
   assert.equal(await page.locator('#concurrencyChoice').textContent(),'1개');
-  await page.locator('#concurrencyChoice').click();await page.getByRole('option',{name:'2개',exact:true}).click();
-  await page.waitForFunction(()=>document.getElementById('concurrencyStatus').textContent.includes('2개'));
-  assert.equal(concurrency,2);assert.equal(writes,1);
-  await page.reload();await page.waitForFunction(()=>document.getElementById('concurrencyChoice')?.textContent==='2개');
+  for(const value of [2,3,4]){
+   await page.locator('#concurrencyChoice').click();await page.getByRole('option',{name:value+'개',exact:true}).click();
+   await page.waitForFunction(value=>document.getElementById('concurrencyStatus').textContent.includes(value+'개'),value);
+   assert.equal(concurrency,value);assert.equal(writes,value-1);
+   await page.reload();await page.waitForFunction(value=>document.getElementById('concurrencyChoice')?.textContent===value+'개',value);
+  }
   concurrency=1;await page.evaluate(()=>refresh());
   assert.equal(await page.locator('#concurrencyChoice').textContent(),'1개');
   fail=true;await page.locator('#concurrencyChoice').click();await page.getByRole('option',{name:'2개',exact:true}).click();

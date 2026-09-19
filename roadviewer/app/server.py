@@ -66,7 +66,7 @@ PROCESSING_SETTINGS=ROOT/'.processing-settings.json'
 def read_processing_limit():
  try:
   value=json.loads(PROCESSING_SETTINGS.read_text()).get('concurrency',1)
-  return value if type(value) is int and value in (1,2) else 1
+  return value if type(value) is int and value in (1,2,3,4) else 1
  except (OSError,ValueError,AttributeError):return 1
 
 def read_auto_convert():
@@ -98,7 +98,7 @@ def processing_settings():
    body=request.get_json(silent=True)
    if not isinstance(body,dict) or not body or set(body)-{'concurrency','auto_convert'}:return jsonify(error='처리 설정이 올바르지 않습니다.'),400
    value=body.get('concurrency',pool.limit);automatic=body.get('auto_convert',auto_convert)
-   if type(value) is not int or value not in (1,2):return jsonify(error='동시 처리 개수는 1 또는 2여야 합니다.'),400
+   if type(value) is not int or value not in (1,2,3,4):return jsonify(error='동시 처리 개수는 1~4여야 합니다.'),400
    if type(automatic) is not bool:return jsonify(error='자동 변환 설정은 켜짐 또는 꺼짐이어야 합니다.'),400
    temp=PROCESSING_SETTINGS.with_suffix('.tmp')
    temp.write_text(json.dumps({'concurrency':value,'auto_convert':automatic}));temp.replace(PROCESSING_SETTINGS)

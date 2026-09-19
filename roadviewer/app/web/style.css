@@ -221,3 +221,5 @@ i.model-path{background:#c4a5ff}
 #graphOrderStatus{margin-top:10px}
 
 .telemetry-source-note{margin:6px 0 0;font-size:10px;line-height:1.5;color:var(--muted)}
+
+.graph-dialog-actions{display:flex;gap:6px;flex-shrink:0}

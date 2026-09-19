@@ -24,6 +24,21 @@ class QueueTests(unittest.TestCase):
   finally:
    for event in release.values():event.set()
    q.shutdown()
+ def test_four_actual_workers_and_reducing_limit(self):
+  started={k:threading.Event() for k in 'abcde'};release={k:threading.Event() for k in started}
+  def work(id):started[id].set();release[id].wait(5)
+  q=ProcessingQueue(work,4)
+  try:
+   for id in started:q.submit(id)
+   for id in 'abcd':self.assertTrue(started[id].wait(2))
+   self.assertFalse(started['e'].is_set());q.set_limit(2)
+   for id in 'ab':release[id].set()
+   with q.condition:self.assertTrue(q.condition.wait_for(lambda:not {'a','b'}&q.active,2))
+   self.assertFalse(started['e'].is_set())
+   release['c'].set();self.assertTrue(started['e'].wait(2))
+  finally:
+   for event in release.values():event.set()
+   q.shutdown()
  def test_same_log_serialized_and_pending_duplicates_coalesced(self):
   gate=threading.Event();started=threading.Event();calls=[]
   def work(id):
@@ -62,14 +77,15 @@ class QueueTests(unittest.TestCase):
    c=server.app.test_client()
    self.assertEqual(server.read_processing_limit(),1)
    self.assertEqual(c.post('/api/settings/processing',json={'concurrency':2,'auto_convert':True},environ_overrides=peer).status_code,403)
-   for value in [0,3,True,'2',None]:
+   for value in [0,5,True,'2',None]:
     self.assertEqual(c.post('/api/settings/processing',json={'concurrency':value},headers=headers,environ_overrides=peer).status_code,400)
    try:
-    r=c.post('/api/settings/processing',json={'concurrency':2,'auto_convert':True},headers=headers,environ_overrides=peer)
-    self.assertEqual(r.json,{'concurrency':2,'auto_convert':True})
-    self.assertEqual(server.read_processing_limit(),2)
-    self.assertEqual(c.get('/api/settings/processing',environ_overrides=peer).json,{'concurrency':2,'auto_convert':True})
-    self.assertEqual(r.headers['Cache-Control'],'no-store')
+    for value in (1,2,3,4):
+     r=c.post('/api/settings/processing',json={'concurrency':value,'auto_convert':True},headers=headers,environ_overrides=peer)
+     self.assertEqual(r.json,{'concurrency':value,'auto_convert':True})
+     self.assertEqual(server.read_processing_limit(),value)
+     self.assertEqual(c.get('/api/settings/processing',environ_overrides=peer).json,{'concurrency':value,'auto_convert':True})
+     self.assertEqual(r.headers['Cache-Control'],'no-store')
    finally:server.pool.set_limit(1)
 
 if __name__=='__main__':unittest.main()

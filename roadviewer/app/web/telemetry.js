@@ -7,25 +7,26 @@
  const graphs=[
   {id:'speed',title:'속도',unit:'km/h',lines:[cs('speed','실제'),cs('clusterSpeed','계기판'),cs('cruiseSpeed','크루즈')]},
   {id:'acceleration',title:'가속도',unit:'m/s²',note:'요청은 자동 가감속 명령, 출력은 차량 제어기가 기록한 최종 명령입니다. 실제 차량 가속도와 구분합니다.',lines:[cs('acceleration','실제'),cc('targetAcceleration','요청'),out('outputAcceleration','출력 기록')]},
+  {id:'accelPlan',title:'자동 목표 가속도',unit:'m/s²',lines:[cc('plannedAcceleration','제어 목표'),cc('targetAcceleration','요청 명령')]},
+  {id:'jerk',title:'자동 가감속 저크',unit:'m/s³',lines:[cc('jerk','요청')]},
+  {id:'rpm',title:'회전수 (RPM)',unit:'RPM',checkZero:true,note:'engineRpm 필드의 기록값입니다. 차량 구현에 따라 엔진 또는 구동계 회전수이며, 필드를 채우지 않는 차량도 있습니다.',lines:[cs('rpm','기록값')]},
   {id:'pedals',title:'운전자 페달 입력량',unit:'%',bounds:[0,100],checkZero:true,note:'운전자 입력입니다. 자동 가감속 명령과 별개이며 브레이크 값은 차량에 따라 압력 등으로 기록됩니다.',lines:[cs('gas','액셀'),cs('brake','브레이크')]},
+  {id:'pedalState',title:'운전자 페달 조작 상태',binary:true,note:'운전자가 조작했는지 나타냅니다. 자동 감속·회생제동 명령을 의미하지 않습니다.',lines:[cs('gasPressed','액셀'),cs('brakePressed','브레이크'),cs('regenBraking','회생제동')]},
+  {id:'autoPedals',title:'자동 가스·브레이크 출력',unit:'%',bounds:[0,100],checkZero:true,note:'차량에 보내는 출력 기록이며 실제 페달 이동량이 아닙니다. 가속도 명령을 사용하는 차량에서는 이 필드가 0으로 남을 수 있습니다.',lines:[out('outputGas','가스 출력'),out('outputBrake','브레이크 출력')]},
+  {id:'accelRequest',title:'자동 가속·감속 요청',binary:true,note:'자동 가감속이 활성화된 동안 가속도 명령의 부호를 표시합니다. 감속 요청이 곧 브레이크 페달 조작이라는 뜻은 아닙니다.',lines:[cc('accelRequested','가속 요청'),cc('decelRequested','감속 요청'),cc('longActive','제어 활성')]},
+  {id:'longState',title:'자동 가감속 제어 단계',binary:true,booleanLabels:['아님','해당'],lines:['off','pid','stopping','starting'].map((state,i)=>fallback(cc('long_'+state,['비활성','속도 제어','정지 중','출발 중'][i]),ctl('long_'+state,['비활성','속도 제어','정지 중','출발 중'][i])))},
+  {id:'stop',title:'정차·브레이크 홀드',binary:true,lines:[cs('standstill','정차'),cs('parkingBrake','주차브레이크'),cs('brakeHoldActive','브레이크 홀드')]},
   {id:'angle',title:'조향각',unit:'°',checkZero:true,note:'목표는 제어기에 기록된 값이며 모델 경로 자체와 다릅니다. 토크 제어 차량의 목표각도 포함합니다. 출력 기록 지원은 차량마다 다릅니다.',lines:[cs('steeringAngle','실제'),fallback(cc('targetAngle','목표'),ctl('desiredAngle','목표')),out('outputAngle','출력 기록')]},
   {id:'steeringRate',title:'핸들 회전 속도',unit:'°/s',lines:[cs('steeringRate','실제')]},
   {id:'torque',title:'조향 토크',unit:'차량 원시값',lines:[cs('driverTorque','운전자'),cs('epsTorque','EPS')]},
   {id:'command',title:'자동 조향 토크 명령',unit:'정규화 값',checkZero:true,lines:[cc('commandTorque','요청'),out('outputTorque','출력 기록')]},
-  {id:'rpm',title:'회전수 (RPM)',unit:'RPM',checkZero:true,note:'engineRpm 필드의 기록값입니다. 차량 구현에 따라 엔진 또는 구동계 회전수이며, 필드를 채우지 않는 차량도 있습니다.',lines:[cs('rpm','기록값')]},
-  {id:'pedalState',title:'운전자 페달 조작 상태',binary:true,note:'운전자가 조작했는지 나타냅니다. 자동 감속·회생제동 명령을 의미하지 않습니다.',lines:[cs('gasPressed','액셀'),cs('brakePressed','브레이크'),cs('regenBraking','회생제동')]},
   {id:'intervention',title:'운전자 조향 개입',binary:true,lines:[cs('steeringPressed','조향 개입')]},
-  {id:'control',title:'자동 제어 상태',binary:true,lines:[cc('enabled','시스템 켜짐'),cc('latActive','자동 조향'),cc('longActive','자동 가감속')]},
-  {id:'autoPedals',title:'자동 가스·브레이크 출력',unit:'%',bounds:[0,100],checkZero:true,note:'차량에 보내는 출력 기록이며 실제 페달 이동량이 아닙니다. 가속도 명령을 사용하는 차량에서는 이 필드가 0으로 남을 수 있습니다.',lines:[out('outputGas','가스 출력'),out('outputBrake','브레이크 출력')]},
-  {id:'accelPlan',title:'자동 목표 가속도',unit:'m/s²',lines:[cc('plannedAcceleration','제어 목표'),cc('targetAcceleration','요청 명령')]},
-  {id:'jerk',title:'자동 가감속 저크',unit:'m/s³',lines:[cc('jerk','요청')]},
-  {id:'accelRequest',title:'자동 가속·감속 요청',binary:true,note:'자동 가감속이 활성화된 동안 가속도 명령의 부호를 표시합니다. 감속 요청이 곧 브레이크 페달 조작이라는 뜻은 아닙니다.',lines:[cc('accelRequested','가속 요청'),cc('decelRequested','감속 요청'),cc('longActive','제어 활성')]},
-  {id:'longState',title:'자동 가감속 제어 단계',binary:true,lines:['off','pid','stopping','starting'].map((state,i)=>fallback(cc('long_'+state,['꺼짐','속도 제어','정지 중','출발 중'][i]),ctl('long_'+state,['꺼짐','속도 제어','정지 중','출발 중'][i])))},
   {id:'curvature',title:'주행 곡률',unit:'1/m',precision:5,checkZero:true,note:'실제 추정 곡률·제어 목표·차량 명령입니다. 각도·토크 방식에서는 곡률 명령을 사용하지 않을 수 있습니다.',lines:[ctl('actualCurvature','실제 추정'),ctl('desiredCurvature','목표'),cc('commandCurvature','요청'),out('outputCurvature','출력 기록')]},
   {id:'lateralAccel',title:'횡가속도 제어',unit:'m/s²',note:'토크 제어기의 실제 추정값과 목표값입니다.',lines:[ctl('actualLateralAccel','실제 추정'),ctl('desiredLateralAccel','목표')]},
+  {id:'control',title:'자동 제어 상태',binary:true,lines:[cc('enabled','시스템 켜짐'),cc('latActive','자동 조향'),cc('longActive','자동 가감속')]},
   {id:'cruiseState',title:'크루즈 상태',binary:true,note:'차량의 크루즈 상태입니다. 순정 ACC 작동과 openpilot 자동 가감속 활성 여부는 다를 수 있습니다.',lines:[cs('cruiseEnabled','작동'),cs('cruiseAvailable','사용 가능'),cc('longActive','자동 가감속')]},
-  {id:'stop',title:'정차·브레이크 홀드',binary:true,lines:[cs('standstill','정차'),cs('parkingBrake','주차브레이크'),cs('brakeHoldActive','브레이크 홀드')]},
  ];
+ const defaultGraphs=[...graphs];
  const key='roadviewer-vehicle-graphs',tabKey='roadviewer-analysis-tab',orderKey='roadviewer-graph-order';
  let selected=new Set(['speed','acceleration','pedals','angle','intervention','control']),tab='road';
  try{const saved=JSON.parse(localStorage.getItem(key));if(Array.isArray(saved))selected=new Set(saved.filter(id=>graphs.some(g=>g.id===id)));if(localStorage.getItem(tabKey)==='telemetry')tab='telemetry'}catch{}
@@ -145,7 +146,7 @@
   $('graphTime').textContent=clock(t)+' · '+range[0].toFixed(1)+'–'+range[1].toFixed(1)+'s';
   const bounds=scroll.getBoundingClientRect();
   for(const card of cards.values()){
-   card.graph.lines.forEach((s,i)=>{card.labels[i].textContent=s.label+' '+format(current(s),'',card.graph.precision||2)});
+   card.graph.lines.forEach((s,i)=>{const value=current(s),states=card.graph.booleanLabels;card.labels[i].textContent=s.label+(states?': ':' ')+(states&&typeof value==='boolean'?states[Number(value)]:format(value,'',card.graph.precision||2))});
    if(card.noteKey!==loadedKey){
     const missing=[],zero=[];
     for(const source of card.graph.lines){const samples=series(source).values.filter(valid);if(!samples.length)missing.push(source.label);else if(card.graph.checkZero&&samples.every(value=>value===0))zero.push(source.label)}
@@ -216,6 +217,7 @@
  opener.onclick=()=>{if(dialog.open)return;oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';dialogOpen=true;dialog.showModal();$('graphDialogClose').focus({preventScroll:true})};
  function finishClose(){if(!dialogOpen)return;dialogOpen=false;document.body.style.overflow=oldOverflow;opener.focus({preventScroll:true})}
  function close(){finishDrag();dialog.close();finishClose()}
+ $('graphOrderReset').onclick=()=>{finishDrag();graphs.splice(0,graphs.length,...defaultGraphs);try{localStorage.removeItem(orderKey)}catch{}arrangeOptions();rebuild();$('graphOrderStatus').textContent='기본 순서로 초기화했습니다. 선택한 그래프는 유지됩니다.'};
  $('graphDialogClose').onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close()});dialog.addEventListener('close',()=>{if(!dialog.open)finishClose()});
  dialog.onclick=e=>{if(e.target!==dialog)return;const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()};
  window.renderTelemetry=update;rebuild();selectTab(tab,false);
