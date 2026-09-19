@@ -33,6 +33,25 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true');
   assert.equal(await page.locator('#overlayHeight').getAttribute('aria-pressed'),'false');
+  await page.waitForFunction(()=>document.getElementById('video').videoWidth>0);
+  await page.evaluate(()=>{document.getElementById('modelPath').checked=true;render()});
+  for(const viewport of [390,2200]){
+   await page.setViewportSize({width:viewport,height:1000});
+   for(const mode of ['auto','split','stack'])for(const width of [720,1920,920,1920]){
+    await page.evaluate(({mode,width})=>{setReplayLayout(mode);const input=document.getElementById('layoutWidth');input.value=width;input.dispatchEvent(new Event('input'))},{mode,width});
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    const result=await page.evaluate(()=>{
+     const v=document.getElementById('video'),c=document.getElementById('videoOverlay'),box=v.parentElement.getBoundingClientRect(),vr=v.getBoundingClientRect(),cr=c.getBoundingClientRect();
+     const same=[vr,cr].every(r=>['x','y','width','height'].every(k=>Math.abs(r[k]-box[k])<1));
+     const ratio=Math.min(vr.width/v.videoWidth,vr.height/v.videoHeight),vw=v.videoWidth*ratio,vh=v.videoHeight*ratio;
+     const px=(vr.x-cr.x+vr.width/2)*c.width/cr.width,py=(vr.y-cr.y+(vr.height-vh)/2+vh*.75)*c.height/cr.height;
+     return {same,bottom:vr.bottom<=document.querySelector('.overlay-tools').getBoundingClientRect().top+1,ink:c.getContext('2d').getImageData(Math.floor(px),Math.floor(py),1,1).data[3]>0};
+    });
+    assert(result.same,`video and overlay bounds must match: ${viewport}/${mode}/${width}`);
+    assert(result.bottom,'video must not overlap the controls below');
+    assert(result.ink,'projected path must align with the contained video after resizing');
+   }
+  }
   assert.deepEqual(errors,[]);console.log('PASS: camera overlay drawing, toggle, layer controls, missing calibration and preference restoration');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});
