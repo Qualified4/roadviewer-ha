@@ -312,3 +312,13 @@ function applyLayoutWidth(value){
 try{applyLayoutWidth(localStorage.getItem('roadviewer-layout-width'))}catch{applyLayoutWidth(1420)}
 layoutWidth.oninput=()=>{applyLayoutWidth(layoutWidth.value);try{localStorage.setItem('roadviewer-layout-width',layoutWidth.value)}catch{}};
 $('resetLayoutWidth').onclick=()=>{applyLayoutWidth(1420);try{localStorage.removeItem('roadviewer-layout-width')}catch{}};
+
+(()=>{
+ const dialog=$('layoutWidthDialog'),button=$('layoutWidthButton');let oldOverflow='';
+ button.onclick=()=>{if(dialog.open)return;oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.showModal();layoutWidth.focus({preventScroll:true})};
+ const close=()=>dialog.close();
+ $('layoutWidthClose').onclick=close;
+ dialog.addEventListener('close',()=>{document.body.style.overflow=oldOverflow;button.focus({preventScroll:true})});
+ dialog.addEventListener('cancel',e=>{e.preventDefault();close()});
+ dialog.addEventListener('click',e=>{if(e.target!==dialog)return;const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()});
+})();

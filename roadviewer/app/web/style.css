@@ -29,8 +29,8 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 .view-toggle[aria-pressed=true]{color:var(--lane);border-color:#3c8d78;background:#17362f}
 .view-toggle[aria-pressed=true] .toggle-track{background:var(--lane)}
 .view-toggle[aria-pressed=true] .toggle-track::after{transform:translateX(12px);background:#08251d}
-.split-view .views{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;--visual-height:clamp(220px,32vw,440px)}
-.split-view .views article{min-width:0}
+.split-view .views{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;--visual-height:max(220px,calc(100cqw * 330 / 526))}
+.split-view .views article{min-width:0;container-type:inline-size}
 .split-view .views .panel-head{height:112px;gap:8px;padding:12px;align-content:center}
 .split-view .video-wrap,.split-view .road-wrap{height:var(--visual-height);aspect-ratio:auto}
 @media(max-width:850px){
@@ -163,10 +163,12 @@ i.model-path{background:#c4a5ff}
 .replay-page main{max-width:var(--layout-width)}
 .replay-page .playback{max-width:calc(var(--layout-width) - 40px)}
 .heading-anchor{height:0;overflow-anchor:none}
-.layout-width{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;color:var(--muted);font-size:12px}
-.layout-width input{width:180px;max-width:45vw;accent-color:var(--lane)}
-.layout-width output{margin:0;min-width:55px}
-.layout-width button{padding:5px 10px}
+.layout-width{display:grid;grid-template-columns:1fr auto;gap:12px;margin:0 0 14px;color:var(--muted);font-size:12px}
+.layout-width input{grid-column:1/-1;width:100%;margin:0;min-height:32px;accent-color:var(--lane)}
+.layout-width output{margin:0;min-width:65px;text-align:right;font-variant-numeric:tabular-nums;color:var(--text)}
+.layout-width-limits{grid-column:1/-1;display:flex;justify-content:space-between;font-size:11px}
+.layout-width button{grid-column:2;padding:7px 12px}
+
 
 .camera-info-dialog{position:fixed;inset:0;margin:auto;padding:0;width:420px;max-width:calc(100vw - 24px);max-height:85vh;max-height:85dvh;overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--text);box-shadow:0 12px 40px #0008;overscroll-behavior:contain}
 .camera-info-dialog::backdrop{background:#0008}

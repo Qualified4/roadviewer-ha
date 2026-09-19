@@ -52,6 +52,20 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     assert(result.ink,'projected path must align with the contained video after resizing');
    }
   }
+  await page.setViewportSize({width:2200,height:1000});
+  const sizes=[];
+  for(const width of [1420,1920]){
+   await page.evaluate(width=>{setReplayLayout('split');applyLayoutWidth(width)},width);
+   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+   sizes.push(await page.evaluate(()=>{
+    const v=document.getElementById('video'),box=v.getBoundingClientRect(),road=document.querySelector('.road-wrap').getBoundingClientRect();
+    const scale=Math.min(box.width/v.videoWidth,box.height/v.videoHeight);
+    return {width:box.width,height:box.height,visibleWidth:v.videoWidth*scale,roadHeight:road.height};
+   }));
+  }
+  assert(sizes[1].height>440&&sizes[1].height>sizes[0].height,'video height must grow beyond the former cap');
+  assert(sizes[1].visibleWidth>sizes[0].visibleWidth*1.2,'the actual image must grow with the width slider');
+  for(const size of sizes){assert(Math.abs(size.height-size.roadHeight)<1,'split panels must stay aligned');assert(Math.abs(size.width-size.visibleWidth)<1,'image should use the available panel width');}
   assert.deepEqual(errors,[]);console.log('PASS: camera overlay drawing, toggle, layer controls, missing calibration and preference restoration');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

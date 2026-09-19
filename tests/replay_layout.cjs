@@ -51,8 +51,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('.playback').evaluate(el=>Math.round(el.getBoundingClientRect().width)),880);
   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert.equal(await page.locator('#layoutWidth').inputValue(),'920');
+  await page.locator('#layoutWidthButton').click();
   await page.locator('#resetLayoutWidth').click();
   assert.equal(await page.locator('#layoutWidth').inputValue(),'1420');
+  await page.locator('#layoutWidthClose').click();
   for(const width of [390,1440]){
    await page.setViewportSize({width,height:844});
    for(const count of [0,3,10,25]){
@@ -71,6 +73,21 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
      }
     }
    }
+  }
+  for(const width of [390,2200]){
+   await page.setViewportSize({width,height:1000});await page.locator('#layoutWidthButton').click();
+   const slider=page.locator('#layoutWidth'),box=await slider.boundingBox();
+   const rect=await page.locator('#layoutWidthDialog').boundingBox();assert(rect.x>=0&&rect.x+rect.width<=width);
+   await page.mouse.move(box.x+10,box.y+box.height/2);await page.mouse.down();
+   for(const fraction of [.1,.5,.9]){
+    await page.mouse.move(box.x+box.width*fraction,box.y+box.height/2,{steps:3});
+    const current=await slider.boundingBox();for(const key of ['x','y','width','height'])assert(Math.abs(current[key]-box[key])<1,'slider must stay fixed while resizing: '+key);
+   }
+   await page.mouse.up();assert(Number(await slider.inputValue())>1700);
+   assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-layout-width')),await slider.inputValue());
+   await page.keyboard.press('Escape');assert(await page.locator('#layoutWidthDialog').isHidden());
+   assert(await page.locator('#layoutWidthButton').evaluate(e=>e===document.activeElement));
+   assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
   }
   assert.deepEqual(errors,[]);console.log('PASS: collapsed slow scrolling, full-width fold touch target and saved layout width');
  }finally{await browser.close()}
