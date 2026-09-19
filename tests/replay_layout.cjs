@@ -33,17 +33,25 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert(await page.locator('#logNavigation').isHidden());
    assert(Math.abs(await page.evaluate(()=>scrollY)-220)<1,'collapse must not shift scroll');
    // Return to the top with a remembered fold state, then cross the sticky boundary slowly.
-   for(let y=0;y<=220;y+=4){
+   for(const y of [...Array.from({length:56},(_,i)=>i*4),...Array.from({length:56},(_,i)=>220-i*4),220]){
     await page.evaluate(y=>scrollTo(0,y),y);
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     assert(Math.abs(await page.evaluate(()=>scrollY)-y)<1,'scroll must not jump at '+y);
     const stuck=await page.locator('.replay-heading').evaluate(el=>el.classList.contains('is-stuck'));
     assert.equal(await page.locator('#logNavigation').isHidden(),stuck);
     assert.equal(await page.locator('#foldHeading').isVisible(),stuck);
+    const geometry=await page.evaluate(()=>{const heading=document.querySelector('.replay-heading'),route=heading.querySelector('.route');return {title:route.getBoundingClientRect().top,expected:Math.max(10,document.querySelector('.heading-anchor').getBoundingClientRect().top+route.offsetTop),navBottom:document.getElementById('logNavigation').getBoundingClientRect().bottom}});
+    assert(Math.abs(geometry.title-geometry.expected)<1,'collapsed title must slide continuously into its sticky position');
+    if(stuck)assert(geometry.navBottom<=0,'navigation must already be above the screen when hidden');
    }
    assert(await page.locator('.replay-heading').evaluate(el=>el.classList.contains('is-stuck')));
+   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
+   await page.evaluate(()=>scrollTo(0,220));await page.waitForFunction(()=>document.querySelector('.replay-heading').classList.contains('is-stuck'));
+   assert.equal(await page.locator('#foldHeading').getAttribute('aria-expanded'),'false','collapsed state must survive reload');
    await page.locator('#foldHeading').click();
+   assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-heading-collapsed')),'false');
    assert(await page.locator('#logNavigation').isVisible());
+   assert(Math.abs((await page.locator('#logNavigation').boundingBox()).y-10)<1,'expanded bar sticks by navigation');
    assert(Math.abs(await page.evaluate(()=>scrollY)-220)<1,'expanding must not shift scroll');
   }
   await page.evaluate(()=>{const input=document.getElementById('layoutWidth');input.value='920';input.dispatchEvent(new Event('input'))});

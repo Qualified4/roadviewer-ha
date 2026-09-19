@@ -252,27 +252,30 @@ async function loadLogNavigation(){
 }
 loadLogNavigation();
 
-// Only decorate the heading after it reaches its sticky position.
+// Keep the navigation in normal flow; the chosen row determines where sticking starts.
 const replayHeading=document.querySelector('.replay-heading');
 if(replayHeading){
- let headingFrame=0,headingCollapsed=false;
- const fold=$('foldHeading'),navigation=$('logNavigation');
+ const preference='roadviewer-heading-collapsed';let headingFrame=0,headingCollapsed=false;
+ try{headingCollapsed=localStorage.getItem(preference)==='true'}catch{}
+ const fold=$('foldHeading'),navigation=$('logNavigation'),title=replayHeading.querySelector('.route');
  const anchor=document.createElement('div');anchor.className='heading-anchor';replayHeading.before(anchor);
  const updateHeading=()=>{
   headingFrame=0;
-  const stuck=window.scrollY>0&&anchor.getBoundingClientRect().top<=10;
+  const offset=headingCollapsed?title.offsetTop:0;
+  replayHeading.style.top=(10-offset)+'px';
+  const stuck=window.scrollY>0&&anchor.getBoundingClientRect().top+offset<=10;
   replayHeading.classList.toggle('is-stuck',stuck);
-  const collapsed=stuck&&headingCollapsed;
-  replayHeading.classList.toggle('is-collapsed',collapsed);
-  navigation.hidden=collapsed;fold.hidden=!stuck;
-  fold.setAttribute('aria-expanded',String(!collapsed));
-  fold.setAttribute('aria-label',collapsed?'상단 이동 버튼 펼치기':'상단 이동 버튼 접기');
+  replayHeading.classList.toggle('is-collapsed',headingCollapsed);
+  navigation.inert=stuck&&headingCollapsed;fold.hidden=!stuck;
+  fold.setAttribute('aria-expanded',String(!headingCollapsed));
+  fold.setAttribute('aria-label',headingCollapsed?'상단 이동 버튼 펼치기':'상단 이동 버튼 접기');
  };
  const scheduleHeading=()=>{if(!headingFrame)headingFrame=requestAnimationFrame(updateHeading)};
- fold.onclick=()=>{headingCollapsed=!headingCollapsed;updateHeading()};
+ fold.onclick=()=>{headingCollapsed=!headingCollapsed;try{localStorage.setItem(preference,String(headingCollapsed))}catch{}updateHeading()};
  window.addEventListener('scroll',scheduleHeading,{passive:true});
  window.addEventListener('resize',scheduleHeading);
  window.addEventListener('pageshow',scheduleHeading);
+ new ResizeObserver(scheduleHeading).observe(navigation);
  updateHeading();
 }
 

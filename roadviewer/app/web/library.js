@@ -155,3 +155,9 @@ $('autoConvert').onchange=async()=>{
  }catch(e){error(e.message)}
  finally{concurrencySaving=false;syncAutoConvert();$('concurrency').disabled=false;$('concurrency').dispatchEvent(new Event('rv:sync'));await refresh()}
 };
+
+(()=>{
+ const guide=document.querySelector('.conversion-info'),key='roadviewer-conversion-guide-open';
+ try{const saved=localStorage.getItem(key);if(saved!==null)guide.open=saved==='true'}catch{}
+ guide.addEventListener('toggle',()=>{try{localStorage.setItem(key,String(guide.open))}catch{}});
+})();

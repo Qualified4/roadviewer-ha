@@ -69,5 +69,5 @@ class OverlayProjector:
    for i,target in enumerate(targets):
     x,y=target['x'],target['y']
     point=project_point((x,y,ground_z(x)),rpy,config) if x>0 else None
-    if point:markers.append({'kind':kind,'index':i,'point':point,'raised':project_point((x,y,ground_z(x)-1),rpy,config)})
+    if point:markers.append({'kind':kind,'index':i,'point':point,'raised':project_point((x,y,ground_z(x)-.3),rpy,config)})
   return {'lanes':[line(l) for l in model.get('laneLines',[])],'edges':[line(l) for l in model.get('roadEdges',[])],'path':line(model.get('position',{}),height),'markers':markers}
