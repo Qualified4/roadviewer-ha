@@ -306,25 +306,30 @@ try{const saved=localStorage.getItem('roadviewer-lateral-range');if([...$('later
 $('lateralRange').onchange=()=>{try{localStorage.setItem('roadviewer-lateral-range',$('lateralRange').value)}catch{}render()};
 render();
 
-// Use pixels on desktop and a percentage of the viewport on phones.
-const layoutWidth=$('layoutWidth'),layoutWidthValue=$('layoutWidthValue'),mobileLayout=matchMedia('(max-width:850px)');
+// Screen-width profiles keep phone, tablet and desktop preferences separate.
+const layoutWidth=$('layoutWidth'),layoutWidthValue=$('layoutWidthValue'),mobileLayout=matchMedia('(max-width:600px)'),tabletLayout=matchMedia('(max-width:1280px)');
+function widthProfile(){
+ if(mobileLayout.matches)return {key:'roadviewer-layout-width-mobile',min:50,max:100,step:1,default:100,unit:'%',label:'모바일 화면 폭'};
+ if(tabletLayout.matches)return {key:'roadviewer-layout-width-tablet',min:320,max:1280,step:20,default:1280,unit:'px',label:'태블릿 화면 폭'};
+ return {key:'roadviewer-layout-width',min:720,max:1920,step:20,default:1420,unit:'px',label:'최대 화면 폭'};
+}
 function syncLayoutWidth(){
- const mobile=mobileLayout.matches,key=mobile?'roadviewer-layout-width-mobile':'roadviewer-layout-width',fallback=mobile?100:1420;
- let saved;try{saved=Number(localStorage.getItem(key))}catch{}
- const width=Math.max(mobile?80:720,Math.min(mobile?100:1920,saved||fallback));
- layoutWidth.min=mobile?'80':'720';layoutWidth.max=mobile?'100':'1920';layoutWidth.step=mobile?'1':'20';layoutWidth.value=String(width);
- $('layoutWidthLabel').textContent=mobile?'모바일 화면 폭':'최대 화면 폭';
- $('layoutWidthMin').textContent=mobile?'80%':'720 px';$('layoutWidthMax').textContent=mobile?'100%':'1920 px';
+ const profile=widthProfile();let saved;try{saved=Number(localStorage.getItem(profile.key))}catch{}
+ const width=Math.max(profile.min,Math.min(profile.max,saved||profile.default));
+ layoutWidth.min=String(profile.min);layoutWidth.max=String(profile.max);layoutWidth.step=String(profile.step);layoutWidth.value=String(width);
+ $('layoutWidthLabel').textContent=profile.label;
+ $('layoutWidthMin').textContent=profile.min+profile.unit;$('layoutWidthMax').textContent=profile.max+profile.unit;
  applyLayoutWidth(width);
 }
 function applyLayoutWidth(value){
- const mobile=mobileLayout.matches,width=Number(value);
- document.body.style.setProperty(mobile?'--mobile-layout-width':'--layout-width',width+(mobile?'%':'px'));
- layoutWidthValue.textContent=width+(mobile?'%':' px');
+ const profile=widthProfile(),width=Number(value);
+ document.body.style.setProperty('--layout-width',profile.unit==='%'?'100%':width+'px');
+ document.body.style.setProperty('--mobile-layout-width',profile.unit==='%'?width+'%':'100%');
+ layoutWidthValue.textContent=width+(profile.unit==='%'?'%':' px');
 }
-syncLayoutWidth();mobileLayout.addEventListener('change',syncLayoutWidth);
-layoutWidth.oninput=()=>{applyLayoutWidth(layoutWidth.value);try{localStorage.setItem(mobileLayout.matches?'roadviewer-layout-width-mobile':'roadviewer-layout-width',layoutWidth.value)}catch{}};
-$('resetLayoutWidth').onclick=()=>{const mobile=mobileLayout.matches,key=mobile?'roadviewer-layout-width-mobile':'roadviewer-layout-width';layoutWidth.value=mobile?'100':'1420';applyLayoutWidth(layoutWidth.value);try{localStorage.removeItem(key)}catch{}};
+syncLayoutWidth();mobileLayout.addEventListener('change',syncLayoutWidth);tabletLayout.addEventListener('change',syncLayoutWidth);
+layoutWidth.oninput=()=>{applyLayoutWidth(layoutWidth.value);try{localStorage.setItem(widthProfile().key,layoutWidth.value)}catch{}};
+$('resetLayoutWidth').onclick=()=>{const profile=widthProfile();layoutWidth.value=String(profile.default);applyLayoutWidth(layoutWidth.value);try{localStorage.removeItem(profile.key)}catch{}};
 
 (()=>{
  const dialog=$('layoutWidthDialog'),button=$('layoutWidthButton');let oldOverflow='';

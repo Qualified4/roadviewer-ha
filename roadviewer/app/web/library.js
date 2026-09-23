@@ -75,7 +75,7 @@ function recordingActions(m){
   del.disabled=true;
   try{await api(`api/logs/${m.id}`,{method:'DELETE'});await refresh()}catch(e){error(e.message);del.disabled=false}
  };
- menu.append(del);actions.append(more);return actions;
+ const separator=document.createElement('hr');menu.append(separator,del);actions.append(more);return actions;
 }
 document.addEventListener('click',e=>document.querySelectorAll('.recording-more[open]').forEach(more=>{if(!more.contains(e.target))more.open=false}));
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.recording-more[open]').forEach(more=>{more.open=false;more.querySelector('summary').focus()})});
@@ -187,11 +187,12 @@ $('cleanupStorage').onclick=async()=>{
 
 function syncAutoConvert(){
  $('keepOriginalVideo').checked=savedKeepOriginalVideo;$('keepOriginalVideo').disabled=concurrencySaving;
- $('keepOriginalVideoInfo').textContent=savedKeepOriginalVideo?'원본 영상 같이 보관 켜짐 · TS와 재생용 MP4를 함께 저장하고, TS를 다운로드합니다.':'원본 영상 같이 보관 꺼짐 · MP4 생성·검증 성공 후 TS를 삭제하고 MP4만 보관·다운로드합니다. 변환 실패 시 TS는 보존합니다.';
- $('concurrencyStatus').textContent=`최대 ${savedConcurrency}개씩 처리합니다. 개수를 높일수록 CPU·메모리를 더 사용하며, 이미 진행 중인 작업은 완료합니다.`;
+ $('keepOriginalVideoInfo').textContent=savedKeepOriginalVideo?'TS와 재생용 MP4를 함께 저장하고, TS를 다운로드합니다.':'MP4 생성·검증 성공 후 TS를 삭제하고 MP4만 보관·다운로드합니다. 변환 실패 시 TS는 보존합니다.';
+ $('concurrencyStatus').textContent='개수를 높이면 CPU와 메모리 사용량이 증가합니다. 설정을 낮춰도 진행 중인 작업은 완료합니다.';
+ $('autoConvertState').textContent=savedAutoConvert?'켜짐':'꺼짐';$('keepOriginalVideoState').textContent=savedKeepOriginalVideo?'켜짐':'꺼짐';
 
  $('autoConvert').checked=savedAutoConvert;$('autoConvert').disabled=concurrencySaving;
- $('autoConvertInfo').textContent=savedAutoConvert?'자동 변환 켜짐 · 미변환 항목을 오래된 순서부터 처리합니다. 수동 제거한 항목과 실패한 항목은 직접 변환해 주세요.':'자동 변환 꺼짐 · 업로드는 저장만 합니다. 실행 중인 작업은 완료하고, 직접 누른 변환 작업은 계속 처리합니다.';
+ $('autoConvertInfo').textContent=savedAutoConvert?'미변환 항목을 오래된 순서부터 처리합니다. 수동 제거한 항목과 실패한 항목은 직접 변환해 주세요.':'업로드는 저장만 합니다. 실행 중인 작업은 완료하고, 직접 누른 변환 작업은 계속 처리합니다.';
 }
 async function saveProcessingSettings(changes){
  if(concurrencySaving)return;

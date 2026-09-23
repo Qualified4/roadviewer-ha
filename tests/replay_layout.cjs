@@ -84,14 +84,25 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    }
   }
   await page.setViewportSize({width:390,height:1000});await page.locator('#layoutWidthButton').click();
-  await page.evaluate(()=>{const input=document.getElementById('layoutWidth');input.value='80';input.dispatchEvent(new Event('input'))});
-  assert.equal(await page.locator('main').evaluate(el=>Math.round(el.getBoundingClientRect().width)),312);
-  assert.equal(await page.locator('.playback').evaluate(el=>Math.round(el.getBoundingClientRect().width)),300);
+  await page.evaluate(()=>{const input=document.getElementById('layoutWidth');input.value='50';input.dispatchEvent(new Event('input'))});
+  assert.equal(await page.locator('main').evaluate(el=>Math.round(el.getBoundingClientRect().width)),195);
+  assert.equal(await page.locator('.playback').evaluate(el=>Math.round(el.getBoundingClientRect().width)),183);
   await page.keyboard.press('Escape');await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
-  assert.equal(await page.locator('#layoutWidth').inputValue(),'80');
+  assert.equal(await page.locator('#layoutWidth').inputValue(),'50');
   await page.locator('#layoutWidthButton').click();await page.locator('#resetLayoutWidth').click();
   assert.equal(await page.locator('#layoutWidth').inputValue(),'100');await page.keyboard.press('Escape');
-  for(const width of [390,2200]){
+  await page.setViewportSize({width:1024,height:1000});
+  await page.waitForFunction(()=>document.getElementById('layoutWidth').min==='320');
+  assert.equal(await page.locator('#layoutWidth').getAttribute('max'),'1280');
+  await page.evaluate(()=>{const input=document.getElementById('layoutWidth');input.value='320';input.dispatchEvent(new Event('input'))});
+  assert.equal(await page.locator('main').evaluate(el=>Math.round(el.getBoundingClientRect().width)),320);
+  await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  assert.equal(await page.locator('#layoutWidth').inputValue(),'320');
+  await page.setViewportSize({width:768,height:1000});
+  assert.equal(await page.locator('#layoutWidth').inputValue(),'320');
+  await page.setViewportSize({width:390,height:1000});
+  await page.waitForFunction(()=>document.getElementById('layoutWidth').value==='100');
+  for(const width of [390,1024,2200]){
    await page.setViewportSize({width,height:1000});await page.locator('#layoutWidthButton').click();
    const slider=page.locator('#layoutWidth'),box=await slider.boundingBox();
    const rect=await page.locator('#layoutWidthDialog').boundingBox();assert(rect.x>=0&&rect.x+rect.width<=width);
@@ -100,8 +111,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     await page.mouse.move(box.x+box.width*fraction,box.y+box.height/2,{steps:3});
     const current=await slider.boundingBox();for(const key of ['x','y','width','height'])assert(Math.abs(current[key]-box[key])<1,'slider must stay fixed while resizing: '+key);
    }
-   await page.mouse.up();assert(Number(await slider.inputValue())>(width<850?95:1700));
-   assert.equal(await page.evaluate(mobile=>localStorage.getItem(mobile?'roadviewer-layout-width-mobile':'roadviewer-layout-width'),width<850),await slider.inputValue());
+   await page.mouse.up();assert(Number(await slider.inputValue())>(width<=600?90:width<=1280?1150:1700));
+   assert.equal(await page.evaluate(()=>localStorage.getItem(widthProfile().key)),await slider.inputValue());
    await page.keyboard.press('Escape');assert(await page.locator('#layoutWidthDialog').isHidden());
    assert(await page.locator('#layoutWidthButton').evaluate(e=>e===document.activeElement));
    assert.equal(await page.evaluate(()=>document.body.style.overflow),'');

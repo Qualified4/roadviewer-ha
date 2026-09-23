@@ -33,7 +33,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.reload();assert.equal(await guide.evaluate(e=>e.open),false,'guide stays collapsed after reload');
   await guide.locator('summary').click();await page.waitForFunction(()=>localStorage.getItem('roadviewer-conversion-guide-open')==='true');
   await page.reload();assert.equal(await guide.evaluate(e=>e.open),true,'guide stays expanded after reload');
-  await page.getByRole('switch',{name:'자동 변환'}).uncheck();await page.waitForFunction(()=>document.getElementById('autoConvertInfo').textContent.includes('꺼짐'));assert.equal(automatic,false);
+  await page.getByRole('switch',{name:'자동 변환'}).uncheck();await page.waitForFunction(()=>document.getElementById('autoConvertState').textContent==='꺼짐');assert.equal(automatic,false);
   await page.reload();assert.equal(await page.getByRole('switch',{name:'자동 변환'}).isChecked(),false);
   fail=true;await page.getByRole('switch',{name:'자동 변환'}).check();await page.waitForFunction(()=>document.getElementById('error').textContent==='설정 저장 실패');assert.equal(await page.getByRole('switch',{name:'자동 변환'}).isChecked(),false);fail=false;
   assert.equal(await guide.locator('#autoConvert, #concurrency, #keepOriginalVideo').count(),3);
