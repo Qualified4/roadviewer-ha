@@ -120,5 +120,7 @@ body.uploading{overscroll-behavior-y:contain}
 .bulk-footer{padding:12px 20px 16px;border-top:1px solid var(--line);flex-shrink:0}
 #bulkStatus{font-size:12px;color:var(--muted);margin:0 0 10px}
 #bulkFailures{max-height:90px;overflow:auto;font-size:12px;color:#ffd39f;overflow-wrap:anywhere}#bulkFailures p{margin:0 0 6px}
-.bulk-buttons{display:flex;justify-content:flex-end;gap:8px}.bulk-dialog button{min-height:40px}.bulk-dialog button:disabled{cursor:default}
+.bulk-buttons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.bulk-dialog button{min-height:40px}.bulk-dialog button:disabled{cursor:default}
 @media(max-width:550px){.bulk-entry{align-items:flex-start;flex-direction:column;gap:12px}.bulk-header,.bulk-select{padding:12px 14px}#bulkDescription{padding:0 14px 12px}.bulk-footer{padding:12px 14px}.bulk-buttons{display:grid;grid-template-columns:1fr 1fr}.bulk-buttons button{padding:8px;font-size:12px}}
+
+@media(max-width:550px){.bulk-buttons #bulkConvert{grid-column:1/-1}}

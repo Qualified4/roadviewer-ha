@@ -1,6 +1,6 @@
 'use strict';
 (()=>{
- const dialog=$('bulkDialog'),list=$('bulkList'),all=$('bulkAll'),remove=$('bulkRemove'),del=$('bulkDelete'),close=$('bulkClose');
+ const dialog=$('bulkDialog'),list=$('bulkList'),all=$('bulkAll'),convert=$('bulkConvert'),remove=$('bulkRemove'),del=$('bulkDelete'),close=$('bulkClose');
  let rows=[],running=false,loading=false,oldOverflow='',loadRevision=0;
  function sync(){
   const selected=rows.filter(row=>row.input.checked);
@@ -8,7 +8,7 @@
   all.disabled=loading||running||!rows.length;
   for(const row of rows)row.input.disabled=running;
   $('bulkCount').textContent=`${selected.length} / ${rows.length}개 선택`;
-  remove.disabled=del.disabled=loading||running||!selected.length;
+  convert.disabled=remove.disabled=del.disabled=loading||running||!selected.length;
   close.disabled=running;
  }
  function addRow(log){
@@ -36,30 +36,33 @@
  close.onclick=()=>dialog.close();
  dialog.addEventListener('cancel',e=>{if(running)e.preventDefault()});
  dialog.addEventListener('close',()=>{loadRevision++;document.body.style.overflow=oldOverflow;$('bulkOpen').focus({preventScroll:true});void refresh()});
- async function perform(complete){
+ async function perform(action){
+  const complete=action==='delete',converting=action==='convert';
   if(running||loading)return;
   const selected=rows.filter(row=>row.input.checked);if(!selected.length)return;
   const message=complete?`선택한 ${selected.length}개 로그의 원본·영상·변환 데이터를 완전히 삭제할까요? 되돌릴 수 없습니다.`:`선택한 ${selected.length}개 로그의 변환 데이터를 제거할까요? 보관 로그·TS와 유일한 MP4는 유지합니다. 대기·처리 중인 항목은 제외하며 자동 재변환하지 않습니다.`;
-  if(!confirm(message))return;
-  running=true;sync();let succeeded=0;const failures=[];
+  if(!converting&&!confirm(message))return;
+  running=true;sync();let succeeded=0,skipped=0;const failures=[];
   $('bulkFailures').hidden=true;$('bulkFailures').replaceChildren();
   try{
    for(const [index,row] of selected.entries()){
     $('bulkStatus').textContent=`${index+1} / ${selected.length}개 처리 중…`;
+    if(converting&&['ready','queued','processing'].includes(row.log.status)){skipped++;row.input.checked=false;sync();continue}
     try{
-     await api(`api/logs/${row.log.id}${complete?'':'/prepared'}`,{method:'DELETE'});
-     succeeded++;row.input.checked=false;logRows.delete(row.log.id);
+     const result=await api(`api/logs/${row.log.id}${converting?'/convert':complete?'':'/prepared'}`,{method:converting?'POST':'DELETE'});
+     if(converting&&result.status!=='queued')skipped++;else succeeded++;row.input.checked=false;logRows.delete(row.log.id);
      if(complete){row.label.remove();rows=rows.filter(item=>item!==row)}
+     else if(converting){row.log={...row.log,status:result.status};updateRow(row)}
      else{row.log={...row.log,status:'unconverted',prepared_bytes:0};updateRow(row)}
     }catch(e){failures.push(`${row.log.name}: ${e.message}`)}
     sync();
    }
-   $('bulkStatus').textContent=`${complete?'완전 삭제':'변환 데이터 제거'} ${succeeded}개 완료${failures.length?` · 미완료 ${failures.length}개 (선택 유지)`:''}`;
+   $('bulkStatus').textContent=`${converting?'변환 요청':complete?'완전 삭제':'변환 데이터 제거'} ${succeeded}개 완료${skipped?` · 건너뜀 ${skipped}개`:''}${failures.length?` · 미완료 ${failures.length}개 (선택 유지)`:''}`;
    if(failures.length){
     for(const message of failures){const line=document.createElement('p');line.textContent=message;$('bulkFailures').append(line)}
     $('bulkFailures').hidden=false;
    }
   }finally{running=false;sync();void refresh()}
  }
- remove.onclick=()=>perform(false);del.onclick=()=>perform(true);
+ convert.onclick=()=>perform('convert');remove.onclick=()=>perform('remove');del.onclick=()=>perform('delete');
 })();

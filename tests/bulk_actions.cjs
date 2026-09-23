@@ -2,13 +2,18 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
-  const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[];
+  const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[],conversions=[];
   page.on('pageerror',e=>errors.push(e.message));
-  let logs=Array.from({length:30},(_,i)=>({id:String(i),name:'주행 기록 / 구간 '+i,status:i===0?'processing':'ready',bytes:10,prepared_bytes:20,uploaded:i,video:true})),failLoad=false;
+  let logs=Array.from({length:30},(_,i)=>({id:String(i),name:'주행 기록 / 구간 '+i,status:i===0?'processing':'ready',bytes:10,prepared_bytes:20,uploaded:i,video:true})),failLoad=false,failConvert=true;
   await page.route('https://rv.test/**',async route=>{
    const p=new URL(route.request().url()).pathname,request=route.request();
-   if(p==='/api/logs')return failLoad?route.fulfill({status:500,json:{error:'목록 실패'}}):route.fulfill({json:{logs,concurrency:1,auto_convert:true,max_upload_mb:512,storage_used_bytes:900}});
+   if(p==='/api/logs')return failLoad?route.fulfill({status:500,json:{error:'목록 실패'}}):route.fulfill({json:{logs,concurrency:1,auto_convert:false,max_upload_mb:512,storage_used_bytes:900}});
    if(p==='/api/progress')return route.fulfill({json:{progress:{}}});
+   if(request.method()==='POST'&&p.endsWith('/convert')){
+    const id=p.split('/')[3];conversions.push(id);
+    if(id==='2'&&failConvert)return route.fulfill({status:409,json:{error:'변환 요청 실패'}});
+    const row=logs.find(row=>row.id===id);row.status='queued';return route.fulfill({json:{status:'queued'}});
+   }
    if(request.method()==='DELETE'){
     calls.push(p);await new Promise(r=>setTimeout(r,15));
     const id=p.split('/')[3],row=logs.find(row=>row.id===id);
@@ -46,12 +51,22 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   page.once('dialog',d=>d.accept());await page.locator('#bulkDelete').click();
   await page.waitForFunction(()=>document.getElementById('bulkStatus').textContent.includes('완전 삭제 1개 완료'));
   assert.equal(calls.at(-1),'/api/logs/0');assert.equal(logs.length,29);
+  await page.locator('#bulkAll').check();await page.locator('#bulkConvert').click();
+  await page.waitForFunction(()=>document.getElementById('bulkStatus').textContent.includes('변환 요청 28개 완료'));
+  assert.equal(conversions.length,29);assert.equal(logs.filter(row=>row.status==='queued').length,28);
+  assert.equal(await inputs.evaluateAll(els=>els.filter(e=>e.checked).length),1);
+  failConvert=false;await page.locator('#bulkConvert').click();
+  await page.waitForFunction(()=>document.getElementById('bulkStatus').textContent==='변환 요청 1개 완료');
+  assert.equal(conversions.at(-1),'2');
+  await page.locator('#bulkAll').check();await page.locator('#bulkConvert').click();
+  await page.waitForFunction(()=>document.getElementById('bulkStatus').textContent.includes('건너뜀 29개'));
+  assert.equal(conversions.length,30,'queued jobs are not resubmitted');
   for(const width of [320,1280]){
    await page.setViewportSize({width,height:844});const box=await page.locator('#bulkDialog').boundingBox();
    assert(box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=844);
   }
   await page.keyboard.press('Escape');assert(await page.locator('#bulkDialog').isHidden());
-  assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
+  await page.waitForFunction(()=>document.body.style.overflow==='');
   assert(await page.locator('#bulkOpen').evaluate(e=>e===document.activeElement));
   logs=[];await page.locator('#bulkOpen').click();await page.waitForFunction(()=>document.getElementById('bulkStatus').textContent==='저장된 로그가 없습니다.');
   assert(await page.locator('#bulkAll').isDisabled());assert.deepEqual(errors,[]);
