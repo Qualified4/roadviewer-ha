@@ -64,7 +64,7 @@ function recordingActions(m){
   catch(e){error(e.message);conversion.disabled=false}
  };
  (removing?menu:actions).append(conversion);
- for(const [kind,label] of [['rlog.zst','원본 로그 다운로드'],[m.video_download||'qcamera.ts','영상 다운로드']]){
+ for(const [kind,label] of [['rlog.zst','로그 다운로드'],[m.video_download||'qcamera.ts','영상 다운로드']]){
   if(kind!=='rlog.zst'&&!m.video)continue;
   const link=document.createElement('a');link.className='download-original';link.href=kind==='rlog.zst'?`api/logs/${m.id}/original/rlog.zst`:`api/logs/${m.id}/download/video`;link.textContent=label;link.setAttribute('download','');menu.append(link);
  }

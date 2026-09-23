@@ -249,3 +249,25 @@ i.model-path{background:#c4a5ff}
 
 .replay-page #error{display:flex;align-items:center;justify-content:space-between;gap:12px}
 #errorRefresh{min-height:36px;padding:6px 12px;flex-shrink:0;border-color:#9c6d39;color:#ffd39f}
+
+.eyebrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.eyebrow .app-version{font-size:10px;letter-spacing:0;color:var(--muted);white-space:nowrap}
+.replay-page .playback{container-type:inline-size}
+.replay-page .playrow{display:grid;grid-template-columns:auto auto auto minmax(0,1fr);gap:8px}
+.replay-page .playrow .playback-speed{display:flex;align-items:center;justify-self:end;gap:6px;margin:0;white-space:nowrap}
+.replay-page .timeline-label output{margin:0;white-space:nowrap;font-size:12px}
+.replay-page #seek{display:block;margin:10px 0 6px}
+@container(max-width:440px){
+ .replay-page .playrow{gap:6px}
+ .replay-page .playrow button{min-height:38px;padding:6px 10px;font-size:12px}
+ .replay-page .playrow #play{min-width:64px}
+ .replay-page .playback-speed>span,.replay-page .keyboard-hint{display:none}
+ .replay-page .playback-speed .rv-choice-trigger{gap:6px;min-width:56px}
+}
+@container(max-width:220px){
+ .replay-page .playrow{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .replay-page .playrow #play{min-width:0}
+ .replay-page .playrow button{padding:6px 2px}
+ .replay-page .playrow .playback-speed{grid-column:1/-1;justify-self:stretch;justify-content:space-between}
+ .replay-page .playback-speed>span{display:inline}
+}

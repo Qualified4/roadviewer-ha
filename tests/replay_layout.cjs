@@ -16,6 +16,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.goto('https://rv.test/view/one/');
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
 
+  for(const width of [320,360,390]){
+   await page.setViewportSize({width,height:844});
+   const rects=await page.locator('#play,#prev,#next,#speedChoice').evaluateAll(els=>els.map(e=>{const r=e.getBoundingClientRect();return {top:r.top,left:r.left,right:r.right}}));
+   assert(rects.every(r=>Math.abs(r.top-rects[0].top)<2),'playback controls and speed share a row at '+width);
+   assert(rects.every(r=>r.left>=0&&r.right<=width),'controls remain inside viewport');
+   const seek=await page.locator('#seek').boundingBox(),time=await page.locator('#time').boundingBox();
+   assert(time.y>=seek.y+seek.height,'time sits below seek');
+   assert((await page.locator('.playback').boundingBox()).height<130,'compact playback bar');
+   assert.match(await page.locator('.eyebrow .app-version').textContent(),/^v[0-9]+[.][0-9]+[.][0-9]+$/);
+  }
   for(const width of [390,1440]){
    await page.setViewportSize({width,height:844});
    await page.evaluate(()=>scrollTo(0,0));
