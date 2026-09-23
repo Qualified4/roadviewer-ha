@@ -62,7 +62,8 @@ function setTime(time,seekVideo=true){if(!data)return;t=Math.max(0,Math.min(time
 function step(n){pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
 function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
 function tick(now){if(playing&&data){setTime(t+(now-last)/1000*Number($('speed').value),false);if(t>=data.duration-.001)pause()}last=now;requestAnimationFrame(tick)}
-function showError(message){$('error').textContent=message;$('error').hidden=!message}
+function showError(message){$('errorText').textContent=message;$('error').hidden=!message}
+$('errorRefresh').onclick=()=>location.reload();
 let dataRetryTimer=null;
 async function loadData(){const id=location.pathname.split('/').filter(Boolean).at(-1);clearTimeout(dataRetryTimer);const res=await fetch('../../api/logs/'+id+'/data',{cache:'no-store'});
  if(res.status===409){
@@ -77,7 +78,7 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
  data=await res.json();showError('');$('route').textContent=data.route;$('route').title=data.route;$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){v.src='../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now());loading=true;$('play').disabled=true;$('status').textContent='영상 준비 중';v.load()}else{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료'}setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 v.onloadedmetadata=()=>{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료';v.playbackRate=Number($('speed').value);setTime(t)};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)showError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
-for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
+for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 document.onkeydown=e=>{if(['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
 function renderSteering(f){
@@ -144,7 +145,7 @@ function render(){
   }
  }
  const rawVisible=frameAvailable(f)&&f.liveTracksValid;
- const rawTargets=rawVisible?(f.liveTracks||[]):[];
+ const rawTargets=rawVisible?(f.liveTracks||[]).filter(target=>!checked('hideScc')||String(target.source).toLowerCase()!=='scc'):[];
  if(checked('liveTracks'))for(const target of rawTargets){
   if(target.x<0||target.x>range)continue;
   const x=X(target.y),y=Y(target.x);ctx.strokeStyle='#78e9fa';ctx.lineWidth=1.5;ctx.globalAlpha=target.measured?.9:.5;ctx.beginPath();
@@ -305,16 +306,25 @@ try{const saved=localStorage.getItem('roadviewer-lateral-range');if([...$('later
 $('lateralRange').onchange=()=>{try{localStorage.setItem('roadviewer-lateral-range',$('lateralRange').value)}catch{}render()};
 render();
 
-// A shared content width keeps both panels and the fixed player aligned.
-const layoutWidth=$('layoutWidth'),layoutWidthValue=$('layoutWidthValue');
-function applyLayoutWidth(value){
- const width=Math.max(720,Math.min(1920,Number(value)||1420));
- document.body.style.setProperty('--layout-width',width+'px');
- layoutWidth.value=String(width);layoutWidthValue.textContent=width+' px';
+// Use pixels on desktop and a percentage of the viewport on phones.
+const layoutWidth=$('layoutWidth'),layoutWidthValue=$('layoutWidthValue'),mobileLayout=matchMedia('(max-width:850px)');
+function syncLayoutWidth(){
+ const mobile=mobileLayout.matches,key=mobile?'roadviewer-layout-width-mobile':'roadviewer-layout-width',fallback=mobile?100:1420;
+ let saved;try{saved=Number(localStorage.getItem(key))}catch{}
+ const width=Math.max(mobile?80:720,Math.min(mobile?100:1920,saved||fallback));
+ layoutWidth.min=mobile?'80':'720';layoutWidth.max=mobile?'100':'1920';layoutWidth.step=mobile?'1':'20';layoutWidth.value=String(width);
+ $('layoutWidthLabel').textContent=mobile?'모바일 화면 폭':'최대 화면 폭';
+ $('layoutWidthMin').textContent=mobile?'80%':'720 px';$('layoutWidthMax').textContent=mobile?'100%':'1920 px';
+ applyLayoutWidth(width);
 }
-try{applyLayoutWidth(localStorage.getItem('roadviewer-layout-width'))}catch{applyLayoutWidth(1420)}
-layoutWidth.oninput=()=>{applyLayoutWidth(layoutWidth.value);try{localStorage.setItem('roadviewer-layout-width',layoutWidth.value)}catch{}};
-$('resetLayoutWidth').onclick=()=>{applyLayoutWidth(1420);try{localStorage.removeItem('roadviewer-layout-width')}catch{}};
+function applyLayoutWidth(value){
+ const mobile=mobileLayout.matches,width=Number(value);
+ document.body.style.setProperty(mobile?'--mobile-layout-width':'--layout-width',width+(mobile?'%':'px'));
+ layoutWidthValue.textContent=width+(mobile?'%':' px');
+}
+syncLayoutWidth();mobileLayout.addEventListener('change',syncLayoutWidth);
+layoutWidth.oninput=()=>{applyLayoutWidth(layoutWidth.value);try{localStorage.setItem(mobileLayout.matches?'roadviewer-layout-width-mobile':'roadviewer-layout-width',layoutWidth.value)}catch{}};
+$('resetLayoutWidth').onclick=()=>{const mobile=mobileLayout.matches,key=mobile?'roadviewer-layout-width-mobile':'roadviewer-layout-width';layoutWidth.value=mobile?'100':'1420';applyLayoutWidth(layoutWidth.value);try{localStorage.removeItem(key)}catch{}};
 
 (()=>{
  const dialog=$('layoutWidthDialog'),button=$('layoutWidthButton');let oldOverflow='';

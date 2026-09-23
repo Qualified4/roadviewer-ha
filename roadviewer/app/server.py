@@ -1,6 +1,7 @@
 from pathlib import Path,PurePosixPath
 import hashlib
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
+from collections import Counter
 from progress import ProgressChannel
 from werkzeug.datastructures import FileStorage
 from work_queue import ProcessingQueue
@@ -10,7 +11,7 @@ ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,
 options_path=Path('/data/options.json');options=json.loads(options_path.read_text()) if options_path.exists() else {}
 app=Flask(__name__,static_folder=None)
 app.config.update(MAX_CONTENT_LENGTH=int(options.get('max_upload_mb',512))*1024*1024,MAX_FORM_PARTS=220)
-lock=threading.RLock();processes={};job_progress={}
+lock=threading.RLock();processes={};job_progress={};active_uploads=Counter();finishing_uploads=set();registration_lock=threading.Lock()
 ID=re.compile(r'^[a-f0-9]{32}$');FLAT=re.compile(r'^(?P<route>.{20})--(?P<segment>\d+)--(?P<kind>rlog\.zst|qcamera\.ts)$')
 def folder(id):
  if not ID.fullmatch(id):abort(404)
@@ -38,16 +39,18 @@ def run_job(id):
     revision=m.get('conversion_revision',0)
     m.update(status='processing');save_meta(p,m)
     job_progress[id]={'stage':'log_read'}
-    proc=subprocess.Popen([sys.executable,'-B',str(BASE/'decoder.py'),str(p/'rlog.zst')],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,**channel.options());processes[id]=proc
+    proc=subprocess.Popen([sys.executable,'-B',str(BASE/'decoder.py'),str(p/'rlog.zst'),m['name']],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,**channel.options());processes[id]=proc
    channel.start()
    try:
     stdout,stderr=proc.communicate(timeout=600)
+    if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
+    # The decoder writes the large data file. Only its small summary is needed here.
+    summary=json.loads((p/'prepared/summary.json').read_text())
     with lock:
      if not (p/'meta.json').exists():return
      m=read_meta(p)
      if m.get('conversion_revision',0)!=revision:return
-     if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
-     data=json.loads((p/'prepared/data.json').read_text());data['route']=m['name'];data.pop('path',None);(p/'prepared/data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':')));m.update(status='ready',manual_conversion=False,duration=data['duration'],video=(p/'qcamera.ts').is_file(),warnings=data['warnings'],model_frames=len(data['frames']),error=None,decoder_version='v22-adjustable-height');save_meta(p,m)
+     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=(p/'qcamera.ts').is_file(),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v22-adjustable-height');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
@@ -178,7 +181,7 @@ def stored_digests(path,meta):
   if old.get('size')==stat.st_size and old.get('mtime_ns')==stat.st_mtime_ns and old.get('sha256'):
    updated[kind]=old
   else:updated[kind]={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':file_digest(file)}
- if cached!=updated:meta['content_hashes']=updated;save_meta(path,meta)
+ meta['content_hashes']=updated
  return {kind:value['sha256'] for kind,value in updated.items()}
 
 def register_files(files):
@@ -204,39 +207,47 @@ def register_files(files):
     if 'rlog.zst' not in g['files']:raise ValueError(g['label']+': 영상과 짝이 되는 rlog.zst를 함께 올려주세요.')
     if (g['dir']/'rlog.zst').stat().st_size==0:raise ValueError('로그 파일이 비어 있습니다.')
     g['hashes']={kind:file_digest(g['dir']/kind) for kind in g['files']}
-   with lock:
-    # Check and register under one lock: simultaneous uploads cannot both win.
-    existing={}
+   with registration_lock:
+    # Hash old recordings without blocking upload chunks or conversion progress.
+    existing={};hash_updates=[]
     for path in ROOT.iterdir():
      if not path.is_dir() or not ID.fullmatch(path.name) or not (path/'meta.json').is_file():continue
      meta=read_meta(path);hashes=stored_digests(path,meta)
+     hash_updates.append((path,meta['content_hashes']))
      if 'rlog.zst' in hashes:existing.setdefault(hashes['rlog.zst'],(meta,hashes))
-    for g in groups.values():
-     match=existing.get(g['hashes']['rlog.zst'])
-     if match:
-      meta,hashes=match
-      p=ROOT/meta['id']
-      if 'qcamera.ts' in g['hashes'] and not (p/'qcamera.ts').is_file():
-       # Cancel the old conversion before removing any of its output files.
-       proc=processes.get(meta['id'])
-       if proc and proc.poll() is None:
-        proc.terminate()
-        try:proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:proc.kill();proc.wait()
-       (g['dir']/'qcamera.ts').replace(p/'qcamera.ts')
-       meta.setdefault('files',{})['qcamera.ts']=g['files']['qcamera.ts']
-       meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted',video=True,duration=None,model_frames=None,warnings=[],error=None,conversion_revision=meta.get('conversion_revision',0)+1,bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts')))
-       save_meta(p,meta)
-       if (p/'prepared').exists():shutil.rmtree(p/'prepared')
-       hashes=stored_digests(p,meta)
-       existing[g['hashes']['rlog.zst']]=(meta,hashes)
-       updated.append(meta)
+    with lock:
+     for path,hashes in hash_updates:
+      current=read_meta(path)
+      if current.get('content_hashes')!=hashes:
+       current['content_hashes']=hashes;save_meta(path,current)
+     for g in groups.values():
+      match=existing.get(g['hashes']['rlog.zst'])
+      if match:
+       meta,hashes=match
+       p=ROOT/meta['id'];meta=read_meta(p)
+       if 'qcamera.ts' in g['hashes'] and not (p/'qcamera.ts').is_file():
+        # Cancel the old conversion before removing any of its output files.
+        proc=processes.get(meta['id'])
+        if proc and proc.poll() is None:
+         proc.terminate()
+         try:proc.wait(timeout=3)
+         except subprocess.TimeoutExpired:proc.kill();proc.wait()
+        (g['dir']/'qcamera.ts').replace(p/'qcamera.ts')
+        meta.setdefault('files',{})['qcamera.ts']=g['files']['qcamera.ts']
+        meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted',video=True,duration=None,model_frames=None,warnings=[],error=None,conversion_revision=meta.get('conversion_revision',0)+1,bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts')))
+        stat=(p/'qcamera.ts').stat()
+        meta.setdefault('content_hashes',{})['qcamera.ts']={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':g['hashes']['qcamera.ts']}
+        hashes={**hashes,'qcamera.ts':g['hashes']['qcamera.ts']}
+        save_meta(p,meta)
+        if (p/'prepared').exists():shutil.rmtree(p/'prepared')
+        existing[g['hashes']['rlog.zst']]=(meta,hashes)
+        updated.append(meta)
+        continue
+       video_diff='qcamera.ts' in g['hashes'] and g['hashes']['qcamera.ts']!=hashes.get('qcamera.ts')
+       duplicates.append({'id':meta['id'],'name':g['label'],'video_differs':video_diff})
        continue
-      video_diff='qcamera.ts' in g['hashes'] and g['hashes']['qcamera.ts']!=hashes.get('qcamera.ts')
-      duplicates.append({'id':meta['id'],'name':g['label'],'video_differs':video_diff})
-      continue
-     id=uuid.uuid4().hex;p=ROOT/id;g['dir'].rename(p)
-     m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None};save_meta(p,m);stored_digests(p,m);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
+      id=uuid.uuid4().hex;p=ROOT/id;g['dir'].rename(p)
+      m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None,'content_hashes':{kind:{'size':(p/kind).stat().st_size,'mtime_ns':(p/kind).stat().st_mtime_ns,'sha256':digest} for kind,digest in g['hashes'].items()}};save_meta(p,m);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
   return jsonify(logs=staged,duplicates=duplicates,updated=updated),201
  except ValueError as e:return jsonify(error=str(e)),400
  finally:
@@ -247,12 +258,12 @@ UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)
 CHUNK_SIZE=256*1024
 UPLOAD_IDLE_SECONDS=15*60
 
-def cleanup_uploads(startup=False):
+def cleanup_uploads(startup=False,force=False):
  removed=0
  with lock:
   now=time.time()
   for p in UPLOADS.iterdir():
-   if p.is_dir() and ID.fullmatch(p.name) and (startup or now-p.stat().st_mtime>UPLOAD_IDLE_SECONDS):
+   if p.is_dir() and ID.fullmatch(p.name) and not (p.name in finishing_uploads if force else active_uploads[p.name]) and (startup or force or now-p.stat().st_mtime>UPLOAD_IDLE_SECONDS):
     removed+=storage_used_bytes(p);shutil.rmtree(p)
   if startup:
    # Staging copies only; registered originals and conversions are preserved.
@@ -271,8 +282,8 @@ atexit.register(cleanup_stop.set)
 
 @app.route('/api/storage/cleanup',methods=['POST'])
 def cleanup_storage():
- # Use the same expiry rule as the timer so another device's upload is safe.
- return jsonify(removed_bytes=cleanup_uploads())
+ # Explicit cleanup removes incomplete sessions immediately; sessions already being registered are spared.
+ return jsonify(removed_bytes=cleanup_uploads(force=True))
 
 @app.route('/api/uploads/<id>/failure',methods=['POST'])
 def upload_failure(id):
@@ -310,49 +321,64 @@ def begin_upload():
 
 @app.route('/api/uploads/<id>/files/<int:index>',methods=['PUT'])
 def upload_chunk(id,index):
- # Never hold the shared job lock while waiting for network input.
- payload=request.stream.read(CHUNK_SIZE+1)
  with lock:
   p,files=upload_session(id)
   if index>=len(files):abort(404)
-  try:offset=int(request.args.get('offset','-1'))
-  except ValueError:return jsonify(error='잘못된 업로드 위치입니다.'),400
-  target=p/str(index);current=target.stat().st_size if target.exists() else 0
-  if offset<0 or not payload or len(payload)>CHUNK_SIZE or offset+len(payload)>files[index]['size']:return jsonify(error='업로드 조각의 크기가 잘못되었습니다.'),400
-  if offset<current and offset+len(payload)<=current:
-   # A lost response may cause the client to repeat an already stored chunk.
-   with target.open('rb') as source:
-    source.seek(offset)
-    if source.read(len(payload))==payload:
-     os.utime(p,None)
-     return jsonify(received=offset+len(payload))
-  if offset!=current:return jsonify(error='업로드 위치가 일치하지 않습니다. 다시 업로드해 주세요.'),409
-  if shutil.disk_usage(ROOT).free<len(payload)+100*1024*1024:return jsonify(error='저장 공간이 부족합니다.'),507
-  with target.open('ab') as out:out.write(payload)
-  os.utime(p,None)
- return jsonify(received=current+len(payload))
+  active_uploads[id]+=1
+ try:
+  # Network reads must not hold the job lock.
+  payload=request.stream.read(CHUNK_SIZE+1)
+  with lock:
+   try:offset=int(request.args.get('offset','-1'))
+   except ValueError:return jsonify(error='잘못된 업로드 위치입니다.'),400
+   if not (p/'manifest.json').is_file():return jsonify(error='정리된 업로드입니다. 파일을 다시 선택해 주세요.'),410
+   target=p/str(index);current=target.stat().st_size if target.exists() else 0
+   if offset<0 or not payload or len(payload)>CHUNK_SIZE or offset+len(payload)>files[index]['size']:return jsonify(error='업로드 조각의 크기가 잘못되었습니다.'),400
+   if offset<current and offset+len(payload)<=current:
+    with target.open('rb') as source:
+     source.seek(offset)
+     if source.read(len(payload))==payload:
+      os.utime(p,None)
+      return jsonify(received=offset+len(payload))
+   if offset!=current:return jsonify(error='업로드 위치가 일치하지 않습니다. 다시 업로드해 주세요.'),409
+   if shutil.disk_usage(ROOT).free<len(payload)+100*1024*1024:return jsonify(error='저장 공간이 부족합니다.'),507
+   with target.open('ab') as out:out.write(payload)
+   os.utime(p,None)
+  return jsonify(received=current+len(payload))
+ finally:
+  with lock:
+   active_uploads[id]-=1
+   if not active_uploads[id]:active_uploads.pop(id,None)
 
 @app.route('/api/uploads/<id>/finish',methods=['POST'])
 def finish_upload(id):
  with lock:
   p,files=upload_session(id)
+  if active_uploads[id]:return jsonify(error='업로드 조각을 전송 중입니다.'),409
   if any(not (p/str(i)).is_file() or (p/str(i)).stat().st_size!=f['size'] for i,f in enumerate(files)):return jsonify(error='아직 전송되지 않은 파일이 있습니다.'),409
+  active_uploads[id]+=1;finishing_uploads.add(id)
+ streams=[]
+ try:
   streams=[FileStorage(stream=(p/str(i)).open('rb'),filename=f['name']) for i,f in enumerate(files)]
-  try:result=register_files(streams)
-  finally:
-   for f in streams:f.close()
-   shutil.rmtree(p)
-  return result
+  # Copying and hashing up to 512 MB must not block other requests.
+  return register_files(streams)
+ finally:
+  for f in streams:f.close()
+  shutil.rmtree(p,ignore_errors=True)
+  with lock:
+   active_uploads.pop(id,None);finishing_uploads.discard(id)
 
 @app.route('/api/uploads/<id>',methods=['DELETE'])
 def cancel_upload(id):
  with lock:
-  p,_=upload_session(id);shutil.rmtree(p)
+  p,_=upload_session(id)
+  if active_uploads[id]:return jsonify(error='업로드 처리 중입니다.'),409
+  shutil.rmtree(p)
  return jsonify(deleted=id)
 
 @app.route('/api/logs/<id>',methods=['DELETE'])
 def delete(id):
- with lock:
+ with registration_lock,lock:
   p=folder(id);proc=processes.get(id)
   if proc and proc.poll() is None:
    proc.terminate()
@@ -381,6 +407,14 @@ def remove_prepared(id):
   m.update(status='unconverted',manual_conversion=False,auto_excluded=True)
   save_meta(p,m)
  return jsonify(status='unconverted')
+
+@app.route('/api/logs/<id>/original/<kind>')
+def original(id,kind):
+ if kind not in ('rlog.zst','qcamera.ts'):abort(404)
+ p=folder(id);file=p/kind
+ if not file.is_file():abort(404)
+ name=PurePosixPath(read_meta(p).get('files',{}).get(kind,kind)).name
+ return send_file(file,as_attachment=True,download_name=name,mimetype='application/octet-stream',conditional=True)
 
 @app.route('/api/logs/<id>/data')
 def data(id):

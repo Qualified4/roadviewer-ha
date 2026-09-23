@@ -14,7 +14,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert(await page.locator('#trackLabels').isChecked());
   assert.deepEqual(await page.locator('.target-label-mode input').evaluateAll(inputs=>inputs.map(input=>input.id)),['hideLabels','trackLabels','distanceLabels','yRelLabels','speedLabels','relativeSpeedLabels','liveTrackLabels']);
-  assert(await page.locator('#modelPath').isChecked());
+  assert(await page.locator('#modelPath').isChecked());assert(!(await page.locator('#hideScc').isChecked()));
+  await page.evaluate(()=>{const f=data.frames[0];f.liveTracksValid=true;f.liveTracksDeltaMs=0;f.liveTracks=[{trackId:1,x:10,y:0,yRel:0,vRel:0,source:'scc',measured:true},{trackId:2,x:12,y:0,yRel:0,vRel:0,source:'frontRadar',measured:true}];render()});
+  assert.equal(await page.locator('#rawRows tr').count(),2);
+  await page.locator('#hideScc').check();assert.equal(await page.locator('#rawRows tr').count(),1);
+  assert((await page.locator('#rawRows').textContent()).includes('frontRadar'));
   await page.evaluate(()=>{
    window.pathDraws=0;const stroke=ctx.stroke.bind(ctx);
    ctx.stroke=()=>{if(ctx.strokeStyle==='#c4a5ff')window.pathDraws++;stroke()};
@@ -26,7 +30,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert(await page.locator('#modelPath').isChecked());
   assert(!(await page.locator('#lanes').isChecked()));
-  assert(await page.locator('#liveTrackLabels').isChecked());assert(await page.locator('#yRelLabels').isChecked());
+  assert(await page.locator('#liveTrackLabels').isChecked());assert(await page.locator('#yRelLabels').isChecked());assert(await page.locator('#hideScc').isChecked());
   await page.locator('#modelPath').uncheck();await page.locator('#hideLabels').check();
   await page.reload();assert(!(await page.locator('#modelPath').isChecked()));assert(await page.locator('#hideLabels').isChecked());
   await page.evaluate(()=>localStorage.setItem('roadviewer-display-preferences','invalid JSON'));

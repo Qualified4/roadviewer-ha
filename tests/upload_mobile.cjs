@@ -13,6 +13,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(p.endsWith('/failure')){reports++;return route.fulfill({json:{recorded:true}})}
    if(p.includes('/files/')){
     attempts++;
+    if(mode==='stall')return;
     if(mode==='fail')return route.fulfill({status:409,json:{error:'offset conflict'}});
     if(attempts===1)return route.fulfill({status:502,contentType:'text/html',body:'<html>Bad Gateway</html>'});
     assert.equal(Number(url.searchParams.get('offset')),received);
@@ -44,6 +45,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>!document.body.classList.contains('uploading'));
   assert.equal(deletes,1,'failed upload session must be removed');assert((await page.locator('#error').textContent()).includes('offset conflict'));
   await page.locator('#cleanupStorage').click();await page.waitForFunction(()=>document.getElementById('cleanupStatus').textContent.includes('123 B'));assert.equal(cleanups,1);
+  mode='stall';await page.locator('#files').setInputFiles(file);await page.locator('#upload').click();
+  await page.waitForFunction(()=>document.body.classList.contains('uploading'));
+  await page.locator('#cleanupStorage').click();
+  await page.waitForFunction(()=>!document.body.classList.contains('uploading'));
+  await page.waitForFunction(()=>!document.getElementById('cleanupStorage').disabled);
+  assert.equal(cleanups,2);assert.equal(await page.locator('#upload').isEnabled(),true);
+  assert((await page.locator('#uploadStatus').textContent()).includes('중단'));
+  await page.locator('.upload>summary').click();await page.reload();assert.equal(await page.locator('.upload').evaluate(el=>el.open),false);
+  await page.locator('.upload>summary').click();assert.equal(await page.locator('.upload').evaluate(el=>el.open),true);
   page.on('dialog',dialog=>dialog.accept());
   await page.getByRole('button',{name:'제거',exact:true}).click();
   await page.waitForFunction(()=>!document.querySelector('.actions button').disabled);assert.equal(rebuilds,1);

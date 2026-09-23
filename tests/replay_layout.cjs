@@ -7,7 +7,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
-   if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync('/tmp/roadviewer-test.mp4'),contentType:'video/mp4'});
+   if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),contentType:'video/mp4'});
    if(p.endsWith('/data'))return route.fulfill({json:{route:'test',key:'overlay',duration:2,warnings:[],video:{start:0,duration:2},frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false,overlay:{lanes:[],edges:[],path:[[.5,.6],[.5,.9]],markers:[]}}]}});
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':'image/svg+xml'});
@@ -54,6 +54,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert(Math.abs((await page.locator('#logNavigation').boundingBox()).y-10)<1,'expanded bar sticks by navigation');
    assert(Math.abs(await page.evaluate(()=>scrollY)-220)<1,'expanding must not shift scroll');
   }
+  await page.setViewportSize({width:1440,height:844});
   await page.evaluate(()=>{const input=document.getElementById('layoutWidth');input.value='920';input.dispatchEvent(new Event('input'))});
   assert.equal(await page.locator('main').evaluate(el=>Math.round(el.getBoundingClientRect().width)),920);
   assert.equal(await page.locator('.playback').evaluate(el=>Math.round(el.getBoundingClientRect().width)),880);
@@ -82,6 +83,14 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     }
    }
   }
+  await page.setViewportSize({width:390,height:1000});await page.locator('#layoutWidthButton').click();
+  await page.evaluate(()=>{const input=document.getElementById('layoutWidth');input.value='80';input.dispatchEvent(new Event('input'))});
+  assert.equal(await page.locator('main').evaluate(el=>Math.round(el.getBoundingClientRect().width)),312);
+  assert.equal(await page.locator('.playback').evaluate(el=>Math.round(el.getBoundingClientRect().width)),300);
+  await page.keyboard.press('Escape');await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  assert.equal(await page.locator('#layoutWidth').inputValue(),'80');
+  await page.locator('#layoutWidthButton').click();await page.locator('#resetLayoutWidth').click();
+  assert.equal(await page.locator('#layoutWidth').inputValue(),'100');await page.keyboard.press('Escape');
   for(const width of [390,2200]){
    await page.setViewportSize({width,height:1000});await page.locator('#layoutWidthButton').click();
    const slider=page.locator('#layoutWidth'),box=await slider.boundingBox();
@@ -91,8 +100,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     await page.mouse.move(box.x+box.width*fraction,box.y+box.height/2,{steps:3});
     const current=await slider.boundingBox();for(const key of ['x','y','width','height'])assert(Math.abs(current[key]-box[key])<1,'slider must stay fixed while resizing: '+key);
    }
-   await page.mouse.up();assert(Number(await slider.inputValue())>1700);
-   assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-layout-width')),await slider.inputValue());
+   await page.mouse.up();assert(Number(await slider.inputValue())>(width<850?95:1700));
+   assert.equal(await page.evaluate(mobile=>localStorage.getItem(mobile?'roadviewer-layout-width-mobile':'roadviewer-layout-width'),width<850),await slider.inputValue());
    await page.keyboard.press('Escape');assert(await page.locator('#layoutWidthDialog').isHidden());
    assert(await page.locator('#layoutWidthButton').evaluate(e=>e===document.activeElement));
    assert.equal(await page.evaluate(()=>document.body.style.overflow),'');

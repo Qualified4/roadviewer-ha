@@ -1,7 +1,7 @@
 'use strict';
 (()=>{
  const layer=document.getElementById('videoOverlay'),context=layer.getContext('2d'),video=document.getElementById('video'),button=document.getElementById('videoOverlayToggle'),status=document.getElementById('overlayStatus');
- let enabled=false,raised=true,heightCm=30;
+ let enabled=false,raised=true,heightCm=60;
  try{const saved=localStorage.getItem('roadviewer-overlay-height-cm');if(saved!==null&&Number.isFinite(Number(saved)))heightCm=Math.max(0,Math.min(200,Math.round(Number(saved))))}catch{}
  const heightButton=document.getElementById('overlayHeight');
  try{raised=localStorage.getItem('roadviewer-overlay-height')!=='false'}catch{}
@@ -48,7 +48,9 @@
    let target,color='#81b5ff',shape='circle';
    if(marker.kind==='raw'){
     if(!on('liveTracks')||!frame.liveTracksValid)continue;
-    target=frame.liveTracks[marker.index];color='#78e9fa';shape='cross';
+    target=frame.liveTracks[marker.index];
+    if(on('hideScc')&&String(target?.source).toLowerCase()==='scc')continue;
+    color='#78e9fa';shape='cross';
    }else{
     if(!frame.valid)continue;
     if(marker.kind==='radar'){
@@ -92,7 +94,7 @@
  let oldOverflow='';
  const syncHeight=()=>{slider.value=String(heightCm);value.textContent=heightCm+' cm';heightButton.title='차량 위치 표식을 지면에서 '+heightCm+'cm 높이고 바닥까지 연결합니다.'};
  const setHeight=cm=>{heightCm=Math.max(0,Math.min(200,Math.round(Number(cm)||0)));syncHeight();try{localStorage.setItem('roadviewer-overlay-height-cm',String(heightCm))}catch{}render()};
- slider.oninput=()=>setHeight(slider.value);document.getElementById('overlayHeightReset').onclick=()=>setHeight(30);
+ slider.oninput=()=>setHeight(slider.value);document.getElementById('overlayHeightReset').onclick=()=>setHeight(60);
  settings.onclick=()=>{if(heightDialog.open)return;oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';heightDialog.showModal();slider.focus({preventScroll:true})};
  const closeHeight=()=>heightDialog.close();document.getElementById('overlayHeightClose').onclick=closeHeight;
  heightDialog.addEventListener('cancel',e=>{e.preventDefault();closeHeight()});

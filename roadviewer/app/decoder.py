@@ -21,17 +21,21 @@ def first_y(line):
  values=line.get('y',[])
  return float(values[0]) if values and math.isfinite(values[0]) else None
 
-def prepare(value):
+def prepare(value,route=None):
  progress=Reporter();progress.update('log_read')
- src=Path(value).resolve();video=src.parent/'qcamera.ts';log_entry={'label':src.parent.name};choices=[]
+ src=Path(value).resolve();video=src.parent/'qcamera.ts';log_entry={'label':route or src.parent.name};choices=[]
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
  key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v22-adjustable-height').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
+ def save_summary(data):
+  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames'])},ensure_ascii=False))
  if (dest/'data.json').exists():
   cached=json.loads((dest/'data.json').read_text())
-  if cached.get('key')==key and (dest/'telemetry.json').is_file():return dest,attach(cached)
+  if cached.get('key')==key and (dest/'telemetry.json').is_file():
+   save_summary(cached)
+   return dest,attach(cached)
  print('로그 읽는 중:',src,flush=True)
  with src.open('rb') as source, zstandard.ZstdDecompressor().stream_reader(source) as reader:
   raw=reader.read(512*1024*1024+1)
@@ -136,12 +140,13 @@ def prepare(value):
  bounds=align_timeline(frames,video_info)
  telemetry_origin=origin+timeline_start-frames[0]['t']
  telemetry=extract_telemetry(streams,telemetry_origin,bounds['duration'])
- (dest/'telemetry.json').write_text(json.dumps(telemetry,separators=(',',':'),allow_nan=False))
- data={'route':src.parent.name,'path':str(src.parent),'key':key,**bounds,'frames':frames,'video':video_info,'warnings':warnings,'counts':dict(counts)}
- (dest/'data.json').write_text(json.dumps(data,ensure_ascii=False,separators=(',',':'),allow_nan=False))
+ with (dest/'telemetry.json').open('w') as out:json.dump(telemetry,out,separators=(',',':'),allow_nan=False)
+ data={'route':log_entry['label'],'key':key,**bounds,'frames':frames,'video':video_info,'warnings':warnings,'counts':dict(counts)}
+ with (dest/'data.json').open('w') as out:json.dump(data,out,ensure_ascii=False,separators=(',',':'),allow_nan=False)
+ save_summary(data)
  print('준비 완료:',len(frames),'개 모델 프레임',flush=True)
  return dest,attach(data)
 
 if __name__=='__main__':
- try:prepare(sys.argv[1])
+ try:prepare(sys.argv[1],sys.argv[2] if len(sys.argv)>2 else None)
  except Exception as e:print(str(e),file=sys.stderr);sys.exit(1)

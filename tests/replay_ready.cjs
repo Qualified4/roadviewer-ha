@@ -12,7 +12,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(p==='/api/progress'){progressReads++;return route.fulfill({json:{progress:Object.fromEntries(logs.filter(m=>m.status==='processing'&&m.progress).map(m=>[m.id,m.progress]))}})}
    if(p==='/api/logs')return route.fulfill({json:{logs,max_upload_mb:512,storage_used_bytes:1}});
    if(p.endsWith('/data')){reads++;return route.fulfill(ready?{json:data}:{status:409,json:{status:'processing'}})}
-   if(p.endsWith('/video')){videoRequests.push(url.searchParams.get('v'));return route.fulfill({body:fs.readFileSync('/tmp/roadviewer-test.mp4'),contentType:'video/mp4'})}
+   if(p.endsWith('/video')){videoRequests.push(url.searchParams.get('v'));return route.fulfill({body:fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),contentType:'video/mp4'})}
    if(p==='/api/diagnostics')return route.fulfill({json:{saved:1}});
    const name=p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    const contentType=name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':name.endsWith('.svg')?'image/svg+xml':'text/html';

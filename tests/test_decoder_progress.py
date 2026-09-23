@@ -30,8 +30,11 @@ class DecoderProgressTests(unittest.TestCase):
     e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10)*1e9);e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
    src=root/'rlog.zst';src.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
    output=io.StringIO();counter=iter(range(10000));reporter=Reporter(output,clock=lambda:next(counter))
-   with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src)
+   with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src,'Route / segment')
    self.assertEqual(data['frames'][0]['cameraInfo']['deviceId'],'test-device-id')
+   saved=json.loads((dest/'data.json').read_text())
+   self.assertEqual(saved['route'],'Route / segment');self.assertNotIn('path',saved)
+   self.assertEqual(json.loads((dest/'summary.json').read_text())['model_frames'],20)
    self.assertEqual(data['frames'][0]['cameraInfo']['calibrationStatus'],'unknown')
    self.assertTrue(data['frames'][0]['cameraInfo']['heightDefault'])
    events=[json.loads(line) for line in output.getvalue().splitlines()]
@@ -53,5 +56,8 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertEqual(telemetry['streams']['controlsState']['values']['desiredLateralAccel'],[1.2])
    self.assertEqual(sum(value is True for value in state['values']['steeringPressed']),1)
    self.assertEqual(state['values']['steeringPressed'][31],True)
+   (dest/'summary.json').unlink()
+   with patch.object(decoder,'Reporter',return_value=reporter):decoder.prepare(src,'Route / segment')
+   self.assertEqual(json.loads((dest/'summary.json').read_text())['model_frames'],20)
 
 if __name__=='__main__':unittest.main()

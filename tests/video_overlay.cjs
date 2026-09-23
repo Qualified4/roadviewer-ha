@@ -7,7 +7,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
-   if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync('/tmp/roadviewer-test.mp4'),contentType:'video/mp4'});
+   if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),contentType:'video/mp4'});
    if(p.endsWith('/data'))return route.fulfill({json:{route:'test',key:'overlay',duration:2,warnings:[],video:{start:0,duration:2},frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false,overlay:{lanes:[],edges:[],path:[[.5,.6],[.5,.9]],markers:[]}}]}});
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':'image/svg+xml'});
@@ -35,7 +35,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await setHeight(0);assert.equal(await alphaAt(.65),0);assert.equal(await page.locator('#overlayHeightValue').textContent(),'0 cm');
   await setHeight(30);assert(await alphaAt(.65)>0);
   await setHeight(200);assert.equal(await page.locator('#overlayHeightValue').textContent(),'200 cm');
-  await page.locator('#overlayHeightReset').click();assert.equal(await page.locator('#overlayHeightRange').inputValue(),'30');
+  await page.locator('#overlayHeightReset').click();assert.equal(await page.locator('#overlayHeightRange').inputValue(),'60');
   await setHeight(75);await page.keyboard.press('Escape');assert(await page.locator('#overlayHeightDialog').isHidden());
   assert(await page.locator('#overlayHeightSettings').evaluate(e=>e===document.activeElement));
   await page.locator('#overlayHeight').click();

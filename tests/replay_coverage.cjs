@@ -26,7 +26,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
     if(p.endsWith('/data'))return route.fulfill({json:data});
     if(p.endsWith('/video')){
-     const body=fs.readFileSync('/tmp/roadviewer-test.mp4'),range=/^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range||'');
+     const body=fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),range=/^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range||'');
      if(range){
       const start=Number(range[1]),end=range[2]?Math.min(Number(range[2]),body.length-1):body.length-1;
       return route.fulfill({status:206,body:body.subarray(start,end+1),contentType:'video/mp4',headers:{'Accept-Ranges':'bytes','Content-Range':`bytes ${start}-${end}/${body.length}`}});

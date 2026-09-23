@@ -64,15 +64,63 @@ class RecoveryTests(unittest.TestCase):
    acquired=server.lock.acquire(timeout=.2)
    if acquired:server.lock.release()
    self.assertTrue(acquired,'network read held shared job lock')
+   cleaned=self.c.post('/api/storage/cleanup',headers=HEADERS,environ_overrides=PEER)
+   self.assertGreater(cleaned.json['removed_bytes'],0)
+   self.assertFalse((server.UPLOADS/id).exists(),'stalled chunk was not cleaned')
   finally:release.set();thread.join(4)
-  self.assertEqual(result,[200])
- def test_manual_cleanup_preserves_recent_upload_and_registered_data(self):
-  old=self.begin();self.put(old);active=self.begin()
-  os.utime(server.UPLOADS/old,(0,0))
-  expected=server.storage_used_bytes(server.UPLOADS/old)
+  self.assertEqual(result,[410])
+ def test_manual_cleanup_removes_recent_upload_but_preserves_registered_data(self):
+  old=self.begin();self.put(old);recent=self.begin()
+  p=server.ROOT/('a'*32);p.mkdir();(p/'rlog.zst').write_bytes(b'original')
+  expected=server.storage_used_bytes(server.UPLOADS)
   r=self.c.post('/api/storage/cleanup',headers=HEADERS,environ_overrides=PEER)
   self.assertEqual(r.status_code,200);self.assertEqual(r.json['removed_bytes'],expected)
-  self.assertFalse((server.UPLOADS/old).exists());self.assertTrue((server.UPLOADS/active).exists())
+  self.assertFalse((server.UPLOADS/old).exists());self.assertFalse((server.UPLOADS/recent).exists())
+  self.assertEqual((p/'rlog.zst').read_bytes(),b'original')
+ def test_finish_copy_does_not_block_other_uploads(self):
+  id=self.begin();self.put(id);entered=threading.Event();release=threading.Event();result=[]
+  def slow_registration(files):
+   entered.set();release.wait(3)
+   return server.jsonify(logs=[],duplicates=[],updated=[]),201
+  def finish():
+   with server.app.test_client() as client:
+    result.append(client.post(f'/api/uploads/{id}/finish',headers=HEADERS,environ_overrides=PEER).status_code)
+  with patch.object(server,'register_files',side_effect=slow_registration):
+   thread=threading.Thread(target=finish);thread.start()
+   try:
+    self.assertTrue(entered.wait(2))
+    self.begin()
+    self.c.post('/api/storage/cleanup',headers=HEADERS,environ_overrides=PEER)
+    self.assertTrue((server.UPLOADS/id).exists(),'active finish was deleted')
+   finally:release.set();thread.join(4)
+  self.assertEqual(result,[201]);self.assertFalse((server.UPLOADS/id).exists())
+ def test_existing_hash_does_not_block_other_uploads(self):
+  old=server.ROOT/('c'*32);old.mkdir();source=old/'rlog.zst';source.write_bytes(b'old')
+  server.save_meta(old,dict(id=old.name,name='old',uploaded=0,status='unconverted'))
+  id=self.begin();self.put(id);entered=threading.Event();release=threading.Event();result=[]
+  digest=server.file_digest
+  def slow_digest(path):
+   if path==source:entered.set();release.wait(3)
+   return digest(path)
+  def finish():
+   with server.app.test_client() as client:
+    result.append(client.post(f'/api/uploads/{id}/finish',headers=HEADERS,environ_overrides=PEER).status_code)
+  with patch.object(server,'file_digest',side_effect=slow_digest):
+   thread=threading.Thread(target=finish);thread.start()
+   try:
+    self.assertTrue(entered.wait(2))
+    self.begin()
+   finally:release.set();thread.join(4)
+  self.assertEqual(result,[201])
+ def test_original_download_requires_registered_file(self):
+  id='b'*32;p=server.ROOT/id;p.mkdir()
+  (p/'meta.json').write_text('{"id":"'+id+'","files":{"rlog.zst":"route--0--rlog.zst"}}')
+  (p/'rlog.zst').write_bytes(b'original')
+  r=self.c.get(f'/api/logs/{id}/original/rlog.zst',environ_overrides=PEER)
+  self.assertEqual(r.status_code,200);self.assertEqual(r.data,b'original')
+  self.assertIn('attachment',r.headers['Content-Disposition']);r.close()
+  self.assertEqual(self.c.get(f'/api/logs/{id}/original/qcamera.ts',environ_overrides=PEER).status_code,404)
+  self.assertEqual(self.c.get(f'/api/logs/{id}/original/meta.json',environ_overrides=PEER).status_code,404)
  def test_timer_runs_without_http_requests(self):
   old=self.begin();self.put(old);os.utime(server.UPLOADS/old,(0,0))
   with patch.object(server.cleanup_stop,'wait',side_effect=[False,True]):server.cleanup_loop()
