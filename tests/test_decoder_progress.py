@@ -1,4 +1,4 @@
-import io,json,sys,tempfile,unittest
+import io,json,shutil,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,'/app')
@@ -59,5 +59,14 @@ class DecoderProgressTests(unittest.TestCase):
    (dest/'summary.json').unlink()
    with patch.object(decoder,'Reporter',return_value=reporter):decoder.prepare(src,'Route / segment')
    self.assertEqual(json.loads((dest/'summary.json').read_text())['model_frames'],20)
+   (dest/'camera.mp4').replace(root/'camera.mp4');video.unlink();shutil.rmtree(dest)
+   before=(root/'camera.mp4').read_bytes()
+   with patch.object(decoder,'Reporter',return_value=reporter):dest,reused=decoder.prepare(src,'Route / segment')
+   self.assertEqual((root/'camera.mp4').read_bytes(),before);self.assertFalse((dest/'camera.mp4').exists())
+   self.assertEqual(reused['video']['frames'],data['video']['frames'])
+   self.assertAlmostEqual(reused['video']['start'],data['video']['start'],places=6)
+   self.assertAlmostEqual(reused['video']['duration'],data['video']['duration'],places=6)
+   self.assertEqual([f['t'] for f in reused['frames']],[f['t'] for f in data['frames']])
+
 
 if __name__=='__main__':unittest.main()

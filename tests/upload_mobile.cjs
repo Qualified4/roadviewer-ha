@@ -55,6 +55,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('.upload>summary').click();await page.reload();assert.equal(await page.locator('.upload').evaluate(el=>el.open),false);
   await page.locator('.upload>summary').click();assert.equal(await page.locator('.upload').evaluate(el=>el.open),true);
   page.on('dialog',dialog=>dialog.accept());
+  await page.locator('.recording-more>summary').click();
   await page.getByRole('button',{name:'제거',exact:true}).click();
   await page.waitForFunction(()=>!document.querySelector('.actions button').disabled);assert.equal(rebuilds,1);
   assert.deepEqual(errors,[]);console.log('PASS: mobile scrolling upload, HTML proxy retry, failed-session cleanup, storage cleanup and converted data removal');

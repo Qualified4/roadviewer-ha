@@ -1,4 +1,4 @@
-import io,os,sys,tempfile,unittest
+import io,json,os,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
@@ -9,7 +9,7 @@ PEER={'REMOTE_ADDR':'172.30.32.2'};HEADERS={'X-RoadViewer-Request':'1'}
 class ConversionTests(unittest.TestCase):
  def setUp(self):
   temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup);self.root=Path(temp.name)
-  for name,value in [('ROOT',self.root),('PROCESSING_SETTINGS',self.root/'.processing-settings.json'),('auto_convert',True)]:
+  for name,value in [('ROOT',self.root),('PROCESSING_SETTINGS',self.root/'.processing-settings.json'),('auto_convert',True),('keep_original_video',True)]:
    patcher=patch.object(server,name,value);patcher.start();self.addCleanup(patcher.stop)
   patcher=patch.object(server,'submit');self.submit=patcher.start();self.addCleanup(patcher.stop)
   self.c=server.app.test_client()
@@ -62,5 +62,65 @@ class ConversionTests(unittest.TestCase):
   p=self.row(1,'queued');server.auto_convert=False
   with patch.object(server.subprocess,'Popen') as popen:server.run_job(p.name);popen.assert_not_called()
   self.assertEqual(server.read_meta(p)['status'],'unconverted')
+
+ def test_video_retention_setting_persists_and_rejects_invalid_values(self):
+  self.assertTrue(server.read_keep_original_video())
+  for value in (False,True):
+   r=self.request('post','/api/settings/processing',json={'keep_original_video':value})
+   self.assertEqual(r.status_code,200);self.assertEqual(server.read_keep_original_video(),value)
+   self.assertEqual(self.setting(False).json['keep_original_video'],value)
+  for value in (None,1,'false',[]):
+   self.assertEqual(self.request('post','/api/settings/processing',json={'keep_original_video':value}).status_code,400)
+
+ def test_verified_mp4_retention_download_removal_restart_and_duplicates(self):
+  p=self.row(1,'queued');server.keep_original_video=False
+  meta=server.read_meta(p);meta['files']={'qcamera.ts':'route--0--qcamera.ts'}
+  server.stored_digests(p,meta);server.save_meta(p,meta)
+  prepared=p/'prepared';prepared.mkdir()
+  (prepared/'camera.mp4').write_bytes(b'verified-video')
+  (prepared/'data.json').write_text('{}')
+  (prepared/'summary.json').write_text(json.dumps(dict(duration=1,warnings=[],model_frames=1,video={'frames':1})))
+  with patch.object(server,'ProgressChannel') as channel,patch.object(server.subprocess,'Popen') as popen:
+   channel.return_value.__enter__.return_value.options.return_value={}
+   popen.return_value.communicate.return_value=('','');popen.return_value.returncode=0;popen.return_value.poll.return_value=0
+   server.run_job(p.name)
+  self.assertEqual(server.read_meta(p)['status'],'ready')
+  self.assertFalse((p/'qcamera.ts').exists());self.assertFalse((prepared/'camera.mp4').exists())
+  self.assertEqual((p/'camera.mp4').read_bytes(),b'verified-video')
+  server.requeue_startup();self.submit.assert_not_called()
+  url='/api/logs/'+p.name
+  (p/'qcamera.ts').write_bytes(b'ts')
+  response=self.request('get',url+'/download/video')
+  self.assertEqual(response.data,b'ts');self.assertEqual(response.mimetype,'video/mp2t');response.close()
+  (p/'qcamera.ts').unlink()
+  for suffix in ('/video','/original/camera.mp4','/download/video'):
+   response=self.request('get',url+suffix)
+   self.assertEqual(response.data,b'verified-video');self.assertEqual(response.mimetype,'video/mp4')
+   if suffix.startswith('/original'):self.assertIn('route--0--qcamera.mp4',response.headers['Content-Disposition'])
+   response.close()
+  with patch.object(server,'cleanup_uploads'):
+   row=self.request('get','/api/logs').json['logs'][0]
+  self.assertTrue(row['video']);self.assertEqual(row['video_download'],'camera.mp4')
+  self.assertEqual(row['bytes'],len(b'logverified-video'))
+  result=self.request('post','/api/upload',data={'files':[(io.BytesIO(b'log'),'rlog.zst'),(io.BytesIO(b'ts'),'qcamera.ts')]})
+  self.assertEqual(len(result.json['duplicates']),1);self.assertFalse(result.json['duplicates'][0]['video_differs'])
+  self.assertFalse((p/'qcamera.ts').exists())
+  self.request('delete',url+'/prepared');self.assertTrue((p/'camera.mp4').is_file())
+  self.request('post',url+'/convert');server.requeue_startup()
+  self.assertTrue((p/'camera.mp4').is_file())
+  self.request('delete',url);self.assertFalse(p.exists())
+
+ def test_ts_preserved_when_enabled_or_video_not_verified_or_job_fails(self):
+  for index,(keep,video,failed) in enumerate([(True,{'frames':1},False),(False,None,False),(False,{'frames':1},True)],10):
+   p=self.row(index,'queued');server.keep_original_video=keep
+   prepared=p/'prepared';prepared.mkdir();(prepared/'camera.mp4').write_bytes(b'output')
+   (prepared/'summary.json').write_text(json.dumps(dict(duration=1,warnings=[],model_frames=1,video=video)))
+   with patch.object(server,'ProgressChannel') as channel,patch.object(server.subprocess,'Popen') as popen:
+    channel.return_value.__enter__.return_value.options.return_value={}
+    popen.return_value.communicate.return_value=('','failed');popen.return_value.returncode=int(failed);popen.return_value.poll.return_value=int(failed)
+    server.run_job(p.name)
+   self.assertTrue((p/'qcamera.ts').is_file());self.assertFalse((p/'camera.mp4').exists())
+   response=self.request('get','/api/logs/'+p.name+'/download/video')
+   self.assertEqual(response.mimetype,'video/mp2t');response.close()
 
 if __name__=='__main__':unittest.main()

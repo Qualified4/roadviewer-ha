@@ -23,14 +23,16 @@ def first_y(line):
 
 def prepare(value,route=None):
  progress=Reporter();progress.update('log_read')
- src=Path(value).resolve();video=src.parent/'qcamera.ts';log_entry={'label':route or src.parent.name};choices=[]
+ src=Path(value).resolve();video=src.parent/'qcamera.ts'
+ if not video.is_file():video=src.parent/'camera.mp4'
+ log_entry={'label':route or src.parent.name};choices=[]
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
  key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v22-adjustable-height').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  def save_summary(data):
-  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames'])},ensure_ascii=False))
+  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video')},ensure_ascii=False))
  if (dest/'data.json').exists():
   cached=json.loads((dest/'data.json').read_text())
   if cached.get('key')==key and (dest/'telemetry.json').is_file():
@@ -111,18 +113,20 @@ def prepare(value,route=None):
    if max(offsets)-min(offsets)<.005:
     converted_percent=0
     progress.update('video_convert',percent=0)
-    with av.open(str(video)) as inp, av.open(str(dest/'camera.mp4'),'w',options={'movflags':'+faststart'}) as out:
-     stream=inp.streams.video[0]; target=out.add_stream_from_template(stream);offset=round(pts[0]/float(stream.time_base))
-     for packet in inp.demux(stream):
-      if packet.dts is None:continue
-      packet.pts-=offset;packet.dts-=offset;packet.stream=target
-      position=float(packet.pts*stream.time_base) if packet.pts is not None else 0
-      out.mux(packet)
-      converted_percent=max(converted_percent,min(99,100*position/max(pts[-1]-pts[0],.001)))
-      progress.update('video_convert',percent=converted_percent)
+    output_video=dest/'camera.mp4' if video.suffix=='.ts' else video
+    if video.suffix=='.ts':
+     with av.open(str(video)) as inp, av.open(str(dest/'camera.mp4'),'w',options={'movflags':'+faststart'}) as out:
+      stream=inp.streams.video[0]; target=out.add_stream_from_template(stream);offset=round(pts[0]/float(stream.time_base))
+      for packet in inp.demux(stream):
+       if packet.dts is None:continue
+       packet.pts-=offset;packet.dts-=offset;packet.stream=target
+       position=float(packet.pts*stream.time_base) if packet.pts is not None else 0
+       out.mux(packet)
+       converted_percent=max(converted_percent,min(99,100*position/max(pts[-1]-pts[0],.001)))
+       progress.update('video_convert',percent=converted_percent)
     progress.update('video_convert',percent=100,force=True)
     progress.update('video_verify',percent=0)
-    with av.open(str(dest/'camera.mp4')) as check:
+    with av.open(str(output_video)) as check:
      video_duration=float(check.duration)/av.time_base if check.duration is not None else pts[-1]-pts[0]+(pts[-1]-pts[-2] if len(pts)>1 else .05)
      decoded_count=0;first_pts=0
      for f in check.decode(video=0):
@@ -134,7 +138,7 @@ def prepare(value,route=None):
    else:warnings.append('영상과 로그의 프레임 시간이 일치하지 않아 영상 동기화를 중단했습니다.')
   else:warnings.append('영상과 로그의 프레임 수가 일치하지 않아 영상 동기화를 중단했습니다.')
  elif video.exists():warnings.append('카메라 프레임 정보가 없어 영상 동기화를 사용할 수 없습니다.')
- else:warnings.append('qcamera.ts가 없어 도로 형태만 표시합니다.')
+ else:warnings.append('저장된 영상이 없어 도로 형태만 표시합니다.')
  progress.update('saving')
  timeline_start=frames[0]['t']
  bounds=align_timeline(frames,video_info)

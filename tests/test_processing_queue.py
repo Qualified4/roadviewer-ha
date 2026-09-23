@@ -82,9 +82,9 @@ class QueueTests(unittest.TestCase):
    try:
     for value in (1,2,3,4):
      r=c.post('/api/settings/processing',json={'concurrency':value,'auto_convert':True},headers=headers,environ_overrides=peer)
-     self.assertEqual(r.json,{'concurrency':value,'auto_convert':True})
+     self.assertEqual(r.json,{'concurrency':value,'auto_convert':True,'keep_original_video':server.keep_original_video})
      self.assertEqual(server.read_processing_limit(),value)
-     self.assertEqual(c.get('/api/settings/processing',environ_overrides=peer).json,{'concurrency':value,'auto_convert':True})
+     self.assertEqual(c.get('/api/settings/processing',environ_overrides=peer).json,{'concurrency':value,'auto_convert':True,'keep_original_video':server.keep_original_video})
      self.assertEqual(r.headers['Cache-Control'],'no-store')
    finally:server.pool.set_limit(1)
 

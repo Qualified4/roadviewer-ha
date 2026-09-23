@@ -22,6 +22,10 @@ def folder(id):
 def read_meta(p):return json.loads((p/'meta.json').read_text())
 def save_meta(p,m):
  temp=p/'meta.tmp';temp.write_text(json.dumps(m,ensure_ascii=False));temp.replace(p/'meta.json')
+def has_video(p):return (p/'qcamera.ts').is_file() or (p/'camera.mp4').is_file()
+def video_download_kind(p):
+ return 'qcamera.ts' if (p/'qcamera.ts').is_file() else 'camera.mp4' if (p/'camera.mp4').is_file() else None
+
 def run_job(id):
  p=ROOT/id
  proc=None;revision=None
@@ -46,11 +50,15 @@ def run_job(id):
     if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
     # The decoder writes the large data file. Only its small summary is needed here.
     summary=json.loads((p/'prepared/summary.json').read_text())
-    with lock:
+    with registration_lock,lock:
      if not (p/'meta.json').exists():return
      m=read_meta(p)
      if m.get('conversion_revision',0)!=revision:return
-     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=(p/'qcamera.ts').is_file(),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v22-adjustable-height');save_meta(p,m)
+     if not keep_original_video and summary.get('video') and (p/'prepared/camera.mp4').is_file():
+      # Preserve the verified MP4 outside disposable analysis before deleting TS.
+      (p/'prepared/camera.mp4').replace(p/'camera.mp4')
+      (p/'qcamera.ts').unlink(missing_ok=True)
+     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v22-adjustable-height');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
@@ -76,6 +84,11 @@ def read_auto_convert():
  try:return json.loads(PROCESSING_SETTINGS.read_text()).get('auto_convert',True) is not False
  except (OSError,ValueError,AttributeError):return True
 
+def read_keep_original_video():
+ try:return json.loads(PROCESSING_SETTINGS.read_text()).get('keep_original_video',True) is not False
+ except (OSError,ValueError,AttributeError):return True
+
+keep_original_video=read_keep_original_video()
 auto_convert=read_auto_convert()
 pool=ProcessingQueue(run_job,read_processing_limit())
 def submit(id):pool.submit(id)
@@ -95,17 +108,18 @@ def queue_unconverted():
 
 @app.route('/api/settings/processing',methods=['GET','POST'])
 def processing_settings():
- global auto_convert
+ global auto_convert,keep_original_video
  with lock:
   if request.method=='POST':
    body=request.get_json(silent=True)
-   if not isinstance(body,dict) or not body or set(body)-{'concurrency','auto_convert'}:return jsonify(error='처리 설정이 올바르지 않습니다.'),400
-   value=body.get('concurrency',pool.limit);automatic=body.get('auto_convert',auto_convert)
+   if not isinstance(body,dict) or not body or set(body)-{'concurrency','auto_convert','keep_original_video'}:return jsonify(error='처리 설정이 올바르지 않습니다.'),400
+   value=body.get('concurrency',pool.limit);automatic=body.get('auto_convert',auto_convert);keep=body.get('keep_original_video',keep_original_video)
    if type(value) is not int or value not in (1,2,3,4):return jsonify(error='동시 처리 개수는 1~4여야 합니다.'),400
    if type(automatic) is not bool:return jsonify(error='자동 변환 설정은 켜짐 또는 꺼짐이어야 합니다.'),400
+   if type(keep) is not bool:return jsonify(error='원본 영상 보관 설정은 켜짐 또는 꺼짐이어야 합니다.'),400
    temp=PROCESSING_SETTINGS.with_suffix('.tmp')
-   temp.write_text(json.dumps({'concurrency':value,'auto_convert':automatic}));temp.replace(PROCESSING_SETTINGS)
-   auto_convert=automatic
+   temp.write_text(json.dumps({'concurrency':value,'auto_convert':automatic,'keep_original_video':keep}));temp.replace(PROCESSING_SETTINGS)
+   auto_convert=automatic;keep_original_video=keep
    if not auto_convert:
     for p in recording_paths():
      m=read_meta(p)
@@ -113,7 +127,7 @@ def processing_settings():
       m.update(status='unconverted');save_meta(p,m);pool.discard(p.name)
    pool.set_limit(value)
    if auto_convert:queue_unconverted()
-  return jsonify(concurrency=pool.limit,auto_convert=auto_convert)
+  return jsonify(concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 
 @app.before_request
 def access():
@@ -162,8 +176,8 @@ def processing_progress():
 @app.route('/api/logs')
 def logs():
  cleanup_uploads()
- with lock:items=[dict(read_meta(p),bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts') if (p/k).is_file()),video=(p/'qcamera.ts').is_file(),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared')) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
- return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert)
+ with lock:items=[dict(read_meta(p),bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts','camera.mp4') if (p/k).is_file()),video=has_video(p),video_download=video_download_kind(p),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared')) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
+ return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 @app.route('/api/upload',methods=['POST'])
 def upload():
  return register_files(request.files.getlist('files'))
@@ -176,7 +190,9 @@ def stored_digests(path,meta):
  cached=meta.get('content_hashes',{});updated={}
  for kind in ('rlog.zst','qcamera.ts'):
   file=path/kind
-  if not file.is_file():continue
+  if not file.is_file():
+   if kind=='qcamera.ts' and (path/'camera.mp4').is_file() and kind in cached:updated[kind]=cached[kind]
+   continue
   stat=file.stat();old=cached.get(kind,{})
   if old.get('size')==stat.st_size and old.get('mtime_ns')==stat.st_mtime_ns and old.get('sha256'):
    updated[kind]=old
@@ -225,7 +241,7 @@ def register_files(files):
       if match:
        meta,hashes=match
        p=ROOT/meta['id'];meta=read_meta(p)
-       if 'qcamera.ts' in g['hashes'] and not (p/'qcamera.ts').is_file():
+       if 'qcamera.ts' in g['hashes'] and not has_video(p):
         # Cancel the old conversion before removing any of its output files.
         proc=processes.get(meta['id'])
         if proc and proc.poll() is None:
@@ -408,13 +424,23 @@ def remove_prepared(id):
   save_meta(p,m)
  return jsonify(status='unconverted')
 
+@app.route('/api/logs/<id>/download/video')
+def download_video(id):
+ with lock:
+  kind=video_download_kind(folder(id))
+  if kind is None:abort(404)
+  return original(id,kind)
+
 @app.route('/api/logs/<id>/original/<kind>')
 def original(id,kind):
- if kind not in ('rlog.zst','qcamera.ts'):abort(404)
+ if kind not in ('rlog.zst','qcamera.ts','camera.mp4'):abort(404)
  p=folder(id);file=p/kind
  if not file.is_file():abort(404)
- name=PurePosixPath(read_meta(p).get('files',{}).get(kind,kind)).name
- return send_file(file,as_attachment=True,download_name=name,mimetype='application/octet-stream',conditional=True)
+ source_kind='qcamera.ts' if kind=='camera.mp4' else kind
+ name=PurePosixPath(read_meta(p).get('files',{}).get(source_kind,source_kind)).name
+ if kind=='camera.mp4':name=str(PurePosixPath(name).with_suffix('.mp4'))
+ mime={'qcamera.ts':'video/mp2t','camera.mp4':'video/mp4','rlog.zst':'application/zstd'}[kind]
+ return send_file(file,as_attachment=True,download_name=name,mimetype=mime,conditional=True)
 
 @app.route('/api/logs/<id>/data')
 def data(id):
@@ -435,7 +461,7 @@ def telemetry(id):
 def video(id):
  p=folder(id)
  if read_meta(p)['status']!='ready':return jsonify(error='로그를 준비 중이거나 변환에 실패했습니다.'),409
- file=p/'prepared/camera.mp4'
+ file=p/'camera.mp4' if (p/'camera.mp4').is_file() else p/'prepared/camera.mp4'
  if not file.exists():abort(404)
  return send_file(file,mimetype='video/mp4',conditional=True)
 def requeue_startup():
@@ -443,10 +469,10 @@ def requeue_startup():
  pending=[]
  for p in recording_paths():
   m=read_meta(p)
-  stale=m['status']=='ready' and (m.get('decoder_version')!='v22-adjustable-height' or bool(m.get('video'))!=(p/'qcamera.ts').is_file() or not (p/'prepared/data.json').is_file())
+  stale=m['status']=='ready' and (m.get('decoder_version')!='v22-adjustable-height' or bool(m.get('video'))!=has_video(p) or not (p/'prepared/data.json').is_file())
   if m['status'] in ('queued','processing') or stale:
    clear_prepared(p,m)
-   m.update(status='unconverted',video=(p/'qcamera.ts').is_file())
+   m.update(status='unconverted',video=has_video(p))
    save_meta(p,m)
   if m['status']=='unconverted' and not m.get('auto_excluded') and (auto_convert or m.get('manual_conversion')):pending.append((p,m))
  pending.sort(key=lambda row:(row[1].get('uploaded',0),row[0].name))
