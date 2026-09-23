@@ -271,3 +271,10 @@ i.model-path{background:#c4a5ff}
  .replay-page .playrow .playback-speed{grid-column:1/-1;justify-self:stretch;justify-content:space-between}
  .replay-page .playback-speed>span{display:inline}
 }
+
+.recording-name{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%;vertical-align:middle}
+.recording-name-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.copy-recording{position:relative;z-index:2;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted)}
+.copy-recording:hover{background:#ffffff0d;color:var(--text)}.copy-recording svg{display:block}
+.copy-announcement,.clipboard-fallback{position:absolute;width:1px;height:1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.replay-heading #routeName{flex:1;min-width:0}.replay-heading #route{flex:0 1 auto}
