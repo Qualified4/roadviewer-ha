@@ -24,6 +24,7 @@ jobs:
       - run: node tests/display_preferences.cjs
       - run: node tests/concurrency.cjs
       - run: node tests/conversion_controls.cjs
+      - run: node tests/bulk_actions.cjs
       - run: node tests/video_overlay.cjs
       - run: node tests/camera_info.cjs
       - run: node tests/telemetry.cjs

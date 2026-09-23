@@ -1,0 +1,60 @@
+const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+(async()=>{
+ const browser=await chromium.launch({headless:true});
+ try{
+  const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  let logs=Array.from({length:30},(_,i)=>({id:String(i),name:'주행 기록 / 구간 '+i,status:i===0?'processing':'ready',bytes:10,prepared_bytes:20,uploaded:i,video:true})),failLoad=false;
+  await page.route('https://rv.test/**',async route=>{
+   const p=new URL(route.request().url()).pathname,request=route.request();
+   if(p==='/api/logs')return failLoad?route.fulfill({status:500,json:{error:'목록 실패'}}):route.fulfill({json:{logs,concurrency:1,auto_convert:true,max_upload_mb:512,storage_used_bytes:900}});
+   if(p==='/api/progress')return route.fulfill({json:{progress:{}}});
+   if(request.method()==='DELETE'){
+    calls.push(p);await new Promise(r=>setTimeout(r,15));
+    const id=p.split('/')[3],row=logs.find(row=>row.id===id);
+    if(p.endsWith('/prepared')){
+     if(row.status==='processing')return route.fulfill({status:409,json:{error:'처리 중에는 제거할 수 없습니다.'}});
+     row.status='unconverted';row.prepared_bytes=0;
+    }else logs=logs.filter(row=>row.id!==id);
+    return route.fulfill({json:{ok:true}});
+   }
+   const name=p==='/'?'library.html':p.replace('/assets/','');
+   return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.html')?'text/html':'image/svg+xml'});
+  });
+  await page.goto('https://rv.test/');await page.waitForSelector('.log-row');
+  failLoad=true;await page.locator('#bulkOpen').click();await page.waitForFunction(()=>document.getElementById('bulkStatus').textContent==='목록 실패');
+  assert(await page.locator('#bulkAll').isDisabled());await page.locator('#bulkClose').click();failLoad=false;
+  await page.locator('#bulkOpen').click();await page.waitForSelector('.bulk-log');
+  assert.equal(await page.locator('.bulk-log').count(),30);assert(await page.locator('#bulkRemove').isDisabled());
+  const inputs=page.locator('.bulk-log input');await inputs.nth(1).check();
+  assert(await page.locator('#bulkAll').evaluate(e=>e.indeterminate));
+  await page.locator('#bulkAll').check();assert.equal(await inputs.evaluateAll(els=>els.filter(e=>e.checked).length),30);
+  const top=await page.locator('.bulk-select').boundingBox(),footer=await page.locator('.bulk-footer').boundingBox();
+  await page.locator('#bulkList').evaluate(e=>e.scrollTop=e.scrollHeight);
+  assert.equal((await page.locator('.bulk-select').boundingBox()).y,top.y);
+  assert.equal((await page.locator('.bulk-footer').boundingBox()).y,footer.y);
+  assert(top.y>=0&&footer.y+footer.height<=844);
+  page.once('dialog',d=>d.dismiss());await page.locator('#bulkDelete').click();assert.equal(calls.length,0);
+  page.once('dialog',d=>d.accept());await page.locator('#bulkRemove').click();
+  await page.waitForFunction(()=>document.getElementById('bulkClose').disabled);await page.keyboard.press('Escape');
+  assert(await page.locator('#bulkDialog').evaluate(e=>e.open));
+  await page.waitForFunction(()=>!document.getElementById('bulkClose').disabled);
+  assert.equal(calls.length,30);assert.equal(logs.length,30);assert.equal(logs.filter(l=>l.prepared_bytes===0).length,29);
+  assert((await page.locator('#bulkStatus').textContent()).includes('29개 완료'));
+  assert((await page.locator('#bulkFailures').textContent()).includes('처리 중'));
+  assert.equal(await inputs.evaluateAll(els=>els.filter(e=>e.checked).length),1);
+  page.once('dialog',d=>d.accept());await page.locator('#bulkDelete').click();
+  await page.waitForFunction(()=>document.getElementById('bulkStatus').textContent.includes('완전 삭제 1개 완료'));
+  assert.equal(calls.at(-1),'/api/logs/0');assert.equal(logs.length,29);
+  for(const width of [320,1280]){
+   await page.setViewportSize({width,height:844});const box=await page.locator('#bulkDialog').boundingBox();
+   assert(box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=844);
+  }
+  await page.keyboard.press('Escape');assert(await page.locator('#bulkDialog').isHidden());
+  assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
+  assert(await page.locator('#bulkOpen').evaluate(e=>e===document.activeElement));
+  logs=[];await page.locator('#bulkOpen').click();await page.waitForFunction(()=>document.getElementById('bulkStatus').textContent==='저장된 로그가 없습니다.');
+  assert(await page.locator('#bulkAll').isDisabled());assert.deepEqual(errors,[]);
+  console.log('PASS: bulk selection, fixed select-all/footer, confirmation, partial failures, exact deletion targets, responsive dialog and empty/error states');
+ }finally{await browser.close()}
+})().catch(e=>{console.error(e);process.exitCode=1});
