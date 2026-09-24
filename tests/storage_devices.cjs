@@ -31,7 +31,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedPairCode=text}}}));
  assert.equal(await page.locator('#pairCopy svg').innerHTML(),await page.locator('.recording-name .copy-recording svg').first().innerHTML());
  assert.equal(await page.locator('#pairCopy').evaluate(el=>getComputedStyle(el).width),'30px');
- await page.locator('#pairCopy').click();await page.getByText('페어링 코드를 복사했습니다.',{exact:true}).waitFor();assert.equal(await page.evaluate(()=>window.copiedPairCode),'ABCDEF123456ABCDEF123456');
+ await page.locator('#pairCopy').click();await page.waitForFunction(()=>document.getElementById('pairCopyIcon').textContent==='✓');assert.equal(await page.evaluate(()=>window.copiedPairCode),'ABCDEF123456ABCDEF123456');
+ assert.equal(await page.locator('#pairCopyStatus').evaluate(el=>getComputedStyle(el).clipPath),'inset(50%)');
+ assert.equal(await page.locator('#pairCopy').getAttribute('title'),'페어링 코드 복사');
+ await page.locator('#pairCopyIcon svg').waitFor();assert.equal(await page.locator('#pairCopyStatus').textContent(),'');
  assert(!(await page.evaluate(()=>JSON.stringify(localStorage))).includes('ABCDEF123456ABCDEF123456'));
  pair={status:'paired',expires_at:Date.now()/1000+300};devices=[{device_id:'device',name:'My comma',registered_at:1,last_seen:2,revoked:false}];
  await page.getByText('장치가 연결되었습니다.',{exact:true}).waitFor();assert(await page.locator('#pairCopy').isDisabled());await page.locator('#pairClose').click();await page.getByRole('button',{name:'Revoke · 연결 해제'}).click();await page.getByRole('button',{name:'목록 제거',exact:true}).waitFor();assert(revoke);

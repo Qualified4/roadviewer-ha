@@ -1,7 +1,12 @@
 'use strict';
 // Credentials and pairing codes are never persisted in browser storage.
 const storageDetails=$('storageSettings'),deviceDetails=$('deviceSettings');
-$('pairCopy').innerHTML=COPY_ICON;
+$('pairCopyIcon').innerHTML=COPY_ICON;
+let pairCopyTimer=null;
+function resetPairCopy(){
+ clearTimeout(pairCopyTimer);pairCopyTimer=null;
+ $('pairCopyIcon').innerHTML=COPY_ICON;$('pairCopyStatus').textContent='';$('pairCopy').title='페어링 코드 복사';
+}
 let pairingTimer=null,pairingBusy=false,pairingGeneration=0;
 const settingsRequest=(url,body,method='POST')=>api(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
 function showStorage(s){$('storageUsage').textContent=`사용 중 ${storageSize(s.used_bytes)} / ${s.max_bytes?storageSize(s.max_bytes):'제한 없음'} · 디스크 여유 ${storageSize(s.free_bytes)} · 업로드 예약 ${storageSize(s.reserved_bytes)}`}
@@ -41,14 +46,20 @@ function renderPairing(p){
 }
 $('pairOpen').onclick=async()=>{
  $('pairOpen').disabled=true;const generation=++pairingGeneration;
- try{const p=await settingsRequest('api/settings/devices/pairing');$('pairClose').textContent='취소';$('pairCopyStatus').textContent='';$('pairDialog').showModal();renderPairing(p);
+ try{const p=await settingsRequest('api/settings/devices/pairing');$('pairClose').textContent='취소';resetPairCopy();$('pairDialog').showModal();renderPairing(p);
  pairingTimer=setInterval(async()=>{if(pairingBusy)return;pairingBusy=true;try{const status=await api('api/settings/devices/pairing');if(generation===pairingGeneration)renderPairing(status)}catch(e){$('pairStatus').textContent=e.message}finally{pairingBusy=false}},1000);
  }catch(e){$('deviceStatus').textContent=e.message}finally{$('pairOpen').disabled=false}
 };
 $('pairCopy').onclick=async()=>{
  const code=$('pairCode').textContent,generation=pairingGeneration;if(!code)return;
- try{await copyTextToClipboard(code,$('pairCopy'));if(generation===pairingGeneration&&$('pairCode').textContent===code)$('pairCopyStatus').textContent='페어링 코드를 복사했습니다.'}
- catch{if(generation===pairingGeneration&&$('pairCode').textContent===code)$('pairCopyStatus').textContent='복사하지 못했습니다. 코드를 직접 선택해 복사해 주세요.'}
+ clearTimeout(pairCopyTimer);let copied=false;
+ try{await copyTextToClipboard(code,$('pairCopy'));copied=true}catch{}
+ if(generation!==pairingGeneration||$('pairCode').textContent!==code)return;
+ clearTimeout(pairCopyTimer);
+ $('pairCopyIcon').textContent=copied?'✓':'!';
+ $('pairCopyStatus').textContent=copied?'페어링 코드를 복사했습니다.':'복사하지 못했습니다.';
+ $('pairCopy').title=copied?'페어링 코드 복사':'복사하지 못했습니다. 다시 시도해 주세요.';
+ pairCopyTimer=setTimeout(resetPairCopy,1800);
 };
 $('pairClose').onclick=()=>{$('pairDialog').close()};
-$('pairDialog').addEventListener('close',()=>{pairingGeneration++;clearInterval(pairingTimer);pairingTimer=null;$('pairCode').textContent='';$('pairCopy').disabled=true;$('pairCopyStatus').textContent='';settingsRequest('api/settings/devices/pairing',null,'DELETE').catch(e=>$('deviceStatus').textContent=e.message)});
+$('pairDialog').addEventListener('close',()=>{pairingGeneration++;clearInterval(pairingTimer);pairingTimer=null;$('pairCode').textContent='';$('pairCopy').disabled=true;resetPairCopy();settingsRequest('api/settings/devices/pairing',null,'DELETE').catch(e=>$('deviceStatus').textContent=e.message)});
