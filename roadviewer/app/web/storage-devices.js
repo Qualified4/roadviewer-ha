@@ -1,6 +1,7 @@
 'use strict';
 // Credentials and pairing codes are never persisted in browser storage.
 const storageDetails=$('storageSettings'),deviceDetails=$('deviceSettings');
+$('pairCopy').innerHTML=COPY_ICON;
 let pairingTimer=null,pairingBusy=false,pairingGeneration=0;
 const settingsRequest=(url,body,method='POST')=>api(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
 function showStorage(s){$('storageUsage').textContent=`사용 중 ${storageSize(s.used_bytes)} / ${s.max_bytes?storageSize(s.max_bytes):'제한 없음'} · 디스크 여유 ${storageSize(s.free_bytes)} · 업로드 예약 ${storageSize(s.reserved_bytes)}`}
@@ -12,7 +13,7 @@ $('storageLimit').onchange=()=>{$('storageCustomLabel').hidden=$('storageLimit')
 $('storageForm').onsubmit=async e=>{
  e.preventDefault();const gb=Number($('storageLimit').value==='custom'?$('storageCustom').value:$('storageLimit').value),bytes=Math.round(gb*1073741824);
  if(!Number.isSafeInteger(bytes)||bytes<0||($('storageLimit').value==='custom'&&bytes===0)){$('storageStatus').textContent='올바른 용량을 입력하세요.';return}
- if($('storagePolicy').value==='delete_oldest'&&!confirm('공간이 부족할 때 가장 오래된 미고정 주행의 모든 구간을 자동으로 완전 삭제합니다. 이 정책을 저장할까요?'))return;
+ if($('storagePolicy').value==='delete_oldest'&&!confirm('공간이 부족할 때 오래된 주행부터 고정하지 않은 구간을 자동으로 완전 삭제합니다. 고정한 구간은 남깁니다. 이 정책을 저장할까요?'))return;
  $('storageSave').disabled=true;
  try{const s=await settingsRequest('api/settings/storage',{max_bytes:bytes,policy:$('storagePolicy').value});showStorage(s);$('storageStatus').textContent='저장했습니다.'}catch(e){$('storageStatus').textContent=e.message}finally{$('storageSave').disabled=false}
 };
@@ -21,7 +22,13 @@ async function loadDevices(){
  $('deviceList').replaceChildren(...data.devices.map(d=>{
   const row=document.createElement('div');row.className='device-row';const info=document.createElement('div'),name=document.createElement('strong'),meta=document.createElement('p'),button=document.createElement('button');name.textContent=d.name||d.device_id;
   meta.textContent=`${d.revoked?'연결 해제됨':'활성'} · ${d.dongle_id||d.device_id} · 등록 ${new Date(d.registered_at*1000).toLocaleString()} · 마지막 인증 ${d.last_seen?new Date(d.last_seen*1000).toLocaleString():'없음'}`;
-  button.textContent='Revoke · 연결 해제';button.type='button';button.disabled=d.revoked;button.onclick=async()=>{if(!confirm(`${d.name} 장치의 인증을 해제할까요? 진행 중인 업로드도 더 이상 이어갈 수 없습니다.`))return;button.disabled=true;try{await settingsRequest(`api/settings/devices/${d.device_id}/revoke`);await loadDevices()}catch(e){$('deviceStatus').textContent=e.message;button.disabled=false}};
+  button.textContent=d.revoked?'목록 제거':'Revoke · 연결 해제';button.type='button';
+  button.onclick=async()=>{
+   const message=d.revoked?`${d.name||d.device_id} 장치를 목록에서 제거할까요? 업로드한 로그와 영상은 유지됩니다.`:`${d.name||d.device_id} 장치의 인증을 해제할까요? 진행 중인 업로드도 더 이상 이어갈 수 없습니다.`;
+   if(!confirm(message))return;button.disabled=true;
+   try{await settingsRequest(`api/settings/devices/${d.device_id}${d.revoked?'':'/revoke'}`,null,d.revoked?'DELETE':'POST');await loadDevices()}
+   catch(e){$('deviceStatus').textContent=e.message;button.disabled=false}
+  };
   info.append(name,meta);row.append(info,button);return row;
  }));
 }

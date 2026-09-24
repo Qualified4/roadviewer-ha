@@ -5,7 +5,9 @@ from unittest.mock import patch
 os.environ['RV_DATA'] = tempfile.mkdtemp()
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
 import server as s
-from storage_policy import StorageError
+from storage_policy import StorageError, StoragePolicy
+from flask import Flask
+from types import SimpleNamespace
 
 class DeviceTests(unittest.TestCase):
  def setUp(self):
@@ -17,7 +19,7 @@ class DeviceTests(unittest.TestCase):
   self.stack.enter_context(patch.object(s.devices,'state',{'master':'f'*64,'devices':{},'nonces':{},'receipts':{}}))
   self.stack.enter_context(patch.object(s.devices,'pairing',None));s.devices.attempts.clear()
   self.stack.enter_context(patch.object(s.storage_policy,'path',root/'.storage-settings.json'))
-  self.stack.enter_context(patch.object(s.storage_policy,'settings',{'max_bytes':0,'policy':'reject_new','pinned_routes':[]}))
+  self.stack.enter_context(patch.object(s.storage_policy,'settings',{'max_bytes':0,'policy':'reject_new','pinned_logs':[]}))
   self.client=s.app.test_client();self.peer={'REMOTE_ADDR':'127.0.0.1','gunicorn.socket':type('Listener',(),{'getsockname':lambda _:('127.0.0.1',8098)})()};self.ui={'REMOTE_ADDR':'172.30.32.2'}
   self.device=self.pair();self.counter=0
  def ui_call(self,path,method='GET',body=None):return self.client.open(path,method=method,json=body,environ_overrides=self.ui,headers={'X-RoadViewer-Request':'1'})
@@ -62,6 +64,35 @@ class DeviceTests(unittest.TestCase):
   self.assertEqual(self.signed(nonce='same_nonce_1234567890').json['error'],'nonce_replayed')
   self.assertEqual(self.ui_call('/api/settings/devices/'+self.device['device_id']+'/revoke','POST').status_code,200)
   self.assertEqual(self.signed().status_code,401)
+ def test_remove_revoked_device_persists_and_preserves_recordings(self):
+  path='/api/settings/devices/'+self.device['device_id']
+  self.assertEqual(self.ui_call(path,'DELETE').status_code,409)
+  self.assertEqual(self.external(path,'DELETE').status_code,404)
+  recording=self.make_log('a','00000001--aaaaaaaaaa',0,1)
+  session=self.signed().json
+  self.assertEqual(self.ui_call(path+'/revoke','POST').status_code,200)
+  self.assertEqual(self.ui_call(path,'DELETE').json,{'removed':True})
+  s.devices.state=json.loads(s.devices.path.read_text())
+  self.assertEqual(self.ui_call('/api/settings/devices').json['devices'],[])
+  self.assertTrue(recording.exists())
+  self.assertEqual(self.signed().status_code,401)
+  self.assertNotEqual(self.external('/api/device/uploads/'+session['id'],'GET',headers=self.token(session)).status_code,200)
+  self.assertEqual(self.ui_call(path,'DELETE').status_code,404)
+  self.assertNotEqual(self.pair()['device_id'],self.device['device_id'])
+ def test_remove_releases_registration_limit(self):
+  for i in range(99):s.devices.state['devices'][str(i)]={'device_id':str(i),'revoked':True}
+  code=self.ui_call('/api/settings/devices/pairing','POST').json['code']
+  body={'code':code,'metadata':{'name':'new device'}}
+  self.assertEqual(self.external('/api/device/pair',json=body).json['error'],'device_limit_reached')
+  self.assertEqual(self.ui_call('/api/settings/devices/0','DELETE').status_code,200)
+  self.assertEqual(self.external('/api/device/pair',json=body).status_code,201)
+ def test_removal_during_authenticated_admission_is_rejected(self):
+  def remove():
+   path='/api/settings/devices/'+self.device['device_id']
+   self.ui_call(path+'/revoke','POST');self.ui_call(path,'DELETE')
+  with patch.object(s,'cleanup_uploads',side_effect=remove):
+   response=self.signed()
+  self.assertEqual(response.status_code,401);self.assertEqual(response.json['error'],'invalid_device')
  def test_single_multi_segment_resume_finish_and_retry(self):
   for n in (1,2):
    body=self.batch(n);body['batch_id']+=str(n);r=self.signed(body);self.assertEqual(r.status_code,201,r.json);data=r.json;id=data['id'];headers=self.token(data)
@@ -128,18 +159,47 @@ class DeviceTests(unittest.TestCase):
   self.assertEqual(sorted(results),[201,507])
  def make_log(self,id,route,segment,uploaded,size=50000):
   p=s.ROOT/(id*32);p.mkdir();(p/'rlog.zst').write_bytes(b'x'*size);s.save_meta(p,dict(id=p.name,name=f'{route} / 구간 {segment}',uploaded=uploaded,status='unconverted',files={'rlog.zst':f'{route}--{segment}--rlog.zst'}));return p
- def test_route_group_pins_order_and_insufficient_space(self):
-  a=self.make_log('a','00000001--aaaaaaaaaa',0,1);b=self.make_log('b','00000001--aaaaaaaaaa',1,2);c=self.make_log('c','00000002--bbbbbbbbbb',0,3)
+ def test_segment_pins_and_partial_route_eviction(self):
+  a=self.make_log('a','00000001--aaaaaaaaaa',0,1)
+  b=self.make_log('b','00000001--aaaaaaaaaa',1,2,size=100000)
+  c=self.make_log('c','00000002--bbbbbbbbbb',0,3)
+  self.assertEqual(self.ui_call('/api/logs/'+a.name+'/pin','POST',{'pinned':True}).status_code,200)
+  self.assertTrue(s.storage_policy.pinned(s.read_meta(a)))
+  self.assertFalse(s.storage_policy.pinned(s.read_meta(b)))
+  self.assertEqual(json.loads(s.storage_policy.path.read_text())['pinned_logs'],[a.name])
+  s.storage_policy.settings.update(max_bytes=s.storage_used_bytes()+20000,policy='delete_oldest')
+  with s.registration_lock,s.lock:s.storage_policy.admit(10000,[])
+  self.assertTrue(a.exists());self.assertFalse(b.exists());self.assertTrue(c.exists())
+  self.ui_call('/api/logs/'+a.name+'/pin','POST',{'pinned':False})
+  self.assertFalse(s.storage_policy.pinned(s.read_meta(a)))
+ def test_pinned_capacity_is_excluded_from_preflight(self):
+  a=self.make_log('a','00000001--aaaaaaaaaa',0,1,size=100000)
+  b=self.make_log('b','00000001--aaaaaaaaaa',1,2,size=10000)
+  c=self.make_log('c','00000002--bbbbbbbbbb',0,3,size=10000)
   self.ui_call('/api/logs/'+a.name+'/pin','POST',{'pinned':True})
-  self.assertTrue(s.storage_policy.pinned(s.read_meta(b)))
-  self.assertIn('00000001--aaaaaaaaaa',json.loads(s.storage_policy.path.read_text())['pinned_routes'])
   s.storage_policy.settings.update(max_bytes=s.storage_used_bytes()+20000,policy='delete_oldest')
   with s.registration_lock,s.lock:
    with self.assertRaises(StorageError):s.storage_policy.admit(10000,[])
-  self.assertTrue(c.exists(),'preflight must not partially delete when insufficient')
+  self.assertTrue(a.exists());self.assertTrue(b.exists());self.assertTrue(c.exists())
+ def test_legacy_pins_migrate_once_and_future_segments_stay_unpinned(self):
+  a=self.make_log('a','00000001--aaaaaaaaaa',0,1)
+  b=self.make_log('b','00000001--aaaaaaaaaa',1,2)
+  c=self.make_log('c','00000002--bbbbbbbbbb',0,3)
+  s.storage_policy.path.write_text(json.dumps({'max_bytes':123456,'policy':'delete_oldest','pinned_routes':['00000001--aaaaaaaaaa']}))
+  def load():return StoragePolicy(SimpleNamespace(ROOT=s.ROOT,app=Flask(__name__),recording_paths=s.recording_paths,read_meta=s.read_meta,FLAT=s.FLAT))
+  policy=load()
+  self.assertTrue(policy.pinned(s.read_meta(a)));self.assertTrue(policy.pinned(s.read_meta(b)))
+  self.assertFalse(policy.pinned(s.read_meta(c)))
+  self.assertNotIn('pinned_routes',json.loads(policy.path.read_text()))
+  self.assertEqual(policy.settings['max_bytes'],123456);self.assertEqual(policy.settings['policy'],'delete_oldest')
+  d=self.make_log('d','00000001--aaaaaaaaaa',2,4)
+  policy=load();self.assertFalse(policy.pinned(s.read_meta(d)))
+  self.assertEqual(policy.settings['pinned_logs'],[a.name,b.name])
+ def test_unpin_does_not_change_other_segment(self):
+  a=self.make_log('a','00000001--aaaaaaaaaa',0,1);b=self.make_log('b','00000001--aaaaaaaaaa',1,2)
+  for p in (a,b):self.ui_call('/api/logs/'+p.name+'/pin','POST',{'pinned':True})
   self.ui_call('/api/logs/'+a.name+'/pin','POST',{'pinned':False})
-  with s.registration_lock,s.lock:s.storage_policy.admit(10000,[])
-  self.assertFalse(a.exists());self.assertFalse(b.exists());self.assertTrue(c.exists())
+  self.assertFalse(s.storage_policy.pinned(s.read_meta(a)));self.assertTrue(s.storage_policy.pinned(s.read_meta(b)))
  def test_protect_incoming_and_processing_routes(self):
   a=self.make_log('a','00000001--aaaaaaaaaa',0,1,size=100000)
   b=self.make_log('b','00000002--bbbbbbbbbb',0,2,size=100000)

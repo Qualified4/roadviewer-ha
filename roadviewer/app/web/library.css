@@ -90,6 +90,11 @@ body.uploading{overscroll-behavior-y:contain}
 
 .actions{gap:0;flex-wrap:nowrap;align-items:stretch}
 .actions>.replay,.actions>button{border-radius:7px 0 0 7px;min-width:70px;text-align:center;display:flex;align-items:center;justify-content:center}
+.actions>.pin-recording{min-width:40px;padding:0;border-radius:0;border-left:0;background:var(--panel);color:var(--muted)}
+.actions>.pin-recording:hover{background:#283b4e;color:var(--text)}
+.actions>.pin-recording[aria-pressed="true"]{color:#facc15;background:#facc1512}
+.pin-recording[aria-pressed="true"] .pin-head{fill:currentColor;fill-opacity:.2}
+.pin-recording:focus-visible{outline:2px solid var(--lane);outline-offset:-3px}
 .recording-more{position:relative}
 .recording-more>summary{height:100%;min-height:40px;min-width:40px;display:flex;align-items:center;justify-content:center;list-style:none;cursor:pointer;border:1px solid var(--line);border-left:0;border-radius:0 7px 7px 0;background:var(--panel);color:var(--text)}
 .recording-more>summary::-webkit-details-marker{display:none}
@@ -142,6 +147,7 @@ body.uploading{overscroll-behavior-y:contain}
 .managed-settings p{font-size:13px;line-height:1.65;color:var(--muted,#94a3b8)}
 .settings-fields{display:flex;gap:16px;flex-wrap:wrap}.settings-fields label{display:flex;flex-direction:column;gap:8px;font-size:13px;flex:1;min-width:180px}.settings-fields label[hidden]{display:none}
 .settings-fields input,.settings-fields select{box-sizing:border-box;max-width:100%;padding:10px;border-radius:8px;background:#111c2d;color:#e2e8f0;border:1px solid #334155}
+#pairOpen{display:block;margin:8px 0 16px}
 .device-row{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid #334155;padding:16px 0}.device-row>div{min-width:0}.device-row p{overflow-wrap:anywhere}.device-row button{flex-shrink:0}
 .pair-code{display:block;text-align:center;font-size:clamp(14px,4vw,24px);letter-spacing:.04em;padding:20px 0;overflow-wrap:anywhere}
 .pin-badge{font-size:11px;color:#facc15;border:1px solid #66562c;border-radius:5px;padding:2px 6px}

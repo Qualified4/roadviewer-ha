@@ -1,4 +1,4 @@
-"""Storage admission and route pinning for the single-worker upload engine."""
+"""Storage admission and segment pinning for the single-worker upload engine."""
 import json, shutil, re
 from flask import request, jsonify
 
@@ -21,7 +21,8 @@ class StoragePolicy:
     def __init__(self, s):
         self.s = s
         self.path = s.ROOT / '.storage-settings.json'
-        self.settings = json.loads(self.path.read_text()) if self.path.exists() else {'max_bytes': 0, 'policy': 'reject_new', 'pinned_routes': []}
+        self.settings = json.loads(self.path.read_text()) if self.path.exists() else {'max_bytes': 0, 'policy': 'reject_new', 'pinned_logs': []}
+        self.migrate_pins()
         s.app.add_url_rule('/api/settings/storage', 'storage_settings', self.api, methods=['GET', 'POST'])
         s.app.add_url_rule('/api/logs/<id>/pin', 'pin_log', self.pin, methods=['POST'])
         s.app.register_error_handler(StorageError, lambda e: (jsonify(error=e.code, message={'storage_limit_exceeded':'설정한 저장공간 제한을 초과합니다.', 'insufficient_disk_space':'디스크 여유 공간이 부족합니다.', 'no_deletable_logs':'고정되었거나 사용 중인 로그를 제외하면 확보할 공간이 없습니다.'}[e.code]), 507))
@@ -34,7 +35,20 @@ class StoragePolicy:
         name = meta.get('name', '').split(' / 구간 ', 1)[0]
         return name if ROUTE.fullmatch(name) else 'log:' + meta['id']
 
-    def pinned(self, meta): return self.route_key(meta) in self.settings['pinned_routes']
+    def migrate_pins(self):
+        # Preserve existing protection, without pinning segments uploaded later.
+        if 'pinned_routes' not in self.settings: return
+        routes = set(self.settings['pinned_routes'])
+        pins = set(self.settings.get('pinned_logs', []))
+        for p in self.s.recording_paths():
+            meta = self.s.read_meta(p)
+            if self.route_key(meta) in routes: pins.add(meta['id'])
+        settings = dict(self.settings, pinned_logs=sorted(pins))
+        del settings['pinned_routes']
+        atomic_json(self.path, settings)
+        self.settings = settings
+
+    def pinned(self, meta): return meta['id'] in self.settings['pinned_logs']
 
     def snapshot(self):
         return dict(max_bytes=self.settings['max_bytes'], policy=self.settings['policy'], used_bytes=self.s.storage_used_bytes(), free_bytes=shutil.disk_usage(self.s.ROOT).free, reserved_bytes=self.reserved())
@@ -52,11 +66,11 @@ class StoragePolicy:
         with self.s.registration_lock, self.s.lock:
             body = request.get_json(silent=True)
             if not isinstance(body, dict) or type(body.get('pinned')) is not bool: return jsonify(error='invalid_pin'), 400
-            key = self.route_key(self.s.read_meta(self.s.folder(id)))
-            pins = set(self.settings['pinned_routes'])
+            key = self.s.read_meta(self.s.folder(id))['id']
+            pins = set(self.settings['pinned_logs'])
             if body['pinned']: pins.add(key)
             else: pins.discard(key)
-            self.settings['pinned_routes'] = sorted(pins); atomic_json(self.path, self.settings)
+            self.settings['pinned_logs'] = sorted(pins); atomic_json(self.path, self.settings)
         return jsonify(pinned=body['pinned'])
 
     def reserved(self):
@@ -92,8 +106,9 @@ class StoragePolicy:
             groups.setdefault(key, []).append((p, m))
         candidates = []
         for key, rows in groups.items():
-            if key in protected or key in self.settings['pinned_routes'] or any(m['status'] in ('queued', 'processing') for _, m in rows): continue
-            candidates.append((min(m.get('uploaded', 0) for _, m in rows), key, rows))
+            if key in protected or any(m['status'] in ('queued', 'processing') for _, m in rows): continue
+            deletable = [(p, m) for p, m in rows if not self.pinned(m)]
+            if deletable: candidates.append((min(m.get('uploaded', 0) for _, m in rows), key, deletable))
         candidates.sort(key=lambda row: (row[0], row[1]))
         # Preflight prevents deleting existing data when even all candidates cannot help.
         reclaim = sum(self.s.storage_used_bytes(p) for _, _, rows in candidates for p, _ in rows)

@@ -20,6 +20,7 @@ class DeviceAPI:
                   ('/api/settings/devices', 'devices', self.manage, ['GET']),
                   ('/api/settings/devices/pairing', 'pairing', self.pairing_ui, ['GET', 'POST', 'DELETE']),
                   ('/api/settings/devices/<id>/revoke', 'revoke_device', self.revoke, ['POST']),
+                  ('/api/settings/devices/<id>', 'remove_device', self.remove, ['DELETE']),
                   ('/api/device/pair', 'device_pair', self.pair, ['POST']),
                   ('/api/device/uploads', 'device_begin', self.begin, ['POST']),
                   ('/api/device/uploads/<id>', 'device_status', self.session, ['GET', 'DELETE']),
@@ -86,6 +87,16 @@ class DeviceAPI:
                     self.s.shutil.rmtree(p)
         return jsonify(revoked=True)
 
+    def remove(self, id):
+        with self.s.lock:
+            device = self.state['devices'].get(id)
+            if not device: return self.fail('device_not_found', 404)
+            if not device['revoked']:
+                return jsonify(error='device_not_revoked', message='먼저 장치의 연결을 해제하세요.'), 409
+            del self.state['devices'][id]
+            self.save()
+        return jsonify(removed=True)
+
     def authenticate(self):
         id = request.headers.get('X-RV-Device', '')
         stamp = request.headers.get('X-RV-Timestamp', '')
@@ -137,7 +148,8 @@ class DeviceAPI:
         digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
         self.s.cleanup_uploads()
         with self.s.registration_lock, self.s.lock:
-            if self.state['devices'][id]['revoked']: return self.fail('invalid_device', 401)
+            device = self.state['devices'].get(id)
+            if not device or device['revoked']: return self.fail('invalid_device', 401)
             for p in self.s.UPLOADS.iterdir():
                 f = p / 'device.json'
                 if not f.is_file(): continue

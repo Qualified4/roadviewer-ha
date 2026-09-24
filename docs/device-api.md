@@ -165,15 +165,15 @@ Incomplete finish (409) keeps the session for remaining bytes. Checksum failure 
 
 ## Revoke and authentication state
 
-Ingress-only `GET /api/settings/devices` provides name, optional dongle_id, registered_at, last_seen (last HMAC authentication), revoked flag and device_id, never credentials. The response also includes `enabled`, `host_port` (null when disabled), and `configuration_error` for startup port discovery failures. `POST /api/settings/devices/<device_id>/revoke` permanently revokes that ID. New HMAC requests **and subsequent token requests** are rejected. Idle sessions are removed immediately; an in-flight operation may complete, and its leftover temporary session is removed by expiry cleanup. Existing recordings are not deleted. Re-pair for a new ID; a revoked device cannot reactivate itself.
+Ingress-only `GET /api/settings/devices` provides name, optional dongle_id, registered_at, last_seen (last HMAC authentication), revoked flag and device_id, never credentials. The response also includes `enabled`, `host_port` (null when disabled), and `configuration_error` for startup port discovery failures. `POST /api/settings/devices/<device_id>/revoke` permanently revokes that ID. New HMAC requests **and subsequent token requests** are rejected. Idle sessions are removed immediately; an in-flight operation may complete, and its leftover temporary session is removed by expiry cleanup. Existing recordings are not deleted. Re-pair for a new ID; a revoked device cannot reactivate itself. Ingress-only `DELETE /api/settings/devices/<device_id>` removes a revoked device record from the list and frees its registration slot (100 total). Active devices return 409 `device_not_revoked`; unknown IDs return 404 `device_not_found`. Removal persists across restarts and does not delete recordings or restore authentication. The UI shows 목록 제거 after revocation.
 
 ## Storage limits, reservations and Pin
 
-The UI offers unlimited (default), 10/20/50/100 GB and custom; UI GB uses 1024³ bytes. `/data/roadviewer/.storage-settings.json` stores integer `max_bytes`, `policy` and route-level pins. No database was added. Settings and pins persist and are backed up. UI exposes used bytes (all regular files below Road Viewer root), disk free bytes and remaining reserved bytes.
+The UI offers unlimited (default), 10/20/50/100 GB and custom; UI GB uses 1024³ bytes. `/data/roadviewer/.storage-settings.json` stores integer `max_bytes`, `policy` and segment UUID pins (`pinned_logs`). No database was added. Settings and pins persist and are backed up. UI exposes used bytes (all regular files below Road Viewer root), disk free bytes and remaining reserved bytes.
 
 Before accepting a browser or device batch, admission reserves **2 × total declared bytes + 64 KiB** for chunks plus the staging copy/metadata. Already received bytes are counted in used space, so only the remaining reservation is added. A **100 MiB disk safety margin** is required. A shared lock covers space check, optional deletion and reservation creation; two concurrent batches cannot reserve the same free bytes. Reservation files live in the upload folder and are released with completion/cancellation/terminal failure/expiry. Surviving device sessions retain reservation across restart; expired/browser reservations are cleared.
 
-`reject_new` rejects admission and preserves existing logs. `delete_oldest` groups the UUID segment folders by full original route ID, orders groups by earliest **upload time**, preflights enough deletable capacity, and deletes all present segments of the oldest eligible group through the shared existing deletion helper. It never deliberately selects part of a route. Interrupted filesystem deletion is not a multi-directory transaction. Legacy logs without a recoverable route ID are individual units. Admission protects incoming/active-upload routes, any group with queued/processing segments and all pinned routes. Shortened display names are never grouping keys. Pinning any segment pins the full route, including later segments. Explicit manual deletion remains allowed.
+`reject_new` rejects admission and preserves existing logs. `delete_oldest` groups the UUID segment folders by full original route ID, orders groups by earliest **upload time**, preflights enough deletable capacity, and deletes the unpinned segments of the oldest eligible group through the shared existing deletion helper, leaving pinned segments in place. Interrupted filesystem deletion is not a multi-directory transaction. Legacy logs without a recoverable route ID are individual units. Admission protects incoming/active-upload routes, any group with queued/processing segments and individually pinned segments. Shortened display names are never grouping keys. Pinning affects only the selected segment. Legacy `pinned_routes` migrate once to all currently stored segments in those routes; later uploads do not inherit pins. Explicit manual deletion remains allowed.
 
 Insufficient total reclaimable space returns an error without beginning automatic deletion. Reducing a limit or selecting delete_oldest does not immediately delete data; deletion is admission-driven. The limit is an **upload admission budget, not a kernel filesystem quota**: later decoded JSON/MP4 size, other applications using the filesystem and unexpected metadata growth can exceed an estimate. Subsequent uploads account for actual usage and are rejected or trigger the configured cleanup. Conversion output is not pre-sized by this protocol. Do not set a budget equal to all filesystem capacity.
 
@@ -217,8 +217,8 @@ python3 -m venv /tmp/roadviewer-test-env
 실제 HTTPS/Nginx/Gunicorn 경계까지 확인하려면 Docker가 동작하는 WSL/Linux에서:
 
 ```bash
-docker build -t roadviewer:0.3.1 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.3.1 /tests/test_device_tls.py
+docker build -t roadviewer:0.3.2 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.3.2 /tests/test_device_tls.py
 ```
 
 임시 테스트 인증서를 신뢰하도록 설정한 테스트 클라이언트로 HTTPS 페어링·서명된 세션 생성과 UI 접근 차단을 검사합니다. 서버와 클라이언트가 컨테이너 내부에서 통신하므로 호스트 포트 공개나 공유기 설정은 필요하지 않습니다. 이미지 빌드에는 인터넷 연결이 필요합니다. 이 검사는 실제 Home Assistant/UniFi의 DNS·NAT 설정을 확인하지 않습니다.
@@ -226,7 +226,7 @@ docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.3.1 /
 실제 Home Assistant에 설치한 후에는 기존 로그로 다음 UI 항목을 확인할 수 있습니다.
 
 1. 저장공간 관리의 사용량·여유·예약량 표시와 설정 저장 후 재시작 유지.
-2. 같은 주행의 구간 하나에 Pin → 다른 구간에도 고정 표시 → 재시작 후 유지 → Unpin.
+2. 같은 주행의 구간 하나에 Pin → 해당 구간만 고정 표시 → 재시작 후 유지 → 다른 구간은 자동 삭제 가능 → Unpin.
 3. 외부 장치 연결에서 코드 발급 → 5분 만료 또는 취소. 코드 사용 성공과 Revoke 검증은 위 자동 테스트에서 가상 장치가 수행합니다.
 4. 작은 저장 한도 + `reject_new`로 새 업로드 거부 확인. `delete_oldest` 검증은 삭제해도 되는 테스트 로그만 있는 환경에서 수행합니다. 삭제는 실제 완전 삭제입니다.
 5. HTTPS 포트 설정 후 외부 네트워크에서 `https://도메인:포트/`와 `/api/logs`가 404인지 확인합니다. 루트 404는 정상입니다. 이것만으로 장치 인증이나 전체 업로드 성공까지 확인된 것은 아닙니다.
