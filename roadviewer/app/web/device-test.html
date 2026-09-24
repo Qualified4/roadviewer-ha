@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Road Viewer · 장치 API 테스트</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,sans-serif;background:#0b1220;color:#e5edf7}*{box-sizing:border-box}body{margin:0}main{max-width:960px;margin:auto;padding:32px 20px 64px}h1{font-size:28px;margin:8px 0}h2{font-size:18px;margin:0 0 18px}.eyebrow{letter-spacing:.12em;color:#7dd3fc;font-size:12px}p,small{line-height:1.65;color:#a5b6ce}section{background:#131f31;border:1px solid #29394e;border-radius:16px;padding:22px;margin-top:18px}.row{display:flex;flex-wrap:wrap;gap:12px;align-items:end}.row>label{flex:1;min-width:160px}label{display:block;font-size:13px;color:#bed0e7}input[type=text]{display:block;width:100%;margin-top:8px;padding:11px;border:1px solid #43536b;border-radius:9px;background:#0b1524;color:inherit;font:inherit}button,.file-button{border:1px solid #43536b;border-radius:9px;background:#23344c;color:#e5edf7;padding:11px 15px;font:inherit;font-size:14px;cursor:pointer;display:inline-flex;gap:8px;align-items:center}button:hover:enabled,.file-button:hover{background:#304663}button:focus-visible,input:focus-visible{outline:2px solid #7dd3fc;outline-offset:3px}button:disabled{opacity:.45;cursor:default}.primary{background:#236fbb;border-color:#3b8bd5}.primary:hover:enabled{background:#2d80ce}.danger{color:#fca5a5}.file-button input{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.file-button:focus-within{outline:2px solid #7dd3fc}.check{display:flex;align-items:center;gap:8px;margin:18px 0}.check input{accent-color:#38bdf8}code{overflow-wrap:anywhere;color:#c8e6ff}.muted{font-size:13px}.status{border-left:3px solid #38bdf8;padding-left:12px;overflow-wrap:anywhere}#result{color:#e5edf7;min-height:24px}#result[data-error=true]{color:#fda4af}#fileList{max-height:240px;overflow:auto;padding-left:22px;font-size:13px;line-height:1.8;overflow-wrap:anywhere}progress{width:100%;height:12px;accent-color:#38bdf8}#events{padding-left:22px;max-height:240px;overflow:auto;font-size:13px;line-height:1.8;overflow-wrap:anywhere}#origin{display:block;margin-top:12px}#blocked{border:1px solid #d68c36;border-radius:10px;padding:12px;color:#fed7aa}[hidden]{display:none!important}@media(max-width:500px){main{padding:20px 12px}section{padding:18px 14px}.row button{flex-grow:1}.row>label{min-width:100%}h1{font-size:24px}}
+</style></head><body><main>
+<header><div class="eyebrow">ROAD VIEWER · DEVICE API</div><h1>브라우저로 장치 업로드 테스트</h1><p>openpilot 없이 이 브라우저를 테스트 장치로 연결합니다. 실제 서버에 장치를 등록하고 파일을 업로드합니다.</p><code id="origin"></code><p id="blocked" hidden>이 파일을 직접 열지 말고 Road Viewer의 HTTPS 주소 뒤에 /api/device/test를 붙여 접속하세요.</p></header>
+<section><h2>1. 테스트 장치 연결</h2><p class="muted">Home Assistant의 변환 및 저장 설정 → 외부 장치 연결 → 새 장치 연결에서 발급한 코드를 입력하세요. 키는 메모리에만 보관하며, 새로고침하면 다시 페어링해야 합니다. 테스트 후 해당 장치를 Revoke할 수 있습니다.</p><div class="row"><label>장치 이름<input id="deviceName" type="text" value="브라우저 테스트" maxlength="80" autocomplete="off"></label><label>페어링 코드<input id="pairCode" type="text" maxlength="24" autocomplete="off" spellcheck="false"></label><button id="pair" class="primary" type="button">장치 연결</button></div><p id="deviceStatus" class="status">연결된 장치 없음</p></section>
+<section><h2>2. 업로드 파일 준비</h2><p class="muted">원본 이름이 route--구간--rlog.zst 또는 route--구간--qcamera.ts인 파일을 선택하세요. 구간마다 rlog.zst가 필요합니다. 이 테스트 페이지는 브라우저 메모리 부담을 줄이기 위해 파일당 64 MiB까지 지원합니다.</p><div class="row"><label class="file-button">파일 선택<input id="files" type="file" multiple aria-label="업로드 파일 선택"></label><button id="mock" type="button">가상 파일 준비 · 2개 구간</button></div><p class="muted">가상 파일은 전송 검증용입니다. 완료 처리하면 목록에 등록되지만 유효한 주행 데이터가 아니므로 변환은 실패합니다. 실제 로그는 기존 변환 설정에 따라 처리됩니다. 선택한 저장 정책도 적용되며, 자동 삭제 정책이면 기존 미고정 주행이 삭제될 수 있습니다.</p><ul id="fileList"><li>파일을 선택하거나 가상 파일을 준비하세요.</li></ul></section>
+<section><h2>3. 전송과 이어올리기</h2><div class="row"><button id="session" type="button">세션 생성 / 복구</button><button id="upload" class="primary" type="button">업로드 / 이어올리기</button><button id="pause" type="button">일시정지</button><button id="status" type="button">서버 상태 확인</button></div><label class="check"><input id="pauseOnce" type="checkbox" checked>첫 조각을 보낸 뒤 한 번 멈추기 · 이어올리기 확인용</label><p id="sessionStatus" class="status">세션 없음</p><progress id="progress" max="100" value="0" aria-label="업로드 진행률"></progress><p id="progressText">전송 대기</p><div class="row"><button id="finish" type="button">완료 처리</button><button id="cancel" class="danger" type="button">세션 취소</button></div><p class="muted">일시정지는 현재 조각의 응답을 받은 뒤 멈춥니다. 네트워크 오류 후에는 다시 업로드를 누르면 서버에 저장된 위치부터 이어갑니다. 서버를 재시작했다면 이 페이지를 유지한 채 세션 생성 / 복구를 누르세요. 완료 처리 후 로그는 Home Assistant 목록에서 확인·삭제할 수 있습니다.</p></section>
+<section><h2>4. 인증 차단 확인</h2><div class="row"><button id="badSignature" type="button">잘못된 서명 검사</button><button id="replay" type="button">동일 요청 재전송 검사</button></div><p class="muted">잘못된 서명은 401, 같은 nonce의 재사용은 409로 차단되어야 합니다. 재전송 검사는 먼저 현재 배치로 정상 세션을 생성하거나 복구하므로 저장공간 예약이 생길 수 있습니다.</p></section>
+<section><h2>테스트 결과</h2><p id="result" role="status" aria-live="polite">페어링 코드를 입력해 시작하세요.</p><ol id="events" aria-label="테스트 기록"></ol></section>
+</main><script>
+'use strict';
+const $=id=>document.getElementById(id),encoder=new TextEncoder();
+const allowed=location.protocol==='https:'&&location.pathname==='/api/device/test'&&!!globalThis.crypto?.subtle;
+let device=null,selected=[],batch=null,session=null,working=false,uploading=false,pauseRequested=false,completed=false;
+const hex=bytes=>Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,'0')).join('');
+const randomHex=n=>hex(crypto.getRandomValues(new Uint8Array(n)));
+const digest=bytes=>crypto.subtle.digest('SHA-256',bytes).then(hex);
+const size=n=>`${(n/1048576).toFixed(2)} MiB`;
+function report(message,isError=false){$('result').textContent=message;$('result').dataset.error=String(isError);const item=document.createElement('li');item.textContent=`${new Date().toLocaleTimeString()} · ${message}`;$('events').prepend(item);while($('events').children.length>60)$('events').lastElementChild.remove()}
+function sync(){
+ $('pair').disabled=!allowed||working||!!device;$('pairCode').disabled=!!device||working;$('deviceName').disabled=!!device||working;
+ $('files').disabled=!allowed||working||!!session;$('mock').disabled=!allowed||working||!!session;
+ for(const id of ['session','badSignature','replay'])$(id).disabled=!allowed||working||!device||!batch||completed;
+ for(const id of ['upload','status','finish','cancel'])$(id).disabled=working||!session||completed;
+ $('pause').disabled=!uploading||pauseRequested;
+}
+async function run(fn){if(working)return;working=true;sync();try{await fn()}catch(e){report(e.message,true)}finally{working=false;uploading=false;sync()}}
+async function api(path,method='GET',body,headers={}){
+ const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),path.endsWith('/finish')?180000:60000);
+ try{
+  const response=await fetch(path,{method,body,headers,signal:controller.signal,credentials:'omit',cache:'no-store',redirect:'error'});
+  let data;try{data=await response.json()}catch{throw Error(`HTTP ${response.status} · JSON 응답이 아닙니다. HTTPS 주소와 프록시 설정을 확인하세요.`)}
+  if(!response.ok){const code=/^[a-z_]+$/.test(data.error||'')?data.error:'request_failed';const e=Error(`HTTP ${response.status} · ${code}`);e.status=response.status;e.code=code;throw e}
+  return data;
+ }catch(e){if(e.name==='AbortError')throw Error('응답 시간이 초과했습니다. 서버 상태 확인 또는 세션 복구 후 재시도하세요.');if(e instanceof TypeError)throw Error('연결하지 못했습니다. 인증서·네트워크·서버 상태를 확인하세요.');throw e}finally{clearTimeout(timer)}
+}
+function token(){return {Authorization:`Bearer ${session.token}`}}
+function progress(files){const total=files.reduce((n,f)=>n+f.size,0),received=files.reduce((n,f)=>n+f.received,0);$('progress').value=total?received/total*100:0;$('progressText').textContent=`${size(received)} / ${size(total)} · ${total?Math.floor(received/total*100):0}%`}
+function acceptSession(result){
+ if(result.state==='completed'){completed=true;reportResult(result.result);return}
+ if(!result.id||!result.token||!Array.isArray(result.files))throw Error('올바른 세션 응답이 아닙니다.');
+ session=result;progress(result.files);$('sessionStatus').textContent=`세션 ${result.id} · 만료 ${new Date(result.expires_at*1000).toLocaleTimeString()}`;
+}
+function reportResult(result){report(`완료 · 신규 ${result.logs?.length||0}개 · 영상 추가 ${result.updated?.length||0}개 · 중복 ${result.duplicates?.length||0}개. Home Assistant 목록에서 확인하세요.`);$('sessionStatus').textContent='등록 완료 · 새 배치는 페이지를 새로고침하고 다시 연결하세요.'}
+async function signedRequest(){
+ const body=JSON.stringify(batch),timestamp=String(Math.floor(Date.now()/1000)),nonce=randomHex(18);
+ const canonical=['RV1',device.id,timestamp,nonce,'POST','/api/device/uploads',await digest(encoder.encode(body))].join('\n');
+ const signature=hex(await crypto.subtle.sign('HMAC',device.key,encoder.encode(canonical)));
+ return {body,headers:{'Content-Type':'application/json','X-RV-Device':device.id,'X-RV-Timestamp':timestamp,'X-RV-Nonce':nonce,'X-RV-Signature':signature}};
+}
+async function createSession(){const r=await signedRequest();acceptSession(await api('/api/device/uploads','POST',r.body,r.headers));if(!completed)report('서명 인증 성공 · 세션 준비 완료')}
+$('pair').onclick=()=>run(async()=>{
+ const code=$('pairCode').value.trim().toUpperCase(),name=$('deviceName').value.trim();if(!/^[A-F0-9]{24}$/.test(code)||!name)throw Error('장치 이름과 24자리 페어링 코드를 입력하세요.');
+ const result=await api('/api/device/pair','POST',JSON.stringify({code,metadata:{name}}),{'Content-Type':'application/json'});
+ const key=await crypto.subtle.importKey('raw',encoder.encode(result.device_secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+ device={id:result.device_id,key};$('pairCode').value='';$('deviceStatus').textContent=`연결됨 · ${name} · ${device.id}`;report('페어링 성공 · 서명 키는 현재 페이지 메모리에만 보관합니다.');
+});
+async function prepare(files){
+ if(!files.length)return;batch=null;selected=[];$('fileList').replaceChildren();$('progress').value=0;if(files.length>100)throw Error('파일은 최대 100개까지 선택할 수 있습니다.');
+ const groups=new Map(),ordered=[];
+ for(const file of files){
+  const match=/^((?:[a-fA-F0-9]{8}--[a-fA-F0-9]{10}|\d{4}-\d{2}-\d{2}--\d{2}-\d{2}-\d{2}))--(\d+)--(rlog\.zst|qcamera\.ts)$/.exec(file.name);
+  if(!match||Number(match[2])>999999)throw Error('지원하는 원본 파일명을 선택하세요: route--구간--rlog.zst / qcamera.ts');
+  if(!file.size||file.size>64*1048576)throw Error('이 페이지에서는 비어 있지 않은 64 MiB 이하 파일만 선택할 수 있습니다.');
+  const route=match[1],segment=Number(match[2]),kind=match[3],key=`${route}--${segment}`;
+  if(!groups.has(key))groups.set(key,{route,segment,files:[],sources:[]});const group=groups.get(key);
+  if(group.files.some(f=>f.kind===kind))throw Error('같은 구간의 파일 종류가 중복됩니다.');
+  $('progressText').textContent=`체크섬 계산 중 · ${file.name}`;
+  group.files.push({kind,size:file.size,sha256:await digest(await file.arrayBuffer())});group.sources.push(file);
+ }
+ if(groups.size>50||[...groups.values()].some(g=>!g.files.some(f=>f.kind==='rlog.zst')))throw Error('각 구간에는 rlog.zst가 필요하며 최대 50개 구간까지 가능합니다.');
+ const segments=[...groups.values()].map(({sources,...group})=>{ordered.push(...sources);return group});
+ batch={batch_id:randomHex(16),segments};selected=ordered;completed=false;
+ $('fileList').replaceChildren(...selected.map(f=>{const li=document.createElement('li');li.textContent=`${f.name} · ${size(f.size)}`;return li}));progress(selected.map(f=>({size:f.size,received:0})));report(`${segments.length}개 구간 · ${selected.length}개 파일 준비 완료`);
+}
+$('files').onchange=()=>run(()=>prepare(Array.from($('files').files)));
+$('mock').onclick=()=>run(async()=>{
+ const route=`${randomHex(4)}--${randomHex(5)}`,files=[];
+ for(let i=0;i<2;i++)for(const [kind,length] of [['rlog.zst',64*1024],['qcamera.ts',512*1024]]){
+  const bytes=new Uint8Array(length);for(let start=0;start<length;start+=65536)crypto.getRandomValues(bytes.subarray(start,Math.min(length,start+65536)));
+  files.push(new File([bytes],`${route}--${i}--${kind}`));
+ }
+ await prepare(files);$('files').value='';
+});
+$('session').onclick=()=>run(createSession);
+async function getStatus(){const result=await api(`/api/device/uploads/${session.id}`,'GET',undefined,token());if(result.state==='completed'){completed=true;reportResult(result.result)}else{session.files=result.files;progress(result.files)}return result}
+$('status').onclick=()=>run(async()=>{await getStatus();if(!completed)report('서버에 저장된 전송 위치를 확인했습니다.')});
+$('pause').onclick=()=>{pauseRequested=true;sync();report('현재 조각의 응답을 받은 뒤 멈춥니다.')};
+$('upload').onclick=()=>run(async()=>{
+ pauseRequested=false;uploading=true;sync();await getStatus();if(completed)return;
+ for(const entry of session.files){
+  const file=selected[entry.index];if(!file||file.size!==entry.size)throw Error('선택한 파일과 세션이 일치하지 않습니다.');
+  while(entry.received<entry.size){
+   if(pauseRequested){report('일시정지했습니다. 업로드 / 이어올리기로 계속할 수 있습니다.');return}
+   const offset=entry.received,end=Math.min(offset+session.chunk_size,entry.size);
+   const result=await api(`/api/device/uploads/${session.id}/files/${entry.index}?offset=${offset}`,'PUT',file.slice(offset,end),{...token(),'Content-Type':'application/octet-stream'});
+   if(result.received!==end)throw Error('서버 전송 위치가 예상과 다릅니다. 상태를 다시 확인하세요.');
+   entry.received=result.received;progress(session.files);
+   if($('pauseOnce').checked){$('pauseOnce').checked=false;report('첫 조각 전송 후 멈췄습니다. 업로드 / 이어올리기를 눌러 재개하세요.');return}
+  }
+ }
+ report('모든 파일을 전송했습니다. 완료 처리를 눌러 로그를 등록하세요.');
+});
+$('finish').onclick=()=>run(async()=>{const result=await api(`/api/device/uploads/${session.id}/finish`,'POST',undefined,token());completed=true;reportResult(result)});
+$('cancel').onclick=()=>run(async()=>{const result=await api(`/api/device/uploads/${session.id}`,'DELETE',undefined,token());if(result.state==='completed'){completed=true;reportResult(result.result);return}session=null;$('sessionStatus').textContent='세션 취소됨';$('progress').value=0;report('세션 취소 · 임시 파일과 용량 예약을 해제했습니다.')});
+$('badSignature').onclick=()=>run(async()=>{const r=await signedRequest();r.headers['X-RV-Signature']='0'.repeat(64);try{await api('/api/device/uploads','POST',r.body,r.headers)}catch(e){if(e.status===401&&e.code==='invalid_signature'){report('검사 통과 · 잘못된 서명 차단 (401)');return}throw e}throw Error('검사 실패 · 잘못된 서명이 허용되었습니다.')});
+$('replay').onclick=()=>run(async()=>{const r=await signedRequest();acceptSession(await api('/api/device/uploads','POST',r.body,r.headers));try{await api('/api/device/uploads','POST',r.body,r.headers)}catch(e){if(e.status===409&&e.code==='nonce_replayed'){report('검사 통과 · 동일 nonce 재전송 차단 (409)');return}throw e}throw Error('검사 실패 · nonce 재사용이 허용되었습니다.')});
+$('origin').textContent=allowed?`${location.origin}/api/device/`:'HTTPS 장치 API 주소에서 열어 주세요.';$('blocked').hidden=allowed;sync();
+</script></body></html>

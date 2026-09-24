@@ -124,3 +124,13 @@ body.uploading{overscroll-behavior-y:contain}
 @media(max-width:550px){.bulk-entry{align-items:flex-start;flex-direction:column;gap:12px}.bulk-header,.bulk-select{padding:12px 14px}#bulkDescription{padding:0 14px 12px}.bulk-footer{padding:12px 14px}.bulk-buttons{display:grid;grid-template-columns:1fr 1fr}.bulk-buttons button{padding:8px;font-size:12px}}
 
 @media(max-width:550px){.bulk-buttons #bulkConvert{grid-column:1/-1}}
+
+.managed-settings{border-top:1px solid var(--border,#334155);padding:16px 0;margin-top:8px}
+.managed-settings summary{cursor:pointer;display:list-item}.managed-settings summary h3{display:inline;font-size:15px}
+.managed-settings p{font-size:13px;line-height:1.65;color:var(--muted,#94a3b8)}
+.settings-fields{display:flex;gap:16px;flex-wrap:wrap}.settings-fields label{display:flex;flex-direction:column;gap:8px;font-size:13px;flex:1;min-width:180px}.settings-fields label[hidden]{display:none}
+.settings-fields input,.settings-fields select{box-sizing:border-box;max-width:100%;padding:10px;border-radius:8px;background:#111c2d;color:#e2e8f0;border:1px solid #334155}
+.device-row{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid #334155;padding:16px 0}.device-row>div{min-width:0}.device-row p{overflow-wrap:anywhere}.device-row button{flex-shrink:0}
+.pair-code{display:block;text-align:center;font-size:clamp(14px,4vw,24px);letter-spacing:.04em;padding:20px 0;overflow-wrap:anywhere}
+.pin-badge{font-size:11px;color:#facc15;border:1px solid #66562c;border-radius:5px;padding:2px 6px}
+@media(max-width:600px){.device-row{align-items:flex-start;flex-direction:column}}

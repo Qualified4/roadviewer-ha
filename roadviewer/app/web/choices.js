@@ -1,6 +1,6 @@
 'use strict';
 (()=>{
- const labels={lateralRange:'좌우 표시 범위',concurrency:'동시 처리 개수',logSegment:'구간 선택',speed:'재생 속도',range:'전방 표시 거리'};
+ const labels={storageLimit:'최대 사용량',storagePolicy:'공간 부족 시',lateralRange:'좌우 표시 범위',concurrency:'동시 처리 개수',logSegment:'구간 선택',speed:'재생 속도',range:'전방 표시 거리'};
  const dialog=document.createElement('dialog');dialog.className='rv-choice-dialog';
  dialog.setAttribute('aria-labelledby','rv-choice-title');
  const header=document.createElement('div');header.className='rv-choice-header';

@@ -6,6 +6,9 @@ from progress import ProgressChannel
 from werkzeug.datastructures import FileStorage
 from work_queue import ProcessingQueue
 from flask import Flask,request,jsonify,send_file,send_from_directory,abort
+from werkzeug.exceptions import HTTPException
+from storage_policy import StoragePolicy,atomic_json
+from device_api import DeviceAPI
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
 options_path=Path('/data/options.json');options=json.loads(options_path.read_text()) if options_path.exists() else {}
@@ -131,19 +134,39 @@ def processing_settings():
 
 @app.before_request
 def access():
+ # A separate loopback listener receives ONLY nginx's device API traffic.
+ listener=request.environ.get('gunicorn.socket')
+ if listener is not None and listener.getsockname()[1]==8098:
+  if request.remote_addr!='127.0.0.1' or not options.get('device_api_enabled',False) or not request.path.startswith('/api/device/'):
+   abort(404)
+  request.max_content_length=CHUNK_SIZE+1 if request.method=='PUT' else 65536
+  return
+ if request.path.startswith('/api/device/'):abort(404)
  # Supervisor is the only accepted network peer in a Home Assistant installation.
  if os.environ.get('RV_INGRESS_ONLY','1')=='1' and request.remote_addr!='172.30.32.2':abort(403)
  if request.method in ('POST','PUT','DELETE') and request.headers.get('X-RoadViewer-Request')!='1':abort(403)
 @app.after_request
 def fresh_replay_state(response):
+ if request.path.startswith(('/api/device/','/api/settings/')):response.headers['Cache-Control']='no-store'
  if request.path.startswith('/view/') or request.path in ('/api/logs','/api/progress','/api/settings/processing') or (request.path.startswith('/api/logs/') and request.path.endswith('/data')):
   response.headers['Cache-Control']='no-store'
  return response
 
+@app.errorhandler(HTTPException)
+def http_error(e):
+ if request.path.startswith('/api/device/'):
+  message=e.description if isinstance(e.description,str) and re.fullmatch(r'[a-z_]+',e.description) else {400:'invalid_request',401:'unauthorized',403:'forbidden',404:'not_found',405:'method_not_allowed',413:'request_too_large'}.get(e.code,'request_failed')
+  return jsonify(error=message),e.code
+ return e
+
 @app.errorhandler(413)
-def too_large(e):return jsonify(error='업로드 용량 제한을 초과했습니다.'),413
+def too_large(e):
+ if request.path.startswith('/api/device/'):return jsonify(error='batch_too_large'),413
+ return jsonify(error='업로드 용량 제한을 초과했습니다.'),413
 @app.errorhandler(404)
-def not_found(e):return jsonify(error='로그 또는 파일을 찾을 수 없습니다.'),404
+def not_found(e):
+ if request.path.startswith('/api/device/'):return jsonify(error='session_not_found' if '/uploads/' in request.path else 'not_found'),404
+ return jsonify(error='로그 또는 파일을 찾을 수 없습니다.'),404
 @app.route('/')
 def index():
  response=send_from_directory(BASE/'web','library.html',conditional=False)
@@ -176,11 +199,19 @@ def processing_progress():
 @app.route('/api/logs')
 def logs():
  cleanup_uploads()
- with lock:items=[dict(read_meta(p),bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts','camera.mp4') if (p/k).is_file()),video=has_video(p),video_download=video_download_kind(p),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared')) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
+ with lock:items=[dict(read_meta(p),pinned=storage_policy.pinned(read_meta(p)),bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts','camera.mp4') if (p/k).is_file()),video=has_video(p),video_download=video_download_kind(p),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared')) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
  return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 @app.route('/api/upload',methods=['POST'])
 def upload():
- return register_files(request.files.getlist('files'))
+ # Legacy multipart uploads use the same admission reservation. Browsers use chunks.
+ if not request.content_length:return jsonify(error='content_length_required'),411
+ files=request.files.getlist('files')
+ with registration_lock,lock:
+  amount=storage_policy.admit(request.content_length,[{'name':f.filename or ''} for f in files])
+  id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir();atomic_json(p/'reservation.json',{'bytes':amount});active_uploads[id]+=1
+ try:return register_files(files)
+ finally:
+  with lock:shutil.rmtree(p,ignore_errors=True);active_uploads.pop(id,None)
 
 def file_digest(path):
  # Bound memory use even for large logs/videos.
@@ -202,7 +233,7 @@ def stored_digests(path,meta):
 
 def register_files(files):
  if not files or len(files)>100:return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
- if shutil.disk_usage(ROOT).free<(request.content_length or 0)+100*1024*1024:return jsonify(error='로그를 저장할 디스크 공간이 부족합니다.'),507
+ if shutil.disk_usage(ROOT).free<(request.content_length or 0)+100*1024*1024:return upload_error('insufficient_disk_space','로그를 저장할 디스크 공간이 부족합니다.',507)
  staged=[];duplicates=[];updated=[]
  try:
   with tempfile.TemporaryDirectory(dir=ROOT,prefix='.upload-') as temp:
@@ -262,8 +293,8 @@ def register_files(files):
        video_diff='qcamera.ts' in g['hashes'] and g['hashes']['qcamera.ts']!=hashes.get('qcamera.ts')
        duplicates.append({'id':meta['id'],'name':g['label'],'video_differs':video_diff})
        continue
-      id=uuid.uuid4().hex;p=ROOT/id;g['dir'].rename(p)
-      m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None,'content_hashes':{kind:{'size':(p/kind).stat().st_size,'mtime_ns':(p/kind).stat().st_mtime_ns,'sha256':digest} for kind,digest in g['hashes'].items()}};save_meta(p,m);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
+      id=uuid.uuid4().hex;p=g['dir']
+      m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None,'content_hashes':{kind:{'size':(p/kind).stat().st_size,'mtime_ns':(p/kind).stat().st_mtime_ns,'sha256':digest} for kind,digest in g['hashes'].items()}};save_meta(p,m);p.rename(ROOT/id);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
   return jsonify(logs=staged,duplicates=duplicates,updated=updated),201
  except ValueError as e:return jsonify(error=str(e)),400
  finally:
@@ -279,7 +310,15 @@ def cleanup_uploads(startup=False,force=False):
  with lock:
   now=time.time()
   for p in UPLOADS.iterdir():
-   if p.is_dir() and ID.fullmatch(p.name) and not (p.name in finishing_uploads if force else active_uploads[p.name]) and (startup or force or now-p.stat().st_mtime>UPLOAD_IDLE_SECONDS):
+   if not p.is_dir() or not ID.fullmatch(p.name):continue
+   device_file=p/'device.json'
+   device=json.loads(device_file.read_text()) if device_file.is_file() else None
+   stale=now-p.stat().st_mtime>UPLOAD_IDLE_SECONDS or (device and device['expires_at']<=now)
+   # Device sessions survive restart, but never their absolute/idle deadlines.
+   # Explicit UI cleanup cannot interrupt live device sessions.
+   expired=stale if device else (startup or force or stale)
+   protected=active_uploads[p.name] if device or not force else p.name in finishing_uploads
+   if not protected and expired:
     removed+=storage_used_bytes(p);shutil.rmtree(p)
   if startup:
    # Staging copies only; registered originals and conversions are preserved.
@@ -313,6 +352,9 @@ def upload_failure(id):
  app.logger.warning('Upload failure session=%s details=%s',id,json.dumps(fields))
  return jsonify(recorded=True)
 
+def upload_error(code,message,status):
+ return (jsonify(error=code,message=message) if request.path.startswith('/api/device/') else jsonify(error=message)),status
+
 def upload_session(id):
  if not ID.fullmatch(id):abort(404)
  p=UPLOADS/id
@@ -322,17 +364,24 @@ def upload_session(id):
 @app.route('/api/uploads',methods=['POST'])
 def begin_upload():
  cleanup_uploads()
- body=request.get_json(silent=True) or {};files=body.get('files')
- if not isinstance(files,list) or not 1<=len(files)<=100:return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
+ body=request.get_json(silent=True)
+ if not isinstance(body,dict):return jsonify(error='invalid_upload'),400
+ with registration_lock,lock:return create_upload(body.get('files'))
+
+def create_upload(files):
+ if not isinstance(files,list) or not 1<=len(files)<=100:return jsonify(error='invalid_files'),400
  for f in files:
-  if not isinstance(f,dict) or not isinstance(f.get('name'),str) or type(f.get('size')) is not int or f['size']<=0:return jsonify(error='파일 이름 또는 크기가 잘못되었습니다.'),400
+  if not isinstance(f,dict) or not isinstance(f.get('name'),str) or type(f.get('size')) is not int or f['size']<=0:return jsonify(error='invalid_file'),400
   path=PurePosixPath(f['name'].replace('\\','/'))
-  if path.is_absolute() or '..' in path.parts or not (path.name in ('rlog.zst','qcamera.ts') or FLAT.fullmatch(path.name)):return jsonify(error='지원하지 않는 파일 경로입니다.'),400
+  if path.is_absolute() or '..' in path.parts or not (path.name in ('rlog.zst','qcamera.ts') or FLAT.fullmatch(path.name)):return jsonify(error='invalid_file_path'),400
  total=sum(f['size'] for f in files)
  if total>app.config['MAX_CONTENT_LENGTH']:return too_large(None)
- if shutil.disk_usage(ROOT).free<total*2+100*1024*1024:return jsonify(error='저장 공간이 부족합니다.'),507
- with lock:
-  id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir();(p/'manifest.json').write_text(json.dumps(files))
+ amount=storage_policy.admit(total,files)
+ id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir()
+ try:
+  atomic_json(p/'manifest.json',files);atomic_json(p/'reservation.json',{'bytes':amount})
+ except Exception:
+  shutil.rmtree(p,ignore_errors=True);raise
  return jsonify(id=id,chunk_size=CHUNK_SIZE),201
 
 @app.route('/api/uploads/<id>/files/<int:index>',methods=['PUT'])
@@ -346,18 +395,18 @@ def upload_chunk(id,index):
   payload=request.stream.read(CHUNK_SIZE+1)
   with lock:
    try:offset=int(request.args.get('offset','-1'))
-   except ValueError:return jsonify(error='잘못된 업로드 위치입니다.'),400
-   if not (p/'manifest.json').is_file():return jsonify(error='정리된 업로드입니다. 파일을 다시 선택해 주세요.'),410
+   except ValueError:return upload_error('invalid_offset','잘못된 업로드 위치입니다.',400)
+   if not (p/'manifest.json').is_file():return upload_error('session_expired','정리된 업로드입니다. 파일을 다시 선택해 주세요.',410)
    target=p/str(index);current=target.stat().st_size if target.exists() else 0
-   if offset<0 or not payload or len(payload)>CHUNK_SIZE or offset+len(payload)>files[index]['size']:return jsonify(error='업로드 조각의 크기가 잘못되었습니다.'),400
+   if offset<0 or not payload or len(payload)>CHUNK_SIZE or offset+len(payload)>files[index]['size']:return upload_error('invalid_chunk','업로드 조각의 크기가 잘못되었습니다.',400)
    if offset<current and offset+len(payload)<=current:
     with target.open('rb') as source:
      source.seek(offset)
      if source.read(len(payload))==payload:
       os.utime(p,None)
       return jsonify(received=offset+len(payload))
-   if offset!=current:return jsonify(error='업로드 위치가 일치하지 않습니다. 다시 업로드해 주세요.'),409
-   if shutil.disk_usage(ROOT).free<len(payload)+100*1024*1024:return jsonify(error='저장 공간이 부족합니다.'),507
+   if offset!=current:return upload_error('offset_conflict','업로드 위치가 일치하지 않습니다. 다시 업로드해 주세요.',409)
+   if shutil.disk_usage(ROOT).free<len(payload)+100*1024*1024:return upload_error('insufficient_disk_space','저장 공간이 부족합니다.',507)
    with target.open('ab') as out:out.write(payload)
    os.utime(p,None)
   return jsonify(received=current+len(payload))
@@ -370,11 +419,13 @@ def upload_chunk(id,index):
 def finish_upload(id):
  with lock:
   p,files=upload_session(id)
-  if active_uploads[id]:return jsonify(error='업로드 조각을 전송 중입니다.'),409
-  if any(not (p/str(i)).is_file() or (p/str(i)).stat().st_size!=f['size'] for i,f in enumerate(files)):return jsonify(error='아직 전송되지 않은 파일이 있습니다.'),409
+  if active_uploads[id]:return upload_error('upload_busy','업로드 조각을 전송 중입니다.',409)
+  if any(not (p/str(i)).is_file() or (p/str(i)).stat().st_size!=f['size'] for i,f in enumerate(files)):return upload_error('incomplete_upload','아직 전송되지 않은 파일이 있습니다.',409)
   active_uploads[id]+=1;finishing_uploads.add(id)
  streams=[]
  try:
+  for i,f in enumerate(files):
+   if f.get('sha256') and file_digest(p/str(i))!=f['sha256']:return jsonify(error='checksum_mismatch'),422
   streams=[FileStorage(stream=(p/str(i)).open('rb'),filename=f['name']) for i,f in enumerate(files)]
   # Copying and hashing up to 512 MB must not block other requests.
   return register_files(streams)
@@ -388,20 +439,25 @@ def finish_upload(id):
 def cancel_upload(id):
  with lock:
   p,_=upload_session(id)
-  if active_uploads[id]:return jsonify(error='업로드 처리 중입니다.'),409
+  if active_uploads[id]:return upload_error('upload_busy','업로드 처리 중입니다.',409)
   shutil.rmtree(p)
  return jsonify(deleted=id)
 
 @app.route('/api/logs/<id>',methods=['DELETE'])
 def delete(id):
- with registration_lock,lock:
-  p=folder(id);proc=processes.get(id)
-  if proc and proc.poll() is None:
-   proc.terminate()
-   try:proc.wait(timeout=3)
-   except subprocess.TimeoutExpired:proc.kill();proc.wait()
-  shutil.rmtree(p)
+ with registration_lock,lock:delete_recording(id)
  return jsonify(deleted=id)
+
+def delete_recording(id):
+ # Shared deletion unit for explicit deletion and route-level storage cleanup.
+ p=folder(id);proc=processes.get(id)
+ if proc and proc.poll() is None:
+  proc.terminate()
+  try:proc.wait(timeout=3)
+  except subprocess.TimeoutExpired:proc.kill();proc.wait()
+ pool.discard(id)
+ shutil.rmtree(p)
+
 @app.route('/api/logs/<id>/convert',methods=['POST'])
 def convert(id):
  with lock:
@@ -480,5 +536,7 @@ def requeue_startup():
   m.update(status='queued');save_meta(p,m)
  for p,_ in pending:submit(p.name)
 
+storage_policy=StoragePolicy(sys.modules[__name__])
+devices=DeviceAPI(sys.modules[__name__])
 requeue_startup()
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)

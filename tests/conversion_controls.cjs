@@ -29,9 +29,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await more.click();await page.getByRole('heading',{name:'저장된 로그',exact:true}).click();
   assert.equal(await page.locator('.recording-more').evaluate(e=>e.open),false,'outside click closes menu');
   const guide=page.locator('.conversion-info');
-  await guide.locator('summary').click();await page.waitForFunction(()=>localStorage.getItem('roadviewer-conversion-guide-open')==='false');
+  await guide.locator(':scope > summary').click();await page.waitForFunction(()=>localStorage.getItem('roadviewer-conversion-guide-open')==='false');
   await page.reload();assert.equal(await guide.evaluate(e=>e.open),false,'guide stays collapsed after reload');
-  await guide.locator('summary').click();await page.waitForFunction(()=>localStorage.getItem('roadviewer-conversion-guide-open')==='true');
+  await guide.locator(':scope > summary').click();await page.waitForFunction(()=>localStorage.getItem('roadviewer-conversion-guide-open')==='true');
   await page.reload();assert.equal(await guide.evaluate(e=>e.open),true,'guide stays expanded after reload');
   await page.getByRole('switch',{name:'자동 변환'}).uncheck();await page.waitForFunction(()=>document.getElementById('autoConvertState').textContent==='꺼짐');assert.equal(automatic,false);
   await page.reload();assert.equal(await page.getByRole('switch',{name:'자동 변환'}).isChecked(),false);
