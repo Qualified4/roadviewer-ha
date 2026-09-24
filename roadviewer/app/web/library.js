@@ -24,22 +24,62 @@ function selectionChanged(){
  $('upload').disabled=busy||cleaning||!selected.length;$('clearSelection').disabled=busy||!selected.length;
  $('selectedFiles').replaceChildren(...selected.map(f=>{const li=document.createElement('li');li.textContent=f.webkitRelativePath||f.name;return li}));
 }
-function filesChanged(e){
- if(busy||!e.target.files.length){return}
- const before=selected.length;const rejected=[];
- for(const file of e.target.files){
+function addFiles(files,folders=[]){
+ if(busy||cleaning||(!files.length&&!folders.length))return;
+ const rejected=[];
+ for(const file of files){
   const path=file.webkitRelativePath||file.name;
   if(!/(^|--)(rlog\.zst|qcamera\.ts)$/.test(file.name)){rejected.push(file.name);continue}
   const index=selected.findIndex(f=>(f.webkitRelativePath||f.name)===path);
   if(index<0)selected.push(file);else selected[index]=file;
  }
- // Keep the selected input alive while Android content-provider files are in use.
  selectionChanged();
- error(rejected.length?'지원하지 않는 파일: '+rejected.join(', ')+'. rlog.zst 또는 qcamera.ts 파일을 선택하세요.':'');
+ const messages=[];
+ if(rejected.length)messages.push('지원하지 않는 파일: '+rejected.join(', ')+'. rlog.zst 또는 qcamera.ts 파일을 선택하세요.');
+ if(folders.length)messages.push('폴더는 추가할 수 없습니다. 폴더 안의 rlog.zst와 qcamera.ts 파일을 선택해 주세요.');
+ error(messages.join(' '));
 }
 for(const id of pickerIds){
- const input=$(id);input.onchange=filesChanged;input.oncancel=selectionChanged;
+ // Keep the selected input alive while Android content-provider files are in use.
+ const input=$(id);
+ input.onchange=e=>addFiles(e.target.files);input.oncancel=selectionChanged;
 }
+const dropZone=document.querySelector('.picker-surface');
+let dragDepth=0;
+const isFileDrag=e=>Array.from(e.dataTransfer?.types||[]).includes('Files');
+function resetDrop(){dragDepth=0;dropZone.classList.remove('is-dragover')}
+dropZone.addEventListener('dragenter',e=>{
+ if(!isFileDrag(e))return;
+ dragDepth++;dropZone.classList.toggle('is-dragover',!busy&&!cleaning);
+});
+dropZone.addEventListener('dragleave',e=>{
+ if(!isFileDrag(e))return;
+ dragDepth=Math.max(0,dragDepth-1);if(!dragDepth)resetDrop();
+});
+// Prevent the browser from opening a dropped file, including outside the picker.
+document.addEventListener('dragover',e=>{
+ if(!isFileDrag(e))return;
+ e.preventDefault();const allowed=dropZone.contains(e.target)&&!busy&&!cleaning;
+ e.dataTransfer.dropEffect=allowed?'copy':'none';
+ if(allowed)dropZone.classList.add('is-dragover');else resetDrop();
+});
+document.addEventListener('drop',e=>{
+ if(!isFileDrag(e))return;
+ e.preventDefault();resetDrop();
+ if(!dropZone.contains(e.target)||busy||cleaning)return;
+ const files=[],folders=[];
+ if(e.dataTransfer.items?.length){
+  for(const item of e.dataTransfer.items){
+   if(item.kind!=='file')continue;
+   const entry=item.webkitGetAsEntry?.();
+   if(entry?.isDirectory){folders.push(entry.name);continue}
+   const file=item.getAsFile();if(file)files.push(file);
+  }
+ }else files.push(...e.dataTransfer.files);
+ addFiles(files,folders);
+});
+document.addEventListener('dragend',resetDrop);
+window.addEventListener('blur',resetDrop);
 $('clearSelection').onclick=()=>{if(busy)return;selected=[];pickerIds.forEach(id=>$(id).value='');selectionChanged();error('')};
 function recordingActions(m){
  const actions=document.createElement('div');actions.className='actions';
@@ -110,6 +150,15 @@ function abortable(promise,signal){
   promise.then(resolve,reject).finally(()=>signal.removeEventListener('abort',abort));
  });
 }
+function apiResult(status,text){
+ let result;
+ try{result=JSON.parse(text)}catch{
+  const e=Error(status===413?'Home Assistant 또는 원격 프록시의 업로드 크기 제한을 초과했습니다.':`서버 응답 오류 (${status}). 연결 상태를 확인해 주세요.`);
+  e.status=status;e.retryable=status>=500||status===408||status===429;throw e;
+ }
+ if(status<200||status>=300){const e=Error(result.message||result.error||`요청 실패 (${status})`);e.retryable=status>=500||status===408||status===429;e.status=status;e.code=result.error;throw e}
+ return result;
+}
 async function api(url,options={}){
  const signal=options.signal;
  signal?.throwIfAborted();
@@ -118,10 +167,7 @@ async function api(url,options={}){
  const timeout=setTimeout(()=>controller.abort(),url.endsWith('/finish')?180000:60000);
  try{
   const response=await fetch(url,{...options,signal:controller.signal,headers:{'X-RoadViewer-Request':'1',...options.headers}});
-  const text=await response.text();let result;
-  try{result=JSON.parse(text)}catch{const e=Error(response.status===413?'Home Assistant 또는 원격 프록시의 업로드 크기 제한을 초과했습니다.':`서버 응답 오류 (${response.status}). 연결 상태를 확인해 주세요.`);e.status=response.status;e.retryable=response.status>=500||response.status===408||response.status===429;throw e}
-  if(!response.ok){const e=Error(result.message||result.error||`요청 실패 (${response.status})`);e.retryable=response.status>=500||response.status===408||response.status===429;e.status=response.status;e.code=result.error;throw e}
-  return result;
+  return apiResult(response.status,await response.text());
  }catch(e){
   if(signal?.aborted)throw signal.reason;
   if(controller.signal.aborted){const timeoutError=Error('업로드 응답이 지연되어 요청을 중단했습니다. 연결을 확인하고 다시 시도하세요.');timeoutError.retryable=true;throw timeoutError}
@@ -129,25 +175,59 @@ async function api(url,options={}){
   throw e;
  }finally{clearTimeout(timeout);signal?.removeEventListener('abort',abort)}
 }
+// Native upload progress distinguishes a slow transfer from an idle connection.
+function sendUploadChunk(url,body,signal,onState){
+ return new Promise((resolve,reject)=>{
+  signal?.throwIfAborted();
+  const xhr=new XMLHttpRequest(),started=Date.now();
+  let timer,notice,settled=false,loaded=0,received=0,stage='chunk-send';
+  function finish(error,result){
+   if(settled)return;settled=true;clearTimeout(timer);clearTimeout(notice);signal?.removeEventListener('abort',abort);
+   if(error){Object.assign(error,{stage,elapsedMs:Date.now()-started,loaded,total:body.byteLength});reject(error)}else resolve(result);
+  }
+  function abort(){finish(signal.reason);xhr.abort()}
+  function watch(){
+   if(settled)return;
+   clearTimeout(timer);clearTimeout(notice);
+   notice=setTimeout(()=>onState(stage==='chunk-response'?'서버 응답 대기 중…':'전송 확인 중…'),3000);
+   timer=setTimeout(()=>{
+    const e=Error('15초 동안 업로드 진척이 없어 연결을 다시 시도합니다.');e.code='upload_idle_timeout';e.retryable=true;
+    finish(e);xhr.abort();
+   },15000);
+  }
+  xhr.open('PUT',url);xhr.setRequestHeader('Content-Type','application/octet-stream');xhr.setRequestHeader('X-RoadViewer-Request','1');
+  xhr.upload.onprogress=e=>{if(e.loaded>loaded){loaded=e.loaded;watch()}};
+  xhr.upload.onload=()=>{stage='chunk-response';watch()};
+  xhr.onprogress=e=>{if(e.loaded>received){received=e.loaded;watch()}};
+  xhr.onload=()=>{try{finish(null,apiResult(xhr.status,xhr.responseText))}catch(e){finish(e)}};
+  xhr.onerror=()=>{const e=Error('업로드 연결이 끊겼습니다.');e.code='upload_network_error';e.retryable=true;finish(e)};
+  xhr.onabort=()=>{if(!settled)finish(signal?.reason||Error('업로드를 중단했습니다.'))};
+  signal?.addEventListener('abort',abort,{once:true});
+  watch();
+  try{xhr.send(body)}catch(e){finish(e)}
+ });
+}
 async function reportUploadFailure(url,details){
  const match=url.match(/api\/uploads\/([a-f0-9]{32})/);
  if(!match)return;
  try{await fetch(`api/uploads/${match[1]}/failure`,{method:'POST',keepalive:true,headers:{'X-RoadViewer-Request':'1','Content-Type':'application/json'},body:JSON.stringify({...details,visibility:document.visibilityState})})}catch{}
 }
-async function uploadPart(url,part,signal){
+async function uploadPart(url,part,signal,onState=message=>$('uploadStatus').textContent=message){
  // Read the Android content-provider Blob once; retries send the same bytes.
- let body,readTimeout;
+ let body,readTimeout;const readStarted=Date.now();
+ const readNotice=setTimeout(()=>onState('선택한 파일을 읽는 중…'),3000);
  try{body=await abortable(Promise.race([part.arrayBuffer(),new Promise((_,reject)=>{readTimeout=setTimeout(()=>reject(Error('file read timeout')),60000)})]),signal)}
- catch(e){signal.throwIfAborted();void reportUploadFailure(url,{stage:'file-read',errorName:e.name});throw Error('선택한 파일을 읽을 수 없습니다. 휴대폰에 저장된 파일을 다시 선택해 주세요.')}
- finally{clearTimeout(readTimeout)}
+ catch(e){signal?.throwIfAborted();void reportUploadFailure(url,{stage:'file-read',errorName:e.name,elapsedMs:Date.now()-readStarted});throw Error('선택한 파일을 읽을 수 없습니다. 휴대폰에 저장된 파일을 다시 선택해 주세요.')}
+ finally{clearTimeout(readTimeout);clearTimeout(readNotice)}
  for(let attempt=0;;attempt++){
-  try{return await api(url,{method:'PUT',headers:{'Content-Type':'application/octet-stream'},body,signal})}
+  try{return await sendUploadChunk(url,body,signal,onState)}
   catch(e){
-   signal.throwIfAborted();
-   void reportUploadFailure(url,{stage:'chunk',attempt:attempt+1,offset:new URL(url,location.href).searchParams.get('offset'),status:e.status,errorName:e.name});
+   signal?.throwIfAborted();
+   void reportUploadFailure(url,{stage:e.stage,attempt:attempt+1,offset:new URL(url,location.href).searchParams.get('offset'),status:e.status,errorName:e.name,errorCode:e.code,elapsedMs:e.elapsedMs,loaded:e.loaded,total:e.total});
    if(!e.retryable||attempt>=5)throw e;
-   $('uploadStatus').textContent=`연결 재시도 ${attempt+1}/5 · 전송한 위치부터 계속합니다…`;
-   await abortable(new Promise(resolve=>setTimeout(resolve,Math.min(1000*2**attempt,8000))),signal);
+   const delay=Math.min(1000*2**attempt,4000);
+   onState(`연결 재시도 ${attempt+1}/5 · ${delay/1000}초 후 이어서 전송합니다…`);
+   await abortable(new Promise(resolve=>setTimeout(resolve,delay)),signal);
   }
  }
 }
@@ -163,15 +243,17 @@ $('upload').onclick=async()=>{
    const file=selected[i];
    for(let offset=0;offset<file.size;offset+=session.chunk_size){
     const part=file.slice(offset,offset+session.chunk_size);
-    await uploadPart(`api/uploads/${session.id}/files/${i}?offset=${offset}`,part,signal);
+    await uploadPart(`api/uploads/${session.id}/files/${i}?offset=${offset}`,part,signal,message=>{
+     $('uploadStatus').textContent=`업로드 ${Math.round(sent/total*100)}% · 파일 ${i+1}/${selected.length} · ${message}`;
+    });
     sent+=part.size;const pct=Math.round(sent/total*100);$('progress').value=pct;$('uploadStatus').textContent=`업로드 ${pct}% · 파일 ${i+1}/${selected.length}`;
    }
   }
   $('uploadStatus').textContent='서버에서 파일을 등록하는 중…';
   const result=await api(`api/uploads/${session.id}/finish`,{method:'POST',signal});session=null;
-  const duplicates=result.duplicates||[],updated=result.updated||[];
+  const duplicates=result.duplicates||[],updated=result.updated||[],restored=updated.filter(m=>m.original_restored).length,added=updated.length-restored;
   
-  $('uploadStatus').textContent=`새 로그 ${result.logs.length}개 등록 · 영상 추가 ${updated.length}개 · 중복 ${duplicates.length}개 건너뜀.${result.logs.length||updated.length?' 준비가 끝나면 재생할 수 있습니다.':''}`;
+  $('uploadStatus').textContent=`새 로그 ${result.logs.length}개 등록 · 영상 추가 ${added}개${restored?' · 원본 TS 복원 '+restored+'개':''} · 중복 ${duplicates.length}개 건너뜀.${result.logs.length||added?' 준비가 끝나면 재생할 수 있습니다.':''}`;
   if(duplicates.some(d=>d.video_differs))error('이미 저장된 로그와 영상 구성이 다른 항목이 있습니다. 기존 로그를 보존하고 건너뛰었습니다. 영상을 변경하려면 기존 로그를 삭제한 뒤 로그와 영상을 함께 업로드하세요.');selected=[];pickerIds.forEach(id=>$(id).value='');selectionChanged();await refresh();
  }catch(e){if(signal.aborted){$('uploadStatus').textContent='업로드를 중단했습니다. 이미 등록을 시작한 파일은 등록을 마칩니다.'}else{error(e.message);$('uploadStatus').textContent='업로드 실패. 오류를 확인하고 다시 시도하세요.'}}
  finally{

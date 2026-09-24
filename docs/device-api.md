@@ -155,7 +155,7 @@ TLS protects chunks in flight; final SHA256 verifies the entire received file ag
 ```json
 {"logs":["new recording metadata objects"],"updated":["metadata of logs receiving video"],"duplicates":[{"id":"...","name":"...","video_differs":false}]}
 ```
-The strings above stand for objects; actual new/updated metadata contain `id`, `name`, `uploaded`, `status`, `files`, etc. Use the arrays to distinguish new, updated and duplicate entries. Upload completion means originals are registered, not that conversion is complete.
+The strings above stand for objects; actual new/updated metadata contain `id`, `name`, `uploaded`, `status`, `files`, etc. Use the arrays to distinguish new, updated and duplicate entries. Upload completion means originals are registered, not that conversion is complete. An `updated` entry with `original_restored: true` means a missing TS was restored beside an existing MP4 after matching its cached original SHA256. The existing conversion state, MP4 and analysis are preserved; no new conversion is scheduled. A different TS or a missing cached digest is treated as a video mismatch and is not attached.
 
 A completed finish is recorded persistently and may be retried: 200 with the same result. GET on a completed session returns `{state:"completed",result:{...}}`. Checksumming/registration can take time; allow 180 seconds and use status/reattachment after an uncertain response. A process crash between committing files and persisting the receipt may leave no receipt/session; recreate and upload the batch with fresh authentication. Existing rlog/video digest checks avoid duplicate recording data.
 
@@ -220,8 +220,8 @@ python3 -m venv /tmp/roadviewer-test-env
 실제 HTTPS/Nginx/Gunicorn 경계까지 확인하려면 Docker가 동작하는 WSL/Linux에서:
 
 ```bash
-docker build -t roadviewer:0.3.6 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.3.6 /tests/test_device_tls.py
+docker build -t roadviewer:0.3.7 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.3.7 /tests/test_device_tls.py
 ```
 
 임시 테스트 인증서를 신뢰하도록 설정한 테스트 클라이언트로 HTTPS 페어링·서명된 세션 생성과 UI 접근 차단을 검사합니다. 서버와 클라이언트가 컨테이너 내부에서 통신하므로 호스트 포트 공개나 공유기 설정은 필요하지 않습니다. 이미지 빌드에는 인터넷 연결이 필요합니다. 이 검사는 실제 Home Assistant/UniFi의 DNS·NAT 설정을 확인하지 않습니다.

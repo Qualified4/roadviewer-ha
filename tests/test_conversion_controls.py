@@ -72,21 +72,14 @@ class ConversionTests(unittest.TestCase):
   for value in (None,1,'false',[]):
    self.assertEqual(self.request('post','/api/settings/processing',json={'keep_original_video':value}).status_code,400)
 
- def test_verified_mp4_retention_download_removal_restart_and_duplicates(self):
-  p=self.row(1,'queued');server.keep_original_video=False
+ def test_legacy_mp4_download_removal_restart_and_duplicates(self):
+  p=self.row(1,'ready',decoder_version='v22-adjustable-height',video=True)
   meta=server.read_meta(p);meta['files']={'qcamera.ts':'route--0--qcamera.ts'}
   server.stored_digests(p,meta);server.save_meta(p,meta)
   prepared=p/'prepared';prepared.mkdir()
-  (prepared/'camera.mp4').write_bytes(b'verified-video')
+  # Previously converted with TS retention disabled: MP4 is the only video.
+  (p/'qcamera.ts').unlink();(p/'camera.mp4').write_bytes(b'verified-video')
   (prepared/'data.json').write_text('{}')
-  (prepared/'summary.json').write_text(json.dumps(dict(duration=1,warnings=[],model_frames=1,video={'frames':1})))
-  with patch.object(server,'ProgressChannel') as channel,patch.object(server.subprocess,'Popen') as popen:
-   channel.return_value.__enter__.return_value.options.return_value={}
-   popen.return_value.communicate.return_value=('','');popen.return_value.returncode=0;popen.return_value.poll.return_value=0
-   server.run_job(p.name)
-  self.assertEqual(server.read_meta(p)['status'],'ready')
-  self.assertFalse((p/'qcamera.ts').exists());self.assertFalse((prepared/'camera.mp4').exists())
-  self.assertEqual((p/'camera.mp4').read_bytes(),b'verified-video')
   server.requeue_startup();self.submit.assert_not_called()
   url='/api/logs/'+p.name
   (p/'qcamera.ts').write_bytes(b'ts')
@@ -102,7 +95,7 @@ class ConversionTests(unittest.TestCase):
    row=self.request('get','/api/logs').json['logs'][0]
   self.assertTrue(row['video']);self.assertEqual(row['video_download'],'camera.mp4')
   self.assertEqual(row['bytes'],len(b'logverified-video'))
-  result=self.request('post','/api/upload',data={'files':[(io.BytesIO(b'log'),'rlog.zst'),(io.BytesIO(b'ts'),'qcamera.ts')]})
+  result=self.request('post','/api/upload',data={'files':[(io.BytesIO(b'log'),'rlog.zst')]})
   self.assertEqual(len(result.json['duplicates']),1);self.assertFalse(result.json['duplicates'][0]['video_differs'])
   self.assertFalse((p/'qcamera.ts').exists())
   self.request('delete',url+'/prepared');self.assertTrue((p/'camera.mp4').is_file())
@@ -110,17 +103,83 @@ class ConversionTests(unittest.TestCase):
   self.assertTrue((p/'camera.mp4').is_file())
   self.request('delete',url);self.assertFalse(p.exists())
 
- def test_ts_preserved_when_enabled_or_video_not_verified_or_job_fails(self):
-  for index,(keep,video,failed) in enumerate([(True,{'frames':1},False),(False,None,False),(False,{'frames':1},True)],10):
-   p=self.row(index,'queued');server.keep_original_video=keep
-   prepared=p/'prepared';prepared.mkdir();(prepared/'camera.mp4').write_bytes(b'output')
-   (prepared/'summary.json').write_text(json.dumps(dict(duration=1,warnings=[],model_frames=1,video=video)))
-   with patch.object(server,'ProgressChannel') as channel,patch.object(server.subprocess,'Popen') as popen:
-    channel.return_value.__enter__.return_value.options.return_value={}
-    popen.return_value.communicate.return_value=('','failed');popen.return_value.returncode=int(failed);popen.return_value.poll.return_value=int(failed)
-    server.run_job(p.name)
-   self.assertTrue((p/'qcamera.ts').is_file());self.assertFalse((p/'camera.mp4').exists())
-   response=self.request('get','/api/logs/'+p.name+'/download/video')
-   self.assertEqual(response.mimetype,'video/mp2t');response.close()
+ def legacy_video(self,n,status='ready'):
+  p=self.row(n,status,video=True,decoder_version='v22-adjustable-height',duration=60,conversion_revision=7,auto_excluded=status=='unconverted')
+  meta=server.read_meta(p);meta['files']={'rlog.zst':'rlog.zst','qcamera.ts':'qcamera.ts'}
+  server.stored_digests(p,meta);server.save_meta(p,meta)
+  (p/'qcamera.ts').unlink();(p/'camera.mp4').write_bytes(b'legacy-mp4')
+  (p/'prepared').mkdir();(p/'prepared/data.json').write_text('{}');(p/'prepared/telemetry.json').write_text('{"graphs":[]}')
+  return p
+
+ def test_restore_exact_ts_preserves_state_and_prepared_data(self):
+  for n,status in enumerate(('ready','unconverted','queued','processing'),20):
+   with self.subTest(status=status):
+    p=self.legacy_video(n,status)
+    # Different log bytes keep each subcase independent of content deduplication.
+    log=('log'+str(n)).encode();(p/'rlog.zst').write_bytes(log)
+    before=server.read_meta(p)
+    result=self.request('post','/api/upload',data={'files':[(io.BytesIO(log),'rlog.zst'),(io.BytesIO(b'ts'),'qcamera.ts')]})
+    self.assertEqual(result.status_code,201);self.assertEqual(result.json['logs'],[]);self.assertEqual(result.json['duplicates'],[])
+    self.assertEqual(result.json['updated'][0]['id'],p.name);self.assertTrue(result.json['updated'][0]['original_restored'])
+    after=server.read_meta(p)
+    for key in ('status','uploaded','duration','conversion_revision','auto_excluded'):self.assertEqual(after[key],before[key])
+    self.assertNotIn('original_restored',after);self.submit.assert_not_called()
+    self.assertEqual((p/'qcamera.ts').read_bytes(),b'ts');self.assertEqual((p/'camera.mp4').read_bytes(),b'legacy-mp4')
+    self.assertEqual((p/'prepared/data.json').read_text(),'{}');self.assertEqual((p/'prepared/telemetry.json').read_text(),'{"graphs":[]}')
+    self.assertEqual(after['bytes'],len(log+b'tslegacy-mp4'))
+    response=self.request('get','/api/logs/'+p.name+'/download/video');self.assertEqual(response.data,b'ts');self.assertEqual(response.mimetype,'video/mp2t');response.close()
+    again=self.request('post','/api/upload',data={'files':[(io.BytesIO(log),'rlog.zst'),(io.BytesIO(b'ts'),'qcamera.ts')]})
+    self.assertEqual(again.json['updated'],[]);self.assertFalse(again.json['duplicates'][0]['video_differs'])
+
+ def test_restore_rejects_changed_or_unverifiable_ts_and_video_only(self):
+  p=self.legacy_video(30)
+  for payload in (b'different',b''):
+   result=self.request('post','/api/upload',data={'files':[(io.BytesIO(b'log'),'rlog.zst'),(io.BytesIO(payload),'qcamera.ts')]})
+   self.assertEqual(result.json['updated'],[]);self.assertTrue(result.json['duplicates'][0]['video_differs']);self.assertFalse((p/'qcamera.ts').exists())
+  meta=server.read_meta(p);meta['content_hashes'].pop('qcamera.ts');server.save_meta(p,meta)
+  result=self.request('post','/api/upload',data={'files':[(io.BytesIO(b'log'),'rlog.zst'),(io.BytesIO(b'ts'),'qcamera.ts')]})
+  self.assertTrue(result.json['duplicates'][0]['video_differs']);self.assertFalse((p/'qcamera.ts').exists())
+  self.assertEqual(self.request('post','/api/upload',data={'files':[(io.BytesIO(b'ts'),'qcamera.ts')]}).status_code,400)
+  self.assertEqual((p/'camera.mp4').read_bytes(),b'legacy-mp4');self.submit.assert_not_called()
+
+ def test_chunk_restore_then_remove_preserves_ts_and_discards_regenerable_mp4(self):
+  p=self.legacy_video(40);files=[('rlog.zst',b'log'),('qcamera.ts',b'ts')]
+  session=self.request('post','/api/uploads',json={'files':[{'name':name,'size':len(data)} for name,data in files]}).json['id']
+  for i,(_,payload) in enumerate(files):
+   self.assertEqual(self.request('put',f'/api/uploads/{session}/files/{i}?offset=0',data=payload).status_code,200)
+  result=self.request('post',f'/api/uploads/{session}/finish')
+  self.assertTrue(result.json['updated'][0]['original_restored']);self.assertFalse((server.UPLOADS/session).exists());self.submit.assert_not_called()
+  response=self.request('get','/api/logs/'+p.name+'/video');self.assertEqual(response.data,b'legacy-mp4');response.close()
+  self.assertEqual(self.request('delete','/api/logs/'+p.name+'/prepared').status_code,200)
+  self.assertFalse((p/'camera.mp4').exists());self.assertFalse((p/'prepared').exists());self.assertEqual((p/'qcamera.ts').read_bytes(),b'ts')
+  self.assertEqual(server.read_meta(p)['status'],'unconverted')
+
+ def test_video_retention_preserves_ts_on_failure_and_replaces_only_verified_mp4(self):
+  for index,(keep,video,failed) in enumerate([(True,{'frames':1},False),(False,{'frames':1},False),(False,None,False),(False,{'frames':1},True)],10):
+   with self.subTest(keep=keep,video=video,failed=failed):
+    p=self.row(index,'queued');server.keep_original_video=keep
+    prepared=p/'prepared';prepared.mkdir();(prepared/'camera.mp4').write_bytes(b'output')
+    if index==10:(p/'camera.mp4').write_bytes(b'old-restored-cache')
+    (prepared/'summary.json').write_text(json.dumps(dict(duration=1,warnings=[],model_frames=1,video=video)))
+    with patch.object(server,'ProgressChannel') as channel,patch.object(server.subprocess,'Popen') as popen:
+     channel.return_value.__enter__.return_value.options.return_value={}
+     popen.return_value.communicate.return_value=('','failed');popen.return_value.returncode=int(failed);popen.return_value.poll.return_value=int(failed)
+     server.run_job(p.name)
+    removed=not keep and bool(video) and not failed
+    self.assertEqual((p/'qcamera.ts').exists(),not removed);self.assertEqual((p/'camera.mp4').exists(),removed)
+    self.assertEqual(server.read_meta(p)['status'],'error' if failed else 'ready')
+    self.assertEqual((prepared/'camera.mp4').exists(),not failed and not removed)
+    if removed:self.assertEqual((p/'camera.mp4').read_bytes(),b'output')
+    response=self.request('get','/api/logs/'+p.name+'/download/video')
+    self.assertEqual(response.mimetype,'video/mp4' if removed else 'video/mp2t');response.close()
+
+ def test_restore_while_retention_disabled_does_not_immediately_delete_ts(self):
+  self.assertEqual(self.request('post','/api/settings/processing',json={'keep_original_video':False}).status_code,200)
+  p=self.legacy_video(50)
+  result=self.request('post','/api/upload',data={'files':[(io.BytesIO(b'log'),'rlog.zst'),(io.BytesIO(b'ts'),'qcamera.ts')]})
+  self.assertTrue(result.json['updated'][0]['original_restored'])
+  self.assertFalse(server.keep_original_video);self.assertEqual((p/'qcamera.ts').read_bytes(),b'ts')
+  self.setting(True);server.requeue_startup();self.submit.assert_not_called()
+  self.assertEqual((p/'camera.mp4').read_bytes(),b'legacy-mp4');self.assertTrue((p/'qcamera.ts').exists())
 
 if __name__=='__main__':unittest.main()

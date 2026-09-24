@@ -71,6 +71,11 @@ details[open]>.section-summary .section-disclosure::after, .managed-settings[ope
 .upload-workspace { display: grid; grid-template-columns: minmax(0,1.7fr) minmax(240px,1fr); gap: 32px; margin-top: 26px; }
 .upload-main { min-width: 0; }
 .picker-surface { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 16px; padding: 28px 20px; background: #0e1721; border: 1px dashed #3c5366; border-radius: 12px; }
+.picker-drop-title { display: none; }
+.picker-surface.is-dragover { border-color: var(--lane); border-style: solid; background: #142f2b; box-shadow: inset 0 0 0 1px #57d9b055; }
+.picker-surface.is-dragover .picker-idle-title { display: none; }
+.picker-surface.is-dragover .picker-drop-title { display: inline; }
+.picker-surface.is-dragover .picker-icon, .picker-surface.is-dragover h3 { color: var(--lane); }
 .picker-icon { color: #7997a9; }
 .picker-description h3 { font-size: 15px; }
 .picker-description p { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
@@ -109,6 +114,19 @@ details[open]>.section-summary .section-disclosure::after, .managed-settings[ope
 #uploadStatus { color: var(--lane); font-size: 13px; margin: 12px 0 0; }
 #uploadStatus:empty, #cleanupStatus:empty, #storageStatus:empty { display: none; }
 body.uploading { overscroll-behavior-y: contain; }
+
+/* Explain the conversion before asking the user to configure it. */
+.conversion-overview { margin-top: 24px; padding: 20px; border-left: 2px solid #81b5ff70; border-radius: 0 10px 10px 0; background: #81b5ff06; }
+.conversion-overview h3 { font-size: 14px; }
+.conversion-overview p { font-size: 13px; line-height: 1.75; margin: 8px 0 0; color: var(--muted); }
+.conversion-overview dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px 28px; margin: 16px 0; }
+.conversion-overview dt { font-size: 13px; font-weight: 600; margin-bottom: 5px; }
+.conversion-overview dd { margin: 0; font-size: 13px; line-height: 1.75; color: var(--muted); }
+.conversion-overview .conversion-overview-note { font-size: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 550px) {
+ .conversion-overview { padding: 16px; }
+ .conversion-overview dl { grid-template-columns: 1fr; }
+}
 
 /* Conversion choices are grouped as three equal, independently readable settings. */
 .settings-section-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 28px 0 12px; }

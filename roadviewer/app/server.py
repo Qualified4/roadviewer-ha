@@ -59,10 +59,14 @@ def run_job(id):
      if not (p/'meta.json').exists():return
      m=read_meta(p)
      if m.get('conversion_revision',0)!=revision:return
-     if not keep_original_video and summary.get('video') and (p/'prepared/camera.mp4').is_file():
-      # Preserve the verified MP4 outside disposable analysis before deleting TS.
-      (p/'prepared/camera.mp4').replace(p/'camera.mp4')
-      (p/'qcamera.ts').unlink(missing_ok=True)
+     if summary.get('video') and (p/'prepared/camera.mp4').is_file():
+      if not keep_original_video:
+       # Preserve the verified MP4 before removing the uploaded TS.
+       (p/'prepared/camera.mp4').replace(p/'camera.mp4')
+       (p/'qcamera.ts').unlink(missing_ok=True)
+      elif (p/'qcamera.ts').is_file():
+       (p/'camera.mp4').unlink(missing_ok=True)
+      m['bytes']=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts','camera.mp4') if (p/k).is_file())
      m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v22-adjustable-height');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
@@ -103,6 +107,10 @@ def recording_paths():
 
 def clear_prepared(p,m):
  if (p/'prepared').exists():shutil.rmtree(p/'prepared')
+ # A restored TS makes the formerly sole MP4 regenerable again.
+ if (p/'qcamera.ts').is_file() and (p/'camera.mp4').is_file():
+  (p/'camera.mp4').unlink()
+  m['bytes']=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts') if (p/k).is_file())
  m.update(duration=None,model_frames=None,warnings=[],error=None,conversion_revision=m.get('conversion_revision',0)+1)
 
 def queue_unconverted():
@@ -274,6 +282,15 @@ def register_files(files):
       if match:
        meta,hashes=match
        p=ROOT/meta['id'];meta=read_meta(p)
+       if 'qcamera.ts' in g['hashes'] and not (p/'qcamera.ts').is_file() and (p/'camera.mp4').is_file() and g['hashes']['qcamera.ts']==hashes.get('qcamera.ts'):
+        # Restore the exact original without invalidating the MP4 or analysis in use.
+        target=p/'qcamera.ts';(g['dir']/'qcamera.ts').replace(target);stat=target.stat()
+        meta.setdefault('files',{})['qcamera.ts']=g['files']['qcamera.ts']
+        meta.setdefault('content_hashes',{})['qcamera.ts']={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':g['hashes']['qcamera.ts']}
+        meta['bytes']=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts','camera.mp4') if (p/k).is_file())
+        save_meta(p,meta);existing[g['hashes']['rlog.zst']]=(meta,hashes)
+        updated.append(dict(meta,original_restored=True))
+        continue
        if 'qcamera.ts' in g['hashes'] and not has_video(p):
         # Cancel the old conversion before removing any of its output files.
         proc=processes.get(meta['id'])
@@ -301,7 +318,7 @@ def register_files(files):
  except ValueError as e:return jsonify(error=str(e)),400
  finally:
   # A later registration failure must not strand earlier accepted logs.
-  for id in dict.fromkeys(m['id'] for m in staged+updated if m['status']=='queued'):submit(id)
+  for id in dict.fromkeys(m['id'] for m in staged+updated if m['status']=='queued' and not m.get('original_restored')):submit(id)
 # Small requests pass through HA Ingress and remote proxy upload limits.
 UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)
 CHUNK_SIZE=256*1024
@@ -349,7 +366,7 @@ def upload_failure(id):
  body=request.get_json(silent=True)
  if not isinstance(body,dict):abort(400)
  # No filenames or arbitrary client text in server logs.
- fields={key:body.get(key) for key in ('stage','attempt','offset','status','errorName','visibility')}
+ fields={key:body.get(key) for key in ('stage','attempt','offset','status','errorName','errorCode','elapsedMs','loaded','total','visibility')}
  fields={key:str(value)[:80] for key,value in fields.items()}
  app.logger.warning('Upload failure session=%s details=%s',id,json.dumps(fields))
  return jsonify(recorded=True)

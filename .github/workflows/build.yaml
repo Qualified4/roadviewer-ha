@@ -34,7 +34,9 @@ jobs:
       - run: node tests/telemetry.cjs
       - run: node tests/replay_layout.cjs
       - run: node tests/upload_timeout.cjs
+      - run: node tests/upload_stall.cjs
       - run: node tests/upload_mobile.cjs
+      - run: node tests/upload_drop.cjs
   upload-tests:
     runs-on: ubuntu-latest
     steps:
@@ -77,7 +79,7 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           build-args: |
             BUILD_ARCH=${{ matrix.ha_arch }}
-            BUILD_VERSION=0.3.6
+            BUILD_VERSION=0.3.7
           load: true
           tags: roadviewer:test
           cache-from: type=gha,scope=${{ matrix.arch }}
@@ -90,7 +92,7 @@ jobs:
           python - <<'PYTHON'
           import json, os
           labels = json.load(open('image.json'))[0]['Config']['Labels']
-          assert labels['io.hass.version'] == '0.3.6'
+          assert labels['io.hass.version'] == '0.3.7'
           assert labels['io.hass.type'] == 'app'
           assert labels['io.hass.arch'] == os.environ['EXPECTED_ARCH']
           PYTHON
