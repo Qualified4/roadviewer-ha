@@ -42,7 +42,7 @@ class DeviceAPI:
 
     def manage(self):
         with self.s.lock:
-            return jsonify(enabled=self.s.options.get('device_api_enabled', False), devices=list(self.state['devices'].values()))
+            return jsonify(enabled=self.s.DEVICE_HOST_PORT is not None, host_port=self.s.DEVICE_HOST_PORT, configuration_error=self.s.os.environ.get('RV_DEVICE_PORT_ERROR',''), devices=list(self.state['devices'].values()))
 
     def pairing_ui(self):
         with self.s.lock:

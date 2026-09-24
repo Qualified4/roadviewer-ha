@@ -17,7 +17,7 @@ $('storageForm').onsubmit=async e=>{
  try{const s=await settingsRequest('api/settings/storage',{max_bytes:bytes,policy:$('storagePolicy').value});showStorage(s);$('storageStatus').textContent='저장했습니다.'}catch(e){$('storageStatus').textContent=e.message}finally{$('storageSave').disabled=false}
 };
 async function loadDevices(){
- const data=await api('api/settings/devices');$('deviceStatus').textContent=data.enabled?'HTTPS 장치 API가 켜져 있습니다.':'외부 API가 꺼져 있습니다. 애드온 설정에서 먼저 활성화하세요.';$('pairOpen').disabled=!data.enabled;
+ const data=await api('api/settings/devices');$('deviceStatus').textContent=data.configuration_error||(data.enabled?`HTTPS 장치 API가 켜져 있습니다.${data.host_port?' · 호스트 포트 '+data.host_port:''}`:'외부 API가 꺼져 있습니다. 애드온 구성 → 네트워크에서 8443/tcp에 사용할 포트를 입력하고 재시작하세요.');$('pairOpen').disabled=!data.enabled;
  $('deviceList').replaceChildren(...data.devices.map(d=>{
   const row=document.createElement('div');row.className='device-row';const info=document.createElement('div'),name=document.createElement('strong'),meta=document.createElement('p'),button=document.createElement('button');name.textContent=d.name||d.device_id;
   meta.textContent=`${d.revoked?'연결 해제됨':'활성'} · ${d.dongle_id||d.device_id} · 등록 ${new Date(d.registered_at*1000).toLocaleString()} · 마지막 인증 ${d.last_seen?new Date(d.last_seen*1000).toLocaleString():'없음'}`;
@@ -27,16 +27,21 @@ async function loadDevices(){
 }
 deviceDetails.addEventListener('toggle',()=>{if(deviceDetails.open)loadDevices().catch(e=>$('deviceStatus').textContent=e.message)});
 function renderPairing(p){
- $('pairCode').textContent=p.code||'';
  const remaining=Math.max(0,Math.ceil((p.expires_at||0)-Date.now()/1000));
+ $('pairCode').textContent=p.status==='waiting'&&remaining?p.code||'':'';$('pairCopy').disabled=!$('pairCode').textContent;
  $('pairStatus').textContent=p.status==='paired'?'장치가 연결되었습니다.':p.status==='waiting'&&remaining?`연결 대기 중 · ${remaining}초 남음`:'코드가 만료되었거나 취소되었습니다.';
  if(p.status!=='waiting'||!remaining){clearInterval(pairingTimer);pairingTimer=null;$('pairClose').textContent='닫기';if(p.status==='paired')loadDevices().catch(e=>$('deviceStatus').textContent=e.message)}
 }
 $('pairOpen').onclick=async()=>{
  $('pairOpen').disabled=true;const generation=++pairingGeneration;
- try{const p=await settingsRequest('api/settings/devices/pairing');$('pairClose').textContent='취소';$('pairDialog').showModal();renderPairing(p);
+ try{const p=await settingsRequest('api/settings/devices/pairing');$('pairClose').textContent='취소';$('pairCopyStatus').textContent='';$('pairDialog').showModal();renderPairing(p);
  pairingTimer=setInterval(async()=>{if(pairingBusy)return;pairingBusy=true;try{const status=await api('api/settings/devices/pairing');if(generation===pairingGeneration)renderPairing(status)}catch(e){$('pairStatus').textContent=e.message}finally{pairingBusy=false}},1000);
  }catch(e){$('deviceStatus').textContent=e.message}finally{$('pairOpen').disabled=false}
 };
+$('pairCopy').onclick=async()=>{
+ const code=$('pairCode').textContent,generation=pairingGeneration;if(!code)return;
+ try{await copyTextToClipboard(code,$('pairCopy'));if(generation===pairingGeneration&&$('pairCode').textContent===code)$('pairCopyStatus').textContent='페어링 코드를 복사했습니다.'}
+ catch{if(generation===pairingGeneration&&$('pairCode').textContent===code)$('pairCopyStatus').textContent='복사하지 못했습니다. 코드를 직접 선택해 복사해 주세요.'}
+};
 $('pairClose').onclick=()=>{$('pairDialog').close()};
-$('pairDialog').addEventListener('close',()=>{pairingGeneration++;clearInterval(pairingTimer);pairingTimer=null;$('pairCode').textContent='';settingsRequest('api/settings/devices/pairing',null,'DELETE').catch(e=>$('deviceStatus').textContent=e.message)});
+$('pairDialog').addEventListener('close',()=>{pairingGeneration++;clearInterval(pairingTimer);pairingTimer=null;$('pairCode').textContent='';$('pairCopy').disabled=true;$('pairCopyStatus').textContent='';settingsRequest('api/settings/devices/pairing',null,'DELETE').catch(e=>$('deviceStatus').textContent=e.message)});

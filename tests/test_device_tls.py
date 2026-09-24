@@ -13,7 +13,7 @@ class TLSBoundary(unittest.TestCase):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp);os.chmod(root,0o755)
    subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(root/'key.pem'),'-out',str(root/'cert.pem'),'-days','1','-subj','/CN=localhost','-addext','subjectAltName=DNS:localhost'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-   (root/'wsgi_test.py').write_text("import server\nserver.options['device_api_enabled']=True\napp=server.app\n")
+   (root/'wsgi_test.py').write_text("import server\nserver.DEVICE_HOST_PORT=18443\napp=server.app\n")
    config=nginx_config({'device_certfile':'cert.pem','device_keyfile':'key.pem'}).replace('/ssl/',temp+'/').replace('/tmp/roadviewer-nginx',temp+'/nginx')
    (root/'nginx.conf').write_text(config)
    env={**os.environ,'RV_DATA':str(root/'data'),'RV_INGRESS_ONLY':'0','PYTHONPATH':str(BASE)+os.pathsep+str(root)+os.pathsep+os.environ.get('PYTHONPATH','')}

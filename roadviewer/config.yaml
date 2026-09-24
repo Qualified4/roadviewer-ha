@@ -1,5 +1,5 @@
 name: Road Viewer
-version: "0.3.0"
+version: "0.3.1"
 slug: roadviewer
 description: Openpilot 로그 업로드, 목록, 영상·도로 재생 및 삭제
 arch:
@@ -8,18 +8,17 @@ arch:
 startup: application
 boot: auto
 init: false
+hassio_api: true
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:road-variant
 panel_title: Road Viewer
 options:
   max_upload_mb: 512
-  device_api_enabled: false
   device_certfile: fullchain.pem
   device_keyfile: privkey.pem
 schema:
   max_upload_mb: int(16,2048)
-  device_api_enabled: bool
   device_certfile: str
   device_keyfile: str
 url: https://github.com/Qualified4/roadviewer-ha
@@ -35,7 +34,7 @@ backup_exclude:
 ports:
   8443/tcp: null
 ports_description:
-  8443/tcp: HTTPS device upload API (enable and configure TLS certificates first)
+  8443/tcp: HTTPS 장치 API · 포트 입력 시 켜짐 / 비우면 꺼짐 (인증서 필요)
 map:
   - type: ssl
     read_only: true

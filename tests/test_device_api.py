@@ -11,7 +11,7 @@ class DeviceTests(unittest.TestCase):
  def setUp(self):
   self.stack=ExitStack();self.addCleanup(self.stack.close)
   root=Path(self.stack.enter_context(tempfile.TemporaryDirectory()));uploads=root/'.uploads';uploads.mkdir()
-  for name,value in [('ROOT',root),('UPLOADS',uploads),('auto_convert',False),('options',{'device_api_enabled':True})]:self.stack.enter_context(patch.object(s,name,value))
+  for name,value in [('ROOT',root),('UPLOADS',uploads),('auto_convert',False),('DEVICE_HOST_PORT',18443)]:self.stack.enter_context(patch.object(s,name,value))
   self.stack.enter_context(patch.object(s,'submit'))
   self.stack.enter_context(patch.object(s.devices,'path',root/'.devices.json'))
   self.stack.enter_context(patch.object(s.devices,'state',{'master':'f'*64,'devices':{},'nonces':{},'receipts':{}}))
@@ -40,7 +40,7 @@ class DeviceTests(unittest.TestCase):
   self.assertEqual(r.headers['Cache-Control'],'no-store');self.assertNotIn('Access-Control-Allow-Origin',r.headers)
   r.close()
   self.assertEqual(self.ui_call('/api/device/test').status_code,404)
-  with patch.dict(s.options,device_api_enabled=False):self.assertEqual(self.external('/api/device/test','GET').status_code,404)
+  with patch.object(s,'DEVICE_HOST_PORT',None):self.assertEqual(self.external('/api/device/test','GET').status_code,404)
  def test_pairing_single_use_wrong_expired_cancelled(self):
   for mode in ('wrong','expired','cancelled','used'):
    code=self.ui_call('/api/settings/devices/pairing','POST').json['code']

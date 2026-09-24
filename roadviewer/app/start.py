@@ -1,6 +1,28 @@
 """Keep one Gunicorn worker/state; nginx terminates optional device TLS."""
-import json, os, re, signal, subprocess, time
+import json, os, re, signal, subprocess, time, sys
+from urllib.request import Request, urlopen
 from pathlib import Path
+
+
+def device_host_port():
+    """Read only our own Supervisor port mapping; never change host networking."""
+    token = os.environ.get('SUPERVISOR_TOKEN')
+    if not token: return None, 'Supervisor 포트 정보를 확인할 수 없습니다. Home Assistant에서 앱을 재시작하세요.'
+    req = Request('http://supervisor/addons/self/info', headers={'Authorization': 'Bearer ' + token})
+    for attempt in range(3):
+        try:
+            with urlopen(req, timeout=5) as response: result = json.load(response)
+            if result.get('result') != 'ok': raise ValueError('Supervisor response')
+            network = result['data']['network']
+            if not isinstance(network, dict): raise ValueError('Invalid network mapping')
+            value = network.get('8443/tcp')
+            if value is None: return None, None
+            if type(value) is str and value.isdecimal(): value = int(value)
+            if type(value) is not int or not 1 <= value <= 65535: raise ValueError('Invalid host port')
+            return value, None
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            if attempt < 2: time.sleep(1)
+    return None, 'Supervisor 포트 조회에 실패해 외부 API를 껐습니다. 네트워크 설정을 확인하고 앱을 재시작하세요.'
 
 def nginx_config(options):
     paths = []
@@ -49,6 +71,9 @@ http {{
 
 def main():
     options = json.loads(Path('/data/options.json').read_text()) if Path('/data/options.json').exists() else {}
+    port, port_error = device_host_port()
+    child_env = {**os.environ, 'RV_DEVICE_HOST_PORT': str(port or 0), 'RV_DEVICE_PORT_ERROR': port_error or ''}
+    if port_error: print(port_error, file=sys.stderr)
     children = []; stopped = False
     def stop(*_):
         nonlocal stopped
@@ -57,14 +82,14 @@ def main():
             if child.poll() is None: child.terminate()
     signal.signal(signal.SIGTERM, stop); signal.signal(signal.SIGINT, stop)
     try:
-        if options.get('device_api_enabled', False):
+        if port is not None:
             Path('/tmp/roadviewer-nginx.conf').write_text(nginx_config(options))
             subprocess.run(['nginx', '-t', '-c', '/tmp/roadviewer-nginx.conf'], check=True)
             children.append(subprocess.Popen(['nginx', '-c', '/tmp/roadviewer-nginx.conf', '-g', 'daemon off;']))
-        children.append(subprocess.Popen(['gunicorn', '--bind', '0.0.0.0:8099', '--bind', '127.0.0.1:8098', '--workers', '1', '--threads', '4', '--timeout', '180', 'server:app']))
+        children.append(subprocess.Popen(['gunicorn', '--bind', '0.0.0.0:8099', '--bind', '127.0.0.1:8098', '--workers', '1', '--threads', '4', '--timeout', '180', 'server:app'], env=child_env))
         last_check = 0; cert_stamp = None
         while not stopped and all(child.poll() is None for child in children):
-            if options.get('device_api_enabled') and time.monotonic() - last_check > 60:
+            if port is not None and time.monotonic() - last_check > 60:
                 last_check = time.monotonic()
                 try:
                     stamp = tuple((Path('/ssl') / options.get(k, default)).stat().st_mtime_ns for k, default in [('device_certfile','fullchain.pem'),('device_keyfile','privkey.pem')])

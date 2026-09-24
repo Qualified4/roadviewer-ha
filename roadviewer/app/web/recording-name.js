@@ -1,4 +1,13 @@
 'use strict';
+async function copyTextToClipboard(value,button){
+ try{if(!navigator.clipboard?.writeText)throw Error('Clipboard unavailable');await navigator.clipboard.writeText(value)}
+ catch{
+  const input=document.createElement('textarea');input.value=value;input.className='clipboard-fallback';input.readOnly=true;
+  (button.closest('dialog')||document.body).append(input);
+  try{input.select();if(!document.execCommand('copy'))throw Error('Copy failed')}
+  finally{input.remove();button.focus({preventScroll:true})}
+ }
+}
 function recordingIdentity(name,files={}){
  const source=(files['rlog.zst']||'').replaceAll('\\','/').split('/').pop().replace(/--rlog\.zst$/,'');
  const parse=value=>/^([^-\s]+)--([^-\s]+)--(\d+)$/.exec(value||'');
@@ -20,13 +29,7 @@ function renderRecordingName(container,name,files={}){
  button.onclick=async e=>{
   e.stopPropagation();clearTimeout(timer);
   try{
-   try{if(!navigator.clipboard?.writeText)throw Error('Clipboard unavailable');await navigator.clipboard.writeText(info.original)}
-   catch{
-    const input=document.createElement('textarea');input.value=info.original;input.className='clipboard-fallback';input.readOnly=true;
-    (button.closest('dialog')||document.body).append(input);
-    try{input.select();if(!document.execCommand('copy'))throw Error('Copy failed')}
-    finally{input.remove();button.focus({preventScroll:true})}
-   }
+   await copyTextToClipboard(info.original,button);
    icon.textContent='✓';status.textContent='복사했습니다.';button.title='복사했습니다.';
   }catch{icon.textContent='!';status.textContent='복사하지 못했습니다.';button.title='복사하지 못했습니다. 다시 시도해 주세요.'}
   timer=setTimeout(()=>{icon.innerHTML=svg;status.textContent='';button.title=info.original+' 복사'},1800);

@@ -12,6 +12,7 @@ from device_api import DeviceAPI
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
 options_path=Path('/data/options.json');options=json.loads(options_path.read_text()) if options_path.exists() else {}
+DEVICE_HOST_PORT=int(os.environ.get('RV_DEVICE_HOST_PORT','0')) or None
 app=Flask(__name__,static_folder=None)
 app.config.update(MAX_CONTENT_LENGTH=int(options.get('max_upload_mb',512))*1024*1024,MAX_FORM_PARTS=220)
 lock=threading.RLock();processes={};job_progress={};active_uploads=Counter();finishing_uploads=set();registration_lock=threading.Lock()
@@ -137,7 +138,7 @@ def access():
  # A separate loopback listener receives ONLY nginx's device API traffic.
  listener=request.environ.get('gunicorn.socket')
  if listener is not None and listener.getsockname()[1]==8098:
-  if request.remote_addr!='127.0.0.1' or not options.get('device_api_enabled',False) or not request.path.startswith('/api/device/'):
+  if request.remote_addr!='127.0.0.1' or DEVICE_HOST_PORT is None or not request.path.startswith('/api/device/'):
    abort(404)
   request.max_content_length=CHUNK_SIZE+1 if request.method=='PUT' else 65536
   return

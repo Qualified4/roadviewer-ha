@@ -10,12 +10,11 @@ Base URL: `https://<certificate-domain>:<WAN-port>` (no path prefix), for exampl
 2. Road Viewer add-on options:
    ```yaml
    max_upload_mb: 512
-   device_api_enabled: true
    device_certfile: fullchain.pem
    device_keyfile: privkey.pem
    ```
-   The certificate options are filenames directly under `/ssl`, not absolute paths. Road Viewer mounts `/ssl` read-only. It does not request or renew certificates.
-3. In the add-on Network settings, map **8443/tcp** to an unused host TCP port, for example **18443**. This mapping is disabled by default (`null`). Restart after changing options/ports. Missing or invalid certificates with the device API enabled cause startup to fail closed; correct the files or disable the device API.
+   The certificate options are filenames directly under `/ssl`, not absolute paths. Road Viewer mounts `/ssl` read-only. It does not request or renew certificates. On startup it reads only `GET http://supervisor/addons/self/info` to obtain `network["8443/tcp"]`; it does not change Supervisor networking. If this lookup fails, external HTTPS stays disabled and Ingress shows a configuration error. There is no separate `device_api_enabled` option.
+3. In the add-on Network settings, map **8443/tcp** to an unused host TCP port, for example **18443**. This mapping is disabled by default (`null`) and is the only on/off control: assign a host port to enable the HTTPS API, clear it to disable. Restart after changing options/ports. Missing or invalid certificates with a mapped port cause startup to fail closed; correct the files or clear the port mapping.
 4. UniFi: `WAN TCP 18443 → Home Assistant Green LAN IP TCP 18443` (the host mapping above). Alternatively choose host 18099 and forward `18443 → 18099`. Do not forward the Ingress HTTP port 8099 or private upstream 8098.
 5. Verify DNS resolves to your WAN, certificate trust and firewall rules from outside your LAN. Certificate verification must remain enabled on the device.
 
@@ -27,7 +26,7 @@ Home Assistant configuration reference: [ports and SSL mounts](https://developer
 
 ## Pairing
 
-In the Ingress UI, open **변환 및 저장 설정 → 외부 장치 연결 → 새 장치 연결**. A 96-bit random, 24-character uppercase hex code is shown with a countdown. It lasts **300 seconds**. Creating another code replaces the previous code. Cancel, expiry, a successful pair, or server restart invalidates it. A successful code is consumed under the same lock as credential creation. The UI shows waiting/paired/expired states. Pairing has a global limit of 10 valid-shape attempts/minute; at most 100 device records are retained.
+In the Ingress UI, open **로그 업로드 → 외부 장치 연결 → 새 장치 연결**. A 96-bit random, 24-character uppercase hex code is shown with a countdown. It lasts **300 seconds**. Creating another code replaces the previous code. Cancel, expiry, a successful pair, or server restart invalidates it. A successful code is consumed under the same lock as credential creation. The UI shows waiting/paired/expired states. Pairing has a global limit of 10 valid-shape attempts/minute; at most 100 device records are retained.
 
 `POST /api/device/pair`, `Content-Type: application/json`:
 
@@ -166,7 +165,7 @@ Incomplete finish (409) keeps the session for remaining bytes. Checksum failure 
 
 ## Revoke and authentication state
 
-Ingress-only `GET /api/settings/devices` provides name, optional dongle_id, registered_at, last_seen (last HMAC authentication), revoked flag and device_id, never credentials. `POST /api/settings/devices/<device_id>/revoke` permanently revokes that ID. New HMAC requests **and subsequent token requests** are rejected. Idle sessions are removed immediately; an in-flight operation may complete, and its leftover temporary session is removed by expiry cleanup. Existing recordings are not deleted. Re-pair for a new ID; a revoked device cannot reactivate itself.
+Ingress-only `GET /api/settings/devices` provides name, optional dongle_id, registered_at, last_seen (last HMAC authentication), revoked flag and device_id, never credentials. The response also includes `enabled`, `host_port` (null when disabled), and `configuration_error` for startup port discovery failures. `POST /api/settings/devices/<device_id>/revoke` permanently revokes that ID. New HMAC requests **and subsequent token requests** are rejected. Idle sessions are removed immediately; an in-flight operation may complete, and its leftover temporary session is removed by expiry cleanup. Existing recordings are not deleted. Re-pair for a new ID; a revoked device cannot reactivate itself.
 
 ## Storage limits, reservations and Pin
 
@@ -218,8 +217,8 @@ python3 -m venv /tmp/roadviewer-test-env
 실제 HTTPS/Nginx/Gunicorn 경계까지 확인하려면 Docker가 동작하는 WSL/Linux에서:
 
 ```bash
-docker build -t roadviewer:0.3.0 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.3.0 /tests/test_device_tls.py
+docker build -t roadviewer:0.3.1 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.3.1 /tests/test_device_tls.py
 ```
 
 임시 테스트 인증서를 신뢰하도록 설정한 테스트 클라이언트로 HTTPS 페어링·서명된 세션 생성과 UI 접근 차단을 검사합니다. 서버와 클라이언트가 컨테이너 내부에서 통신하므로 호스트 포트 공개나 공유기 설정은 필요하지 않습니다. 이미지 빌드에는 인터넷 연결이 필요합니다. 이 검사는 실제 Home Assistant/UniFi의 DNS·NAT 설정을 확인하지 않습니다.
