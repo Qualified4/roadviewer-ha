@@ -7,9 +7,14 @@ function resetPairCopy(){
  clearTimeout(pairCopyTimer);pairCopyTimer=null;
  $('pairCopyIcon').innerHTML=COPY_ICON;$('pairCopyStatus').textContent='';$('pairCopy').title='페어링 코드 복사';
 }
-let pairingTimer=null,pairingBusy=false,pairingGeneration=0;
+let pairingTimer=null,pairingBusy=false,pairingGeneration=0,pairingIssuing=false;
 const settingsRequest=(url,body,method='POST')=>api(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
-function showStorage(s){$('storageUsage').textContent=`사용 중 ${storageSize(s.used_bytes)} / ${s.max_bytes?storageSize(s.max_bytes):'제한 없음'} · 디스크 여유 ${storageSize(s.free_bytes)} · 업로드 예약 ${storageSize(s.reserved_bytes)}`}
+function showStorage(s){
+ $('storageUsed').textContent=storageSize(s.used_bytes);
+ $('storageMaximum').textContent=s.max_bytes?storageSize(s.max_bytes):'제한 없음';
+ $('storageFree').textContent=storageSize(s.free_bytes);
+ $('storageReserved').textContent=storageSize(s.reserved_bytes);
+}
 storageDetails.addEventListener('toggle',async()=>{
  if(!storageDetails.open)return;
  try{const s=await api('api/settings/storage');showStorage(s);const gb=s.max_bytes/1073741824;$('storageLimit').value=[0,10,20,50,100].includes(gb)?String(gb):'custom';$('storageCustom').value=gb||10;$('storageCustomLabel').hidden=$('storageLimit').value!=='custom';$('storagePolicy').value=s.policy;for(const id of ['storageLimit','storagePolicy'])$(id).dispatchEvent(new Event('rv:sync'));$('storageSave').disabled=false}catch(e){$('storageStatus').textContent=e.message}
@@ -40,16 +45,44 @@ async function loadDevices(){
 deviceDetails.addEventListener('toggle',()=>{if(deviceDetails.open){loadNetwork();loadDevices().catch(e=>$('deviceStatus').textContent=e.message)}});
 function renderPairing(p){
  const remaining=Math.max(0,Math.ceil((p.expires_at||0)-Date.now()/1000));
- $('pairCode').textContent=p.status==='waiting'&&remaining?p.code||'':'';$('pairCopy').disabled=!$('pairCode').textContent;
- $('pairStatus').textContent=p.status==='paired'?'장치가 연결되었습니다.':p.status==='waiting'&&remaining?`연결 대기 중 · ${remaining}초 남음`:'코드가 만료되었거나 취소되었습니다.';
- if(p.status!=='waiting'||!remaining){clearInterval(pairingTimer);pairingTimer=null;$('pairClose').textContent='닫기';if(p.status==='paired')loadDevices().catch(e=>$('deviceStatus').textContent=e.message)}
+ const waiting=p.status==='waiting'&&remaining>0,paired=p.status==='paired';
+ $('pairDialog').dataset.state=waiting?'waiting':paired?'paired':'expired';
+ $('pairCode').textContent=waiting?p.code||'':'';$('pairCopy').disabled=!waiting;
+ $('pairCode').parentElement.hidden=!waiting;$('pairEmpty').hidden=waiting;
+ $('pairEmpty').textContent=paired?'연결 완료':'코드가 만료되었습니다';
+ $('pairState').textContent=waiting?'연결 대기':paired?'인증 완료':'유효 기간 종료';
+ $('pairDescription').textContent=paired?'이제 장치에서 로그와 영상을 업로드할 수 있습니다.':'장치의 Road Viewer 연결 화면에 아래 코드를 입력하세요.';
+ $('pairLifetime').hidden=!waiting;$('pairLifetime').value=remaining;
+ $('pairStatus').textContent=paired?'장치가 연결되었습니다.':waiting?`연결 대기 중 · ${remaining}초 남음`:'새 코드를 발급해 다시 연결하세요.';
+ $('pairClose').textContent=waiting?'취소':'닫기';
+ if(!waiting){clearInterval(pairingTimer);pairingTimer=null;if(paired)loadDevices().catch(e=>$('deviceStatus').textContent=e.message)}
 }
-$('pairOpen').onclick=async()=>{
- $('pairOpen').disabled=true;const generation=++pairingGeneration;
- try{const p=await settingsRequest('api/settings/devices/pairing');$('pairClose').textContent='취소';resetPairCopy();$('pairDialog').showModal();renderPairing(p);
- pairingTimer=setInterval(async()=>{if(pairingBusy)return;pairingBusy=true;try{const status=await api('api/settings/devices/pairing');if(generation===pairingGeneration)renderPairing(status)}catch(e){$('pairStatus').textContent=e.message}finally{pairingBusy=false}},1000);
- }catch(e){$('deviceStatus').textContent=e.message}finally{$('pairOpen').disabled=false}
-};
+function pollPairing(generation){
+ clearInterval(pairingTimer);
+ pairingTimer=setInterval(async()=>{
+  if(pairingBusy)return;pairingBusy=true;
+  try{const status=await api('api/settings/devices/pairing');if(generation===pairingGeneration)renderPairing(status)}
+  catch(e){if(generation===pairingGeneration)$('pairStatus').textContent=e.message}
+  finally{pairingBusy=false}
+ },1000);
+}
+async function issuePairing(){
+ if(pairingIssuing)return;
+ pairingIssuing=true;const generation=++pairingGeneration;
+ clearInterval(pairingTimer);resetPairCopy();
+ $('pairOpen').disabled=true;$('pairRenew').disabled=true;$('pairClose').disabled=true;$('pairCopy').disabled=true;
+ try{
+  const p=await settingsRequest('api/settings/devices/pairing');
+  if(!$('pairDialog').open)$('pairDialog').showModal();
+  renderPairing(p);if(p.status==='waiting')pollPairing(generation);
+ }catch(e){
+  if($('pairDialog').open){$('pairStatus').textContent=e.message;pollPairing(generation)}
+  else $('deviceStatus').textContent=e.message;
+ }finally{pairingIssuing=false;$('pairOpen').disabled=false;$('pairRenew').disabled=false;$('pairClose').disabled=false}
+}
+$('pairOpen').onclick=issuePairing;
+$('pairRenew').onclick=issuePairing;
+$('pairDialog').addEventListener('cancel',e=>{if(pairingIssuing)e.preventDefault()});
 $('pairCopy').onclick=async()=>{
  const code=$('pairCode').textContent,generation=pairingGeneration;if(!code)return;
  clearTimeout(pairCopyTimer);let copied=false;

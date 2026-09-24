@@ -24,7 +24,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('#concurrencyChoice').textContent(),'1개');
   for(const value of [2,3,4]){
    await page.locator('#concurrencyChoice').click();await page.getByRole('option',{name:value+'개',exact:true}).click();
-   await page.waitForFunction(value=>document.getElementById('concurrencyStatus').textContent.includes(value+'개'),value);
+   await page.waitForFunction(value=>document.getElementById('concurrencyChoice').textContent===value+'개',value);
    assert.equal(concurrency,value);assert.equal(writes,value-1);
    await page.reload();await page.waitForFunction(value=>document.getElementById('concurrencyChoice')?.textContent===value+'개',value);
   }

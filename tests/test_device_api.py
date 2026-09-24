@@ -51,6 +51,14 @@ class DeviceTests(unittest.TestCase):
    if mode=='cancelled':self.ui_call('/api/settings/devices/pairing','DELETE')
    if mode=='used':self.assertEqual(self.external('/api/device/pair',json={'code':code,'metadata':{'name':'second'}}).status_code,201)
    self.assertEqual(self.external('/api/device/pair',json={'code':code,'metadata':{'name':'bad'}}).status_code,401)
+ def test_renewed_code_rejects_previous_code_and_preserves_existing_device(self):
+  old=self.ui_call('/api/settings/devices/pairing','POST').json['code']
+  new=self.ui_call('/api/settings/devices/pairing','POST').json['code']
+  self.assertNotEqual(old,new)
+  self.assertEqual(self.external('/api/device/pair',json={'code':old,'metadata':{'name':'old code'}}).status_code,401)
+  self.assertEqual(self.external('/api/device/pair',json={'code':new,'metadata':{'name':'new device'}}).status_code,201)
+  self.assertFalse(s.devices.state['devices'][self.device['device_id']]['revoked'])
+  self.assertEqual(self.signed().status_code,201)
  def test_pairing_rate_limit_and_no_secret_readback(self):
   for _ in range(10):self.external('/api/device/pair',json={'code':'wrong','metadata':{'name':'bad'}})
   self.assertEqual(self.external('/api/device/pair',json={'code':'wrong','metadata':{'name':'bad'}}).status_code,429)

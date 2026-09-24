@@ -41,7 +41,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  await page.getByRole('button',{name:'구간 고정',exact:true}).click();await page.locator('.pin-badge').waitFor();assert(pinned);
  assert.equal(await page.locator('.pin-recording').getAttribute('aria-pressed'),'true');
  await page.getByRole('button',{name:'구간 고정 해제',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.pin-badge'));assert(!pinned);
- await page.locator('#deviceSettings summary').click();
+ await page.locator('#deviceSettings > summary').click();
  await page.waitForFunction(()=>!document.getElementById('deviceNetworkEnabled').disabled);
  await page.locator('#deviceNetworkEnabled').uncheck();assert(await page.locator('#devicePortField').isHidden());
  await page.locator('#deviceNetworkSave').click();await page.waitForFunction(()=>!document.getElementById('deviceNetworkRestart').hidden);assert.equal(network.configured_port,null);assert.equal(network.active_port,18443);
