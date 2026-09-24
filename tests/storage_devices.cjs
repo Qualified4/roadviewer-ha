@@ -3,12 +3,26 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  const browser=await chromium.launch({headless:true});
  try{
  const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
- let pinned=false,settings={max_bytes:0,policy:'reject_new',used_bytes:200,free_bytes:5000000,reserved_bytes:0},pair={status:'cancelled'},devices=[],revoke=false;
+ let pinned=false,settings={max_bytes:0,policy:'reject_new',used_bytes:200,free_bytes:5000000,reserved_bytes:0},pair={status:'cancelled'},devices=[],revoke=false,network={configured_port:18443,active_port:18443,restart_required:false,boot_id:'boot-one',restarting:false,restart_error:''},networkSaveError=false,networkRestartError=false,restartPolls=0;
  await page.route('https://rv.test/**',route=>{
   const req=route.request(),p=new URL(req.url()).pathname;
   if(p==='/api/logs')return route.fulfill({json:{logs:[{id:'one',name:'00000395--0d0eda17c5 / 구간 7',status:'unconverted',uploaded:1,bytes:50,prepared_bytes:0,video:false,pinned}],max_upload_mb:512,storage_used_bytes:200}});
   if(p==='/api/settings/storage'){if(req.method()==='POST')settings={...settings,...req.postDataJSON()};return route.fulfill({json:settings})}
   if(p==='/api/logs/one/pin'){pinned=req.postDataJSON().pinned;return route.fulfill({json:{pinned}})}
+  if(p==='/api/settings/device-network'){
+   if(req.method()==='POST'){
+    if(networkSaveError)return route.fulfill({status:502,json:{error:'supervisor_unavailable',message:'설정 저장 실패'}});
+    const body=req.postDataJSON();network.configured_port=body.enabled?body.port:null;network.restart_required=network.configured_port!==network.active_port;
+   }else if(network.restarting){
+    restartPolls++;
+    if(restartPolls>2){network.boot_id='boot-two';network.active_port=network.configured_port;network.restart_required=false;network.restarting=false}
+   }
+   return route.fulfill({json:network});
+  }
+  if(p==='/api/settings/device-network/restart'){
+   if(networkRestartError)return route.fulfill({status:502,json:{error:'supervisor_unavailable',message:'재시작 요청 실패'}});
+   network.restarting=true;return route.fulfill({status:202,json:network});
+  }
   if(p==='/api/settings/devices')return route.fulfill({json:{enabled:true,devices}});
   if(p==='/api/settings/devices/pairing'){
    if(req.method()==='POST')pair={status:'waiting',code:'ABCDEF123456ABCDEF123456',expires_at:Date.now()/1000+300};
@@ -27,7 +41,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  await page.getByRole('button',{name:'구간 고정',exact:true}).click();await page.locator('.pin-badge').waitFor();assert(pinned);
  assert.equal(await page.locator('.pin-recording').getAttribute('aria-pressed'),'true');
  await page.getByRole('button',{name:'구간 고정 해제',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.pin-badge'));assert(!pinned);
- await page.locator('#deviceSettings summary').click();await page.locator('#pairOpen').click();await page.locator('#pairDialog[open]').waitFor();assert.equal(await page.locator('#pairCode').textContent(),'ABCDEF123456ABCDEF123456');
+ await page.locator('#deviceSettings summary').click();
+ await page.waitForFunction(()=>!document.getElementById('deviceNetworkEnabled').disabled);
+ await page.locator('#deviceNetworkEnabled').uncheck();assert(await page.locator('#devicePortField').isHidden());
+ await page.locator('#deviceNetworkSave').click();await page.waitForFunction(()=>!document.getElementById('deviceNetworkRestart').hidden);assert.equal(network.configured_port,null);assert.equal(network.active_port,18443);
+ await page.locator('#deviceNetworkEnabled').check();await page.locator('#deviceNetworkPort').fill('19443');
+ networkSaveError=true;await page.locator('#deviceNetworkSave').click();await page.getByText('설정 저장 실패',{exact:true}).waitFor();assert.equal(network.configured_port,null);assert.equal(await page.locator('#deviceNetworkPort').inputValue(),'19443');
+ networkSaveError=false;await page.locator('#deviceNetworkSave').click();await page.waitForFunction(()=>document.getElementById('deviceNetworkStatus').textContent.includes('재시작 후 적용'));assert.equal(network.configured_port,19443);
+ networkRestartError=true;await page.locator('#deviceNetworkRestart').click();await page.getByText('재시작 요청 실패',{exact:true}).waitFor();assert(!network.restarting);
+ networkRestartError=false;await page.locator('#deviceNetworkRestart').click();await page.waitForFunction(()=>document.getElementById('deviceNetworkRestart').hidden);assert.equal(network.boot_id,'boot-two');assert.equal(network.active_port,19443);assert(restartPolls>2);
+ await page.locator('#pairOpen').click();await page.locator('#pairDialog[open]').waitFor();assert.equal(await page.locator('#pairCode').textContent(),'ABCDEF123456ABCDEF123456');
  for(const width of [320,390,1280]){
   await page.setViewportSize({width,height:844});
   const layout=await page.locator('#pairDialog').evaluate(el=>{

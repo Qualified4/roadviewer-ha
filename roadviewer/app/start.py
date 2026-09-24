@@ -1,28 +1,16 @@
 """Keep one Gunicorn worker/state; nginx terminates optional device TLS."""
 import json, os, re, signal, subprocess, time, sys
-from urllib.request import Request, urlopen
+from device_network import supervisor, mapped_port
 from pathlib import Path
 
 
 def device_host_port():
-    """Read only our own Supervisor port mapping; never change host networking."""
-    token = os.environ.get('SUPERVISOR_TOKEN')
-    if not token: return None, 'Supervisor 포트 정보를 확인할 수 없습니다. Home Assistant에서 앱을 재시작하세요.'
-    req = Request('http://supervisor/addons/self/info', headers={'Authorization': 'Bearer ' + token})
+    """Read the same mapping edited by Road Viewer's internal settings UI."""
     for attempt in range(3):
-        try:
-            with urlopen(req, timeout=5) as response: result = json.load(response)
-            if result.get('result') != 'ok': raise ValueError('Supervisor response')
-            network = result['data']['network']
-            if not isinstance(network, dict): raise ValueError('Invalid network mapping')
-            value = network.get('8443/tcp')
-            if value is None: return None, None
-            if type(value) is str and value.isdecimal(): value = int(value)
-            if type(value) is not int or not 1 <= value <= 65535: raise ValueError('Invalid host port')
-            return value, None
+        try: return mapped_port(supervisor('info', timeout=5)), None
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             if attempt < 2: time.sleep(1)
-    return None, 'Supervisor 포트 조회에 실패해 외부 API를 껐습니다. 네트워크 설정을 확인하고 앱을 재시작하세요.'
+    return None, 'Supervisor 포트 조회에 실패해 외부 API를 껐습니다. 외부 장치 연결에서 설정을 확인하고 앱을 재시작하세요.'
 
 def nginx_config(options):
     paths = []

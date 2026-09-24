@@ -147,6 +147,7 @@ body.uploading{overscroll-behavior-y:contain}
 .managed-settings p{font-size:13px;line-height:1.65;color:var(--muted,#94a3b8)}
 .settings-fields{display:flex;gap:16px;flex-wrap:wrap}.settings-fields label{display:flex;flex-direction:column;gap:8px;font-size:13px;flex:1;min-width:180px}.settings-fields label[hidden]{display:none}
 .settings-fields input,.settings-fields select{box-sizing:border-box;max-width:100%;padding:10px;border-radius:8px;background:#111c2d;color:#e2e8f0;border:1px solid #334155}
+.device-network-form{margin:16px 0;border-bottom:1px solid var(--line);padding-bottom:12px}.device-network-form .setting-row{padding-top:0}.device-network-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.device-network-form .settings-fields{max-width:280px}
 #pairOpen{display:block;margin:8px 0 16px}
 .device-row{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid #334155;padding:16px 0}.device-row>div{min-width:0}.device-row p{overflow-wrap:anywhere}.device-row button{flex-shrink:0}
 .pair-body{display:grid;gap:18px;line-height:1.7}.pair-code-section{display:grid;gap:8px}.pair-code-label{font-size:12px;color:var(--text)}

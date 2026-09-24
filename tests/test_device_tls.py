@@ -36,7 +36,7 @@ class TLSBoundary(unittest.TestCase):
      time.sleep(.1)
     else:
      logs.seek(0);self.fail(logs.read())
-    for path in ('/','/api/logs','/api/settings/devices','/api/uploads','/assets/library.js','/api/device/../logs'):
+    for path in ('/','/api/logs','/api/settings/devices','/api/settings/device-network','/api/settings/device-network/restart','/api/uploads','/assets/library.js','/api/device/../logs'):
      code,_=call(path,headers={'Host':'localhost:8099','X-Forwarded-For':'172.30.32.2'});self.assertEqual(code,404,path)
     self.assertEqual(call('/api/device/pair',tls=False,headers={'Host':'localhost:8098'})[0],404)
     with urllib.request.urlopen('https://localhost:8443/api/device/test',context=context,timeout=5) as response:

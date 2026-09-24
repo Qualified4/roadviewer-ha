@@ -1,5 +1,5 @@
 name: Road Viewer
-version: "0.3.4"
+version: "0.3.5"
 slug: roadviewer
 description: Openpilot 로그 업로드, 목록, 영상·도로 재생 및 삭제
 arch:
@@ -34,7 +34,7 @@ backup_exclude:
 ports:
   8443/tcp: null
 ports_description:
-  8443/tcp: HTTPS 장치 API · 포트 입력 시 켜짐 / 비우면 꺼짐 (인증서 필요)
+  8443/tcp: HTTPS 장치 API · Road Viewer의 외부 장치 연결에서 설정
 map:
   - type: ssl
     read_only: true

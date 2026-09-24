@@ -23,7 +23,7 @@ $('storageForm').onsubmit=async e=>{
  try{const s=await settingsRequest('api/settings/storage',{max_bytes:bytes,policy:$('storagePolicy').value});showStorage(s);$('storageStatus').textContent='저장했습니다.'}catch(e){$('storageStatus').textContent=e.message}finally{$('storageSave').disabled=false}
 };
 async function loadDevices(){
- const data=await api('api/settings/devices');$('deviceStatus').textContent=data.configuration_error||(data.enabled?`HTTPS 장치 API가 켜져 있습니다.${data.host_port?' · 호스트 포트 '+data.host_port:''}`:'외부 API가 꺼져 있습니다. 애드온 구성 → 네트워크에서 8443/tcp에 사용할 포트를 입력하고 재시작하세요.');$('pairOpen').disabled=!data.enabled;
+ const data=await api('api/settings/devices');$('deviceStatus').textContent=data.configuration_error||(data.enabled?`HTTPS 장치 API가 켜져 있습니다.${data.host_port?' · 호스트 포트 '+data.host_port:''}`:'외부 API가 꺼져 있습니다. 위에서 외부 연결을 켜고 포트를 저장한 뒤 재시작하세요.');$('pairOpen').disabled=!data.enabled;
  $('deviceList').replaceChildren(...data.devices.map(d=>{
   const row=document.createElement('div');row.className='device-row';const info=document.createElement('div'),name=document.createElement('strong'),meta=document.createElement('p'),button=document.createElement('button');name.textContent=d.name||d.device_id;
   meta.textContent=`${d.revoked?'연결 해제됨':'활성'} · ${d.dongle_id||d.device_id} · 등록 ${new Date(d.registered_at*1000).toLocaleString()} · 마지막 인증 ${d.last_seen?new Date(d.last_seen*1000).toLocaleString():'없음'}`;
@@ -37,7 +37,7 @@ async function loadDevices(){
   info.append(name,meta);row.append(info,button);return row;
  }));
 }
-deviceDetails.addEventListener('toggle',()=>{if(deviceDetails.open)loadDevices().catch(e=>$('deviceStatus').textContent=e.message)});
+deviceDetails.addEventListener('toggle',()=>{if(deviceDetails.open){loadNetwork();loadDevices().catch(e=>$('deviceStatus').textContent=e.message)}});
 function renderPairing(p){
  const remaining=Math.max(0,Math.ceil((p.expires_at||0)-Date.now()/1000));
  $('pairCode').textContent=p.status==='waiting'&&remaining?p.code||'':'';$('pairCopy').disabled=!$('pairCode').textContent;
@@ -63,3 +63,63 @@ $('pairCopy').onclick=async()=>{
 };
 $('pairClose').onclick=()=>{$('pairDialog').close()};
 $('pairDialog').addEventListener('close',()=>{pairingGeneration++;clearInterval(pairingTimer);pairingTimer=null;$('pairCode').textContent='';$('pairCopy').disabled=true;resetPairCopy();settingsRequest('api/settings/devices/pairing',null,'DELETE').catch(e=>$('deviceStatus').textContent=e.message)});
+
+let networkSettings=null,networkSaving=false,networkDirty=false;
+function networkFormState(){
+ const enabled=$('deviceNetworkEnabled').checked,locked=networkSaving||networkRestarting||!networkSettings;
+ $('deviceNetworkEnabled').disabled=locked;$('devicePortField').hidden=!enabled;
+ $('deviceNetworkPort').disabled=locked||!enabled;$('deviceNetworkPort').required=enabled;
+ $('deviceNetworkState').textContent=enabled?'켜짐':'꺼짐';
+ $('deviceNetworkSave').disabled=locked||!networkDirty;
+ $('deviceNetworkRestart').disabled=locked||networkDirty;
+}
+function showNetwork(data){
+ networkSettings=data;networkDirty=false;
+ $('deviceNetworkEnabled').checked=data.configured_port!==null;
+ if(data.configured_port!==null)$('deviceNetworkPort').value=String(data.configured_port);
+ $('deviceNetworkRestart').hidden=!data.restart_required;
+ $('deviceNetworkStatus').textContent=data.restart_error||(data.restart_required?`저장됨 · 재시작 후 적용됩니다. 현재는 ${data.active_port===null?'꺼짐':data.active_port+' 포트로 켜짐'} 상태입니다.`:data.active_port===null?'외부 연결이 꺼져 있습니다.':`외부 연결이 ${data.active_port} 포트로 켜져 있습니다.`);
+ networkFormState();
+}
+async function loadNetwork(){
+ if(networkSaving||networkRestarting||networkDirty)return;
+ try{const data=await api('api/settings/device-network');if(!networkDirty&&!networkSaving&&!networkRestarting)showNetwork(data)}
+ catch(e){$('deviceNetworkStatus').textContent=e.message}
+}
+$('deviceNetworkEnabled').onchange=()=>{networkDirty=true;networkFormState()};
+$('deviceNetworkPort').oninput=()=>{networkDirty=true;networkFormState()};
+$('deviceNetworkForm').onsubmit=async e=>{
+ e.preventDefault();if(networkSaving||networkRestarting)return;
+ const enabled=$('deviceNetworkEnabled').checked,port=enabled?Number($('deviceNetworkPort').value):null;
+ if(enabled&&(!Number.isInteger(port)||port<1||port>65535)){$('deviceNetworkStatus').textContent='포트는 1~65535 사이의 정수로 입력하세요.';return}
+ networkSaving=true;networkFormState();
+ try{showNetwork(await settingsRequest('api/settings/device-network',{enabled,port}))}
+ catch(e){$('deviceNetworkStatus').textContent=e.message}
+ finally{networkSaving=false;networkFormState()}
+};
+$('deviceNetworkRestart').onclick=async()=>{
+ if(networkRestarting||networkDirty||!networkSettings)return;
+ if(busy){$('deviceNetworkStatus').textContent='파일 업로드가 끝난 뒤 재시작하세요.';return}
+ if(!confirm('Road Viewer를 재시작해 저장한 네트워크 설정을 적용할까요? 진행 중인 업로드·재생이 끊기고 변환 중인 로그는 다시 처리될 수 있습니다.'))return;
+ const bootId=networkSettings.boot_id;networkRestarting=true;networkFormState();
+ $('deviceNetworkStatus').textContent='재시작을 요청하고 있습니다…';
+ try{await settingsRequest('api/settings/device-network/restart',{})}
+ catch(e){
+  // A dropped response can mean Supervisor has already stopped this worker.
+  if(e.code){networkRestarting=false;networkFormState();$('deviceNetworkStatus').textContent=e.message;return}
+ }
+ $('deviceNetworkStatus').textContent='Road Viewer를 재시작하고 있습니다. 다시 연결되면 적용 상태를 표시합니다…';
+ const deadline=Date.now()+180000;
+ while(Date.now()<deadline){
+  await new Promise(resolve=>setTimeout(resolve,2000));
+  try{
+   const response=await fetch('api/settings/device-network',{cache:'no-store',signal:AbortSignal.timeout(5000)});
+   if(!response.ok)continue;
+   const data=await response.json();
+   if(data.boot_id!==bootId){networkRestarting=false;showNetwork(data);void loadDevices().catch(e=>$('deviceStatus').textContent=e.message);void refresh();return}
+   if(data.restart_error&&!data.restarting){networkRestarting=false;showNetwork(data);return}
+  }catch{}
+ }
+ networkRestarting=false;networkFormState();
+ $('deviceNetworkStatus').textContent='아직 재시작 완료를 확인하지 못했습니다. 잠시 후 외부 장치 연결을 다시 펼쳐 확인하세요. 앱이 시작되지 않으면 Home Assistant의 Road Viewer 로그를 확인하세요.';
+};

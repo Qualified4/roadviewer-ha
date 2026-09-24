@@ -9,6 +9,7 @@ from flask import Flask,request,jsonify,send_file,send_from_directory,abort
 from werkzeug.exceptions import HTTPException
 from storage_policy import StoragePolicy,atomic_json
 from device_api import DeviceAPI
+from device_network import DeviceNetwork
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
 options_path=Path('/data/options.json');options=json.loads(options_path.read_text()) if options_path.exists() else {}
@@ -539,5 +540,6 @@ def requeue_startup():
 
 storage_policy=StoragePolicy(sys.modules[__name__])
 devices=DeviceAPI(sys.modules[__name__])
+device_network=DeviceNetwork(sys.modules[__name__])
 requeue_startup()
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)
