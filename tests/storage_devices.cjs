@@ -28,6 +28,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  assert.equal(await page.locator('.pin-recording').getAttribute('aria-pressed'),'true');
  await page.getByRole('button',{name:'구간 고정 해제',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.pin-badge'));assert(!pinned);
  await page.locator('#deviceSettings summary').click();await page.locator('#pairOpen').click();await page.locator('#pairDialog[open]').waitFor();assert.equal(await page.locator('#pairCode').textContent(),'ABCDEF123456ABCDEF123456');
+ for(const width of [320,390,1280]){
+  await page.setViewportSize({width,height:844});
+  const layout=await page.locator('#pairDialog').evaluate(el=>{
+   const box=el.getBoundingClientRect(),code=document.getElementById('pairCode'),copy=document.getElementById('pairCopy').getBoundingClientRect();
+   return {left:box.left,right:box.right,bottom:box.bottom,overflow:el.scrollWidth>el.clientWidth,codeOverflow:code.scrollWidth>code.clientWidth,copyRight:copy.right};
+  });
+  assert(layout.left>=0&&layout.right<=width&&layout.bottom<=844);assert(!layout.overflow&&!layout.codeOverflow);assert(layout.copyRight<=layout.right);
+ }
+ await page.setViewportSize({width:390,height:844});
  await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedPairCode=text}}}));
  assert.equal(await page.locator('#pairCopy svg').innerHTML(),await page.locator('.recording-name .copy-recording svg').first().innerHTML());
  assert.equal(await page.locator('#pairCopy').evaluate(el=>getComputedStyle(el).width),'30px');

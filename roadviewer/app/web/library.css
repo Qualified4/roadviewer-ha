@@ -149,8 +149,10 @@ body.uploading{overscroll-behavior-y:contain}
 .settings-fields input,.settings-fields select{box-sizing:border-box;max-width:100%;padding:10px;border-radius:8px;background:#111c2d;color:#e2e8f0;border:1px solid #334155}
 #pairOpen{display:block;margin:8px 0 16px}
 .device-row{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid #334155;padding:16px 0}.device-row>div{min-width:0}.device-row p{overflow-wrap:anywhere}.device-row button{flex-shrink:0}
-.pair-code{display:block;text-align:center;font-size:clamp(14px,4vw,24px);letter-spacing:.04em;padding:20px 0;overflow-wrap:anywhere}
+.pair-body{display:grid;gap:18px;line-height:1.7}.pair-code-section{display:grid;gap:8px}.pair-code-label{font-size:12px;color:var(--text)}
+.pair-code{display:block;min-height:1.5em;font-size:clamp(12px,3.5vw,18px);letter-spacing:.02em;color:var(--text);overflow-wrap:anywhere;user-select:all}
+#pairStatus{margin:0;padding-top:12px;border-top:1px solid var(--line);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .pin-badge{font-size:11px;color:#facc15;border:1px solid #66562c;border-radius:5px;padding:2px 6px}
 @media(max-width:600px){.device-row{align-items:flex-start;flex-direction:column}}
 
-.pair-code-row{display:flex;align-items:center;gap:12px}.pair-code-row .pair-code{flex:1;min-width:0}.pair-code-row button{flex-shrink:0}
+.pair-code-row{display:flex;align-items:center;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}.pair-code-row .pair-code{flex:1;min-width:0}.pair-code-row button{flex-shrink:0}
