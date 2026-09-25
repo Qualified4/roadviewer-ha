@@ -5,7 +5,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   let pinned=false,pinFailure=false,pinRequests=0;
-  await page.route('https://rv.test/**',route=>{
+  const serve=route=>{
    const p=new URL(route.request().url()).pathname;
    if(p==='/api/logs')return route.fulfill({json:{logs:[{id:'one',name:'00000395--0d0eda17c5 / 구간 7',status:'ready',pinned},{id:'two',name:'00000395--0d0eda17c5 / 구간 8',status:'ready',pinned:false}]}});
    if(p==='/api/logs/one/pin'){
@@ -17,7 +17,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(p.endsWith('/data'))return route.fulfill({json:{route:'test',key:'overlay',duration:2,warnings:[],video:{start:0,duration:2},frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false,overlay:{lanes:[],edges:[],path:[[.5,.6],[.5,.9]],markers:[]}}]}});
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':'image/svg+xml'});
-  });
+  };
+  await page.route('https://rv.test/**',serve);
   await page.route('https://rv.test/view/one/',route=>route.fulfill({body:fs.readFileSync('roadviewer/app/web/index.html'),contentType:'text/html'}));
   await page.goto('https://rv.test/view/one/');
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
@@ -59,12 +60,14 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(await page.locator('#foldHeading').getAttribute('aria-expanded')==='false')await page.locator('#foldHeading').click();
    const fold=await page.locator('#foldHeading').boundingBox(),row=await page.locator('.replay-heading .route').boundingBox();
    for(const dimension of ['x','y','width','height'])assert(Math.abs(fold[dimension]-row[dimension])<1,'fold must overlay row: '+dimension);
+   await page.locator('#foldHeading').hover();
+   assert.equal(await page.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)','mouse hover must not cover the title row');
    const arrow=await page.locator('#foldHeading svg').boundingBox();
    assert(Math.abs(arrow.x+arrow.width/2-(row.x+row.width/2))<1,'arrow must be centered');
    await page.locator('#foldHeading').click({position:{x:4,y:row.height/2}});
    assert(await page.locator('#logNavigation').isHidden());
    const compact=await page.locator('.replay-heading').evaluate(el=>el.getBoundingClientRect().bottom-el.querySelector('.route').getBoundingClientRect().top);
-   assert(compact<=32,'collapsed title and bottom padding stay compact');
+   assert(compact<=28,'collapsed title and bottom padding stay compact');
    assert(Math.abs(await page.evaluate(()=>scrollY)-220)<1,'collapse must not shift scroll');
    // Return to the top with a remembered fold state, then cross the sticky boundary slowly.
    for(const y of [...Array.from({length:56},(_,i)=>i*4),...Array.from({length:56},(_,i)=>220-i*4),220]){
@@ -162,6 +165,24 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    });
    assert(Math.abs(edges.left-edges.bottomLeft)<1&&Math.abs(edges.right-edges.bottomRight)<1,'sticky backgrounds align at '+width+' / '+value);
   }
+  const touch=await browser.newPage({viewport:{width:390,height:844},hasTouch:true});
+  touch.on('pageerror',e=>errors.push(e.message));
+  await touch.route('https://rv.test/**',serve);
+  await touch.route('https://rv.test/view/one/',route=>route.fulfill({body:fs.readFileSync('roadviewer/app/web/index.html'),contentType:'text/html'}));
+  await touch.goto('https://rv.test/view/one/');await touch.waitForFunction(()=>!document.getElementById('play').disabled);
+  for(const width of [390,768]){
+   await touch.setViewportSize({width,height:844});await touch.evaluate(()=>scrollTo(0,220));
+   await touch.waitForFunction(()=>!document.getElementById('foldHeading').hidden);
+   assert(await touch.evaluate(()=>matchMedia('(hover: none)').matches));
+   for(let i=0;i<4;i++){
+    await touch.locator('#foldHeading').tap();
+    const appearance=await touch.locator('#foldHeading').evaluate(e=>({background:getComputedStyle(e).backgroundColor,tap:getComputedStyle(e).webkitTapHighlightColor}));
+    assert.equal(appearance.background,'rgba(0, 0, 0, 0)','touch must not leave a background at '+width);
+    assert.equal(appearance.tap,'rgba(0, 0, 0, 0)');
+    assert(await touch.locator('#routeName').isVisible());assert(await touch.locator('#details').isVisible());
+   }
+  }
+  await touch.close();
   assert.deepEqual(errors,[]);console.log('PASS: replay pin persistence and failure recovery, compact collapsed heading, slow scrolling and saved layout width');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});
