@@ -52,7 +52,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>!document.getElementById('cleanupStorage').disabled);
   assert.equal(cleanups,2);assert.equal(await page.locator('#upload').isEnabled(),true);
   assert((await page.locator('#uploadStatus').textContent()).includes('중단'));
-  await page.locator('.upload>summary').click();await page.reload();assert.equal(await page.locator('.upload').evaluate(el=>el.open),false);
+  await page.locator('.upload>summary').click();
+  await page.waitForFunction(()=>localStorage.getItem('roadviewer-upload-open')==='false');
+  await page.reload();assert.equal(await page.locator('.upload').evaluate(el=>el.open),false);
   await page.locator('.upload>summary').click();assert.equal(await page.locator('.upload').evaluate(el=>el.open),true);
   page.on('dialog',dialog=>dialog.accept());
   await page.locator('.recording-more>summary').click();
