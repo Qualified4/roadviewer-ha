@@ -81,7 +81,7 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 @media(max-width:440px){.layout-toggles{gap:6px}.layout-toggles .view-toggle{gap:6px;padding:9px 10px}}
 
 /* Keep log navigation in flow until it reaches the viewport top. */
-.replay-page .replay-heading{position:sticky;top:0;z-index:90;background:var(--bg);margin-bottom:12px;padding-bottom:6px}
+.replay-page .replay-heading{position:sticky;top:0;z-index:90;background:var(--bg);margin-bottom:12px;padding-bottom:4px}
 /* Overlap the top edge to hide fractional-pixel seams without moving buttons. */
 .replay-page .replay-heading::before{content:"";position:absolute;inset:-2px 0 0;z-index:-1;background:var(--bg);pointer-events:none}
 
@@ -144,11 +144,16 @@ i.model-path{background:#c4a5ff}
 .road-ranges label{display:flex;align-items:center;gap:4px;white-space:nowrap}
 .road-panel .panel-head{gap:8px;flex-wrap:wrap}
 .heading-fold{position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;width:100%;height:100%;margin:0;padding:0;border:0;border-radius:6px;background:transparent;color:#6587b6;box-shadow:none;-webkit-tap-highlight-color:transparent}
-.heading-fold:hover,.heading-fold:active{background:transparent;color:#81a4d3;box-shadow:none}
+@media(hover:hover) and (pointer:fine){.heading-fold:hover{background:rgba(129,181,255,.06);color:#a6c8f2}}
+.heading-fold:active,.heading-fold.is-pressed{background:rgba(129,181,255,.14);color:#c3ddff;box-shadow:none}
+@media(hover:none),(pointer:coarse){
+ .heading-fold{transition:background-color .18s ease-out,color .18s ease-out}
+ .heading-fold:active,.heading-fold.is-pressed{transition:none}
+}
+@media(prefers-reduced-motion:reduce){.heading-fold{transition:none}}
 .heading-fold svg{display:block;width:32px;height:12px;fill:none;stroke:currentColor;stroke-width:9;stroke-linecap:round;stroke-linejoin:round}
 .heading-fold[aria-expanded=false] svg{transform:rotate(180deg)}
 .replay-heading.is-stuck.is-collapsed .log-navigation{visibility:hidden}
-.replay-page .replay-heading.is-collapsed{padding-bottom:4px}
 .replay-heading .copy-recording{height:24px}
 @media(max-width:600px){.road-ranges{gap:6px}.road-ranges .rv-choice-trigger{padding:5px 7px;gap:6px}}
 

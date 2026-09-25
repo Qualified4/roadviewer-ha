@@ -289,6 +289,9 @@ if(replayHeading){
   fold.setAttribute('aria-label',headingCollapsed?'상단 이동 버튼 펼치기':'상단 이동 버튼 접기');
  };
  const scheduleHeading=()=>{if(!headingFrame)headingFrame=requestAnimationFrame(updateHeading)};
+ // Clear press feedback on release, cancellation, or leaving the row.
+ fold.addEventListener('pointerdown',e=>{if(e.button!==0)return;fold.classList.add('is-pressed')});
+ for(const event of ['pointerup','pointercancel','pointerleave','lostpointercapture'])fold.addEventListener(event,()=>fold.classList.remove('is-pressed'));
  fold.onclick=()=>{headingCollapsed=!headingCollapsed;try{localStorage.setItem(preference,String(headingCollapsed))}catch{}updateHeading()};
  window.addEventListener('scroll',scheduleHeading,{passive:true});
  window.addEventListener('resize',scheduleHeading);

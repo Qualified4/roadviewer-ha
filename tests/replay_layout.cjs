@@ -61,10 +61,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const fold=await page.locator('#foldHeading').boundingBox(),row=await page.locator('.replay-heading .route').boundingBox();
    for(const dimension of ['x','y','width','height'])assert(Math.abs(fold[dimension]-row[dimension])<1,'fold must overlay row: '+dimension);
    await page.locator('#foldHeading').hover();
-   assert.equal(await page.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)','mouse hover must not cover the title row');
+   const hoverColor=await page.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor);
+   assert.equal(hoverColor,'rgba(129, 181, 255, 0.06)','hover feedback stays translucent above the title');
+   await page.mouse.down();
+   assert.equal(await page.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(129, 181, 255, 0.14)','press feedback is stronger than hover');
+   await page.mouse.up();await page.locator('#foldHeading').click();
    const arrow=await page.locator('#foldHeading svg').boundingBox();
    assert(Math.abs(arrow.x+arrow.width/2-(row.x+row.width/2))<1,'arrow must be centered');
+   const contentBefore=await page.locator('.views').boundingBox();
    await page.locator('#foldHeading').click({position:{x:4,y:row.height/2}});
+   assert(Math.abs((await page.locator('.views').boundingBox()).y-contentBefore.y)<.5,'folding must not move the content underneath');
    assert(await page.locator('#logNavigation').isHidden());
    const compact=await page.locator('.replay-heading').evaluate(el=>el.getBoundingClientRect().bottom-el.querySelector('.route').getBoundingClientRect().top);
    assert(compact<=28,'collapsed title and bottom padding stay compact');
@@ -85,7 +91,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
    await page.evaluate(()=>scrollTo(0,220));await page.waitForFunction(()=>document.querySelector('.replay-heading').classList.contains('is-stuck'));
    assert.equal(await page.locator('#foldHeading').getAttribute('aria-expanded'),'false','collapsed state must survive reload');
+   const contentBeforeExpand=await page.locator('.views').boundingBox();
    await page.locator('#foldHeading').click();
+   assert(Math.abs((await page.locator('.views').boundingBox()).y-contentBeforeExpand.y)<.5,'expanding must not move the content underneath');
    assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-heading-collapsed')),'false');
    assert(await page.locator('#logNavigation').isVisible());
    assert(Math.abs((await page.locator('#logNavigation').boundingBox()).y-10)<1,'expanded bar sticks by navigation');
@@ -170,19 +178,37 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await touch.route('https://rv.test/**',serve);
   await touch.route('https://rv.test/view/one/',route=>route.fulfill({body:fs.readFileSync('roadviewer/app/web/index.html'),contentType:'text/html'}));
   await touch.goto('https://rv.test/view/one/');await touch.waitForFunction(()=>!document.getElementById('play').disabled);
+  await touch.evaluate(()=>document.getElementById('foldHeading').addEventListener('transitionrun',e=>{if(e.propertyName==='background-color')window.foldFadeSeen=true}));
+  const touchInput=await touch.context().newCDPSession(touch);
   for(const width of [390,768]){
    await touch.setViewportSize({width,height:844});await touch.evaluate(()=>scrollTo(0,220));
    await touch.waitForFunction(()=>!document.getElementById('foldHeading').hidden);
    assert(await touch.evaluate(()=>matchMedia('(hover: none)').matches));
    for(let i=0;i<4;i++){
-    await touch.locator('#foldHeading').tap();
+    await touch.evaluate(()=>window.foldFadeSeen=false);
+    const beforeTouch=await touch.locator('.views').boundingBox(),hit=await touch.locator('#foldHeading').boundingBox();
+    await touchInput.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:hit.x+hit.width/2,y:hit.y+hit.height/2}]});
+    await touch.waitForFunction(()=>getComputedStyle(document.getElementById('foldHeading')).backgroundColor==='rgba(129, 181, 255, 0.14)',null,{timeout:1500});
+    assert.equal(await touch.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(129, 181, 255, 0.14)','touch down must have press feedback');
+    await touchInput.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+    await touch.waitForFunction(()=>getComputedStyle(document.getElementById('foldHeading')).backgroundColor==='rgba(0, 0, 0, 0)');
+    assert(await touch.evaluate(()=>window.foldFadeSeen),'touch release should fade back instead of disappearing instantly');
+    assert(Math.abs((await touch.locator('.views').boundingBox()).y-beforeTouch.y)<.5,'touch folding must not move the content');
     const appearance=await touch.locator('#foldHeading').evaluate(e=>({background:getComputedStyle(e).backgroundColor,tap:getComputedStyle(e).webkitTapHighlightColor}));
     assert.equal(appearance.background,'rgba(0, 0, 0, 0)','touch must not leave a background at '+width);
     assert.equal(appearance.tap,'rgba(0, 0, 0, 0)');
     assert(await touch.locator('#routeName').isVisible());assert(await touch.locator('#details').isVisible());
    }
+   const beforeCancel=await touch.locator('#foldHeading').getAttribute('aria-expanded'),hit=await touch.locator('#foldHeading').boundingBox();
+   await touchInput.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:hit.x+hit.width/2,y:hit.y+hit.height/2}]});
+   await touch.waitForFunction(()=>document.getElementById('foldHeading').classList.contains('is-pressed'));
+   await touchInput.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
+   await touch.waitForFunction(()=>getComputedStyle(document.getElementById('foldHeading')).backgroundColor==='rgba(0, 0, 0, 0)');
+   assert.equal(await touch.locator('#foldHeading').getAttribute('aria-expanded'),beforeCancel,'cancelled touch must not fold the heading');
   }
+  await touch.emulateMedia({reducedMotion:'reduce'});
+  assert.equal(await touch.locator('#foldHeading').evaluate(e=>getComputedStyle(e).transitionDuration),'0s','reduced motion avoids the fade');
   await touch.close();
-  assert.deepEqual(errors,[]);console.log('PASS: replay pin persistence and failure recovery, compact collapsed heading, slow scrolling and saved layout width');
+  assert.deepEqual(errors,[]);console.log('PASS: replay pin persistence and failure recovery, stable fold layout, transient hover/touch feedback, slow scrolling and saved layout width');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,6 +1,6 @@
 # Road Viewer device upload API v1
 
-This is the Road Viewer half of the protocol. No openpilot uploader is included or modified. Existing browser uploads and Home Assistant Ingress remain supported. One Gunicorn worker with multiple threads is required; do not add workers/replicas sharing this data directory.
+This repository provides the Road Viewer server and web UI. Compatible device uploaders are maintained separately. Existing browser uploads and Home Assistant Ingress remain supported. One Gunicorn worker with multiple threads is required; do not add workers/replicas sharing this data directory.
 
 ## Deployment and HTTPS
 
@@ -175,7 +175,7 @@ The UI offers unlimited (default), 10/20/50/100 GB and custom; UI GB uses 1024³
 
 Before accepting a browser or device batch, admission reserves **2 × total declared bytes + 64 KiB** for chunks plus the staging copy/metadata. Already received bytes are counted in used space, so only the remaining reservation is added. A **100 MiB disk safety margin** is required. A shared lock covers space check, optional deletion and reservation creation; two concurrent batches cannot reserve the same free bytes. Reservation files live in the upload folder and are released with completion/cancellation/terminal failure/expiry. Surviving device sessions retain reservation across restart; expired/browser reservations are cleared.
 
-`reject_new` rejects admission and preserves existing logs. `delete_oldest` groups the UUID segment folders by full original route ID, orders groups by earliest **upload time**, preflights enough deletable capacity, and deletes the unpinned segments of the oldest eligible group through the shared existing deletion helper, leaving pinned segments in place. Interrupted filesystem deletion is not a multi-directory transaction. Legacy logs without a recoverable route ID are individual units. Admission protects incoming/active-upload routes, any group with queued/processing segments and individually pinned segments. Shortened display names are never grouping keys. Pinning affects only the selected segment. Legacy `pinned_routes` migrate once to all currently stored segments in those routes; later uploads do not inherit pins. Explicit manual deletion remains allowed.
+`reject_new` rejects admission and preserves existing logs. `delete_oldest` groups the UUID segment folders by full original route ID, orders groups by earliest **upload time**, preflights enough deletable capacity, and deletes the unpinned segments of the oldest eligible group through the shared existing deletion helper, leaving pinned segments in place. Interrupted filesystem deletion is not a multi-directory transaction. Legacy logs without a recoverable route ID are individual units. Admission protects incoming/active-upload routes, any group with queued/processing segments and individually pinned segments. Shortened display names are never grouping keys. Pinning affects only the selected segment. Legacy `pinned_routes` migrate once to all currently stored segments in those routes; later uploads do not inherit pins. The library and replay view share the same per-segment pin state. Bulk removal/deletion protects pins by default; the user can enable **고정 항목도 삭제** for that popup session. Reopening the popup restores protection. The Ingress-only `DELETE /api/logs/<id>` and `DELETE /api/logs/<id>/prepared` accept `?skip_pinned=1`: while holding the mutation lock, pinned entries return HTTP 200 with `{"skipped":"pinned"}` without changing files. Omitting this flag permits explicit removal/deletion, including from individual log menus. These management operations are not device upload endpoints.
 
 Insufficient total reclaimable space returns an error without beginning automatic deletion. Reducing a limit or selecting delete_oldest does not immediately delete data; deletion is admission-driven. The limit is an **upload admission budget, not a kernel filesystem quota**: later decoded JSON/MP4 size, other applications using the filesystem and unexpected metadata growth can exceed an estimate. Subsequent uploads account for actual usage and are rejected or trigger the configured cleanup. Conversion output is not pre-sized by this protocol. Do not set a budget equal to all filesystem capacity.
 
@@ -215,13 +215,13 @@ python3 -m venv /tmp/roadviewer-test-env
 /tmp/roadviewer-test-env/bin/python tests/test_device_api.py
 ```
 
-16개 테스트 후 `OK`가 나오면 페어링·만료·취소·HMAC·재전송 차단·단일/다중 구간·이어올리기·폐기·용량 예약 경쟁·Pin 및 주행 묶음 삭제 검증을 통과한 것입니다. 이 검사는 가짜 데이터를 사용하므로 실제 로그 해석과 영상 변환 품질까지 검사하지는 않습니다.
+테스트 실행 결과에 `OK`가 나오면 페어링·만료·취소·HMAC·재전송 차단·단일/다중 구간·이어올리기·폐기·용량 예약 경쟁·Pin 및 주행 묶음 삭제 검증을 통과한 것입니다. 이 검사는 가짜 데이터를 사용하므로 실제 로그 해석과 영상 변환 품질까지 검사하지는 않습니다.
 
 실제 HTTPS/Nginx/Gunicorn 경계까지 확인하려면 Docker가 동작하는 WSL/Linux에서:
 
 ```bash
-docker build -t roadviewer:0.3.9 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.3.9 /tests/test_device_tls.py
+docker build -t roadviewer:0.3.10 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.3.10 /tests/test_device_tls.py
 ```
 
 임시 테스트 인증서를 신뢰하도록 설정한 테스트 클라이언트로 HTTPS 페어링·서명된 세션 생성과 UI 접근 차단을 검사합니다. 서버와 클라이언트가 컨테이너 내부에서 통신하므로 호스트 포트 공개나 공유기 설정은 필요하지 않습니다. 이미지 빌드에는 인터넷 연결이 필요합니다. 이 검사는 실제 Home Assistant/UniFi의 DNS·NAT 설정을 확인하지 않습니다.
@@ -236,7 +236,7 @@ docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.3.9 /
 
 ## HTML 브라우저 테스트 페이지
 
-PC 브라우저에서 **`https://<도메인>:<외부포트>/api/device/test`**를 엽니다. 예: `https://example.com:18443/api/device/test`. 정적 테스트 HTML 하나를 장치 API와 같은 HTTPS origin에서 제공하므로 CORS 설정이나 로컬 웹 서버가 필요하지 않습니다. 파일을 직접 열거나 Ingress의 assets 경로로 여는 방식은 지원하지 않습니다. 외부 API가 꺼져 있으면 페이지도 404입니다.
+PC 브라우저에서 **`https://<도메인>:<외부포트>/api/device/test`**를 엽니다. 예: `https://example.com:18443/api/device/test`. 정적 테스트 HTML 하나를 장치 API와 같은 HTTPS origin에서 제공하므로 CORS 설정이나 로컬 웹 서버가 필요하지 않습니다. 파일을 직접 열거나 Ingress의 assets 경로로 여는 방식은 지원하지 않습니다. 외부 API를 켜고 재시작해 HTTPS 포트가 활성화되어 있어야 접근할 수 있습니다. 꺼진 상태에서는 해당 외부 포트로 접속할 수 없으며, Ingress에서는 이 페이지를 제공하지 않습니다.
 
 1. Home Assistant UI의 외부 장치 연결에서 **새 장치 연결**을 눌러 코드를 발급합니다.
 2. 테스트 페이지에서 장치 이름과 코드를 입력해 **장치 연결**을 누릅니다.
