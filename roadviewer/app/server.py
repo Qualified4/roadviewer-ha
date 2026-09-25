@@ -464,7 +464,9 @@ def cancel_upload(id):
 
 @app.route('/api/logs/<id>',methods=['DELETE'])
 def delete(id):
- with registration_lock,lock:delete_recording(id)
+ with registration_lock,lock:
+  if request.args.get('skip_pinned')=='1' and storage_policy.pinned(read_meta(folder(id))):return jsonify(skipped='pinned')
+  delete_recording(id)
  return jsonify(deleted=id)
 
 def delete_recording(id):
@@ -493,6 +495,7 @@ def convert(id):
 def remove_prepared(id):
  with lock:
   p=folder(id);m=read_meta(p)
+  if request.args.get('skip_pinned')=='1' and storage_policy.pinned(m):return jsonify(skipped='pinned')
   if m['status'] in ('queued','processing'):return jsonify(error='대기 또는 처리 중에는 변환 데이터를 제거할 수 없습니다.'),409
   clear_prepared(p,m)
   m.update(status='unconverted',manual_conversion=False,auto_excluded=True)

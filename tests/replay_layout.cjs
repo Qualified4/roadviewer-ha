@@ -4,9 +4,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
+  let pinned=false,pinFailure=false,pinRequests=0;
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
-   if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
+   if(p==='/api/logs')return route.fulfill({json:{logs:[{id:'one',name:'00000395--0d0eda17c5 / 구간 7',status:'ready',pinned},{id:'two',name:'00000395--0d0eda17c5 / 구간 8',status:'ready',pinned:false}]}});
+   if(p==='/api/logs/one/pin'){
+    pinRequests++;assert.equal(route.request().method(),'POST');assert.equal(route.request().headers()['x-roadviewer-request'],'1');
+    if(pinFailure)return route.fulfill({status:500,json:{error:'failed'}});
+    pinned=route.request().postDataJSON().pinned;return route.fulfill({json:{pinned}});
+   }
    if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),contentType:'video/mp4'});
    if(p.endsWith('/data'))return route.fulfill({json:{route:'test',key:'overlay',duration:2,warnings:[],video:{start:0,duration:2},frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false,overlay:{lanes:[],edges:[],path:[[.5,.6],[.5,.9]],markers:[]}}]}});
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
@@ -16,8 +22,24 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.goto('https://rv.test/view/one/');
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
 
+  const pin=page.locator('#pinLog');await pin.waitFor();
+  await page.waitForFunction(()=>!document.getElementById('pinLog').disabled);
+  assert.equal(await pin.getAttribute('aria-pressed'),'false');
+  await pin.click();await page.waitForFunction(()=>document.getElementById('pinLog').getAttribute('aria-pressed')==='true');
+  assert.equal(await pin.getAttribute('aria-label'),'구간 고정 해제');
+  await page.reload();await page.waitForFunction(()=>!document.getElementById('pinLog').disabled);
+  assert.equal(await pin.getAttribute('aria-pressed'),'true','pin persists after reload');
+  pinFailure=true;await pin.click();await page.locator('#error').waitFor();
+  assert.equal(await pin.getAttribute('aria-pressed'),'true','failed save preserves pin');
+  await page.waitForFunction(()=>!document.getElementById('pinLog').disabled);
+  pinFailure=false;await pin.click();await page.waitForFunction(()=>document.getElementById('pinLog').getAttribute('aria-pressed')==='false');
+  assert.equal(pinRequests,3);await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
+
   for(const width of [320,360,390]){
    await page.setViewportSize({width,height:844});
+   const pinBox=await pin.boundingBox(),pickerBox=await page.locator('#logSegmentChoice').boundingBox();
+   assert(pinBox.x>=pickerBox.x+pickerBox.width&&Math.abs(pinBox.y-pickerBox.y)<2,'pin stays beside segment dropdown');
+   assert(pinBox.x+pinBox.width<=width,'pin fits narrow phone');
    const rects=await page.locator('#play,#prev,#next,#speedChoice').evaluateAll(els=>els.map(e=>{const r=e.getBoundingClientRect();return {top:r.top,left:r.left,right:r.right}}));
    assert(rects.every(r=>Math.abs(r.top-rects[0].top)<2),'playback controls and speed share a row at '+width);
    assert(rects.every(r=>r.left>=0&&r.right<=width),'controls remain inside viewport');
@@ -41,6 +63,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert(Math.abs(arrow.x+arrow.width/2-(row.x+row.width/2))<1,'arrow must be centered');
    await page.locator('#foldHeading').click({position:{x:4,y:row.height/2}});
    assert(await page.locator('#logNavigation').isHidden());
+   const compact=await page.locator('.replay-heading').evaluate(el=>el.getBoundingClientRect().bottom-el.querySelector('.route').getBoundingClientRect().top);
+   assert(compact<=32,'collapsed title and bottom padding stay compact');
    assert(Math.abs(await page.evaluate(()=>scrollY)-220)<1,'collapse must not shift scroll');
    // Return to the top with a remembered fold state, then cross the sticky boundary slowly.
    for(const y of [...Array.from({length:56},(_,i)=>i*4),...Array.from({length:56},(_,i)=>220-i*4),220]){
@@ -123,10 +147,21 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    }
    await page.mouse.up();assert(Number(await slider.inputValue())>(width<=600?90:width<=1280?1150:1700));
    assert.equal(await page.evaluate(()=>localStorage.getItem(widthProfile().key)),await slider.inputValue());
-   await page.keyboard.press('Escape');assert(await page.locator('#layoutWidthDialog').isHidden());
+   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.getElementById('layoutWidthDialog').open&&document.body.style.overflow==='');
+   assert(await page.locator('#layoutWidthDialog').isHidden());
    assert(await page.locator('#layoutWidthButton').evaluate(e=>e===document.activeElement));
    assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
   }
-  assert.deepEqual(errors,[]);console.log('PASS: collapsed slow scrolling, full-width fold touch target and saved layout width');
+  for(const [width,value] of [[390,50],[768,320],[850,500],[1024,600],[1440,920]]){
+   await page.setViewportSize({width,height:1000});
+   await page.evaluate(value=>{syncLayoutWidth();layoutWidth.value=String(value);layoutWidth.dispatchEvent(new Event('input'));scrollTo(0,250)},value);
+   await page.waitForFunction(()=>document.querySelector('.replay-heading').classList.contains('is-stuck'));
+   const edges=await page.evaluate(()=>{
+    const heading=document.querySelector('.replay-heading'),r=heading.getBoundingClientRect(),before=getComputedStyle(heading,'::before'),bottom=document.querySelector('.playback').getBoundingClientRect();
+    return {left:r.left+parseFloat(before.left),right:r.right-parseFloat(before.right),bottomLeft:bottom.left,bottomRight:bottom.right};
+   });
+   assert(Math.abs(edges.left-edges.bottomLeft)<1&&Math.abs(edges.right-edges.bottomRight)<1,'sticky backgrounds align at '+width+' / '+value);
+  }
+  assert.deepEqual(errors,[]);console.log('PASS: replay pin persistence and failure recovery, compact collapsed heading, slow scrolling and saved layout width');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

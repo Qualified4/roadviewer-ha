@@ -235,13 +235,28 @@ function populateSegments(logs,current){
   if(target?.status==='ready'&&target.id!==current)location.assign('../'+encodeURIComponent(target.id)+'/');
  };
 }
+function syncReplayPin(pinned){
+ const button=$('pinLog');button.setAttribute('aria-pressed',String(pinned));
+ button.title=pinned?'구간 고정 해제':'구간 고정';button.setAttribute('aria-label',button.title);
+}
+$('pinLog').onclick=async()=>{
+ const button=$('pinLog'),current=location.pathname.split('/').filter(Boolean).at(-1);
+ button.disabled=true;
+ try{
+  const response=await fetch('../../api/logs/'+encodeURIComponent(current)+'/pin',{method:'POST',headers:{'Content-Type':'application/json','X-RoadViewer-Request':'1'},body:JSON.stringify({pinned:button.getAttribute('aria-pressed')!=='true'})});
+  if(!response.ok)throw Error('구간 고정 설정을 저장하지 못했습니다. 다시 시도해 주세요.');
+  const result=await response.json();syncReplayPin(result.pinned);
+ }catch(e){showError(e.message)}finally{button.disabled=false}
+};
 async function loadLogNavigation(){
  const buttons=[$('previousLog'),$('nextLog')];
  try{
   const response=await fetch('../../api/logs');
   if(!response.ok)throw Error('로그 목록을 불러오지 못했습니다.');
   const {logs}=await response.json(),current=location.pathname.split('/').filter(Boolean).at(-1);
-  recordingNameFiles=logs.find(log=>log.id===current)?.files||{};
+  const active=logs.find(log=>log.id===current);
+  recordingNameFiles=active?.files||{};
+  syncReplayPin(!!active?.pinned);$('pinLog').disabled=!active;
   if(data)renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';
   populateSegments(logs,current);
   const index=logs.findIndex(log=>log.id===current);

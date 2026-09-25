@@ -40,6 +40,28 @@ class ConversionTests(unittest.TestCase):
   self.assertEqual(self.request('delete',url+'/prepared').status_code,409)
   self.submit.reset_mock();server.requeue_startup();self.submit.assert_called_once_with(p.name)
   self.assertEqual(self.request('delete',url).status_code,200);self.assertFalse(p.exists())
+ def test_bulk_deletion_rechecks_pin_before_mutating_files(self):
+  p=self.row(1,'ready');prepared=p/'prepared';prepared.mkdir();(prepared/'data.json').write_text('{}')
+  url='/api/logs/'+p.name
+  with patch.dict(server.storage_policy.settings,{'pinned_logs':[p.name]}):
+   for suffix in ('/prepared',''):
+    r=self.request('delete',url+suffix+'?skip_pinned=1')
+    self.assertEqual(r.status_code,200);self.assertEqual(r.json,{'skipped':'pinned'})
+    self.assertTrue((prepared/'data.json').exists());self.assertEqual(server.read_meta(p)['status'],'ready')
+   server.storage_policy.settings['pinned_logs']=[]
+   self.assertEqual(self.request('delete',url+'/prepared?skip_pinned=1').json['status'],'unconverted')
+   self.assertFalse(prepared.exists());self.assertTrue((p/'rlog.zst').exists())
+   self.assertEqual(self.request('delete',url+'?skip_pinned=1').status_code,200);self.assertFalse(p.exists())
+
+ def test_explicit_deletion_can_include_pinned_recording(self):
+  p=self.row(1,'ready');prepared=p/'prepared';prepared.mkdir();(prepared/'data.json').write_text('{}')
+  url='/api/logs/'+p.name
+  with patch.dict(server.storage_policy.settings,{'pinned_logs':[p.name]}):
+   self.assertEqual(self.request('delete',url+'/prepared').json['status'],'unconverted')
+   self.assertFalse(prepared.exists());self.assertTrue((p/'rlog.zst').exists())
+   self.assertTrue(server.storage_policy.pinned(server.read_meta(p)))
+   self.assertEqual(self.request('delete',url).status_code,200);self.assertFalse(p.exists())
+
  def test_upload_off_and_late_video_respect_manual_removal(self):
   self.setting(False)
   def upload(video=False):

@@ -15,22 +15,23 @@
 .recording-more[open]>summary svg{transform:rotate(180deg)}
 .recording-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:10;display:grid;gap:3px;width:190px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 8px 24px #0006}
 .recording-menu>button,.recording-menu>a{display:block;width:100%;min-height:42px;margin:0;padding:11px 12px;border:0;border-radius:6px;background:transparent;text-align:left;font-size:13px;text-decoration:none;color:var(--text)}
-.recording-menu>button:hover,.recording-menu>a:hover{background:#283b4e}
+.recording-menu>button:hover:enabled,.recording-menu>a:hover{background:#283b4e}
 .recording-menu>hr{width:calc(100% - 12px);margin:4px 6px;border:0;border-top:1px solid var(--line)}
-.recording-menu>.delete{color:#f3a7a0}.recording-menu>.delete:hover{background:#ee756b18}
+.recording-menu>.delete{color:#f3a7a0}.recording-menu>.delete:hover:enabled{background:#ee756b18}
 .recording-menu>button:focus-visible,.recording-menu>a:focus-visible{outline:2px solid var(--lane);outline-offset:-2px}
 
 
-.bulk-dialog{width:640px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--text);overflow:hidden}
+.bulk-dialog{width:640px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--line);border-radius:16px;background:var(--panel);color:var(--text);box-shadow:0 24px 80px #0008;overflow:hidden}
 .bulk-dialog[open]{display:flex;flex-direction:column}.bulk-dialog::backdrop{background:#0009}
 .bulk-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;flex-shrink:0}
 #bulkDescription{font-size:12px;line-height:1.7;color:var(--muted);margin:0;padding:0 20px 14px;flex-shrink:0}
-.bulk-select{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-block:1px solid var(--line);background:var(--panel);flex-shrink:0;font-size:12px}
-.bulk-select label,.bulk-log{cursor:pointer}.bulk-dialog input[type=checkbox]{accent-color:var(--lane);width:18px;height:18px;margin:0;flex-shrink:0}
+.bulk-select{display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center;padding:12px 20px;border-block:1px solid var(--line);background:var(--panel);flex-shrink:0;font-size:12px}
+.bulk-select label,.bulk-log{cursor:pointer}.bulk-select input[type=checkbox],.bulk-log>input{accent-color:var(--lane);width:18px;height:18px;margin:0;flex-shrink:0}
 .bulk-select label{display:flex;gap:10px;align-items:center}#bulkCount{color:var(--muted)}
 .bulk-list{overflow:auto;overscroll-behavior:contain;min-height:0;max-height:45dvh;flex:1 1 auto;padding:0 12px}
-.bulk-log{display:flex;align-items:center;gap:12px;padding:14px 8px;border-bottom:1px solid var(--line);font-size:13px}.bulk-log:hover{background:#ffffff06}
-.bulk-log>span{min-width:0;overflow-wrap:anywhere}.bulk-log small{display:block;margin-top:4px;font-size:11px;color:var(--muted)}
+.bulk-log{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid transparent;border-radius:8px;margin:4px 0;font-size:13px}.bulk-log:hover{background:#ffffff06}
+.bulk-log:has(input:checked){background:#57d9b009;border-color:#57d9b02b}.bulk-log:focus-within{outline:2px solid var(--lane);outline-offset:-2px}
+.bulk-log>span{min-width:0;flex:1;overflow-wrap:anywhere}.bulk-log small{display:block;margin-top:4px;font-size:11px;color:var(--muted)}
 .bulk-footer{padding:12px 20px 16px;border-top:1px solid var(--line);flex-shrink:0}
 #bulkStatus{font-size:12px;color:var(--muted);margin:0 0 10px}
 #bulkFailures{max-height:90px;overflow:auto;font-size:12px;color:#ffd39f;overflow-wrap:anywhere}#bulkFailures p{margin:0 0 6px}
@@ -336,3 +337,34 @@ body.uploading { overscroll-behavior-y: contain; }
  .pair-footer { padding: 16px; }
  .pair-eyebrow { font-size: 9px; }
 }
+
+/* Bulk management keeps the selection and actions visible around a scrollable list. */
+.bulk-header{padding-bottom:8px}
+.bulk-header h2{font-size:18px;font-weight:600;letter-spacing:-.02em}
+.bulk-header button{background:transparent;font-size:12px}
+.bulk-header button:hover:enabled{background:#ffffff08}
+.bulk-options{padding:0 20px 12px;flex-shrink:1;min-height:0;overflow:auto;overscroll-behavior:contain;max-height:30dvh}
+.bulk-pin-option{display:flex;align-items:center;gap:12px;padding:10px 12px;background:#0e1721;border:1px solid var(--line);border-radius:10px}
+.bulk-pin-option>div{flex:1;min-width:0}
+.bulk-pin-option label[for]{font-size:13px;font-weight:500;cursor:pointer}
+.bulk-pin-option p{font-size:11px;line-height:1.6;color:var(--muted);margin:3px 0 0;word-break:keep-all;overflow-wrap:anywhere}
+.bulk-pin-option .auto-convert-control{flex-shrink:0}
+.bulk-pin-option:has(input:checked){border-color:#ee756b66;background:#ee756b08}
+.bulk-pin-option:has(input:checked) label[for],.bulk-pin-option:has(input:checked) p{color:#ffb3ac}
+.bulk-pin-option input:checked+span{background:#ad4a43}
+.bulk-help{margin-top:10px;font-size:12px;color:var(--muted)}
+.bulk-help summary{cursor:pointer;width:fit-content;padding:4px 0}
+.bulk-help summary:hover{color:var(--text)}
+.bulk-help dl{display:grid;gap:12px;padding:12px;margin:8px 0 0;border:1px solid var(--line);border-radius:8px}
+.bulk-help dt{font-weight:600;color:var(--text);margin-bottom:3px}
+.bulk-help dd{margin:0;line-height:1.7}
+.bulk-log-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-weight:500}
+.bulk-log-title .pin-badge{font-size:10px;padding:1px 5px;font-weight:400}
+.bulk-log small{display:flex;flex-wrap:wrap;gap:2px 10px;line-height:1.7;font-variant-numeric:tabular-nums}
+.bulk-log small>span{white-space:nowrap}
+#bulkDescription,.section-title p{word-break:keep-all;overflow-wrap:anywhere}
+.bulk-footer{background:#0f1822}
+#bulkDelete{border-color:#ee756b45;background:#ee756b0b;color:#ffb3ac}
+#bulkDelete:hover:enabled{border-color:#ee756b80;background:#ee756b20}
+@media(max-width:550px){.bulk-header{padding-bottom:6px}.bulk-options{padding:0 14px 10px}.bulk-pin-option{padding:8px 10px}.bulk-list{padding:4px 8px}.bulk-select{font-size:11px}.bulk-log{padding:10px 8px}.bulk-header h2{font-size:16px}}
+@media(max-height:550px){.bulk-dialog{max-height:calc(100dvh - 12px)}.bulk-header{padding-top:8px}.bulk-options{max-height:23dvh}.bulk-list{min-height:64px}.bulk-footer{padding-block:8px}}
