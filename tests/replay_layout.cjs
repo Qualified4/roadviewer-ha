@@ -62,9 +62,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    for(const dimension of ['x','y','width','height'])assert(Math.abs(fold[dimension]-row[dimension])<1,'fold must overlay row: '+dimension);
    await page.locator('#foldHeading').hover();
    const hoverColor=await page.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor);
-   assert.equal(hoverColor,'rgba(129, 181, 255, 0.06)','hover feedback stays translucent above the title');
+   assert.equal(hoverColor,'rgba(0, 0, 0, 0)','hover must not add a background above the title');
+   assert.equal(await page.locator('#foldHeading svg').evaluate(e=>getComputedStyle(e).stroke),'rgb(166, 200, 242)','only the arrow brightens on hover');
    await page.mouse.down();
-   assert.equal(await page.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(129, 181, 255, 0.14)','press feedback is stronger than hover');
+   assert.equal(await page.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)','mouse press keeps the background transparent');
+   assert.equal(await page.locator('#foldHeading svg').evaluate(e=>getComputedStyle(e).stroke),'rgb(195, 221, 255)','arrow press feedback is stronger than hover');
    await page.mouse.up();await page.locator('#foldHeading').click();
    const arrow=await page.locator('#foldHeading svg').boundingBox();
    assert(Math.abs(arrow.x+arrow.width/2-(row.x+row.width/2))<1,'arrow must be centered');
@@ -178,7 +180,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await touch.route('https://rv.test/**',serve);
   await touch.route('https://rv.test/view/one/',route=>route.fulfill({body:fs.readFileSync('roadviewer/app/web/index.html'),contentType:'text/html'}));
   await touch.goto('https://rv.test/view/one/');await touch.waitForFunction(()=>!document.getElementById('play').disabled);
-  await touch.evaluate(()=>document.getElementById('foldHeading').addEventListener('transitionrun',e=>{if(e.propertyName==='background-color')window.foldFadeSeen=true}));
+  await touch.evaluate(()=>document.getElementById('foldHeading').addEventListener('transitionrun',e=>{if(e.propertyName==='color')window.foldFadeSeen=true}));
   const touchInput=await touch.context().newCDPSession(touch);
   for(const width of [390,768]){
    await touch.setViewportSize({width,height:844});await touch.evaluate(()=>scrollTo(0,220));
@@ -188,11 +190,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     await touch.evaluate(()=>window.foldFadeSeen=false);
     const beforeTouch=await touch.locator('.views').boundingBox(),hit=await touch.locator('#foldHeading').boundingBox();
     await touchInput.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:hit.x+hit.width/2,y:hit.y+hit.height/2}]});
-    await touch.waitForFunction(()=>getComputedStyle(document.getElementById('foldHeading')).backgroundColor==='rgba(129, 181, 255, 0.14)',null,{timeout:1500});
-    assert.equal(await touch.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(129, 181, 255, 0.14)','touch down must have press feedback');
+    await touch.waitForFunction(()=>getComputedStyle(document.querySelector('#foldHeading svg')).stroke==='rgb(195, 221, 255)',null,{timeout:1500});
+    assert.equal(await touch.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)','touch feedback must be confined to the arrow');
     await touchInput.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
-    await touch.waitForFunction(()=>getComputedStyle(document.getElementById('foldHeading')).backgroundColor==='rgba(0, 0, 0, 0)');
-    assert(await touch.evaluate(()=>window.foldFadeSeen),'touch release should fade back instead of disappearing instantly');
+    await touch.waitForFunction(()=>getComputedStyle(document.querySelector('#foldHeading svg')).stroke==='rgb(101, 135, 182)');
+    assert(await touch.evaluate(()=>window.foldFadeSeen),'arrow should fade back after touch release');
     assert(Math.abs((await touch.locator('.views').boundingBox()).y-beforeTouch.y)<.5,'touch folding must not move the content');
     const appearance=await touch.locator('#foldHeading').evaluate(e=>({background:getComputedStyle(e).backgroundColor,tap:getComputedStyle(e).webkitTapHighlightColor}));
     assert.equal(appearance.background,'rgba(0, 0, 0, 0)','touch must not leave a background at '+width);
@@ -203,12 +205,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await touchInput.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:hit.x+hit.width/2,y:hit.y+hit.height/2}]});
    await touch.waitForFunction(()=>document.getElementById('foldHeading').classList.contains('is-pressed'));
    await touchInput.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});
-   await touch.waitForFunction(()=>getComputedStyle(document.getElementById('foldHeading')).backgroundColor==='rgba(0, 0, 0, 0)');
+   await touch.waitForFunction(()=>getComputedStyle(document.querySelector('#foldHeading svg')).stroke==='rgb(101, 135, 182)');
    assert.equal(await touch.locator('#foldHeading').getAttribute('aria-expanded'),beforeCancel,'cancelled touch must not fold the heading');
   }
   await touch.emulateMedia({reducedMotion:'reduce'});
   assert.equal(await touch.locator('#foldHeading').evaluate(e=>getComputedStyle(e).transitionDuration),'0s','reduced motion avoids the fade');
   await touch.close();
-  assert.deepEqual(errors,[]);console.log('PASS: replay pin persistence and failure recovery, stable fold layout, transient hover/touch feedback, slow scrolling and saved layout width');
+  assert.deepEqual(errors,[]);console.log('PASS: replay pin persistence and failure recovery, stable fold layout, arrow-only hover/touch feedback, slow scrolling and saved layout width');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

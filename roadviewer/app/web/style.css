@@ -144,10 +144,10 @@ i.model-path{background:#c4a5ff}
 .road-ranges label{display:flex;align-items:center;gap:4px;white-space:nowrap}
 .road-panel .panel-head{gap:8px;flex-wrap:wrap}
 .heading-fold{position:absolute;inset:0;z-index:1;display:flex;align-items:center;justify-content:center;width:100%;height:100%;margin:0;padding:0;border:0;border-radius:6px;background:transparent;color:#6587b6;box-shadow:none;-webkit-tap-highlight-color:transparent}
-@media(hover:hover) and (pointer:fine){.heading-fold:hover{background:rgba(129,181,255,.06);color:#a6c8f2}}
-.heading-fold:active,.heading-fold.is-pressed{background:rgba(129,181,255,.14);color:#c3ddff;box-shadow:none}
+@media(hover:hover) and (pointer:fine){.heading-fold:hover{background:transparent;color:#a6c8f2}}
+.heading-fold:active,.heading-fold.is-pressed{background:transparent;color:#c3ddff;box-shadow:none}
 @media(hover:none),(pointer:coarse){
- .heading-fold{transition:background-color .18s ease-out,color .18s ease-out}
+ .heading-fold{transition:color .18s ease-out}
  .heading-fold:active,.heading-fold.is-pressed{transition:none}
 }
 @media(prefers-reduced-motion:reduce){.heading-fold{transition:none}}

@@ -30,3 +30,7 @@ Openpilot 로그와 전방 카메라 영상을 Home Assistant 안에서 함께 �
 **원본 로그·영상·변환 결과는 Home Assistant 앱 백업에서 제외됩니다.** 보관할 원본은 별도로 유지하세요. 처리·저장 정책·장치 인증 설정은 백업에 포함됩니다.
 
 자세한 사용법은 앱의 **문서** 탭 또는 [DOCS.md](DOCS.md), 버전별 변경은 [CHANGELOG.md](CHANGELOG.md)를 참고하세요.
+
+## 지원 플랫폼
+
+`amd64`(Intel/AMD 64비트)와 `aarch64`(ARM 64비트)를 지원합니다. 설치·업데이트 시 미리 빌드한 이미지 중 해당 기기에 맞는 하나만 내려받습니다. Home Assistant의 다운로드·압축 해제 진행률을 활용하며 표시 방식은 Home Assistant/Supervisor 버전에 따라 다릅니다.

@@ -11,6 +11,17 @@ Openpilot 주행 로그와 전방 카메라 영상을 올리고, **영상·주�
 
 **HACS용 통합이 아닌 앱 스토어 저장소입니다.** 웹 UI는 Home Assistant Ingress를 사용하므로 별도 외부 포트를 열 필요가 없습니다. 원격에서도 기존 Home Assistant 주소로 접속합니다.
 
+## 지원 플랫폼과 설치 방식
+
+| Home Assistant 플랫폼 | 이미지 플랫폼 | 대상 |
+|---|---|---|
+| `amd64` | `linux/amd64` | Intel/AMD 64비트 PC·미니 PC·서버 |
+| `aarch64` | `linux/arm64` | ARM 64비트 Home Assistant 기기 |
+
+설치 시 GHCR의 프리빌드 이미지 중 **기기에 맞는 하나만 다운로드**합니다. 플랫폼별 이미지를 함께 배포해도 사용자의 다운로드 용량이 합산되지 않습니다. 32비트 ARM·i386은 지원하지 않습니다.
+
+기기에서 패키지를 설치하고 이미지를 빌드하는 과정을 줄이며, Home Assistant의 다운로드·압축 해제 진행률을 활용합니다. 표시 방식은 Home Assistant/Supervisor 버전에 따라 다르고, 전체 설치 시간의 정확한 백분율을 의미하지는 않습니다.
+
 ## 업로드할 파일
 
 같은 구간의 `rlog.zst`와 `qcamera.ts`를 함께 선택합니다. 여러 구간은 다음처럼 원래 식별자가 포함된 이름으로 올릴 수 있습니다.
@@ -74,5 +85,16 @@ Openpilot 주행 로그와 전방 카메라 영상을 올리고, **영상·주�
 - [Device API v1](docs/device-api.md): HTTPS 구성, 페어링·서명, 업로드·이어올리기와 openpilot 없이 테스트하는 방법
 
 `roadviewer/`가 Docker 빌드 컨텍스트입니다. GitHub Actions에서 amd64/aarch64 이미지 빌드와 API·변환·브라우저 검사를 실행합니다. 브라우저 검사는 반응형 배치, 설정 저장, 마우스·터치 피드백 등을 확인하며 실제 Home Assistant 기기와 Android 파일 선택창은 환경에 따라 다를 수 있습니다.
+
+### 프리빌드 배포 순서
+
+버전은 `roadviewer/config.yaml`에서 읽습니다. 모든 브라우저·API 테스트와 두 플랫폼의 컨테이너 검사를 통과해야 `ghcr.io/qualified4/roadviewer-ha:<버전>` 멀티플랫폼 태그를 발행합니다. PR과 일반 브랜치 push는 검사만 수행하고, `main` push 또는 원본 저장소의 수동 실행에서 이미지를 게시합니다.
+
+1. 릴리스 브랜치에서 앱 버전·Dockerfile 기본 버전·화면 버전·변경 이력을 함께 갱신합니다. 이미 배포한 버전은 재사용하지 않습니다.
+2. 해당 브랜치를 push하고 **Actions → Build, test and publish app → Run workflow**에서 그 브랜치를 선택해 이미지를 먼저 배포합니다. 최초 전환 때는 기존 이름인 **Build and test app**으로 보일 수 있습니다. 기존 워크플로가 수동 실행을 지원하므로 수정한 브랜치를 선택해 실행하면 됩니다.
+3. 최초 GHCR 패키지는 비공개일 수 있습니다. GitHub의 **Packages → roadviewer-ha → Package settings → Change visibility → Public**을 확인합니다. 공개 접근 검사에서 실패했다면 공개로 변경한 뒤 실패한 `publish` 작업을 다시 실행합니다. Home Assistant에 레지스트리 자격 증명을 넣는 방식은 사용하지 않습니다.
+4. 모든 작업과 익명 다운로드·플랫폼 검증이 성공한 뒤 **테스트한 커밋을 그대로 `main`에 반영**합니다. 이미지가 만들어지기 전에 `config.yaml`의 새 버전·`image:`를 `main`에 먼저 올리면 설치·업데이트가 실패할 수 있습니다.
+
+`build-<커밋>-amd64` / `build-<커밋>-arm64` 태그는 검증한 플랫폼별 이미지이며 Home Assistant는 버전 태그를 사용합니다. 이미 있는 버전 태그는 다시 게시하지 않으므로 `main` 반영 후 재실행해도 선배포한 이미지를 유지합니다. 수정본을 배포하려면 반드시 새 버전을 사용합니다. 로컬 소스를 직접 빌드하려면 [설치 설명](roadviewer/DOCS.md#설치와-접속)의 `image:` 제거 안내를 따르세요.
 
 사용자 로그·영상은 저장소에 포함하지 않습니다. 포함된 openpilot 스키마와 UI 리소스의 라이선스는 [OPENPILOT-LICENSE](roadviewer/schema/OPENPILOT-LICENSE)를 참고하세요.

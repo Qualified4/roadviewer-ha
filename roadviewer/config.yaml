@@ -1,6 +1,7 @@
 name: Road Viewer
-version: "0.3.10"
+version: "0.3.11"
 slug: roadviewer
+image: ghcr.io/qualified4/roadviewer-ha
 description: Openpilot 로그 업로드, 목록, 영상·도로 재생 및 삭제
 arch:
   - amd64
