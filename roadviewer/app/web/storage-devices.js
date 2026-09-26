@@ -32,7 +32,7 @@ async function loadDevices(){
  $('deviceList').replaceChildren(...data.devices.map(d=>{
   const row=document.createElement('div');row.className='device-row';const info=document.createElement('div'),name=document.createElement('strong'),meta=document.createElement('p'),button=document.createElement('button');name.textContent=d.name||d.device_id;
   meta.textContent=`${d.revoked?'연결 해제됨':'활성'} · ${d.dongle_id||d.device_id} · 등록 ${new Date(d.registered_at*1000).toLocaleString()} · 마지막 인증 ${d.last_seen?new Date(d.last_seen*1000).toLocaleString():'없음'}`;
-  button.textContent=d.revoked?'목록 제거':'Revoke · 연결 해제';button.type='button';
+  button.textContent=d.revoked?'목록 제거':'연결 해제';button.type='button';
   button.onclick=async()=>{
    const message=d.revoked?`${d.name||d.device_id} 장치를 목록에서 제거할까요? 업로드한 로그와 영상은 유지됩니다.`:`${d.name||d.device_id} 장치의 인증을 해제할까요? 진행 중인 업로드도 더 이상 이어갈 수 없습니다.`;
    if(!confirm(message))return;button.disabled=true;

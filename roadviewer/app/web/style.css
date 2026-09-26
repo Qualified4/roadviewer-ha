@@ -284,10 +284,12 @@ i.model-path{background:#c4a5ff}
 .copy-recording{position:relative;z-index:2;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--muted)}
 .copy-recording:hover{background:#ffffff0d;color:var(--text)}.copy-recording svg{display:block}
 .copy-announcement,.clipboard-fallback{position:absolute;width:1px;height:1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.replay-heading #routeName{flex:1;min-width:0}.replay-heading #route{flex:0 1 auto}
+.pin-badge{font-size:11px;color:#facc15;border:1px solid #66562c;border-radius:5px;padding:2px 6px}
+.replay-recording{display:flex;align-items:center;gap:6px;min-width:0;flex:1}.replay-recording .pin-badge{flex-shrink:0}
+.replay-heading #routeName{flex:0 1 auto;min-width:0}.replay-heading #route{flex:0 1 auto}
 
 /* Match the library pin while keeping a separate touch target by the segment picker. */
-#pinLog{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:40px;height:40px;padding:0;background:var(--panel);color:var(--muted)}
-#pinLog:hover:enabled{background:#283b4e;color:var(--text)}
+#pinLog{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:40px;height:40px;padding:0;background:var(--panel);color:var(--muted);-webkit-tap-highlight-color:transparent}
+@media(hover:hover) and (pointer:fine){#pinLog:hover:enabled{background:#283b4e}}
 #pinLog[aria-pressed=true]{color:#facc15;background:#facc1512}
 #pinLog[aria-pressed=true] .pin-head{fill:currentColor;fill-opacity:.2}

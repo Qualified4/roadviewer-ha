@@ -69,7 +69,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  await page.locator('#pairCopyIcon svg').waitFor();assert.equal(await page.locator('#pairCopyStatus').textContent(),'');
  assert(!(await page.evaluate(()=>JSON.stringify(localStorage))).includes('ABCDEF123456ABCDEF123456'));
  pair={status:'paired',expires_at:Date.now()/1000+300};devices=[{device_id:'device',name:'My comma',registered_at:1,last_seen:2,revoked:false}];
- await page.getByText('장치가 연결되었습니다.',{exact:true}).waitFor();assert(await page.locator('#pairCopy').isDisabled());await page.locator('#pairClose').click();await page.getByRole('button',{name:'Revoke · 연결 해제'}).click();await page.getByRole('button',{name:'목록 제거',exact:true}).waitFor();assert(revoke);
+ await page.getByText('장치가 연결되었습니다.',{exact:true}).waitFor();assert(await page.locator('#pairCopy').isDisabled());await page.locator('#pairClose').click();await page.getByRole('button',{name:'연결 해제',exact:true}).click();await page.getByRole('button',{name:'목록 제거',exact:true}).waitFor();assert(revoke);
  await page.getByRole('button',{name:'목록 제거',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.device-row'));assert.equal(devices.length,0);
  assert.deepEqual(errors,[]);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  console.log('storage settings, Pin, pairing, revoke and device removal UI passed');

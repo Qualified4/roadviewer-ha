@@ -26,14 +26,19 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const pin=page.locator('#pinLog');await pin.waitFor();
   await page.waitForFunction(()=>!document.getElementById('pinLog').disabled);
   assert.equal(await pin.getAttribute('aria-pressed'),'false');
+  assert(await page.locator('#routePin').isHidden());
   await pin.click();await page.waitForFunction(()=>document.getElementById('pinLog').getAttribute('aria-pressed')==='true');
   assert.equal(await pin.getAttribute('aria-label'),'구간 고정 해제');
+  assert(await page.locator('#routePin').isVisible());
   await page.reload();await page.waitForFunction(()=>!document.getElementById('pinLog').disabled);
   assert.equal(await pin.getAttribute('aria-pressed'),'true','pin persists after reload');
+  assert(await page.locator('#routePin').isVisible(),'pin badge survives name rendering and reload');
   pinFailure=true;await pin.click();await page.locator('#error').waitFor();
   assert.equal(await pin.getAttribute('aria-pressed'),'true','failed save preserves pin');
+  assert(await page.locator('#routePin').isVisible(),'failed save preserves badge');
   await page.waitForFunction(()=>!document.getElementById('pinLog').disabled);
   pinFailure=false;await pin.click();await page.waitForFunction(()=>document.getElementById('pinLog').getAttribute('aria-pressed')==='false');
+  assert(await page.locator('#routePin').isHidden());
   assert.equal(pinRequests,3);await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
 
   for(const width of [320,360,390]){
@@ -182,6 +187,22 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await touch.goto('https://rv.test/view/one/');await touch.waitForFunction(()=>!document.getElementById('play').disabled);
   await touch.evaluate(()=>document.getElementById('foldHeading').addEventListener('transitionrun',e=>{if(e.propertyName==='color')window.foldFadeSeen=true}));
   const touchInput=await touch.context().newCDPSession(touch);
+  for(const width of [390,768]){
+   await touch.setViewportSize({width,height:844});
+   for(const expected of [true,false]){
+    await touch.locator('#pinLog').tap();
+    await touch.waitForFunction(expected=>{const b=document.getElementById('pinLog');return !b.disabled&&b.getAttribute('aria-pressed')===String(expected)},expected);
+    const appearance=await touch.locator('#pinLog').evaluate(e=>({color:getComputedStyle(e).color,background:getComputedStyle(e).backgroundColor,tap:getComputedStyle(e).webkitTapHighlightColor}));
+    assert.equal(appearance.color,expected?'rgb(250, 204, 21)':'rgb(148, 165, 184)','touch release reflects saved pin state');
+    assert.equal(appearance.background,expected?'rgba(250, 204, 21, 0.07)':'rgb(19, 28, 39)','touch must not retain hover background');
+    assert.equal(appearance.tap,'rgba(0, 0, 0, 0)');
+    assert.equal(await touch.locator('#routePin').isVisible(),expected);
+    if(expected){
+     const name=await touch.locator('#routeName').boundingBox(),badge=await touch.locator('#routePin').boundingBox(),details=await touch.locator('#details').boundingBox();
+     assert(badge.x>=name.x+name.width&&badge.x+badge.width<=details.x,'pin badge stays beside name without overlapping details');
+    }
+   }
+  }
   for(const width of [390,768]){
    await touch.setViewportSize({width,height:844});await touch.evaluate(()=>scrollTo(0,220));
    await touch.waitForFunction(()=>!document.getElementById('foldHeading').hidden);

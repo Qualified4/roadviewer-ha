@@ -41,7 +41,6 @@
 @media(max-width:550px){.bulk-buttons #bulkConvert{grid-column:1/-1}}
 
 
-.pin-badge{font-size:11px;color:#facc15;border:1px solid #66562c;border-radius:5px;padding:2px 6px}
 
 /* Upload and settings share the same disclosure hierarchy. */
 .library-page { --muted: #a1b0c1; }

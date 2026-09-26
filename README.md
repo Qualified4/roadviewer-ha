@@ -97,4 +97,6 @@ Openpilot 주행 로그와 전방 카메라 영상을 올리고, **영상·주�
 
 `build-<커밋>-amd64` / `build-<커밋>-arm64` 태그는 검증한 플랫폼별 이미지이며 Home Assistant는 버전 태그를 사용합니다. 이미 있는 버전 태그는 다시 게시하지 않으므로 `main` 반영 후 재실행해도 선배포한 이미지를 유지합니다. 수정본을 배포하려면 반드시 새 버전을 사용합니다. 로컬 소스를 직접 빌드하려면 [설치 설명](roadviewer/DOCS.md#설치와-접속)의 `image:` 제거 안내를 따르세요.
 
+Road Viewer는 [MIT 라이선스](LICENSE)로 배포합니다.
+
 사용자 로그·영상은 저장소에 포함하지 않습니다. 포함된 openpilot 스키마와 UI 리소스의 라이선스는 [OPENPILOT-LICENSE](roadviewer/schema/OPENPILOT-LICENSE)를 참고하세요.

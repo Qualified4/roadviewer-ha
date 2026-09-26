@@ -236,6 +236,7 @@ function populateSegments(logs,current){
  };
 }
 function syncReplayPin(pinned){
+ $('routePin').hidden=!pinned;
  const button=$('pinLog');button.setAttribute('aria-pressed',String(pinned));
  button.title=pinned?'구간 고정 해제':'구간 고정';button.setAttribute('aria-label',button.title);
 }
