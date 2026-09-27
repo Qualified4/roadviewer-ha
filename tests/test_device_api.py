@@ -176,7 +176,7 @@ class DeviceTests(unittest.TestCase):
   self.assertFalse(s.storage_policy.pinned(s.read_meta(b)))
   self.assertEqual(json.loads(s.storage_policy.path.read_text())['pinned_logs'],[a.name])
   s.storage_policy.settings.update(max_bytes=s.storage_used_bytes()+20000,policy='delete_oldest')
-  with s.registration_lock,s.lock:s.storage_policy.admit(10000,[])
+  with s.registration_lock,s.lock:s.storage_policy.admit(10000,[],commit=True)
   self.assertTrue(a.exists());self.assertFalse(b.exists());self.assertTrue(c.exists())
   self.ui_call('/api/logs/'+a.name+'/pin','POST',{'pinned':False})
   self.assertFalse(s.storage_policy.pinned(s.read_meta(a)))
@@ -214,7 +214,7 @@ class DeviceTests(unittest.TestCase):
   c=self.make_log('c','00000003--cccccccccc',0,3,size=100000)
   m=s.read_meta(b);m['status']='processing';s.save_meta(b,m)
   s.storage_policy.settings.update(max_bytes=s.storage_used_bytes()+20000,policy='delete_oldest')
-  with s.registration_lock,s.lock:s.storage_policy.admit(10000,[{'name':'00000001--aaaaaaaaaa--1--rlog.zst'}])
+  with s.registration_lock,s.lock:s.storage_policy.admit(10000,[{'name':'00000001--aaaaaaaaaa--1--rlog.zst'}],commit=True)
   self.assertTrue(a.exists());self.assertTrue(b.exists());self.assertFalse(c.exists())
  def test_device_idle_deadline_and_active_requests(self):
   r=self.signed().json;p=s.UPLOADS/r['id'];os.utime(p,(0,0))
@@ -244,5 +244,235 @@ class DeviceTests(unittest.TestCase):
    self.assertEqual(self.signed().json['error'],'insufficient_disk_space')
   r=self.ui_call('/api/uploads','POST',{'files':[{'name':'rlog.zst','size':2}]});self.assertEqual(r.status_code,201)
   self.assertGreater(s.storage_policy.reserved(),0);s.cleanup_uploads(startup=True);self.assertEqual(s.storage_policy.reserved(),0)
+
+ def constrained_log(self):
+  p=self.make_log('a','00000001--aaaaaaaaaa',0,1,size=200000)
+  s.storage_policy.settings.update(max_bytes=s.storage_used_bytes()+20000,policy='delete_oldest')
+  return p
+ def test_reservations_never_delete_existing_logs(self):
+  old=self.constrained_log()
+  for i in range(5):
+   body=self.batch();body['batch_id']=f'batch_{i:020d}'
+   r=self.signed(body)
+   self.assertIn(r.status_code,(201,507),r.json)
+   self.assertTrue(old.exists())
+  self.assertGreater(s.storage_policy.reserved(),0)
+ def test_browser_reservation_cancel_does_not_evict(self):
+  old=self.constrained_log()
+  for _ in range(4):
+   r=self.ui_call('/api/uploads','POST',{'files':[{'name':'rlog.zst','size':3}]})
+   self.assertEqual(r.status_code,201,r.json);self.assertTrue(old.exists())
+   self.assertEqual(self.ui_call('/api/uploads/'+r.json['id'],'DELETE').status_code,200)
+   self.assertEqual(s.storage_policy.reserved(),0)
+ def test_verified_upload_evicts_only_at_finish(self):
+  old=self.constrained_log()
+  pinned=self.make_log('b','00000002--bbbbbbbbbb',0,0)
+  s.storage_policy.settings['pinned_logs']=[pinned.name]
+  s.storage_policy.settings['max_bytes']=s.storage_used_bytes()+20000
+  r=self.signed().json
+  for index,data in enumerate((b'log\x00',b'video')):
+   response=self.external(f"/api/device/uploads/{r['id']}/files/{index}?offset=0",'PUT',headers=self.token(r),data=data)
+   self.assertEqual(response.status_code,200,response.json);self.assertTrue(old.exists())
+  response=self.external(f"/api/device/uploads/{r['id']}/finish",headers=self.token(r))
+  self.assertEqual(response.status_code,201,response.json)
+  self.assertFalse(old.exists());self.assertTrue(pinned.exists())
+  self.assertEqual(s.storage_policy.reserved(),0)
+ def test_checksum_failure_preserves_logs_and_releases_reservation(self):
+  old=self.constrained_log();r=self.signed().json
+  for index,data in enumerate((b'bad!',b'video')):
+   self.assertEqual(self.external(f"/api/device/uploads/{r['id']}/files/{index}?offset=0",'PUT',headers=self.token(r),data=data).status_code,200)
+  response=self.external(f"/api/device/uploads/{r['id']}/finish",headers=self.token(r))
+  self.assertEqual(response.status_code,422);self.assertTrue(old.exists());self.assertEqual(s.storage_policy.reserved(),0)
+ def test_invalid_browser_finish_preserves_logs_and_releases_reservation(self):
+  old=self.constrained_log()
+  r=self.ui_call('/api/uploads','POST',{'files':[{'name':'qcamera.ts','size':3}]}).json
+  self.client.put(f"/api/uploads/{r['id']}/files/0?offset=0",data=b'vid',environ_overrides=self.ui,headers={'X-RoadViewer-Request':'1'})
+  result=self.ui_call(f"/api/uploads/{r['id']}/finish",'POST')
+  self.assertEqual(result.status_code,400);self.assertTrue(old.exists());self.assertEqual(s.storage_policy.reserved(),0)
+ def test_duplicate_upload_does_not_evict(self):
+  old=self.constrained_log()
+  payload=(old/'rlog.zst').read_bytes()
+  r=self.ui_call('/api/uploads','POST',{'files':[{'name':'rlog.zst','size':len(payload)}]})
+  # Reserve with a higher quota, then lower it before duplicate registration.
+  self.assertEqual(r.status_code,507)
+  s.storage_policy.settings['max_bytes']=1000000
+  r=self.ui_call('/api/uploads','POST',{'files':[{'name':'rlog.zst','size':len(payload)}]}).json
+  self.client.put(f"/api/uploads/{r['id']}/files/0?offset=0",data=payload,environ_overrides=self.ui,headers={'X-RoadViewer-Request':'1'})
+  s.storage_policy.settings['max_bytes']=210000
+  result=self.ui_call(f"/api/uploads/{r['id']}/finish",'POST')
+  self.assertEqual(result.status_code,201,result.json);self.assertEqual(len(result.json['duplicates']),1);self.assertTrue(old.exists())
+ def test_token_renewal_cannot_extend_idle_reservation(self):
+  r=self.signed().json;p=s.UPLOADS/r['id'];past=time.time()-800;os.utime(p,(past,past))
+  renewed=self.signed();self.assertEqual(renewed.status_code,200)
+  self.assertAlmostEqual(p.stat().st_mtime,past,delta=.001)
+  with patch.object(s.time,'time',return_value=past+s.UPLOAD_IDLE_SECONDS+1):s.cleanup_uploads()
+  self.assertFalse(p.exists());self.assertEqual(s.storage_policy.reserved(),0)
+ def test_browser_absolute_timeout_and_session_limit(self):
+  with patch.object(s,'UPLOAD_SESSION_LIMIT',2):
+   sessions=[self.ui_call('/api/uploads','POST',{'files':[{'name':'rlog.zst','size':3}]}).json for _ in range(2)]
+   self.assertEqual(self.ui_call('/api/uploads','POST',{'files':[{'name':'rlog.zst','size':3}]}).status_code,429)
+  for item in sessions:
+   p=s.UPLOADS/item['id'];reservation=json.loads((p/'reservation.json').read_text());reservation['expires_at']=0
+   (p/'reservation.json').write_text(json.dumps(reservation));os.utime(p,None)
+  s.cleanup_uploads();self.assertEqual(s.storage_policy.reserved(),0);self.assertEqual(list(s.UPLOADS.iterdir()),[])
+ def test_concurrent_delete_oldest_reservations_are_bounded_without_deletion(self):
+  old=self.constrained_log();s.storage_policy.settings['max_bytes']=s.storage_used_bytes()+20000
+  barrier=threading.Barrier(5);results=[]
+  def begin():
+   with s.app.test_request_context('/api/uploads'):
+    barrier.wait()
+    try:
+     with s.registration_lock,s.lock:results.append(s.create_upload([{'name':'rlog.zst','size':10000}])[1])
+    except StorageError:results.append(507)
+  threads=[threading.Thread(target=begin) for _ in range(5)]
+  for t in threads:t.start()
+  for t in threads:t.join()
+  self.assertEqual(sorted(results),[201,201,507,507,507]);self.assertTrue(old.exists())
+ def test_no_physical_staging_space_never_evicts(self):
+  old=self.constrained_log()
+  with patch.object(s.shutil,'disk_usage',return_value=SimpleNamespace(free=100*1024*1024)):
+   self.assertEqual(self.signed().status_code,507)
+  self.assertTrue(old.exists());self.assertEqual(s.storage_policy.reserved(),0)
+ def test_browser_disk_failure_releases_reservation(self):
+  r=self.ui_call('/api/uploads','POST',{'files':[{'name':'rlog.zst','size':3}]}).json
+  with patch.object(s.shutil,'disk_usage',return_value=SimpleNamespace(free=0)):
+   result=self.client.put(f"/api/uploads/{r['id']}/files/0?offset=0",data=b'log',environ_overrides=self.ui,headers={'X-RoadViewer-Request':'1'})
+  self.assertEqual(result.status_code,507);self.assertEqual(s.storage_policy.reserved(),0)
+
+ def test_unreceived_reservation_cannot_force_other_finish_to_evict(self):
+  old=self.constrained_log();s.storage_policy.settings['max_bytes']=s.storage_used_bytes()+75000
+  pending=self.signed().json
+  r=self.ui_call('/api/uploads','POST',{'files':[{'name':'rlog.zst','size':3}]}).json
+  response=self.client.put(f"/api/uploads/{r['id']}/files/0?offset=0",data=b'new',environ_overrides=self.ui,headers={'X-RoadViewer-Request':'1'})
+  self.assertEqual(response.status_code,200)
+  self.assertEqual(self.ui_call(f"/api/uploads/{r['id']}/finish",'POST').status_code,201)
+  self.assertTrue(old.exists());self.assertTrue((s.UPLOADS/pending['id']).exists())
+ def test_duplicate_chunk_does_not_refresh_idle_deadline(self):
+  r=self.signed().json;p=s.UPLOADS/r['id']
+  path=f"/api/device/uploads/{r['id']}/files/0?offset=0"
+  self.assertEqual(self.external(path,'PUT',headers=self.token(r),data=b'log\x00').status_code,200)
+  past=time.time()-800;os.utime(p,(past,past))
+  self.assertEqual(self.external(path,'PUT',headers=self.token(r),data=b'log\x00').status_code,200)
+  self.assertAlmostEqual(p.stat().st_mtime,past,delta=.001)
+ def test_concurrent_finishes_remain_within_quota(self):
+  old=self.constrained_log();sessions=[]
+  for data in (b'one',b'two'):
+   r=self.ui_call('/api/uploads','POST',{'files':[{'name':'rlog.zst','size':3}]}).json
+   self.client.put(f"/api/uploads/{r['id']}/files/0?offset=0",data=data,environ_overrides=self.ui,headers={'X-RoadViewer-Request':'1'})
+   sessions.append(r['id'])
+  barrier=threading.Barrier(2);results=[]
+  def finish(id):
+   with s.app.test_client() as client:
+    barrier.wait();results.append(client.post(f'/api/uploads/{id}/finish',headers={'X-RoadViewer-Request':'1'},environ_overrides=self.ui).status_code)
+  threads=[threading.Thread(target=finish,args=(id,)) for id in sessions]
+  for t in threads:t.start()
+  for t in threads:t.join()
+  self.assertEqual(results,[201,201]);self.assertFalse(old.exists());self.assertEqual(s.storage_policy.reserved(),0)
+  self.assertLessEqual(s.storage_used_bytes(),s.storage_policy.settings['max_bytes'])
+
+ def auth_headers(self, raw, *, device=None, stamp=None, nonce='auth_nonce_0123456789', method='POST', path='/api/device/uploads'):
+  device=device or self.device;stamp=str(int(time.time()) if stamp is None else stamp)
+  canonical='\n'.join(('RV1',device['device_id'],stamp,nonce,method,path,hashlib.sha256(raw).hexdigest()))
+  return {'Content-Type':'application/json','X-RV-Device':device['device_id'],'X-RV-Timestamp':stamp,'X-RV-Nonce':nonce,'X-RV-Signature':hmac.new(device['device_secret'].encode(),canonical.encode(),hashlib.sha256).hexdigest()}
+ def test_exact_replay_and_simultaneous_nonce(self):
+  raw=json.dumps(self.batch()).encode();headers=self.auth_headers(raw);barrier=threading.Barrier(2);responses=[]
+  def send():
+   with s.app.test_client() as c:
+    barrier.wait();responses.append(c.post('/api/device/uploads',data=raw,headers=headers,environ_overrides=self.peer).status_code)
+  threads=[threading.Thread(target=send) for _ in range(2)]
+  for t in threads:t.start()
+  for t in threads:t.join()
+  self.assertEqual(sorted(responses),[201,409])
+  s.devices.state=json.loads(s.devices.path.read_text())
+  self.assertEqual(self.external('/api/device/uploads',data=raw,headers=headers).status_code,409)
+ def test_hmac_binds_method_path_body_and_empty_body(self):
+  from werkzeug.exceptions import HTTPException
+  raw=json.dumps(self.batch()).encode()
+  for method,path,payload in [('PUT','/api/device/uploads',raw),('POST','/api/device/other',raw),('POST','/api/device/uploads',raw+b' '),('POST','/api/device/uploads',b'')]:
+   with self.subTest(method=method,path=path,payload=payload),s.app.test_request_context(path,method=method,data=payload,headers=self.auth_headers(raw)):
+    with self.assertRaises(HTTPException) as e:s.devices.authenticate()
+    self.assertEqual(e.exception.code,401)
+  self.assertEqual(self.external('/api/device/uploads?x=1',data=raw,headers=self.auth_headers(raw)).status_code,400)
+  self.assertEqual(self.external('/api/device/uploads',data=raw,headers=self.auth_headers(b'')).status_code,401)
+  self.assertEqual(self.external('/api/device/uploads',data=raw,headers=self.auth_headers(raw)).status_code,201)
+ def test_timestamp_and_malformed_headers_fail_closed(self):
+  raw=json.dumps(self.batch()).encode();now=1800000000
+  with patch.object(s.time,'time',return_value=now):
+   for stamp in [now-121,now+121,'bad','1e9','', '９'*10]:
+    self.assertEqual(self.external('/api/device/uploads',data=raw,headers=self.auth_headers(raw,stamp=stamp)).status_code,401)
+   for key,value in [('X-RV-Nonce',''),('X-RV-Nonce','é'*16),('X-RV-Signature',''),('X-RV-Signature','g'*64),('X-RV-Device','unknown')]:
+    headers=self.auth_headers(raw);headers[key]=value
+    self.assertEqual(self.external('/api/device/uploads',data=raw,headers=headers).status_code,401)
+ def test_timestamp_rechecked_after_slow_body_read(self):
+  from flask import request
+  from werkzeug.exceptions import HTTPException
+  now=1800000000;clock=[now];raw=json.dumps(self.batch()).encode();headers=self.auth_headers(raw,stamp=now)
+  with patch.object(s.time,'time',side_effect=lambda:clock[0]),s.app.test_request_context('/api/device/uploads',method='POST',data=raw,headers=headers):
+   def delayed_body():clock[0]=now+121;return raw
+   with patch.object(request._get_current_object(),'get_data',side_effect=delayed_body):
+    with self.assertRaises(HTTPException) as e:s.devices.authenticate()
+   self.assertEqual(e.exception.code,401)
+  self.assertEqual(s.devices.state['nonces'],{})
+ def test_nonce_device_scope_future_window_and_capacity(self):
+  raw=json.dumps(self.batch()).encode();now=int(time.time());other=self.pair()
+  with patch.object(s.time,'time',return_value=now):
+   headers=self.auth_headers(raw,stamp=now+120)
+   self.assertEqual(self.external('/api/device/uploads',data=raw,headers=headers).status_code,201)
+   self.assertEqual(self.external('/api/device/uploads',data=raw,headers=self.auth_headers(raw,device=other,stamp=now+120)).status_code,201)
+  with patch.object(s.time,'time',return_value=now+240):
+   self.assertEqual(self.external('/api/device/uploads',data=raw,headers=headers).status_code,409)
+  with patch.object(s.time,'time',return_value=now+242):
+   self.assertEqual(self.external('/api/device/uploads',data=raw,headers=headers).status_code,401)
+   self.assertEqual(self.external('/api/device/uploads',data=raw,headers=self.auth_headers(raw,nonce='fresh_nonce_0123456789')).status_code,200)
+   self.assertEqual(len(s.devices.state['nonces']),1)
+   s.devices.state['nonces']={str(i):now+400 for i in range(10000)}
+   self.assertEqual(self.external('/api/device/uploads',data=raw,headers=self.auth_headers(raw,nonce='capped_nonce_0123456789')).status_code,429)
+ def test_revoke_reload_and_repair_never_restore_old_credentials(self):
+  old=self.device.copy();r=self.signed().json
+  self.assertEqual(self.ui_call('/api/settings/devices/'+old['device_id']+'/revoke','POST').status_code,200)
+  s.devices.state=json.loads(s.devices.path.read_text())
+  self.assertEqual(self.signed().status_code,401)
+  self.assertNotEqual(self.external('/api/device/uploads/'+r['id'],'GET',headers=self.token(r)).status_code,200)
+  self.device=self.pair();self.assertNotEqual(self.device['device_id'],old['device_id']);self.assertNotEqual(self.device['device_secret'],old['device_secret'])
+  self.assertEqual(self.signed().status_code,201)
+  raw=json.dumps(self.batch()).encode()
+  self.assertEqual(self.external('/api/device/uploads',data=raw,headers=self.auth_headers(raw,device=old)).status_code,401)
+ def test_revoke_during_chunk_read_prevents_write(self):
+  r=self.signed().json;path=s.UPLOADS/r['id']
+  from werkzeug.wsgi import LimitedStream
+  read=LimitedStream.read
+  def revoke_then_read(stream,*args,**kwargs):
+   result=read(stream,*args,**kwargs)
+   self.ui_call('/api/settings/devices/'+self.device['device_id']+'/revoke','POST')
+   return result
+  with patch.object(LimitedStream,'read',revoke_then_read):
+   result=self.external(f"/api/device/uploads/{r['id']}/files/0?offset=0",'PUT',data=b'log\x00',headers=self.token(r))
+  self.assertEqual(result.status_code,401)
+  self.assertFalse((path/'0').exists());self.assertEqual(s.storage_policy.reserved(),0)
+ def test_revoke_during_finish_prevents_registration_and_eviction(self):
+  old=self.constrained_log();r=self.signed().json
+  for i,payload in enumerate((b'log\x00',b'video')):
+   self.external(f"/api/device/uploads/{r['id']}/files/{i}?offset=0",'PUT',data=payload,headers=self.token(r))
+  digest=s.file_digest
+  def revoke_then_hash(path):
+   result=digest(path)
+   self.ui_call('/api/settings/devices/'+self.device['device_id']+'/revoke','POST')
+   return result
+  with patch.object(s,'file_digest',side_effect=revoke_then_hash):
+   result=self.external(f"/api/device/uploads/{r['id']}/finish",headers=self.token(r))
+  self.assertEqual(result.status_code,401);self.assertTrue(old.exists())
+  self.assertEqual(len(s.recording_paths()),1);self.assertEqual(s.storage_policy.reserved(),0)
+ def test_auth_persistence_and_body_read_errors_fail_closed(self):
+  raw=json.dumps(self.batch()).encode()
+  with self.assertLogs(s.app.logger,level='ERROR') as captured,patch.object(s.devices,'save',side_effect=OSError('test persistence failure')):
+   result=self.external('/api/device/uploads',data=raw,headers=self.auth_headers(raw))
+  self.assertNotIn(self.device['device_secret'],'\n'.join(captured.output))
+  self.assertNotIn(s.devices.state['master'],'\n'.join(captured.output))
+  self.assertEqual(result.status_code,500);self.assertEqual(list(s.UPLOADS.iterdir()),[])
+  from flask import request
+  with s.app.test_request_context('/api/device/uploads',method='POST',data=raw,headers=self.auth_headers(raw,nonce='error_nonce_0123456789')):
+   with patch.object(request._get_current_object(),'get_data',side_effect=OSError('test read failure')):
+    with self.assertRaises(OSError):s.devices.authenticate()
+  self.assertEqual(list(s.UPLOADS.iterdir()),[])
 
 if __name__=='__main__':unittest.main()

@@ -273,10 +273,25 @@ def register_files(files):
      hash_updates.append((path,meta['content_hashes']))
      if 'rlog.zst' in hashes:existing.setdefault(hashes['rlog.zst'],(meta,hashes))
     with lock:
+     # Recheck device revocation/expiry after slow copying and hashing, before deletion.
+     if request.path.startswith('/api/device/'):
+      devices.authorize_session(request.view_args['id'])
      for path,hashes in hash_updates:
       current=read_meta(path)
       if current.get('content_hashes')!=hashes:
        current['content_hashes']=hashes;save_meta(path,current)
+     # All files are received, validated and hashed before any eviction.
+     # A duplicate-only upload must never remove existing data.
+     matches=[existing.get(g['hashes']['rlog.zst']) for g in groups.values()]
+     changes=False
+     for g,match in zip(groups.values(),matches):
+      if match is None:
+       changes=True
+      elif 'qcamera.ts' in g['hashes']:
+       path=ROOT/match[0]['id']
+       if not (path/'qcamera.ts').is_file() and (not has_video(path) or g['hashes']['qcamera.ts']==match[1].get('qcamera.ts')):changes=True
+     if changes:
+      storage_policy.admit(0,[{'name':name} for g in groups.values() for name in g['files'].values()],commit=True,protected_ids={match[0]['id'] for match in matches if match})
      for g in groups.values():
       match=existing.get(g['hashes']['rlog.zst'])
       if match:
@@ -323,6 +338,8 @@ def register_files(files):
 UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)
 CHUNK_SIZE=256*1024
 UPLOAD_IDLE_SECONDS=15*60
+UPLOAD_MAX_SECONDS=2*60*60
+UPLOAD_SESSION_LIMIT=32
 
 def cleanup_uploads(startup=False,force=False):
  removed=0
@@ -332,7 +349,9 @@ def cleanup_uploads(startup=False,force=False):
    if not p.is_dir() or not ID.fullmatch(p.name):continue
    device_file=p/'device.json'
    device=json.loads(device_file.read_text()) if device_file.is_file() else None
-   stale=now-p.stat().st_mtime>UPLOAD_IDLE_SECONDS or (device and device['expires_at']<=now)
+   reservation=p/'reservation.json'
+   deadline=json.loads(reservation.read_text()).get('expires_at',float('inf')) if reservation.is_file() else float('inf')
+   stale=now-p.stat().st_mtime>UPLOAD_IDLE_SECONDS or now>=deadline or (device and device['expires_at']<=now)
    # Device sessions survive restart, but never their absolute/idle deadlines.
    # Explicit UI cleanup cannot interrupt live device sessions.
    expired=stale if device else (startup or force or stale)
@@ -378,6 +397,11 @@ def upload_session(id):
  if not ID.fullmatch(id):abort(404)
  p=UPLOADS/id
  if not (p/'manifest.json').is_file():abort(404)
+ reservation=p/'reservation.json'
+ deadline=json.loads(reservation.read_text()).get('expires_at',float('inf')) if reservation.is_file() else float('inf')
+ if time.time()>=deadline or time.time()-p.stat().st_mtime>UPLOAD_IDLE_SECONDS:
+  if not active_uploads[id]:shutil.rmtree(p)
+  abort(410,description='session_expired')
  return p,json.loads((p/'manifest.json').read_text())
 
 @app.route('/api/uploads',methods=['POST'])
@@ -395,10 +419,11 @@ def create_upload(files):
   if path.is_absolute() or '..' in path.parts or not (path.name in ('rlog.zst','qcamera.ts') or FLAT.fullmatch(path.name)):return jsonify(error='invalid_file_path'),400
  total=sum(f['size'] for f in files)
  if total>app.config['MAX_CONTENT_LENGTH']:return too_large(None)
+ if sum(1 for p in UPLOADS.iterdir() if (p/'reservation.json').is_file())>=UPLOAD_SESSION_LIMIT:return jsonify(error='session_limit_reached'),429
  amount=storage_policy.admit(total,files)
  id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir()
  try:
-  atomic_json(p/'manifest.json',files);atomic_json(p/'reservation.json',{'bytes':amount})
+  atomic_json(p/'manifest.json',files);atomic_json(p/'reservation.json',{'bytes':amount,'expires_at':time.time()+UPLOAD_MAX_SECONDS})
  except Exception:
   shutil.rmtree(p,ignore_errors=True);raise
  return jsonify(id=id,chunk_size=CHUNK_SIZE),201
@@ -409,10 +434,16 @@ def upload_chunk(id,index):
   p,files=upload_session(id)
   if index>=len(files):abort(404)
   active_uploads[id]+=1
+ failed=False
  try:
   # Network reads must not hold the job lock.
   payload=request.stream.read(CHUNK_SIZE+1)
   with lock:
+   if request.path.startswith('/api/device/'):
+    try:devices.authorize_session(id)
+    except Exception:
+     failed=True
+     raise
    try:offset=int(request.args.get('offset','-1'))
    except ValueError:return upload_error('invalid_offset','잘못된 업로드 위치입니다.',400)
    if not (p/'manifest.json').is_file():return upload_error('session_expired','정리된 업로드입니다. 파일을 다시 선택해 주세요.',410)
@@ -422,17 +453,23 @@ def upload_chunk(id,index):
     with target.open('rb') as source:
      source.seek(offset)
      if source.read(len(payload))==payload:
-      os.utime(p,None)
       return jsonify(received=offset+len(payload))
    if offset!=current:return upload_error('offset_conflict','업로드 위치가 일치하지 않습니다. 다시 업로드해 주세요.',409)
-   if shutil.disk_usage(ROOT).free<len(payload)+100*1024*1024:return upload_error('insufficient_disk_space','저장 공간이 부족합니다.',507)
+   if shutil.disk_usage(ROOT).free<len(payload)+100*1024*1024:
+    failed=True
+    return upload_error('insufficient_disk_space','저장 공간이 부족합니다.',507)
    with target.open('ab') as out:out.write(payload)
    os.utime(p,None)
   return jsonify(received=current+len(payload))
+ except OSError:
+  failed=True
+  raise
  finally:
   with lock:
    active_uploads[id]-=1
-   if not active_uploads[id]:active_uploads.pop(id,None)
+   if not active_uploads[id]:
+    active_uploads.pop(id,None)
+    if failed:shutil.rmtree(p,ignore_errors=True)
 
 @app.route('/api/uploads/<id>/finish',methods=['POST'])
 def finish_upload(id):
@@ -450,8 +487,8 @@ def finish_upload(id):
   return register_files(streams)
  finally:
   for f in streams:f.close()
-  shutil.rmtree(p,ignore_errors=True)
   with lock:
+   shutil.rmtree(p,ignore_errors=True)
    active_uploads.pop(id,None);finishing_uploads.discard(id)
 
 @app.route('/api/uploads/<id>',methods=['DELETE'])

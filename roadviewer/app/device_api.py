@@ -109,6 +109,9 @@ class DeviceAPI:
         body_hash = hashlib.sha256(request.get_data()).hexdigest()
         canonical = '\n'.join(('RV1', id, stamp, nonce, request.method, request.path, body_hash))
         with self.s.lock:
+            # Body reads and lock contention may outlast the authentication window.
+            now = time.time()
+            if abs(now - timestamp) > CLOCK_SKEW: abort(401, description='stale_timestamp')
             device = self.state['devices'].get(id)
             if not device or device['revoked']: abort(401, description='invalid_device')
             expected = hmac.new(self.secret(id).encode('ascii'), canonical.encode('utf-8'), hashlib.sha256).hexdigest()
@@ -170,7 +173,9 @@ class DeviceAPI:
 
     def issue_token(self, p, meta, status=200):
         token = secrets.token_urlsafe(32); meta['token_hash'] = hashlib.sha256(token.encode()).hexdigest()
+        idle = p.stat().st_mtime
         atomic_json(p/'device.json', meta)
+        self.s.os.utime(p, (idle, idle))  # Token renewal is not upload progress.
         return jsonify(id=p.name, token=token, expires_at=meta['expires_at'], idle_timeout_seconds=self.s.UPLOAD_IDLE_SECONDS, chunk_size=self.s.CHUNK_SIZE, files=self.offsets(p)), status
 
     def offsets(self, p):
