@@ -82,11 +82,14 @@ class StoragePolicy:
             if f.is_file(): total += max(0, json.loads(f.read_text())['bytes'] - self.s.storage_used_bytes(p))
         return total
 
-    def admit(self, total, incoming_files):
+    def admit(self, total, incoming_files, *, commit=False, protected_ids=()):
         # Caller holds registration_lock then lock through admission AND session creation.
         needed = total * 2 + 65536
         limit = self.settings['max_bytes']
-        used = self.s.storage_used_bytes(); reserved = self.reserved(); free = shutil.disk_usage(self.s.ROOT).free
+        used = self.s.storage_used_bytes(); reserved = 0 if commit else self.reserved(); free = shutil.disk_usage(self.s.ROOT).free
+        # Unreceived reservations may reserve reclaimable quota, never physical disk.
+        # At commit, other upload intentions must not trigger extra eviction.
+        if free < reserved + needed + MARGIN: raise StorageError('insufficient_disk_space')
         def enough(): return (not limit or used + reserved + needed <= limit) and free >= reserved + needed + MARGIN
         if enough(): return needed
         code = 'storage_limit_exceeded' if limit and used + reserved + needed > limit else 'insufficient_disk_space'
@@ -106,7 +109,7 @@ class StoragePolicy:
             groups.setdefault(key, []).append((p, m))
         candidates = []
         for key, rows in groups.items():
-            if key in protected or any(m['status'] in ('queued', 'processing') for _, m in rows): continue
+            if key in protected or any(m['id'] in protected_ids or m['status'] in ('queued', 'processing') for _, m in rows): continue
             deletable = [(p, m) for p, m in rows if not self.pinned(m)]
             if deletable: candidates.append((min(m.get('uploaded', 0) for _, m in rows), key, deletable))
         candidates.sort(key=lambda row: (row[0], row[1]))
@@ -114,6 +117,7 @@ class StoragePolicy:
         reclaim = sum(self.s.storage_used_bytes(p) for _, _, rows in candidates for p, _ in rows)
         if (limit and used - reclaim + reserved + needed > limit) or free + reclaim < reserved + needed + MARGIN:
             raise StorageError('no_deletable_logs')
+        if not commit: return needed
         for _, _, rows in candidates:
             for p, _ in rows: self.s.delete_recording(p.name)
             used = self.s.storage_used_bytes(); free = shutil.disk_usage(self.s.ROOT).free
