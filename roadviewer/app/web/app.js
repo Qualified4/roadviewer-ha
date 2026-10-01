@@ -58,7 +58,21 @@ function syncVideo(seek=false){
   v.play().catch(e=>{if(pauseRevision===videoPauseRevision&&playing&&videoAvailable()&&!finalVideoFrame()){pause();showError('영상을 재생할 수 없습니다. '+e.message)}}).finally(()=>{videoPlayPending=false;if(!playing||!videoAvailable()||finalVideoFrame())pauseVideo()});
  }
 }
-function setTime(time,seekVideo=true){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render()}
+function updateVideoBuffer(){
+ const container=$('videoBuffered');container.replaceChildren();
+ if(!data?.video||!(data.duration>0)||v.readyState===0)return;
+ const ranges=v.buffered,offset=data.video.start;
+ for(let i=0;i<ranges.length;i++){
+  const start=Math.max(0,offset+ranges.start(i));
+  const end=Math.min(data.duration,offset+data.video.duration,offset+ranges.end(i));
+  if(end<=start)continue;
+  const segment=document.createElement('span');
+  segment.style.left=`${start/data.duration*100}%`;segment.style.width=`${(end-start)/data.duration*100}%`;
+  container.append(segment);
+ }
+}
+for(const event of ['progress','loadedmetadata','loadeddata','durationchange','emptied','seeked'])v.addEventListener(event,updateVideoBuffer);
+function setTime(time,seekVideo=true){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render()}
 function step(n){pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
 function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
 function tick(now){if(playing&&data){setTime(t+(now-last)/1000*Number($('speed').value),false);if(t>=data.duration-.001)pause()}last=now;requestAnimationFrame(tick)}
@@ -75,7 +89,7 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
   throw Error(state.error||'로그 변환에 실패했습니다. 목록을 확인하세요.');
  }
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
- data=await res.json();showError('');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){v.src='../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now());loading=true;$('play').disabled=true;$('status').textContent='영상 준비 중';v.load()}else{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료'}setTime(0)}
+ data=await res.json();showError('');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){v.src='../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now());loading=true;$('play').disabled=true;$('status').textContent='영상 준비 중';v.load()}else{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료'}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 v.onloadedmetadata=()=>{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료';v.playbackRate=Number($('speed').value);setTime(t)};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)showError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
 for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
