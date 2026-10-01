@@ -293,3 +293,15 @@ i.model-path{background:#c4a5ff}
 @media(hover:hover) and (pointer:fine){#pinLog:hover:enabled{background:#283b4e}}
 #pinLog[aria-pressed=true]{color:#facc15;background:#facc1512}
 #pinLog[aria-pressed=true] .pin-head{fill:currentColor;fill-opacity:.2}
+
+/* Buffered media ranges share the log timeline, including camera start offsets. */
+.seekbar{position:relative;margin:10px 0 6px}
+.seek-track{position:absolute;left:8px;right:8px;top:10px;height:4px;border-radius:2px;background:var(--line);overflow:hidden;pointer-events:none}
+#videoBuffered span{position:absolute;top:0;height:100%;background:#718296}
+#seekPlayed{position:absolute;inset:0 auto 0 0;width:0;background:var(--lane)}
+.replay-page .seekbar #seek{position:relative;display:block;width:100%;height:24px;min-height:24px;margin:0;padding:0;appearance:none;-webkit-appearance:none;background:transparent}
+#seek::-webkit-slider-runnable-track{height:4px;background:transparent}
+#seek::-moz-range-track{height:4px;background:transparent}
+#seek::-moz-range-progress{background:transparent}
+#seek::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;margin-top:-6px;border:0;border-radius:50%;background:var(--lane)}
+#seek::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--lane)}
