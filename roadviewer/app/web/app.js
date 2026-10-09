@@ -120,7 +120,7 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
   throw Error(state.error||'로그 변환에 실패했습니다. 목록을 확인하세요.');
  }
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
- data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){videoReadyPending=true;v.src='../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now());setPlaybackState(false,'영상을 불러오는 중입니다. 잠시 기다려 주세요.');v.load()}else{setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
+ data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){videoReadyPending=true;v.src=new URL('../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now()),location.href).href;setPlaybackState(false,'영상을 불러오는 중입니다. 잠시 기다려 주세요.');v.load()}else{setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료')}};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)playbackError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
 for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
@@ -135,7 +135,7 @@ function renderSteering(f){
  $('wheelColor').setAttribute('values',`${r} 0 0 0 0 0 ${g} 0 0 0 0 0 ${b} 0 0 0 0 0 ${['driver','active'].includes(s?.state)?1:242/255} 0`);
  // A CSS transform (not the SVG attribute) so motion.css can glide between 20 Hz samples.
  $('wheelRotate').style.transform=`rotate(${-(s?.angle||0)}deg) scale(${s?.scale||1})`;
- $('wheelTexture').setAttribute('href',`../../assets/carrot_wheel${s?.critical?'_critical':''}.png`);
+ $('wheelTexture').setAttribute('href',new URL(`../../assets/carrot_wheel${s?.critical?'_critical':''}.png`,location.href).href);
  $('wheelLane').setAttribute('visibility',s?.lane&&!s?.critical?'visible':'hidden');
  $('wheelCritical').setAttribute('visibility',s?.critical?'visible':'hidden');
 }
