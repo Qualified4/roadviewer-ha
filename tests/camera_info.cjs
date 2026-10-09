@@ -1,4 +1,6 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+// Dialog, sheet and view transitions animate; measure geometry once they have settled.
+const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition')&&document.getAnimations().every(a=>a.playState!=='running'||a.effect.getTiming().iterations===Infinity));
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
@@ -24,16 +26,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const text=await values.textContent();
    for(const value of ['mici','디바이스 IDdevice-123','os04c10','보정 완료','1.00°','-2.00°','3.00°','1.35 m (로그 보정값)','좌우 설치 오프셋확인 불가'])assert(text.includes(value),value);
    assert.equal(await page.locator('#cameraInfoClose').evaluate(el=>el===document.activeElement),true);
-   const rect=await dialog.boundingBox();assert(rect.x>=0&&rect.x+rect.width<=width&&rect.y>=0&&rect.y+rect.height<=844);
+   await settle(page);const rect=await dialog.boundingBox();assert(rect.x>=0&&rect.x+rect.width<=width&&rect.y>=0&&rect.y+rect.height<=844);
    await page.evaluate(()=>{data.frames[0].cameraInfo.height=1.8;render()});
    assert.equal(await values.textContent(),text,'dialog must retain its opening snapshot');
-   await page.keyboard.press('Escape');assert(!(await dialog.isVisible()));
+   await page.keyboard.press('Escape');await dialog.waitFor({state:'hidden'});
    assert(await button.evaluate(el=>el===document.activeElement));
    await button.click();assert((await values.textContent()).includes('1.80 m'));
-   await page.locator('#cameraInfoClose').click();assert(!(await dialog.isVisible()));
+   await page.locator('#cameraInfoClose').click();await dialog.waitFor({state:'hidden'});
    await page.evaluate(()=>{data.frames[0].cameraInfo.height=1.22;data.frames[0].cameraInfo.heightDefault=true;data.frames[0].cameraInfo.calibrationStatus='uncalibrated'});
    await button.click();assert((await values.textContent()).includes('기본값 1.22 m 사용'));assert((await values.textContent()).includes('미보정'));
-   await page.mouse.click(2,2);assert(!(await dialog.isVisible()));
+   await page.mouse.click(2,2);await dialog.waitFor({state:'hidden'});
    assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
   }
   await page.evaluate(()=>{delete data.frames[0].cameraInfo});await button.click();

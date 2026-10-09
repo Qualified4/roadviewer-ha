@@ -47,7 +47,8 @@ function renderPairing(p){
  const remaining=Math.max(0,Math.ceil((p.expires_at||0)-Date.now()/1000));
  const waiting=p.status==='waiting'&&remaining>0,paired=p.status==='paired';
  $('pairDialog').dataset.state=waiting?'waiting':paired?'paired':'expired';
- $('pairCode').textContent=waiting?p.code||'':'';$('pairCopy').disabled=!waiting;
+ // Each new code appears digit by digit; the same code is left alone between polls.
+ const code=waiting?p.code||'':'';if($('pairCode').textContent!==code)$('pairCode').replaceChildren(...[...code].map((c,i)=>{const s=document.createElement('span');s.textContent=c;s.style.setProperty('--i',i);return s}));$('pairCopy').disabled=!waiting;
  $('pairCode').parentElement.hidden=!waiting;$('pairEmpty').hidden=waiting;
  $('pairEmpty').textContent=paired?'연결 완료':'코드가 만료되었습니다';
  $('pairState').textContent=waiting?'연결 대기':paired?'인증 완료':'유효 기간 종료';
@@ -89,7 +90,7 @@ $('pairCopy').onclick=async()=>{
  try{await copyTextToClipboard(code,$('pairCopy'));copied=true}catch{}
  if(generation!==pairingGeneration||$('pairCode').textContent!==code)return;
  clearTimeout(pairCopyTimer);
- $('pairCopyIcon').textContent=copied?'✓':'!';
+ $('pairCopyIcon').textContent=copied?'✓':'!';popIcon($('pairCopyIcon'));
  $('pairCopyStatus').textContent=copied?'페어링 코드를 복사했습니다.':'복사하지 못했습니다.';
  $('pairCopy').title=copied?'페어링 코드 복사':'복사하지 못했습니다. 다시 시도해 주세요.';
  pairCopyTimer=setTimeout(resetPairCopy,1800);

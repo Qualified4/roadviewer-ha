@@ -309,3 +309,5 @@ i.model-path{background:#c4a5ff}
 #seek::-moz-range-progress{background:transparent}
 #seek::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;margin-top:-6px;border:0;border-radius:50%;background:var(--lane)}
 #seek::-moz-range-thumb{width:16px;height:16px;border:0;border-radius:50%;background:var(--lane)}
+/* The wheel turns about its centre via a CSS transform (app.js renderSteering). */
+#wheelRotate{transform-box:view-box;transform-origin:64px 40px}

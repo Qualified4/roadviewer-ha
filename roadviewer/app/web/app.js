@@ -2,6 +2,11 @@
 const $=id=>document.getElementById(id),v=$('video'),canvas=$('road'),ctx=canvas.getContext('2d');
 let data=null,t=0,idx=0,playing=false,last=0,loading=false;
 const checked=id=>$(id).checked;
+// Page transition from the list: show the tapped log name before the first paint, so it can travel into place.
+try{
+ const from=JSON.parse(sessionStorage.getItem('rv-route')||'null');sessionStorage.removeItem('rv-route');
+ if(from?.id===location.pathname.split('/').filter(Boolean).at(-1))$('route').textContent=from.text;
+}catch{}
 function clock(n){n=Math.max(0,n);return `${Math.floor(n/60)}:${(n%60).toFixed(2).padStart(5,'0')}`}
 function nearest(time){const f=data.frames;let a=0,b=f.length-1;while(a<b){const m=(a+b)>>1;if(f[m].t<time)a=m+1;else b=m}return a>0&&Math.abs(f[a-1].t-time)<Math.abs(f[a].t-time)?a-1:a}
 function pause(){playing=false;pauseVideo();$('play').textContent='재생'}
@@ -76,7 +81,7 @@ function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Ma
 function step(n){pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
 function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
 function tick(now){if(playing&&data){setTime(t+(now-last)/1000*Number($('speed').value),false,true);if(t>=data.duration-.001)pause()}last=now;requestAnimationFrame(tick)}
-function showError(message){$('errorText').textContent=message;$('error').hidden=!message}
+function showError(message){$('errorText').textContent=message;$('error').hidden=!message;if(message)document.body.classList.remove('replay-loading')}
 $('errorRefresh').onclick=()=>location.reload();
 // Replay files are stored as gzip. The browser inflates them itself, so no proxy needs to pass Content-Encoding.
 const gzipReplay=typeof DecompressionStream==='function';
@@ -109,7 +114,7 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
   throw Error(state.error||'로그 변환에 실패했습니다. 목록을 확인하세요.');
  }
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
- data=expandReplayData(await readReplayJson(res));showError('');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){v.src='../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now());loading=true;$('play').disabled=true;$('status').textContent='영상 준비 중';v.load()}else{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료'}updateVideoBuffer();setTime(0)}
+ data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){v.src='../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now());loading=true;$('play').disabled=true;$('status').textContent='영상 준비 중';v.load()}else{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료'}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 v.onloadedmetadata=()=>{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료';v.playbackRate=Number($('speed').value);setTime(t)};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)showError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
 for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
@@ -122,7 +127,8 @@ function renderSteering(f){
  $('steeringLabel').textContent=label;$('steeringStatus').title=detail;$('steeringIcon').setAttribute('aria-label',detail);
  const [r,g,b]=(s?.color||[148,165,184]).map(v=>v/255);
  $('wheelColor').setAttribute('values',`${r} 0 0 0 0 0 ${g} 0 0 0 0 0 ${b} 0 0 0 0 0 ${['driver','active'].includes(s?.state)?1:242/255} 0`);
- $('wheelRotate').setAttribute('transform',`translate(64 40) rotate(${-(s?.angle||0)}) scale(${s?.scale||1}) translate(-64 -40)`);
+ // A CSS transform (not the SVG attribute) so motion.css can glide between 20 Hz samples.
+ $('wheelRotate').style.transform=`rotate(${-(s?.angle||0)}deg) scale(${s?.scale||1})`;
  $('wheelTexture').setAttribute('href',`../../assets/carrot_wheel${s?.critical?'_critical':''}.png`);
  $('wheelLane').setAttribute('visibility',s?.lane&&!s?.critical?'visible':'hidden');
  $('wheelCritical').setAttribute('visibility',s?.critical?'visible':'hidden');
@@ -232,9 +238,15 @@ try{
  const mode=saved===null?(localStorage.getItem('roadviewer-replay-split-view')==='true'?'split':'auto'):saved;
  setReplayLayout(['split','stack'].includes(mode)?mode:'auto');
 }catch{setReplayLayout('auto')}
+// Same-document view transition: panels glide to their new place; unsupported or reduced motion switches at once.
+function withLayoutTransition(update){
+ if(!document.startViewTransition||!motionAllowed())return update();
+ document.documentElement.classList.add('rv-layout-transition');
+ document.startViewTransition(update).finished.finally(()=>document.documentElement.classList.remove('rv-layout-transition'));
+}
 function toggleReplayLayout(button,mode){
  const next=button.getAttribute('aria-pressed')==='true'?'auto':mode;
- setReplayLayout(next);
+ withLayoutTransition(()=>setReplayLayout(next));
  try{localStorage.setItem(layoutPreferenceKey,next)}catch{}
 }
 splitView.onclick=()=>toggleReplayLayout(splitView,'split');

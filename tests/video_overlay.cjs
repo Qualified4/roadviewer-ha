@@ -36,7 +36,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await setHeight(30);assert(await alphaAt(.65)>0);
   await setHeight(200);assert.equal(await page.locator('#overlayHeightValue').textContent(),'200 cm');
   await page.locator('#overlayHeightReset').click();assert.equal(await page.locator('#overlayHeightRange').inputValue(),'60');
-  await setHeight(75);await page.keyboard.press('Escape');assert(await page.locator('#overlayHeightDialog').isHidden());
+  await setHeight(75);await page.keyboard.press('Escape');await page.locator('#overlayHeightDialog').waitFor({state:'hidden'});
   assert(await page.locator('#overlayHeightSettings').evaluate(e=>e===document.activeElement));
   await page.locator('#overlayHeight').click();
   await page.evaluate(()=>{data.frames[0].overlay=null;render()});
