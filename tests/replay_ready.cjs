@@ -69,10 +69,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     const box=await page.locator(selector).boundingBox();
     assert(box.y>=0&&box.x>=0&&box.x+box.width<=viewport.width);
    }
-   await page.locator('#foldHeading').click();
+   await page.locator('#foldHeading').click();await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));
    assert(await page.locator('.log-navigation').isHidden());
    assert(await page.locator('.replay-heading .route').isVisible());
-   await page.locator('#foldHeading').click();
+   await page.locator('#foldHeading').click();await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));
    assert(await page.locator('.log-navigation').isVisible());
    await page.evaluate(()=>window.scrollTo(0,0));
    await page.waitForFunction(y=>Math.abs(document.querySelector('.log-navigation').getBoundingClientRect().top-y)<1,initial.y);

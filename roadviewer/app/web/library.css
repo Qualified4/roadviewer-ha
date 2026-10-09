@@ -12,7 +12,8 @@
 .recording-more>summary::-webkit-details-marker{display:none}
 .recording-more>summary:hover,.recording-more[open]>summary{background:#283b4e}
 .recording-more>summary:focus-visible{outline:2px solid var(--lane);outline-offset:2px}
-.recording-more[open]>summary svg{transform:rotate(180deg)}
+.recording-more>summary svg{transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.recording-more[open]:not(.is-closing)>summary svg{transform:rotate(180deg)}
 .recording-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:10;display:grid;gap:3px;width:190px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 8px 24px #0006}
 .recording-menu>button,.recording-menu>a{display:block;width:100%;min-height:42px;margin:0;padding:11px 12px;border:0;border-radius:6px;background:transparent;text-align:left;font-size:13px;text-decoration:none;color:var(--text)}
 .recording-menu>button:hover:enabled,.recording-menu>a:hover{background:#283b4e}
@@ -62,9 +63,12 @@
 .section-disclosure { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--muted); }
 .section-disclosure::after, .managed-settings>summary::after { content: ''; width: 7px; height: 7px; flex-shrink: 0; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); margin-right: 3px; }
 .when-open { display: none; }
-details[open]>.section-summary .when-open, .managed-settings[open]>summary .when-open { display: inline; }
-details[open]>.section-summary .when-closed, .managed-settings[open]>summary .when-closed { display: none; }
-details[open]>.section-summary .section-disclosure::after, .managed-settings[open]>summary::after { transform: translateY(2px) rotate(225deg); }
+details[open]:not(.is-closing)>.section-summary .when-open, .managed-settings[open]:not(.is-closing)>summary .when-open { display: inline; }
+details[open]:not(.is-closing)>.section-summary .when-closed, .managed-settings[open]:not(.is-closing)>summary .when-closed { display: none; }
+details[open]:not(.is-closing)>.section-summary .section-disclosure::after, .managed-settings[open]:not(.is-closing)>summary::after { transform: translateY(2px) rotate(225deg); }
+/* Chevrons turn with the 매거진 홈 fold timing; disclosure.js animates the panel height. */
+.section-disclosure::after, .managed-settings>summary::after { transition: transform .25s cubic-bezier(.4,0,.2,1); }
+@media(prefers-reduced-motion:reduce){.section-disclosure::after,.managed-settings>summary::after,.recording-more>summary svg{transition:none}}
 .section-summary:hover .section-disclosure, .managed-settings>summary:hover { color: var(--text); }
 
 /* File selection is the primary action; reference information is secondary. */

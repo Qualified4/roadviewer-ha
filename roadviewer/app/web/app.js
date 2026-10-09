@@ -307,8 +307,24 @@ if(replayHeading){
  // Clear press feedback on release, cancellation, or leaving the row.
  fold.addEventListener('pointerdown',e=>{if(e.button!==0)return;fold.classList.add('is-pressed')});
  for(const event of ['pointerup','pointercancel','pointerleave','lostpointercapture'])fold.addEventListener(event,()=>fold.classList.remove('is-pressed'));
- fold.onclick=()=>{headingCollapsed=!headingCollapsed;try{localStorage.setItem(preference,String(headingCollapsed))}catch{}updateHeading()};
- window.addEventListener('scroll',scheduleHeading,{passive:true});
+ // Fold with the 매거진 홈 timing: the pinned bar slides from where it is to its new sticky offset while the
+ // navigation row fades. Only transform and opacity move, so the content underneath never shifts.
+ let foldMotion=null;
+ const stopFold=()=>{if(!foldMotion)return;foldMotion.forEach(motion=>motion.cancel());foldMotion=null;replayHeading.classList.remove('is-folding')};
+ fold.onclick=()=>{
+  const from=replayHeading.getBoundingClientRect().top,fade=Number(getComputedStyle(navigation).opacity);
+  stopFold();
+  headingCollapsed=!headingCollapsed;try{localStorage.setItem(preference,String(headingCollapsed))}catch{}updateHeading();
+  const shift=from-replayHeading.getBoundingClientRect().top;
+  if(!replayHeading.classList.contains('is-stuck')||Math.abs(shift)<1||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  const options={duration:250,easing:'cubic-bezier(0.4, 0, 0.2, 1)'};
+  replayHeading.classList.add('is-folding');
+  const motions=[replayHeading.animate([{transform:`translateY(${shift}px)`},{transform:'translateY(0)'}],options),
+   navigation.animate([{opacity:fade},{opacity:headingCollapsed?0:1}],options)];
+  foldMotion=motions;
+  Promise.all(motions.map(motion=>motion.finished)).then(()=>{if(foldMotion===motions)stopFold()}).catch(()=>{});
+ };
+ window.addEventListener('scroll',()=>{stopFold();scheduleHeading()},{passive:true});
  window.addEventListener('resize',scheduleHeading);
  window.addEventListener('pageshow',scheduleHeading);
  new ResizeObserver(scheduleHeading).observe(navigation);

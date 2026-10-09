@@ -62,7 +62,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert(await page.locator('#logNavigation').isVisible());
    await page.evaluate(()=>scrollTo(0,220));
    await page.waitForFunction(()=>!document.getElementById('foldHeading').hidden);
-   if(await page.locator('#foldHeading').getAttribute('aria-expanded')==='false')await page.locator('#foldHeading').click();
+   if(await page.locator('#foldHeading').getAttribute('aria-expanded')==='false'){await page.locator('#foldHeading').click();await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));}
    const fold=await page.locator('#foldHeading').boundingBox(),row=await page.locator('.replay-heading .route').boundingBox();
    for(const dimension of ['x','y','width','height'])assert(Math.abs(fold[dimension]-row[dimension])<1,'fold must overlay row: '+dimension);
    await page.locator('#foldHeading').hover();
@@ -72,11 +72,13 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.mouse.down();
    assert.equal(await page.locator('#foldHeading').evaluate(e=>getComputedStyle(e).backgroundColor),'rgba(0, 0, 0, 0)','mouse press keeps the background transparent');
    assert.equal(await page.locator('#foldHeading svg').evaluate(e=>getComputedStyle(e).stroke),'rgb(195, 221, 255)','arrow press feedback is stronger than hover');
-   await page.mouse.up();await page.locator('#foldHeading').click();
+   await page.mouse.up();await page.locator('#foldHeading').click();await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));
    const arrow=await page.locator('#foldHeading svg').boundingBox();
    assert(Math.abs(arrow.x+arrow.width/2-(row.x+row.width/2))<1,'arrow must be centered');
    const contentBefore=await page.locator('.views').boundingBox();
    await page.locator('#foldHeading').click({position:{x:4,y:row.height/2}});
+   assert(await page.locator('.replay-heading').evaluate(el=>el.classList.contains('is-folding')),'folding animates the pinned bar');
+   await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));
    assert(Math.abs((await page.locator('.views').boundingBox()).y-contentBefore.y)<.5,'folding must not move the content underneath');
    assert(await page.locator('#logNavigation').isHidden());
    const compact=await page.locator('.replay-heading').evaluate(el=>el.getBoundingClientRect().bottom-el.querySelector('.route').getBoundingClientRect().top);
@@ -99,7 +101,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.evaluate(()=>scrollTo(0,220));await page.waitForFunction(()=>document.querySelector('.replay-heading').classList.contains('is-stuck'));
    assert.equal(await page.locator('#foldHeading').getAttribute('aria-expanded'),'false','collapsed state must survive reload');
    const contentBeforeExpand=await page.locator('.views').boundingBox();
-   await page.locator('#foldHeading').click();
+   await page.locator('#foldHeading').click();await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));
    assert(Math.abs((await page.locator('.views').boundingBox()).y-contentBeforeExpand.y)<.5,'expanding must not move the content underneath');
    assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-heading-collapsed')),'false');
    assert(await page.locator('#logNavigation').isVisible());
