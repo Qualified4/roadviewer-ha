@@ -2,7 +2,7 @@
 const $=id=>document.getElementById(id),v=$('video'),canvas=$('road'),ctx=canvas.getContext('2d');
 let data=null,t=0,idx=0,playing=false,last=0,loading=true,videoReadyPending=false;
 const checked=id=>$(id).checked;
-// Page transition from the list: show the tapped log name before the first paint, so it can travel into place.
+// Show the selected log name while replay data is loading.
 try{
  const from=JSON.parse(sessionStorage.getItem('rv-route')||'null');sessionStorage.removeItem('rv-route');
  if(from?.id===location.pathname.split('/').filter(Boolean).at(-1))$('route').textContent=from.text;
@@ -244,20 +244,9 @@ try{
  const mode=saved===null?(localStorage.getItem('roadviewer-replay-split-view')==='true'?'split':'auto'):saved;
  setReplayLayout(['split','stack'].includes(mode)?mode:'auto');
 }catch{setReplayLayout('auto')}
-// Same-document view transition: panels glide to their new place; unsupported or reduced motion switches at once.
-let layoutTransition=null,layoutRevision=0;
-function withLayoutTransition(update){
- if(!document.startViewTransition||!pageTransitionsAllowed())return update();
- const revision=++layoutRevision;layoutTransition?.skipTransition();
- document.documentElement.classList.add('rv-layout-transition');
- const transition=document.startViewTransition(()=>{if(revision===layoutRevision)update()});layoutTransition=transition;
- transition.ready.catch(()=>{});
- const cleanup=()=>{if(layoutTransition===transition){layoutTransition=null;if(document.body.isConnected)document.documentElement.classList.remove('rv-layout-transition')}};
- transition.finished.then(cleanup,cleanup);
-}
 function toggleReplayLayout(button,mode){
  const next=button.getAttribute('aria-pressed')==='true'?'auto':mode;
- withLayoutTransition(()=>setReplayLayout(next));
+ setReplayLayout(next);
  try{localStorage.setItem(layoutPreferenceKey,next)}catch{}
 }
 splitView.onclick=()=>toggleReplayLayout(splitView,'split');

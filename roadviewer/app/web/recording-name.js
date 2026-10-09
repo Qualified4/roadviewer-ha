@@ -1,7 +1,5 @@
 'use strict';
 const motionAllowed=()=>!matchMedia('(prefers-reduced-motion: reduce)').matches;
-// Same-document transitions capture named elements only, including on touch screens.
-const pageTransitionsAllowed=()=>motionAllowed();
 // Small spring confirmation for icon swaps (copy done, copy failed).
 function popIcon(icon){if(motionAllowed())icon.animate?.([{transform:'scale(.5)',opacity:.3},{transform:'none',opacity:1}],{duration:380,easing:'cubic-bezier(.34,1.56,.64,1)'})}
 const COPY_ICON='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/></svg>';
@@ -23,13 +21,16 @@ function recordingIdentity(name,files={}){
  return {display:`${match[1].replace(/^0+(?=.)/,'')} / 구간 ${match[3].replace(/^0+(?=.)/,'')}`,original:`${match[1]}--${match[2]}--${match[3]}`};
 }
 function renderRecordingName(container,name,files={}){
- const info=recordingIdentity(name,files);container.classList.add('recording-name');container.replaceChildren();
- const text=document.createElement('span');text.className='recording-name-text';text.textContent=info.display;text.title=info.original;
+ const info=recordingIdentity(name,files);container.classList.add('recording-name');
+ // Navigation and replay data can arrive in either order: keep the moving title alive.
+ const text=container.querySelector('.recording-name-text')||document.createElement('span');
+ for(const child of [...container.childNodes])if(child!==text)child.remove();
+ text.className='recording-name-text';if(text.textContent!==info.display)text.textContent=info.display;text.title=info.original;
  const button=document.createElement('button');button.type='button';button.className='copy-recording';button.setAttribute('aria-label','로그 이름 복사');button.title=info.original+' 복사';button.disabled=!info.original;
  const icon=document.createElement('span');icon.setAttribute('aria-hidden','true');
  icon.innerHTML=COPY_ICON;
  const status=document.createElement('span');status.className='copy-announcement';status.setAttribute('role','status');
- button.append(icon,status);container.append(text,button);
+ button.append(icon,status);if(text.parentNode!==container)container.append(text);container.append(button);
  let timer;
  button.onclick=async e=>{
   e.stopPropagation();clearTimeout(timer);

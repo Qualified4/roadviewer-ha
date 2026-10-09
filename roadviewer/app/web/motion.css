@@ -13,22 +13,6 @@
 
 @media (prefers-reduced-motion:no-preference){
 
-/* No automatic document snapshots: the router owns same-document transitions. */
-html.rv-navigation-transition,html.rv-layout-transition{view-transition-name:none}
-::view-transition{background:transparent;pointer-events:none}
-::view-transition-group(*){animation-duration:.32s;animation-timing-function:var(--ease)}
-::view-transition-old(root),::view-transition-new(root){display:none}
-html.rv-navigation-transition .camera-panel,html.rv-layout-transition .camera-panel{view-transition-name:rv-camera}
-html.rv-navigation-transition .road-panel,html.rv-layout-transition .road-panel{view-transition-name:rv-data}
-html.rv-navigation-transition .playback,html.rv-layout-transition .playback{view-transition-name:rv-controls}
-html.rv-layout-transition .replay-heading{view-transition-name:rv-heading}
-::view-transition-old(rv-route),::view-transition-new(rv-route){height:100%;object-fit:contain;object-position:left center}
-::view-transition-group(rv-heading){z-index:2}
-::view-transition-group(rv-route){z-index:3}
-::view-transition-group(rv-controls){z-index:4}
-::view-transition-old(rv-controls){display:none}
-::view-transition-new(rv-controls){animation:none}
-/* Programmatic route focus announces the new page without outlining the static brand. */
 /* ---------- Dialogs and sheets ---------- */
 .camera-info-dialog,.bulk-dialog,.pair-dialog,.rv-choice-dialog{
  transition:opacity .2s var(--ease),transform var(--motion) var(--ease),overlay var(--motion) allow-discrete,display var(--motion) allow-discrete;
@@ -63,10 +47,6 @@ dialog:not([open])::backdrop{opacity:0}
 .log-row{transition:opacity .3s var(--ease),transform .3s var(--ease-out)}
 /* New logs slide in; a row rebuilt for a status change stays put. */
 @starting-style{.log-row:not(.is-update){opacity:0;transform:translateY(-8px)}}
-.log-row{view-transition-class:log-row}
-/* The footer follows the list while rows reflow, instead of jumping over them. */
-html.rv-layout-transition .library-page main>footer{view-transition-name:rv-footer}
-::view-transition-group(*.log-row){animation-duration:.3s}
 /* Processing: a light sweep through the badge, and the measured progress as a thin bar. */
 .state-processing{position:relative;overflow:hidden;background-image:linear-gradient(100deg,transparent 30%,#ffd28a26 50%,transparent 70%);background-size:220% 100%;background-repeat:no-repeat;animation:rv-sweep 1.8s linear infinite}
 @keyframes rv-sweep{from{background-position:120% 0}to{background-position:-100% 0}}
