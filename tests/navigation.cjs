@@ -25,7 +25,7 @@ http.serve_forever()
    page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(r.isNavigationRequest())documents.push(r.url())});
    await page.route('**/api/logs**',async r=>{
     const p=new URL(r.request().url()).pathname;
-    if(p.endsWith('/api/logs')){listReads++;return r.fulfill({json:{logs:ids.map((id,i)=>({id,name:`00000395--0d0eda17c5 / 구간 ${i}`,status:'ready',uploaded:2-i,bytes:1,prepared_bytes:1})),max_upload_mb:512,storage_used_bytes:2,concurrency:1}})}
+    if(p.endsWith('/api/logs')){listReads++;return r.fulfill({json:{logs:ids.map((id,i)=>({id,name:`00000395--0d0eda17c5 / 구간 ${i}`,status:'ready',uploaded:2-i,bytes:1,prepared_bytes:1})).concat({id:'c'.repeat(32),name:'processing',status:'processing',uploaded:0,bytes:1,prepared_bytes:listReads,progress:{stage:listReads===1?'log_read':'video_convert',frames:100,percent:50}}),max_upload_mb:512,storage_used_bytes:2,concurrency:1}})}
     if(p.endsWith('/data')){
      if(delayData)await new Promise(resolve=>releaseData=resolve);
      return r.fulfill({json:{route:p.includes(ids[0])?'first':'second',key:'nav',duration:2,warnings:[],video:{start:0,duration:2},frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[]}]}}).catch(()=>{});
@@ -34,24 +34,41 @@ http.serve_forever()
     return r.continue();
    });
    await page.addInitScript(()=>{
+    window.pageMotions=[];document.addEventListener('animationstart',e=>{if(e.animationName.startsWith('rv-page-'))pageMotions.push({name:e.animationName,target:e.target.className,transform:getComputedStyle(e.target).transform})});
     window.pendingFrames=new Set();const request=requestAnimationFrame,cancel=cancelAnimationFrame;
     window.requestAnimationFrame=callback=>{const id=request(time=>{pendingFrames.delete(id);callback(time)});pendingFrames.add(id);return id};
     window.cancelAnimationFrame=id=>{pendingFrames.delete(id);cancel(id)};
    });
    await page.goto(base);await page.locator('.replay').first().waitFor();
+   const checkSweep=async()=>{
+    const badge=page.locator('.state-processing');
+    assert(await badge.evaluate(e=>getComputedStyle(e).backgroundImage.includes('linear-gradient')),'processing sweep has a visible gradient in the real shell');
+    assert.equal(await badge.evaluate(e=>getComputedStyle(e).backgroundSize),'220% 100%');
+    await badge.evaluate(e=>{window.badgeBefore=e;window.sweepBefore=e.getAnimations().find(a=>a.animationName==='rv-sweep');window.sweepTime=sweepBefore.currentTime});
+    await page.waitForTimeout(100);await page.locator('#refresh').click();
+    await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
+    assert(await badge.evaluate(e=>e===badgeBefore&&e.getAnimations().includes(sweepBefore)&&sweepBefore.currentTime>sweepTime),'visible sweep advances across metadata and stage updates');
+   };
+   await checkSweep();
    await page.evaluate(()=>{window.documentToken={};window.originalToken=documentToken;window.originalBrand=document.querySelector('.app-brand')});
    await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
    await page.waitForFunction(()=>!document.getElementById('play').disabled);
+   await page.waitForFunction(()=>pageMotions.some(a=>a.name==='rv-page-enter'));
+   assert(await page.evaluate(()=>pageMotions.filter(a=>/playback|replay-heading/.test(a.target)).every(a=>a.name==='rv-page-fade')),'navigation does not move fixed controls');
    assert(await page.evaluate(()=>documentToken===originalToken&&originalBrand===document.querySelector('.app-brand')),'document and brand persist');
    await page.locator('#play').click();await page.waitForFunction(()=>document.getElementById('video').currentTime>.1);
    await page.evaluate(()=>{window.departedVideo=document.getElementById('video');scrollTo(0,200)});
+   await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>pageMotions=[]);
    await page.locator('#previousLog').click();await page.waitForURL(base+'view/'+ids[1]+'/');
    await page.waitForFunction(()=>document.getElementById('route').textContent==='second');
+   assert.equal(await page.evaluate(()=>pageMotions.length),0,'reduced motion disables page effects');await page.emulateMedia({reducedMotion:'no-preference'});
    assert(await page.evaluate(()=>departedVideo.paused&&!departedVideo.hasAttribute('src')),'departed video is released');
    await page.goBack();await page.waitForURL(base+'view/'+ids[0]+'/');await page.waitForFunction(()=>document.getElementById('route').textContent==='first');
    await page.waitForFunction(()=>Math.abs(scrollY-200)<1);
    await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
+   await page.waitForFunction(()=>pageMotions.some(a=>a.target.includes('library')&&a.name==='rv-page-enter'));
    await page.waitForTimeout(400);assert.equal(await page.evaluate(()=>pendingFrames.size),0,'departed replay RAF loop is cancelled');
+   await checkSweep();
    const before=listReads;await page.waitForTimeout(3200);assert(listReads-before<=2,'only the current library poller survives');
    // A slow abandoned replay request must not overwrite the next screen or keep its RAF alive.
    delayData=true;await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
