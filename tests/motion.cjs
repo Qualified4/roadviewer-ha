@@ -26,9 +26,17 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7');
    assert.equal((await running(page)).includes('rv-sweep'),!reduced);
    assert((await page.locator('.state-processing').boundingBox()).height<=30,'processing badge stays compact');
-   logs=[{...logs[0],prepared_bytes:42,progress:{stage:'log_read',frames:99999}}];
-   await page.evaluate(()=>refresh());
-   if(!reduced)assert.equal(await page.locator('.state-processing').evaluate(e=>e.getAnimations().find(a=>a.animationName==='rv-sweep').startTime),0,'rebuilt badge keeps the sweep timeline');
+   await page.locator('.state-processing').evaluate(e=>{window.processingBadge=e;window.sweep=e.getAnimations().find(a=>a.animationName==='rv-sweep');if(sweep){sweep.currentTime=725;window.sweepStart=sweep.startTime}});
+   for(const [i,progress] of [{stage:'log_read',frames:99999},{stage:'log_analysis',frames:99999},{stage:'video_convert',percent:75},{stage:'video_verify',percent:90},{stage:'saving'}].entries()){
+    logs=[{...logs[0],prepared_bytes:42+i,progress}];
+    await page.evaluate(()=>refresh());
+    assert(await page.locator('.state-processing').evaluate(e=>e===processingBadge),'metadata refresh keeps the badge connected');
+    if(!reduced){
+     assert(await page.locator('.state-processing').evaluate(e=>e.getAnimations().find(a=>a.animationName==='rv-sweep')===sweep),'stage changes retain the same sweep animation');
+     assert.equal(await page.evaluate(()=>sweep.startTime),await page.evaluate(()=>sweepStart),'refresh does not reset the sweep timeline');
+     assert(await page.evaluate(()=>sweep.currentTime>=725),'sweep keeps advancing');
+    }
+   }
    await page.evaluate(()=>addFiles([new File(['x'],'unsupported.txt')]));
    assert(await page.locator('#error').evaluate(e=>parseFloat(getComputedStyle(e).marginTop)>=12),'unsupported-file message has top spacing');
    await page.evaluate(()=>{const d=document.querySelector('.inline-help');for(let p=d.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;d.open=true;});
