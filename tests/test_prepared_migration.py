@@ -1,6 +1,7 @@
-import gzip,json,subprocess,sys,tempfile,unittest
+import gzip,json,os,subprocess,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
+os.environ['RV_DATA']=tempfile.mkdtemp() # Before importing server, which creates its data folder.
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
 import server
 from compact import compact_data
