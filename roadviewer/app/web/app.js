@@ -372,7 +372,10 @@ if(replayHeading){
  window.addEventListener('scroll',()=>{stopFold();scheduleHeading()},{passive:true});
  window.addEventListener('resize',scheduleHeading);
  window.addEventListener('pageshow',scheduleHeading);
- new ResizeObserver(scheduleHeading).observe(navigation);
+ const headingResize=new ResizeObserver(scheduleHeading);
+ headingResize.observe(navigation);
+ // Loading/status text can move the sticky anchor without a scroll or navigation resize.
+ headingResize.observe(document.querySelector('main>header'));
  updateHeading();
 }
 

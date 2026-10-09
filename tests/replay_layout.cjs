@@ -108,6 +108,12 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
     throw error;
    });
    assert.equal(await page.locator('#foldHeading').getAttribute('aria-expanded'),'false','collapsed state must survive reload');
+   // A wrapping loading/status header moves the anchor even if scrollY does not change.
+   await page.evaluate(()=>document.querySelector('main>header').style.height='240px');
+   await page.waitForFunction(()=>!document.querySelector('.replay-heading').classList.contains('is-stuck'));
+   await page.evaluate(()=>document.querySelector('main>header').style.height='');
+   await page.waitForFunction(()=>document.querySelector('.replay-heading').classList.contains('is-stuck'));
+   assert.equal(await page.evaluate(()=>scrollY),220,'header resizing updates sticky state without another scroll');
    const contentBeforeExpand=await page.locator('.views').boundingBox();
    await page.locator('#foldHeading').click();await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));
    assert(Math.abs((await page.locator('.views').boundingBox()).y-contentBeforeExpand.y)<.5,'expanding must not move the content underneath');
