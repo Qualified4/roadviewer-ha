@@ -34,7 +34,8 @@ http.serve_forever()
     return r.continue();
    });
    await page.addInitScript(()=>{
-    window.pageMotions=[];const startTransition=document.startViewTransition.bind(document);document.startViewTransition=update=>{const transition=startTransition(update);transition.ready.then(()=>pageMotions.push({root:getComputedStyle(document.documentElement).viewTransitionName,title:!!document.querySelector('[style*="rv-route"]'),background:getComputedStyle(document.documentElement,'::view-transition').backgroundColor,morph:document.getAnimations().some(a=>a.effect?.pseudoElement==='::view-transition-group(rv-route)')}),()=>{});return transition};
+    window.liveMorphs=[];window.snapshotCalls=0;const animateElement=Element.prototype.animate;Element.prototype.animate=function(frames,options){const animation=animateElement.call(this,frames,options);if(frames[0]?.transformOrigin==='0 0')liveMorphs.push(this.className||this.tagName);if(this.closest('.app-brand')&&frames[0]?.transform){const m=/scale\(([^,]+),([^\)]+)\)/.exec(frames[0].transform);if(m&&Math.abs(Number(m[1])-Number(m[2]))>.0001)window.distortedBrand=true};return animation};
+    window.pageMotions=[];const startTransition=document.startViewTransition.bind(document);document.startViewTransition=update=>{snapshotCalls++;const transition=startTransition(update);transition.ready.then(()=>pageMotions.push({root:getComputedStyle(document.documentElement).viewTransitionName,title:!!document.querySelector('[style*="rv-route"]'),background:getComputedStyle(document.documentElement,'::view-transition').backgroundColor,morph:document.getAnimations().some(a=>a.effect?.pseudoElement==='::view-transition-group(rv-route)')}),()=>{});return transition};
     window.pendingFrames=new Set();const request=requestAnimationFrame,cancel=cancelAnimationFrame;
     window.requestAnimationFrame=callback=>{const id=request(time=>{pendingFrames.delete(id);callback(time)});pendingFrames.add(id);return id};
     window.cancelAnimationFrame=id=>{pendingFrames.delete(id);cancel(id)};
@@ -53,12 +54,17 @@ http.serve_forever()
    await checkSweep();
    assert(await page.evaluate(()=>document.activeElement.tagName!=='H1'),'first entry does not focus the brand');
    await page.evaluate(()=>{window.documentToken={};window.originalToken=documentToken;window.originalBrand=document.querySelector('.app-brand')});
+   await page.evaluate(()=>{window.preparedHidden=false;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1&&node.classList.contains('replay-page')&&node.hidden)preparedHidden=true}).observe(document.getElementById('pageHost'),{childList:true})});
    await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
    await page.waitForFunction(()=>!document.getElementById('play').disabled);
-   await page.waitForFunction(()=>pageMotions.some(a=>a.title&&a.morph));
+   assert.deepEqual(await page.evaluate(()=>liveMorphs),[],'library to replay does not morph');
+   assert(await page.evaluate(()=>preparedHidden),'next page stays hidden during asynchronous preparation');
+   assert.equal(await page.evaluate(()=>snapshotCalls),0,'navigation never invokes the snapshot compositor');
+   assert(await page.evaluate(()=>!liveMorphs.includes('app-brand')&&!window.distortedBrand),'brand contents morph without stretching the flex container');
    assert(await page.evaluate(()=>pageMotions.every(a=>a.root==='none'&&a.background==='rgba(0, 0, 0, 0)')),'morphing excludes the full-page snapshot and opaque overlay');
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
    assert(await page.evaluate(()=>documentToken===originalToken&&originalBrand===document.querySelector('.app-brand')),'document and brand persist');
+   assert.equal(await page.locator('#navigationStatus').textContent(),'','successful navigation has no top loading notice');
    await page.locator('#play').click();await page.waitForFunction(()=>document.getElementById('video').currentTime>.1);
    await page.evaluate(()=>{window.departedVideo=document.getElementById('video');scrollTo(0,200)});
    await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>pageMotions=[]);
@@ -66,11 +72,13 @@ http.serve_forever()
    await page.waitForFunction(()=>document.getElementById('route').textContent==='second');
    assert.equal(await page.evaluate(()=>pageMotions.length),0,'reduced motion disables page effects');await page.emulateMedia({reducedMotion:'no-preference'});
    assert(await page.evaluate(()=>departedVideo.paused&&!departedVideo.hasAttribute('src')),'departed video is released');
+   await page.evaluate(()=>liveMorphs=[]);
    await page.goBack();await page.waitForURL(base+'view/'+ids[0]+'/');await page.waitForFunction(()=>document.getElementById('route').textContent==='first');
+   assert.deepEqual(await page.evaluate(()=>liveMorphs),[],'replay-to-replay navigation does not morph even with motion enabled');
    await page.waitForFunction(()=>Math.abs(scrollY-200)<1);
    await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
-   assert(await page.evaluate(()=>pageMotions.some(a=>a.title)),'back navigation morphs the log title');
+   assert.deepEqual(await page.evaluate(()=>liveMorphs),[],'returning to the library does not morph');
    await page.waitForTimeout(400);assert.equal(await page.evaluate(()=>pendingFrames.size),0,'departed replay RAF loop is cancelled');
    await checkSweep();
    const before=listReads;await page.waitForTimeout(3200);assert(listReads-before<=2,'only the current library poller survives');
@@ -80,6 +88,13 @@ http.serve_forever()
    await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
    assert(await page.evaluate(()=>!document.documentElement.classList.contains('rv-navigation-transition')),'unsupported browsers navigate without a transition');
    await page.evaluate(()=>document.startViewTransition=savedTransition);
+   // Late replay data must not replace the title that is already moving.
+   delayData=true;releaseData=null;await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
+   await page.evaluate(()=>window.movingTitle=document.getElementById('route'));
+   await page.waitForTimeout(80);assert(releaseData,'data request is pending');delayData=false;releaseData();
+   await page.waitForFunction(()=>document.getElementById('route').textContent==='first');
+   assert(await page.evaluate(()=>movingTitle===document.getElementById('route')),'late data preserves the animated title node');
+   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
    // A slow abandoned replay request must not overwrite the next screen or keep its RAF alive.
    delayData=true;await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
    await page.waitForFunction(()=>document.querySelector('.back'));
@@ -111,6 +126,7 @@ http.serve_forever()
    assert(uploadRequest,'upload request is still active');releaseUpload();
    await page.waitForFunction(()=>!document.getElementById('upload').disabled);
    await page.unroute('**/api/uploads');
+   assert.equal(await page.evaluate(()=>snapshotCalls),0,'all routes avoid snapshots');
    assert.equal(documents.length,1,'all internal navigation stays in one document');assert.deepEqual(errors,[]);
    // Direct replay entry and refresh still load a working shell.
    await page.goto(base+'view/'+ids[1]+'/');await page.waitForFunction(()=>document.getElementById('play')&&!document.getElementById('play').disabled);

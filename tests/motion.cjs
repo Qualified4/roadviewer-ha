@@ -22,8 +22,8 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     return route.fulfill(asset(p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','')));
    });
    await page.goto('https://rv.test/');await page.locator('.log-row').waitFor();
-   // Processing: a sweep in the badge and a progress bar at video_convert 50% = 0.7 overall.
-   assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7');
+   // Processing: a sweep in the badge and a progress bar at video_convert 50% = 0.875 overall.
+   assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.875');
    assert.equal((await running(page)).includes('rv-sweep'),!reduced);
    assert((await page.locator('.state-processing').boundingBox()).height<=30,'processing badge stays compact');
    if(!reduced){
@@ -41,6 +41,9 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     logs=[{...logs[0],prepared_bytes:42+i,progress}];
     await page.evaluate(()=>refresh());
     assert(await page.locator('.state-processing').evaluate(e=>e===processingBadge),'metadata refresh keeps the badge connected');
+    assert.equal(await page.locator('.state-progress').evaluate(e=>e.hidden),progress.stage==='saving','finishing hides the progress bar');
+    const expected={log_read:'0.25',log_analysis:'0.5',video_convert:'0.9375',video_verify:'1'}[progress.stage];
+    if(expected)assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),expected);
     if(!reduced){
      assert(await page.locator('.state-processing').evaluate(e=>e.getAnimations().find(a=>a.animationName==='rv-sweep')===sweep),'stage changes retain the same sweep animation');
      assert.equal(await page.evaluate(()=>sweep.startTime),await page.evaluate(()=>sweepStart),'refresh does not reset the sweep timeline');
@@ -63,7 +66,10 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    // Deleting reflows the list through a view transition.
    await page.evaluate(()=>{window.transitions=0;const start=document.startViewTransition.bind(document);document.startViewTransition=cb=>{transitions++;return start(cb)}});
    logs=[logs[0]];await page.evaluate(()=>refresh());await page.waitForFunction(()=>document.querySelectorAll('.log-row').length===1);
-   assert.equal(await page.evaluate(()=>transitions),reduced?0:1);
+   assert.equal(await page.evaluate(()=>transitions),0);
+   if(!reduced){
+    assert(await page.evaluate(()=>{const e=document.createElement('div');e.style.cssText='position:fixed;left:0;top:0;width:100px;height:20px';document.body.append(e);const motion=RoadViewerMotion,before=motion.capture(e);e.style.width='200px';motion.play(e,before);e.getAnimations()[0].currentTime=120;const middle=motion.capture(e);e.style.width='150px';motion.play(e,middle);const next=motion.capture(e),continuous=Math.abs(next.width-middle.width)<1;e.remove();return continuous}),'an interrupted morph resumes at its visible size');
+   }
    // Dialogs fade/scale in and stay in the top layer while closing.
    await page.locator('#bulkOpen').click();
    assert.equal((await page.locator('#bulkDialog').evaluate(d=>d.getAnimations().length))>0,!reduced);
@@ -83,11 +89,12 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    await page.evaluate(()=>setTime(.5));
    assert.match(await page.locator('#wheelRotate').evaluate(e=>e.style.transform),/rotate\(-100deg\)/);
    assert.equal(await page.locator('#wheelRotate').evaluate(e=>getComputedStyle(e).transitionDuration),reduced?'0s':'0.06s');
-   // Tabs: the highlight moves to the selected tab; layout toggles use a view transition.
+   // Tabs retain their selection highlight, but page panels never morph.
    await page.evaluate(()=>{window.transitions=0;const start=document.startViewTransition.bind(document);document.startViewTransition=cb=>{transitions++;return start(cb)}});
    await page.locator('#telemetryTab').click();
    assert(await page.locator('.playback').evaluate(p=>{const r=p.getBoundingClientRect();if(p.contains(document.elementFromPoint(r.x+r.width/2,r.y+10)))return true;return document.documentElement.classList.contains('rv-layout-transition')&&getComputedStyle(p).viewTransitionName==='rv-controls'&&Number(getComputedStyle(document.documentElement,'::view-transition-group(rv-controls)').zIndex)>(Number.parseInt(getComputedStyle(document.documentElement,'::view-transition-group(rv-data)').zIndex)||0)}),'playback snapshot stays above the morphing panel');
-   assert.equal(await page.evaluate(()=>transitions),reduced?0:1,'tabs morph the named panel');
+   assert.equal(await page.evaluate(()=>transitions),0,'tabs do not use view transitions');
+   assert.equal(await page.locator('.camera-panel,.road-panel').evaluateAll(es=>es.flatMap(e=>e.getAnimations()).filter(a=>a.id==='rv-element-morph').length),0,'tab panels do not morph');
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
    const tab=await page.evaluate(()=>{const t=document.getElementById('telemetryTab'),s=getComputedStyle(t.parentElement);return [s.getPropertyValue('--tab-x'),t.offsetLeft+'px']});
    assert.equal(tab[0],tab[1]);
@@ -99,12 +106,13 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    if(touch)assert(await page.locator('button,a,summary,input,label').evaluateAll(es=>es.every(e=>getComputedStyle(e).webkitTapHighlightColor==='rgba(0, 0, 0, 0)')),'native rectangular touch highlights are disabled');
    await page.locator('#splitView').click();await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
    assert.equal(await page.locator('#splitView').getAttribute('aria-pressed'),'true');
-   assert.equal(await page.evaluate(()=>transitions),reduced?0:1,'tabs must not snapshot the fixed playback controls');
+   assert.equal(await page.locator('.camera-panel,.road-panel').evaluateAll(es=>es.flatMap(e=>e.getAnimations()).filter(a=>a.id==='rv-element-morph').length),0,'layout panels do not morph');
+   assert.equal(await page.evaluate(()=>transitions),0,'tabs must not snapshot the fixed playback controls');
    if(touch){
     await page.locator('#stackView').click();
     await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
     assert.equal(await page.locator('#stackView').getAttribute('aria-pressed'),'true');
-    assert.equal(await page.evaluate(()=>transitions),reduced?0:2,'touch layouts morph named panels too');
+    assert.equal(await page.evaluate(()=>transitions),0,'touch layouts morph named panels too');
     await page.locator('#previousLog').click();await page.waitForURL('**/view/older/');
     await page.waitForFunction(()=>typeof data!=='undefined'&&data);
     await page.locator('.back').click();await page.waitForURL('https://rv.test/');
