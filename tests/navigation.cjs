@@ -20,17 +20,17 @@ http.serve_forever()
   browser=await chromium.launch({headless:true});
   for(const {width,prefix} of [{width:390,prefix:'/api/hassio_ingress/test'},{width:1024,prefix:''},{width:1440,prefix:''}]){
    const context=await browser.newContext({viewport:{width,height:844},hasTouch:width<1200,isMobile:width<1200});
-   const page=await context.newPage(),errors=[],documents=[];let listReads=0,delayData=false,releaseData;
+   const page=await context.newPage(),errors=[],documents=[];let listReads=0,delayData=false,releaseData,delayNavigation=false;const videoRequests=[];
    const base=`http://127.0.0.1:${port}${prefix}/`;
    page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(r.isNavigationRequest())documents.push(r.url())});
    await page.route('**/api/logs**',async r=>{
     const p=new URL(r.request().url()).pathname;
-    if(p.endsWith('/api/logs')){listReads++;return r.fulfill({json:{logs:ids.map((id,i)=>({id,name:`00000395--0d0eda17c5 / 구간 ${i}`,status:'ready',uploaded:2-i,bytes:1,prepared_bytes:1})).concat({id:'c'.repeat(32),name:'processing',status:'processing',uploaded:0,bytes:1,prepared_bytes:listReads,progress:{stage:listReads===1?'log_read':'video_convert',frames:100,percent:50}}),max_upload_mb:512,storage_used_bytes:2,concurrency:1}})}
+    if(p.endsWith('/api/logs')){if(delayNavigation)await new Promise(resolve=>setTimeout(resolve,180));listReads++;return r.fulfill({json:{logs:ids.map((id,i)=>({id,name:`00000395--0d0eda17c5 / 구간 ${i}`,status:'ready',uploaded:2-i,bytes:1,prepared_bytes:1})).concat({id:'c'.repeat(32),name:'processing',status:'processing',uploaded:0,bytes:1,prepared_bytes:listReads,progress:{stage:listReads===1?'log_read':'video_convert',frames:100,percent:50}}),max_upload_mb:512,storage_used_bytes:2,concurrency:1}})}
     if(p.endsWith('/data')){
      if(delayData)await new Promise(resolve=>releaseData=resolve);
      return r.fulfill({json:{route:p.includes(ids[0])?'first':'second',key:'nav',duration:2,warnings:[],video:{start:0,duration:2},frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[]}]}}).catch(()=>{});
     }
-    if(p.endsWith('/video'))return r.fulfill({body:fs.readFileSync(process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4'),contentType:'video/mp4'});
+    if(p.endsWith('/video')){videoRequests.push(p);if(!p.startsWith(prefix+'/api/logs/'))return r.fulfill({status:404,body:'Outside ingress'});return r.fulfill({body:fs.readFileSync(process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4'),contentType:'video/mp4'});}
     return r.continue();
    });
    await page.addInitScript(()=>{
@@ -55,7 +55,10 @@ http.serve_forever()
    assert(await page.evaluate(()=>document.activeElement.tagName!=='H1'),'first entry does not focus the brand');
    await page.evaluate(()=>{window.documentToken={};window.originalToken=documentToken;window.originalBrand=document.querySelector('.app-brand')});
    await page.evaluate(()=>{window.preparedHidden=false;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1&&node.classList.contains('replay-page')&&node.hidden)preparedHidden=true}).observe(document.getElementById('pageHost'),{childList:true})});
+   delayNavigation=true;
    await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
+   assert(videoRequests.length&&videoRequests.every(p=>p.startsWith(prefix+'/api/logs/')),'video request must retain ingress prefix while the old page base is active: '+videoRequests.join(', '));
+   delayNavigation=false;
    await page.waitForFunction(()=>!document.getElementById('play').disabled);
    assert.deepEqual(await page.evaluate(()=>liveMorphs),[],'library to replay does not morph');
    assert(await page.evaluate(()=>preparedHidden),'next page stays hidden during asynchronous preparation');
