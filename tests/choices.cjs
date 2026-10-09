@@ -20,6 +20,11 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
    await page.locator('#speedChoice').click();
    const dialog=page.locator('.rv-choice-dialog');
    assert(await dialog.isVisible());
+   if(width===1280){
+    assert.equal(await dialog.getAttribute('data-placement'),'above');
+    const entry=await dialog.evaluate(d=>d.getAnimations().filter(a=>a.transitionProperty==='transform').flatMap(a=>a.effect.getKeyframes()).map(f=>f.transform));
+    assert(entry.some(t=>(/translateY\([1-9]/.test(t)||/matrix\(1, 0, 0, 1, 0, [1-9]/.test(t))),'upward menu enters from below its final position: '+JSON.stringify(entry));
+   }
    assert.equal(await page.getByRole('option',{selected:true}).textContent(),'1×✓');
    await settle(page);const box=await dialog.boundingBox();assert(box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=844);
    if(width===390)assert(Math.abs(box.y+box.height-836)<2);

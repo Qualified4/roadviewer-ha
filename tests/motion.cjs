@@ -6,8 +6,8 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
-  for(const reduced of [false,true]){
-   const context=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:reduced?'reduce':'no-preference'}),page=await context.newPage(),errors=[];
+  for(const width of [1280,390])for(const reduced of [false,true]){
+   const context=await browser.newContext({viewport:{width,height:900},reducedMotion:reduced?'reduce':'no-preference'}),page=await context.newPage(),errors=[];
    page.on('pageerror',e=>errors.push(e.message));
    let logs=[{id:'one',name:'00000395--0d0eda17c5 / 구간 7',files:{'rlog.zst':'00000395--0d0eda17c5--7--rlog.zst'},status:'processing',progress:{stage:'video_convert',percent:50},uploaded:2,bytes:1,prepared_bytes:0,video:true}];
    await page.route('https://rv.test/**',route=>{
@@ -21,6 +21,16 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    // Processing: a sweep in the badge and a progress bar at video_convert 50% = 0.7 overall.
    assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7');
    assert.equal((await running(page)).includes('rv-sweep'),!reduced);
+   assert((await page.locator('.state-processing').boundingBox()).height<=30,'processing badge stays compact');
+   logs=[{...logs[0],prepared_bytes:42,progress:{stage:'log_read',frames:99999}}];
+   await page.evaluate(()=>refresh());
+   if(!reduced)assert.equal(await page.locator('.state-processing').evaluate(e=>e.getAnimations().find(a=>a.animationName==='rv-sweep').startTime),0,'rebuilt badge keeps the sweep timeline');
+   await page.evaluate(()=>addFiles([new File(['x'],'unsupported.txt')]));
+   assert(await page.locator('#error').evaluate(e=>parseFloat(getComputedStyle(e).marginTop)>=12),'unsupported-file message has top spacing');
+   await page.evaluate(()=>{const d=document.querySelector('.inline-help');for(let p=d.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;d.open=true;});
+   await page.locator('.inline-help').evaluate(d=>d.querySelector('summary').click());
+   assert.equal(await page.locator('.inline-help').evaluate(d=>d.classList.contains('is-closing')), !reduced);
+   await page.waitForFunction(()=>!document.querySelector('.inline-help').open);
    // A new log slides in; an existing row rebuilt for its status does not.
    // The server lists newest first.
    logs=[{id:'two',name:'00000395--0d0eda17c5 / 구간 8',status:'ready',uploaded:3,bytes:1,prepared_bytes:1,video:true},{...logs[0],status:'ready',progress:null}];
@@ -41,6 +51,10 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    // The tapped log name is handed to the replay page for the page transition.
    await page.locator('a.replay').click();await page.waitForURL(/view\/two\//);
    await page.waitForFunction(()=>typeof data!=='undefined'&&data);
+   logs=[{...logs[0],id:'newer',name:'00000395--0d0eda17c5 / 구간 9'},logs[0],{...logs[0],id:'older',name:'00000396--0d0eda17c5 / 구간 0'}];
+   await page.evaluate(()=>loadLogNavigation());
+   assert.equal(await page.locator('#nextLog').textContent(),'다음 구간');
+   assert.equal(await page.locator('#previousLog').textContent(),'이전 로그');
    assert.equal(await page.evaluate(()=>sessionStorage.getItem('rv-route')),null,'handoff is consumed');
    assert.equal(await page.evaluate(()=>document.body.classList.contains('replay-loading')),false,'loading skeleton ends with the data');
    // The wheel turns via a CSS transform that glides between 20 Hz samples.
@@ -49,12 +63,15 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    assert.equal(await page.locator('#wheelRotate').evaluate(e=>getComputedStyle(e).transitionDuration),reduced?'0s':'0.06s');
    // Tabs: the highlight moves to the selected tab; layout toggles use a view transition.
    await page.evaluate(()=>{window.transitions=0;const start=document.startViewTransition.bind(document);document.startViewTransition=cb=>{transitions++;return start(cb)}});
-   await page.locator('#telemetryTab').click();await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
+   await page.locator('#telemetryTab').click();
+   assert(await page.locator('.playback').evaluate(p=>{const r=p.getBoundingClientRect();return p.contains(document.elementFromPoint(r.x+r.width/2,r.y+10))}),'playback stays above the tab content during motion');
+   assert.equal(await page.evaluate(()=>transitions),0,'tab changes keep the rest of the screen live');
+   await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
    const tab=await page.evaluate(()=>{const t=document.getElementById('telemetryTab'),s=getComputedStyle(t.parentElement);return [s.getPropertyValue('--tab-x'),t.offsetLeft+'px']});
    assert.equal(tab[0],tab[1]);
    await page.locator('#splitView').click();await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
    assert.equal(await page.locator('#splitView').getAttribute('aria-pressed'),'true');
-   assert.equal(await page.evaluate(()=>transitions),reduced?0:2);
+   assert.equal(await page.evaluate(()=>transitions),reduced?0:1,'tabs must not snapshot the fixed playback controls');
    assert.deepEqual(errors,[]);await context.close();
   }
   console.log('PASS: list enter/reflow and progress, dialog enter/exit, page handoff, loading state, wheel glide, tab indicator, layout transitions and reduced motion');

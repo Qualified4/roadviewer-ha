@@ -371,3 +371,13 @@ body.uploading { overscroll-behavior-y: contain; }
 #bulkDelete:hover:enabled{border-color:#ee756b80;background:#ee756b20}
 @media(max-width:550px){.bulk-header{padding-bottom:6px}.bulk-options{padding:0 14px 10px}.bulk-pin-option{padding:8px 10px}.bulk-list{padding:4px 8px}.bulk-select{font-size:11px}.bulk-log{padding:10px 8px}.bulk-header h2{font-size:16px}}
 @media(max-height:550px){.bulk-dialog{max-height:calc(100dvh - 12px)}.bulk-header{padding-top:8px}.bulk-options{max-height:23dvh}.bulk-list{min-height:64px}.bulk-footer{padding-block:8px}}
+
+/* Compact, vertically aligned status; the progress line does not add a row. */
+.log-name{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}
+.log-name>.state{margin-left:0;max-width:100%;line-height:1.5;vertical-align:middle}
+.state-processing{padding:3px 8px;font-weight:600}
+.library-page #error{margin-top:16px}
+.inline-help>summary{display:flex;align-items:center;gap:8px;list-style:none}
+.inline-help>summary::before{content:'';width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.inline-help[open]:not(.is-closing)>summary::before{transform:rotate(45deg)}
+@media(prefers-reduced-motion:reduce){.inline-help>summary::before{transition:none}}
