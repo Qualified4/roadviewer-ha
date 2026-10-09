@@ -205,7 +205,7 @@ def assets(name):
    # Native module factory: trusted application sources share one page-local scope.
    bindings='window,document,location,fetch,setTimeout,clearTimeout,setInterval,clearInterval,requestAnimationFrame,cancelAnimationFrame,ResizeObserver,MutationObserver,XMLHttpRequest,matchMedia'
    source='export function mount(env) {\nconst {'+bindings+'}=env;\n'+ '\n;\n'.join((BASE/'web'/(script+'.js')).read_text() for script in scripts)
-   source+='\nreturn {canLeave:()=>'+('!busy&&!cleaning&&!networkRestarting' if kind=='library' else 'true')+'};\n}'
+   source+='\nreturn {ready:pageReady,canLeave:()=>'+('!busy&&!cleaning&&!networkRestarting' if kind=='library' else 'true')+'};\n}'
    response=app.make_response(source);response.mimetype='application/javascript'
    response.headers['Cache-Control']='public, max-age=31536000' if request.args.get('v') else 'no-cache'
    return response
