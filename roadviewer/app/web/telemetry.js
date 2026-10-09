@@ -85,17 +85,16 @@
  function placeIndicator(){const selected=tab==='telemetry'?telemetryTab:roadTab;tabs.style.setProperty('--tab-x',selected.offsetLeft+'px');tabs.style.setProperty('--tab-width',selected.offsetWidth+'px');indicator.style.height=selected.offsetHeight+'px';indicator.style.top=selected.offsetTop+'px'}
  new ResizeObserver(placeIndicator).observe(tabs);
  function selectTab(next,save=true){
-  if(save&&next!==tab&&document.startViewTransition&&motionAllowed()){
-   const previous=tab;tab=next;placeIndicator();tab=previous;
-   document.documentElement.classList.add('rv-layout-transition');
-   document.startViewTransition(()=>selectTab(next,false)).finished.finally(()=>document.documentElement.classList.remove('rv-layout-transition'));
-   try{localStorage.setItem(tabKey,next)}catch{}
-   return;
-  }
+  const changed=next!==tab;
   tab=next;const show=tab==='telemetry';roadView.hidden=show;view.hidden=!show;document.querySelector('.road-ranges').hidden=show;
   roadTab.setAttribute('aria-selected',String(!show));telemetryTab.setAttribute('aria-selected',String(show));roadTab.tabIndex=show?-1:0;telemetryTab.tabIndex=show?0:-1;
   if(save)try{localStorage.setItem(tabKey,tab)}catch{}
   placeIndicator();void load();render();
+  if(changed&&save&&motionAllowed()){
+   const panel=show?view:roadView;
+   panel.getAnimations().forEach(animation=>animation.cancel());
+   panel.animate([{opacity:.35},{opacity:1}],{duration:200,easing:'ease-out'});
+  }
  }
  roadTab.onclick=()=>selectTab('road');telemetryTab.onclick=()=>selectTab('telemetry');
  for(const button of [roadTab,telemetryTab])button.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const next=e.key==='Home'?'road':e.key==='End'?'telemetry':tab==='road'?'telemetry':'road';selectTab(next);(next==='road'?roadTab:telemetryTab).focus()};

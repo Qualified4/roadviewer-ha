@@ -10,14 +10,15 @@
  header.append(title,close);dialog.append(header,list);document.body.append(dialog);
  let active=null,opener=null,oldOverflow='';
  const mobile=()=>matchMedia('(max-width:600px)').matches;
- function position(){
-  if(!dialog.open)return;
-  if(mobile()){dialog.style.left='';dialog.style.top='';dialog.style.width='';return}
+ function position(measure=false){
+  if(!dialog.open&&measure!==true)return;
+  if(mobile()){delete dialog.dataset.placement;dialog.style.left='';dialog.style.top='';dialog.style.width='';return}
   const rect=opener.getBoundingClientRect(),width=Math.min(Math.max(224,rect.width),innerWidth-24);
   dialog.style.width=width+'px';
   dialog.style.left=Math.max(12,Math.min(rect.left,innerWidth-width-12))+'px';
-  const height=dialog.getBoundingClientRect().height;
-  dialog.style.top=Math.max(12,rect.bottom+height+8<=innerHeight-12?rect.bottom+8:rect.top-height-8)+'px';
+  const height=dialog.offsetHeight,below=rect.bottom+height+8<=innerHeight-12;
+  dialog.dataset.placement=below?'below':'above';
+  dialog.style.top=Math.max(12,below?rect.bottom+8:rect.top-height-8)+'px';
  }
  function open(select,button){
   if(dialog.open||select.disabled)return;
@@ -40,6 +41,9 @@
    list.append(item);
   }
   oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';
+  // Choose the entrance direction before showModal starts the CSS transition.
+  dialog.style.transition='none';dialog.style.display='block';position(true);
+  dialog.style.display='';void dialog.offsetHeight;dialog.style.transition='';
   button.setAttribute('aria-expanded','true');dialog.showModal();position();
   const initial=list.querySelector('[aria-selected="true"]:not(:disabled)')||list.querySelector('button:not(:disabled)');
   if(initial){initial.tabIndex=0;initial.focus({preventScroll:true});initial.scrollIntoView({block:'nearest'})}

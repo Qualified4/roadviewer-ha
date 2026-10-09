@@ -15,7 +15,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.goto('https://rv.test/view/test/');await page.waitForFunction(()=>!document.getElementById('play').disabled);
   for(const scenario of ['end-hold','pause','pause-resume','resolved-after-pause','NotAllowedError','NotSupportedError','AbortError']){
    const result=await page.evaluate(async scenario=>{
-    pause();showError('');setTime(1);const originalPlay=v.play;let rejectPlay,resolvePlay;
+    pause();showError('');setPlaybackState(true,'재생 준비 완료');setTime(1);const originalPlay=v.play;let rejectPlay,resolvePlay;
     v.play=()=>new Promise((resolve,reject)=>{resolvePlay=resolve;rejectPlay=reject});
     playing=true;syncVideo();const pending=videoPlayPending;
     if(scenario==='end-hold')setTime(2);
@@ -31,7 +31,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(scenario.endsWith('Error')){assert(!result.hidden&&result.error.includes(scenario),scenario+' genuine failure remains visible');assert.equal(result.playing,false)}
    else{assert(result.hidden,scenario+' intentional interruption must not become an error');assert.equal(result.playing,['end-hold','pause-resume'].includes(scenario));assert(result.paused)}
   }
-  await page.evaluate(()=>{showError('');setTime(0);toggle()});await page.waitForFunction(()=>v.currentTime>.1);await page.evaluate(()=>pause());
+  assert(await page.locator('#playbackControls').isHidden(),'real playback failure replaces controls with an explanation');
+  await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  await page.evaluate(()=>{setTime(0);toggle()});await page.waitForFunction(()=>v.currentTime>.1);await page.evaluate(()=>pause());
   assert.deepEqual(errors,[]);console.log('PASS: pending play cancellation at end/pause/resume, late resolution, real failures and subsequent playback');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});
