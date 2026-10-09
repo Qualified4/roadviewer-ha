@@ -112,6 +112,17 @@ class RecoveryTests(unittest.TestCase):
     self.begin()
    finally:release.set();thread.join(4)
   self.assertEqual(result,[201])
+ def test_finish_moves_received_file_and_hashes_it_once(self):
+  id=self.begin();self.assertEqual(self.put(id).status_code,200)
+  inode=(server.UPLOADS/id/'0').stat().st_ino;digests=[]
+  real=server.file_digest
+  with patch.object(server,'file_digest',side_effect=lambda path:digests.append(path) or real(path)):
+   r=self.c.post(f'/api/uploads/{id}/finish',headers=HEADERS,environ_overrides=PEER)
+  self.assertEqual(r.status_code,201);registered=server.ROOT/r.json['logs'][0]['id']/'rlog.zst'
+  self.assertEqual(registered.read_bytes(),b'log')
+  self.assertEqual(registered.stat().st_ino,inode,'the received file is moved, not copied')
+  self.assertEqual(len(digests),1,'one hash serves checksum and duplicate detection')
+  self.assertEqual(server.read_meta(registered.parent)['content_hashes']['rlog.zst']['sha256'],real(registered))
  def test_original_download_requires_registered_file(self):
   id='b'*32;p=server.ROOT/id;p.mkdir()
   (p/'meta.json').write_text('{"id":"'+id+'","files":{"rlog.zst":"route--0--rlog.zst"}}')

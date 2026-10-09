@@ -75,16 +75,17 @@ class StoragePolicy:
 
     def reserved(self):
         # Usage already includes received chunks. Reserve only the remaining peak:
-        # originals plus the staging copy needed by register_files, and metadata.
+        # the originals still to arrive (plus a staging copy for multipart uploads) and metadata.
         total = 0
         for p in self.s.UPLOADS.iterdir():
             f = p / 'reservation.json'
             if f.is_file(): total += max(0, json.loads(f.read_text())['bytes'] - self.s.storage_used_bytes(p))
         return total
 
-    def admit(self, total, incoming_files, *, commit=False, protected_ids=()):
+    def admit(self, total, incoming_files, *, commit=False, protected_ids=(), staging=True):
         # Caller holds registration_lock then lock through admission AND session creation.
-        needed = total * 2 + 65536
+        # Multipart uploads are copied once more while registering; finished chunks are moved instead.
+        needed = total * (2 if staging else 1) + 65536
         limit = self.settings['max_bytes']
         used = self.s.storage_used_bytes(); reserved = 0 if commit else self.reserved(); free = shutil.disk_usage(self.s.ROOT).free
         # Unreceived reservations may reserve reclaimable quota, never physical disk.

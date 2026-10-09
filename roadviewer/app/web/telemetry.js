@@ -70,9 +70,9 @@
   payload=null;seriesCache.clear();loadingKey=version;status.textContent='차량 정보를 불러오는 중…';$('retryTelemetry').hidden=true;
   const ticket=++requestId,controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);
   try{
-   const id=location.pathname.split('/').filter(Boolean).at(-1),r=await fetch('../../api/logs/'+encodeURIComponent(id)+'/telemetry?v='+encodeURIComponent(version),{cache:'no-store',signal:controller.signal});
+   const id=location.pathname.split('/').filter(Boolean).at(-1),r=await fetch(replayUrl('../../api/logs/'+encodeURIComponent(id)+'/telemetry?v='+encodeURIComponent(version)),{cache:'no-cache',signal:controller.signal});
    if(!r.ok){let message='차량 정보를 불러오지 못했습니다.';try{message=(await r.json()).error||message}catch{}throw Error(message)}
-   const result=await r.json();if(!result.streams||!Number.isFinite(result.duration))throw Error('차량 정보 형식이 올바르지 않습니다. 로그 목록에서 제거 후 변환해 주세요.');
+   const result=await readReplayJson(r);if(!result.streams||!Number.isFinite(result.duration))throw Error('차량 정보 형식이 올바르지 않습니다. 로그 목록에서 제거 후 변환해 주세요.');
    if(ticket!==requestId)return;
    payload=result;seriesCache.clear();loadedKey=version;failedKey=null;span=null;start=0;status.textContent='';
    for(const card of cards.values())card.cache='';

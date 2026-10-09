@@ -60,7 +60,7 @@ http {{
 def main():
     options = json.loads(Path('/data/options.json').read_text()) if Path('/data/options.json').exists() else {}
     port, port_error = device_host_port()
-    child_env = {**os.environ, 'RV_DEVICE_HOST_PORT': str(port or 0), 'RV_DEVICE_PORT_ERROR': port_error or ''}
+    child_env = {**os.environ, 'RV_DEVICE_HOST_PORT': str(port or 0), 'RV_DEVICE_PORT_ERROR': port_error or '', 'RV_MIGRATE_PREPARED': '1'}
     if port_error: print(port_error, file=sys.stderr)
     children = []; stopped = False
     def stop(*_):

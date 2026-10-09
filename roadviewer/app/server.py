@@ -1,9 +1,8 @@
 from pathlib import Path,PurePosixPath
-import hashlib
+import gzip,hashlib
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
 from collections import Counter
 from progress import ProgressChannel
-from werkzeug.datastructures import FileStorage
 from work_queue import ProcessingQueue
 from flask import Flask,request,jsonify,send_file,send_from_directory,abort
 from werkzeug.exceptions import HTTPException
@@ -27,6 +26,7 @@ def folder(id):
 def read_meta(p):return json.loads((p/'meta.json').read_text())
 def save_meta(p,m):
  temp=p/'meta.tmp';temp.write_text(json.dumps(m,ensure_ascii=False));temp.replace(p/'meta.json')
+def original_bytes(p,kinds=('rlog.zst','qcamera.ts','camera.mp4')):return sum((p/k).stat().st_size for k in kinds if (p/k).is_file())
 def has_video(p):return (p/'qcamera.ts').is_file() or (p/'camera.mp4').is_file()
 def video_download_kind(p):
  return 'qcamera.ts' if (p/'qcamera.ts').is_file() else 'camera.mp4' if (p/'camera.mp4').is_file() else None
@@ -66,7 +66,7 @@ def run_job(id):
        (p/'qcamera.ts').unlink(missing_ok=True)
       elif (p/'qcamera.ts').is_file():
        (p/'camera.mp4').unlink(missing_ok=True)
-      m['bytes']=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts','camera.mp4') if (p/k).is_file())
+      m['bytes']=original_bytes(p)
      m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v22-adjustable-height');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
@@ -83,23 +83,20 @@ def run_job(id):
     processes.pop(id,None);job_progress.pop(id,None)
 
 PROCESSING_SETTINGS=ROOT/'.processing-settings.json'
-def read_processing_limit():
+def read_processing_settings():
  try:
-  value=json.loads(PROCESSING_SETTINGS.read_text()).get('concurrency',1)
-  return value if type(value) is int and value in (1,2,3,4) else 1
- except (OSError,ValueError,AttributeError):return 1
+  saved=json.loads(PROCESSING_SETTINGS.read_text())
+  if not isinstance(saved,dict):saved={}
+ except (OSError,ValueError):saved={}
+ value=saved.get('concurrency',1)
+ return (value if type(value) is int and value in (1,2,3,4) else 1),saved.get('auto_convert',True) is not False,saved.get('keep_original_video',True) is not False
 
-def read_auto_convert():
- try:return json.loads(PROCESSING_SETTINGS.read_text()).get('auto_convert',True) is not False
- except (OSError,ValueError,AttributeError):return True
+def read_processing_limit():return read_processing_settings()[0]
+def read_auto_convert():return read_processing_settings()[1]
+def read_keep_original_video():return read_processing_settings()[2]
 
-def read_keep_original_video():
- try:return json.loads(PROCESSING_SETTINGS.read_text()).get('keep_original_video',True) is not False
- except (OSError,ValueError,AttributeError):return True
-
-keep_original_video=read_keep_original_video()
-auto_convert=read_auto_convert()
-pool=ProcessingQueue(run_job,read_processing_limit())
+_limit,auto_convert,keep_original_video=read_processing_settings()
+pool=ProcessingQueue(run_job,_limit)
 def submit(id):pool.submit(id)
 
 def recording_paths():
@@ -110,7 +107,7 @@ def clear_prepared(p,m):
  # A restored TS makes the formerly sole MP4 regenerable again.
  if (p/'qcamera.ts').is_file() and (p/'camera.mp4').is_file():
   (p/'camera.mp4').unlink()
-  m['bytes']=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts') if (p/k).is_file())
+  m['bytes']=original_bytes(p,('rlog.zst','qcamera.ts'))
  m.update(duration=None,model_frames=None,warnings=[],error=None,conversion_revision=m.get('conversion_revision',0)+1)
 
 def queue_unconverted():
@@ -158,8 +155,11 @@ def access():
 @app.after_request
 def fresh_replay_state(response):
  if request.path.startswith(('/api/device/','/api/settings/')):response.headers['Cache-Control']='no-store'
- if request.path.startswith('/view/') or request.path in ('/api/logs','/api/progress','/api/settings/processing') or (request.path.startswith('/api/logs/') and request.path.endswith('/data')):
+ if request.path.startswith('/view/') or request.path in ('/api/logs','/api/progress','/api/settings/processing'):
   response.headers['Cache-Control']='no-store'
+ if request.path.startswith('/api/logs/') and request.path.endswith(('/data','/telemetry')):
+  # Finished replay files may be cached but are revalidated (ETag) on every visit; pending states never are.
+  response.headers['Cache-Control']='no-cache' if response.status_code in (200,304) else 'no-store'
  return response
 
 @app.errorhandler(HTTPException)
@@ -185,7 +185,9 @@ def index():
 @app.route('/view/<id>/')
 def view(id):folder(id);return send_from_directory(BASE/'web','index.html')
 @app.route('/assets/<path:name>')
-def assets(name):return send_from_directory(BASE/'web',name)
+def assets(name):
+ # ?v= changes with every release, so versioned URLs never need revalidation.
+ return send_from_directory(BASE/'web',name,max_age=31536000 if request.args.get('v') else None)
 def storage_used_bytes(root=None):
  total=0
  pending=[root or ROOT]
@@ -209,7 +211,10 @@ def processing_progress():
 @app.route('/api/logs')
 def logs():
  cleanup_uploads()
- with lock:items=[dict(read_meta(p),pinned=storage_policy.pinned(read_meta(p)),bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts','camera.mp4') if (p/k).is_file()),video=has_video(p),video_download=video_download_kind(p),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared')) for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
+ def item(p):
+  m=read_meta(p)
+  return dict(m,pinned=storage_policy.pinned(m),bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared'))
+ with lock:items=[item(p) for p in recording_paths()]
  return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 @app.route('/api/upload',methods=['POST'])
 def upload():
@@ -217,7 +222,7 @@ def upload():
  if not request.content_length:return jsonify(error='content_length_required'),411
  files=request.files.getlist('files')
  with registration_lock,lock:
-  amount=storage_policy.admit(request.content_length,[{'name':f.filename or ''} for f in files])
+  amount=storage_policy.admit(request.content_length,[{'name':f.filename or ''} for f in files],staging=True)
   id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir();atomic_json(p/'reservation.json',{'bytes':amount});active_uploads[id]+=1
  try:return register_files(files)
  finally:
@@ -259,11 +264,15 @@ def register_files(files):
      group_dir=Path(temp)/uuid.uuid4().hex;group_dir.mkdir();groups[group]={'dir':group_dir,'label':label,'files':{}}
     g=groups[group]
     if kind in g['files']:raise ValueError('같은 구간의 파일이 중복되었습니다: '+path.name)
-    f.save(g['dir']/kind);g['files'][kind]=path.name
+    if getattr(f,'path',None):
+     # Finished chunked uploads already live under ROOT: move instead of copying up to 512 MB.
+     os.replace(f.path,g['dir']/kind);g.setdefault('known',{})[kind]=f.sha256
+    else:f.save(g['dir']/kind)
+    g['files'][kind]=path.name
    for g in groups.values():
     if 'rlog.zst' not in g['files']:raise ValueError(g['label']+': 영상과 짝이 되는 rlog.zst를 함께 올려주세요.')
     if (g['dir']/'rlog.zst').stat().st_size==0:raise ValueError('로그 파일이 비어 있습니다.')
-    g['hashes']={kind:file_digest(g['dir']/kind) for kind in g['files']}
+    g['hashes']={kind:g.get('known',{}).get(kind) or file_digest(g['dir']/kind) for kind in g['files']}
    with registration_lock:
     # Hash old recordings without blocking upload chunks or conversion progress.
     existing={};hash_updates=[]
@@ -302,7 +311,7 @@ def register_files(files):
         target=p/'qcamera.ts';(g['dir']/'qcamera.ts').replace(target);stat=target.stat()
         meta.setdefault('files',{})['qcamera.ts']=g['files']['qcamera.ts']
         meta.setdefault('content_hashes',{})['qcamera.ts']={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':g['hashes']['qcamera.ts']}
-        meta['bytes']=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts','camera.mp4') if (p/k).is_file())
+        meta['bytes']=original_bytes(p)
         save_meta(p,meta);existing[g['hashes']['rlog.zst']]=(meta,hashes)
         updated.append(dict(meta,original_restored=True))
         continue
@@ -315,7 +324,7 @@ def register_files(files):
          except subprocess.TimeoutExpired:proc.kill();proc.wait()
         (g['dir']/'qcamera.ts').replace(p/'qcamera.ts')
         meta.setdefault('files',{})['qcamera.ts']=g['files']['qcamera.ts']
-        meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted',video=True,duration=None,model_frames=None,warnings=[],error=None,conversion_revision=meta.get('conversion_revision',0)+1,bytes=sum((p/k).stat().st_size for k in ('rlog.zst','qcamera.ts')))
+        meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted',video=True,duration=None,model_frames=None,warnings=[],error=None,conversion_revision=meta.get('conversion_revision',0)+1,bytes=original_bytes(p,('rlog.zst','qcamera.ts')))
         stat=(p/'qcamera.ts').stat()
         meta.setdefault('content_hashes',{})['qcamera.ts']={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':g['hashes']['qcamera.ts']}
         hashes={**hashes,'qcamera.ts':g['hashes']['qcamera.ts']}
@@ -420,7 +429,8 @@ def create_upload(files):
  total=sum(f['size'] for f in files)
  if total>app.config['MAX_CONTENT_LENGTH']:return too_large(None)
  if sum(1 for p in UPLOADS.iterdir() if (p/'reservation.json').is_file())>=UPLOAD_SESSION_LIMIT:return jsonify(error='session_limit_reached'),429
- amount=storage_policy.admit(total,files)
+ # Chunks are moved into place when finished, so no second copy needs room.
+ amount=storage_policy.admit(total,files,staging=False)
  id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir()
  try:
   atomic_json(p/'manifest.json',files);atomic_json(p/'reservation.json',{'bytes':amount,'expires_at':time.time()+UPLOAD_MAX_SECONDS})
@@ -471,6 +481,10 @@ def upload_chunk(id,index):
     active_uploads.pop(id,None)
     if failed:shutil.rmtree(p,ignore_errors=True)
 
+class ReceivedFile:
+ # A completely received chunked upload, registered by moving it instead of copying a stream.
+ def __init__(self,path,filename,sha256):self.path,self.filename,self.sha256=path,filename,sha256
+
 @app.route('/api/uploads/<id>/finish',methods=['POST'])
 def finish_upload(id):
  with lock:
@@ -478,15 +492,16 @@ def finish_upload(id):
   if active_uploads[id]:return upload_error('upload_busy','업로드 조각을 전송 중입니다.',409)
   if any(not (p/str(i)).is_file() or (p/str(i)).stat().st_size!=f['size'] for i,f in enumerate(files)):return upload_error('incomplete_upload','아직 전송되지 않은 파일이 있습니다.',409)
   active_uploads[id]+=1;finishing_uploads.add(id)
- streams=[]
  try:
+  # Each file is hashed once: the same digest checks the device checksum and finds duplicates.
+  received=[]
   for i,f in enumerate(files):
-   if f.get('sha256') and file_digest(p/str(i))!=f['sha256']:return jsonify(error='checksum_mismatch'),422
-  streams=[FileStorage(stream=(p/str(i)).open('rb'),filename=f['name']) for i,f in enumerate(files)]
-  # Copying and hashing up to 512 MB must not block other requests.
-  return register_files(streams)
+   digest=file_digest(p/str(i))
+   if f.get('sha256') and digest!=f['sha256']:return jsonify(error='checksum_mismatch'),422
+   received.append(ReceivedFile(p/str(i),f['name'],digest))
+  # Hashing and registering up to 512 MB must not block other requests.
+  return register_files(received)
  finally:
-  for f in streams:f.close()
   with lock:
    shutil.rmtree(p,ignore_errors=True)
    active_uploads.pop(id,None);finishing_uploads.discard(id)
@@ -561,16 +576,31 @@ def original(id,kind):
 def data(id):
  p=folder(id);meta=read_meta(p)
  if meta['status']!='ready':return jsonify(status=meta['status'],error=meta.get('error') or ('변환 데이터가 없습니다. 로그 목록에서 변환해 주세요.' if meta['status']=='unconverted' else '로그를 준비 중입니다.')),409
- return send_file(p/'prepared/data.json',mimetype='application/json',conditional=True)
+ response=send_prepared(p,'data.json')
+ if response is None:abort(404)
+ return response
+
+def prepared_file(p,name):
+ # New conversions and migrated logs keep only name.gz; plain files remain readable until migrated.
+ for file,compressed in ((p/'prepared'/(name+'.gz'),True),(p/'prepared'/name,False)):
+  if file.is_file():return file,compressed
+ return None,False
+
+def send_prepared(p,name):
+ file,compressed=prepared_file(p,name)
+ if file is None:return None
+ if not compressed:return send_file(file,mimetype='application/json',conditional=True)
+ # The browser inflates the stored bytes itself (DecompressionStream). Content-Encoding is avoided
+ # because proxies such as Home Assistant Ingress may drop or rewrite it.
+ if request.args.get('format')=='gzip':return send_file(file,mimetype='application/gzip',conditional=True)
+ return app.response_class(gzip.decompress(file.read_bytes()),mimetype='application/json')
+
 @app.route('/api/logs/<id>/telemetry')
 def telemetry(id):
  p=folder(id)
  if read_meta(p)['status']!='ready':return jsonify(error='로그를 준비 중입니다.'),409
- file=p/'prepared/telemetry.json'
- if not file.is_file():return jsonify(error='차량 정보가 없는 변환 데이터입니다. 로그 목록에서 제거 후 변환해 주세요.'),404
- response=send_file(file,mimetype='application/json',conditional=True)
- response.headers['Cache-Control']='no-store'
- return response
+ response=send_prepared(p,'telemetry.json')
+ return (jsonify(error='차량 정보가 없는 변환 데이터입니다. 로그 목록에서 제거 후 변환해 주세요.'),404) if response is None else response
 
 @app.route('/api/logs/<id>/video')
 def video(id):
@@ -584,7 +614,7 @@ def requeue_startup():
  pending=[]
  for p in recording_paths():
   m=read_meta(p)
-  stale=m['status']=='ready' and (m.get('decoder_version')!='v22-adjustable-height' or bool(m.get('video'))!=has_video(p) or not (p/'prepared/data.json').is_file())
+  stale=m['status']=='ready' and (m.get('decoder_version')!='v22-adjustable-height' or bool(m.get('video'))!=has_video(p) or prepared_file(p,'data.json')[0] is None)
   if m['status'] in ('queued','processing') or stale:
    clear_prepared(p,m)
    m.update(status='unconverted',video=has_video(p))
@@ -595,8 +625,32 @@ def requeue_startup():
   m.update(status='queued');save_meta(p,m)
  for p,_ in pending:submit(p.name)
 
+def migrate_prepared():
+ # One log at a time in a low-priority child process, so the server never holds a whole replay in memory.
+ for p in sorted(recording_paths(),key=lambda path:path.stat().st_mtime,reverse=True):
+  if cleanup_stop.is_set():return
+  try:
+   with lock:
+    m=read_meta(p)
+    if m['status']!='ready' or not any((p/'prepared'/name).is_file() for name in ('data.json','telemetry.json')):continue
+    revision=m.get('conversion_revision',0)
+   done=subprocess.run([sys.executable,'-B',str(BASE/'compact.py'),str(p/'prepared')],capture_output=True,text=True,timeout=600,preexec_fn=lambda:os.nice(10))
+   with lock:
+    current=read_meta(p) if (p/'meta.json').is_file() else None
+    staged=[f for f in (p/'prepared').glob('*.migrating')] if (p/'prepared').is_dir() else []
+    # A conversion or removal that started meanwhile owns prepared/; discard the stale result.
+    if done.returncode or current is None or current['status']!='ready' or current.get('conversion_revision',0)!=revision:
+     for f in staged:f.unlink(missing_ok=True)
+     continue
+    for f in staged:
+     f.replace(f.with_suffix(''));(p/'prepared'/f.with_suffix('').stem).unlink(missing_ok=True)
+  except (OSError,ValueError,KeyError,subprocess.SubprocessError):
+   app.logger.exception('Replay data migration failed for %s',p.name)
+
 storage_policy=StoragePolicy(sys.modules[__name__])
 devices=DeviceAPI(sys.modules[__name__])
 device_network=DeviceNetwork(sys.modules[__name__])
 requeue_startup()
+# start.py enables this for the app; tests and tools importing the module do not migrate in the background.
+if os.environ.get('RV_MIGRATE_PREPARED')=='1':threading.Thread(target=migrate_prepared,name='prepared-migration',daemon=True).start()
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)

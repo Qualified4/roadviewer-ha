@@ -72,14 +72,34 @@ function updateVideoBuffer(){
  }
 }
 for(const event of ['progress','loadedmetadata','loadeddata','durationchange','emptied','seeked'])v.addEventListener(event,updateVideoBuffer);
-function setTime(time,seekVideo=true){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render()}
+function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render(lazy)}
 function step(n){pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
 function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
-function tick(now){if(playing&&data){setTime(t+(now-last)/1000*Number($('speed').value),false);if(t>=data.duration-.001)pause()}last=now;requestAnimationFrame(tick)}
+function tick(now){if(playing&&data){setTime(t+(now-last)/1000*Number($('speed').value),false,true);if(t>=data.duration-.001)pause()}last=now;requestAnimationFrame(tick)}
 function showError(message){$('errorText').textContent=message;$('error').hidden=!message}
 $('errorRefresh').onclick=()=>location.reload();
+// Replay files are stored as gzip. The browser inflates them itself, so no proxy needs to pass Content-Encoding.
+const gzipReplay=typeof DecompressionStream==='function';
+function replayUrl(url){return gzipReplay?url+(url.includes('?')?'&':'?')+'format=gzip':url}
+async function readReplayJson(response){
+ const bytes=new Uint8Array(await response.arrayBuffer());
+ // Uncompressed answers (older conversions, or browsers without DecompressionStream) are plain JSON.
+ if(bytes[0]!==0x1f||bytes[1]!==0x8b)return JSON.parse(new TextDecoder().decode(bytes));
+ return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json();
+}
+// Undo compact.py: shared camera info, values derivable from others, and marker points.
+function expandReplayData(replay){
+ const infos=replay.cameraInfos;
+ for(const frame of replay.frames){
+  if(infos&&typeof frame.cameraInfo==='number')frame.cameraInfo=infos[frame.cameraInfo];
+  frame.liveTracks?.forEach((target,i)=>{target.index??=i;target.y??=-target.yRel});
+  frame.radarTargets?.forEach(target=>{target.y??=-target.yRel});
+  for(const marker of frame.overlay?.markers||[])if(!marker.point&&marker.projection){const [a,b,c]=marker.projection;marker.point=[a/c,b/c]}
+ }
+ return replay;
+}
 let dataRetryTimer=null,recordingNameFiles={};
-async function loadData(){const id=location.pathname.split('/').filter(Boolean).at(-1);clearTimeout(dataRetryTimer);const res=await fetch('../../api/logs/'+id+'/data',{cache:'no-store'});
+async function loadData(){const id=location.pathname.split('/').filter(Boolean).at(-1);clearTimeout(dataRetryTimer);const res=await fetch(replayUrl('../../api/logs/'+id+'/data'),{cache:'no-cache'});
  if(res.status===409){
   const state=await res.json();
   if(['queued','processing'].includes(state.status)){
@@ -89,7 +109,7 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
   throw Error(state.error||'로그 변환에 실패했습니다. 목록을 확인하세요.');
  }
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
- data=await res.json();showError('');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){v.src='../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now());loading=true;$('play').disabled=true;$('status').textContent='영상 준비 중';v.load()}else{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료'}updateVideoBuffer();setTime(0)}
+ data=expandReplayData(await readReplayJson(res));showError('');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){v.src='../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now());loading=true;$('play').disabled=true;$('status').textContent='영상 준비 중';v.load()}else{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료'}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 v.onloadedmetadata=()=>{loading=false;$('play').disabled=false;$('status').textContent='재생 준비 완료';v.playbackRate=Number($('speed').value);setTime(t)};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)showError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
 for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
@@ -107,8 +127,13 @@ function renderSteering(f){
  $('wheelLane').setAttribute('visibility',s?.lane&&!s?.critical?'visible':'hidden');
  $('wheelCritical').setAttribute('visibility',s?.critical?'visible':'hidden');
 }
-function render(){
+let renderedFrame='';
+function render(lazy){
  window.renderTelemetry?.();
+ // Playback ticks at the display rate (60 Hz+) but model frames change at 20 Hz: redraw only on a new frame.
+ const frameKey=data?`${idx}|${frameAvailable(data.frames[idx])}|${v.hidden}`:'';
+ if(lazy===true&&frameKey===renderedFrame)return;
+ renderedFrame=frameKey;
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!data)return;
  const f=data.frames[idx],valid=f.valid&&frameAvailable(f);
  window.renderVideoOverlay?.(f,frameAvailable(f));
@@ -307,8 +332,24 @@ if(replayHeading){
  // Clear press feedback on release, cancellation, or leaving the row.
  fold.addEventListener('pointerdown',e=>{if(e.button!==0)return;fold.classList.add('is-pressed')});
  for(const event of ['pointerup','pointercancel','pointerleave','lostpointercapture'])fold.addEventListener(event,()=>fold.classList.remove('is-pressed'));
- fold.onclick=()=>{headingCollapsed=!headingCollapsed;try{localStorage.setItem(preference,String(headingCollapsed))}catch{}updateHeading()};
- window.addEventListener('scroll',scheduleHeading,{passive:true});
+ // Fold with the 매거진 홈 timing: the pinned bar slides from where it is to its new sticky offset while the
+ // navigation row fades. Only transform and opacity move, so the content underneath never shifts.
+ let foldMotion=null;
+ const stopFold=()=>{if(!foldMotion)return;foldMotion.forEach(motion=>motion.cancel());foldMotion=null;replayHeading.classList.remove('is-folding')};
+ fold.onclick=()=>{
+  const from=replayHeading.getBoundingClientRect().top,fade=Number(getComputedStyle(navigation).opacity);
+  stopFold();
+  headingCollapsed=!headingCollapsed;try{localStorage.setItem(preference,String(headingCollapsed))}catch{}updateHeading();
+  const shift=from-replayHeading.getBoundingClientRect().top;
+  if(!replayHeading.classList.contains('is-stuck')||Math.abs(shift)<1||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  const options={duration:250,easing:'cubic-bezier(0.4, 0, 0.2, 1)'};
+  replayHeading.classList.add('is-folding');
+  const motions=[replayHeading.animate([{transform:`translateY(${shift}px)`},{transform:'translateY(0)'}],options),
+   navigation.animate([{opacity:fade},{opacity:headingCollapsed?0:1}],options)];
+  foldMotion=motions;
+  Promise.all(motions.map(motion=>motion.finished)).then(()=>{if(foldMotion===motions)stopFold()}).catch(()=>{});
+ };
+ window.addEventListener('scroll',()=>{stopFold();scheduleHeading()},{passive:true});
  window.addEventListener('resize',scheduleHeading);
  window.addEventListener('pageshow',scheduleHeading);
  new ResizeObserver(scheduleHeading).observe(navigation);
