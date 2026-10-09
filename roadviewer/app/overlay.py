@@ -2,7 +2,7 @@
 Camera parameters/conventions: commaai/openpilot common/transformations/camera.py.
 Model path/target height convention: selfdrive/ui/onroad/model_renderer.py.
 """
-import bisect,math
+import bisect,functools,math
 
 def points3(line):
  return list(zip(line.get('x',[]),line.get('y',[]),line.get('z',[])))
@@ -13,14 +13,22 @@ def camera_config(device,sensor):
  if sensor=='os04c10' and device in ('tici','tizi','mici'):return (1344,760,1141.5)
  return None
 
-def projection_coordinates(point,rpy,config):
- if len(point)!=3 or not all(math.isfinite(v) for v in point):return None
- x,y,z=point;r,p,a=rpy
+@functools.lru_cache(maxsize=64)
+def rotation(rpy):
+ r,p,a=rpy
  cr,sr,cp,sp,ca,sa=math.cos(r),math.sin(r),math.cos(p),math.sin(p),math.cos(a),math.sin(a)
  # Rz(yaw) Ry(pitch) Rx(roll), then device -> view [y,z,x].
- depth=ca*cp*x+(ca*sp*sr-sa*cr)*y+(ca*sp*cr+sa*sr)*z
- horizontal=sa*cp*x+(sa*sp*sr+ca*cr)*y+(sa*sp*cr-ca*sr)*z
- vertical=-sp*x+cp*sr*y+cp*cr*z
+ return (ca*cp,ca*sp*sr-sa*cr,ca*sp*cr+sa*sr),(sa*cp,sa*sp*sr+ca*cr,sa*sp*cr-ca*sr),(-sp,cp*sr,cp*cr)
+
+def projection_coordinates(point,rpy,config):
+ if len(point)!=3:return None
+ x,y,z=point
+ if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):return None
+ # The rotation depends only on the calibration; computing it once per value, not per point, keeps results identical.
+ (a1,a2,a3),(b1,b2,b3),(c1,c2,c3)=rotation(tuple(rpy))
+ depth=a1*x+a2*y+a3*z
+ horizontal=b1*x+b2*y+b3*z
+ vertical=c1*x+c2*y+c3*z
  w,h,f=config
  return [.5*depth+f/w*horizontal,.5*depth+f/h*vertical,depth]
 

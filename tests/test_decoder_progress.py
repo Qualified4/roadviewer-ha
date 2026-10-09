@@ -1,4 +1,4 @@
-import io,json,shutil,sys,tempfile,unittest
+import gzip,io,json,shutil,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,'/app')
@@ -31,12 +31,14 @@ class DecoderProgressTests(unittest.TestCase):
    src=root/'rlog.zst';src.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
    output=io.StringIO();counter=iter(range(10000));reporter=Reporter(output,clock=lambda:next(counter))
    with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src,'Route / segment')
-   self.assertEqual(data['frames'][0]['cameraInfo']['deviceId'],'test-device-id')
-   saved=json.loads((dest/'data.json').read_text())
+   saved=json.loads(gzip.decompress((dest/'data.json.gz').read_bytes()))
+   self.assertFalse((dest/'data.json').exists())
+   # Camera information is stored once and referenced by index from each frame.
+   self.assertEqual(saved['cameraInfos'][data['frames'][0]['cameraInfo']]['deviceId'],'test-device-id')
    self.assertEqual(saved['route'],'Route / segment');self.assertNotIn('path',saved)
    self.assertEqual(json.loads((dest/'summary.json').read_text())['model_frames'],20)
-   self.assertEqual(data['frames'][0]['cameraInfo']['calibrationStatus'],'unknown')
-   self.assertTrue(data['frames'][0]['cameraInfo']['heightDefault'])
+   self.assertEqual(saved['cameraInfos'][0]['calibrationStatus'],'unknown')
+   self.assertTrue(saved['cameraInfos'][0]['heightDefault'])
    events=[json.loads(line) for line in output.getvalue().splitlines()]
    self.assertEqual([e for e in events if e['stage']=='log_analysis'][-1]['frames'],20)
    self.assertEqual([e for e in events if e['stage']=='video_convert'][-1]['percent'],100)
@@ -44,7 +46,7 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertEqual(events[-1]['stage'],'saving')
    self.assertEqual(data['video']['frames'],20)
    self.assertTrue((dest/'camera.mp4').is_file())
-   telemetry=json.loads((dest/'telemetry.json').read_text())
+   telemetry=json.loads(gzip.decompress((dest/'telemetry.json.gz').read_bytes()))
    state=telemetry['streams']['carState']
    self.assertEqual(len(state['times']),100)
    self.assertAlmostEqual(state['times'][0],data['logStart'],places=5)

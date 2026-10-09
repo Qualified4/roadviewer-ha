@@ -40,8 +40,18 @@ class StorageTests(unittest.TestCase):
    server.save_meta(p,dict(status='ready'))
    self.assertEqual(c.get(url,environ_overrides=peer).status_code,404)
    (p/'prepared/telemetry.json').write_text('{"streams":{}}')
-   r=c.get(url,environ_overrides=peer);self.assertEqual(r.status_code,200);self.assertEqual(r.json,{'streams':{}});self.assertEqual(r.headers['Cache-Control'],'no-store');r.close()
+   r=c.get(url,environ_overrides=peer);self.assertEqual(r.status_code,200);self.assertEqual(r.json,{'streams':{}});self.assertEqual(r.headers['Cache-Control'],'no-cache');r.close()
    self.assertEqual(c.get(url).status_code,403)
+   # Pending answers must never be cached, even though finished files are.
+   server.save_meta(p,dict(status='processing'))
+   r=c.get(url,environ_overrides=peer);self.assertEqual(r.headers['Cache-Control'],'no-store');server.save_meta(p,dict(status='ready'))
+   # Migrated or new conversions keep only gzip: raw bytes on request, inflated JSON otherwise.
+   import gzip
+   (p/'prepared/telemetry.json.gz').write_bytes(gzip.compress(b'{"streams":{"x":1}}'));(p/'prepared/telemetry.json').unlink()
+   r=c.get(url+'?format=gzip',environ_overrides=peer);self.assertEqual(r.status_code,200);self.assertEqual(r.mimetype,'application/gzip')
+   self.assertEqual(gzip.decompress(r.data),b'{"streams":{"x":1}}');etag=r.headers['ETag'];r.close()
+   r=c.get(url+'?format=gzip',environ_overrides=peer,headers={'If-None-Match':etag});self.assertEqual(r.status_code,304);self.assertEqual(r.headers['Cache-Control'],'no-cache');r.close()
+   r=c.get(url,environ_overrides=peer);self.assertEqual(r.json,{'streams':{'x':1}});r.close()
  def test_backup_patterns_exclude_recordings_and_keep_settings(self):
   # Supervisor matches each path and prunes matching directories before descent.
   import re

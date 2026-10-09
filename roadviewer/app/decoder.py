@@ -5,9 +5,76 @@ from steering import SteeringReplay
 from timeline import align_timeline
 from progress import Reporter
 from overlay import OverlayProjector
-from telemetry import extract_telemetry
+from telemetry import extract_telemetry,FIELDS
+from compact import compact_data,write_gzip_json
 BASE=Path(__file__).resolve().parent
 log=capnp.load(str(BASE.parent/'schema/cereal/log.capnp'))
+
+# to_dict() converts every field of every message, which dominated conversion time and memory.
+# pick() returns the same values for only the fields used here, with to_dict()'s rules:
+# unset pointer fields are absent, and a union shows only its active member.
+POINTERS={'struct','list','text','data','anyPointer','interface'}
+_layouts={}
+def _layout(schema,spec):
+ key=(schema.node.id,id(spec))
+ if key not in _layouts:
+  fields=schema.fields;rows=[]
+  for name,sub in spec.items():
+   if name not in fields:continue # Older or newer schemas: absent, as with to_dict().
+   proto=fields[name].proto
+   kind='group' if proto.which()=='group' else proto.slot.type.which()
+   element=proto.slot.type.list.elementType.which() if kind=='list' else None
+   rows.append((name,kind,element,sub,proto.discriminantValue!=0xFFFF))
+  _layouts[key]=(rows,bool(schema.union_fields))
+ return _layouts[key]
+
+def _enum(value):
+ try:return value._as_str()
+ except Exception:return value.raw # Enumerant unknown to this schema, as to_dict() reports it.
+
+def pick(reader,spec):
+ rows,has_union=_layout(reader.schema,spec);active=reader.which() if has_union else None;out={}
+ for name,kind,element,sub,member in rows:
+  if member and name!=active:continue
+  if kind in POINTERS and not reader._has(name):continue
+  value=getattr(reader,name)
+  if kind in ('struct','group'):value=pick(value,sub) if sub else value.to_dict()
+  elif kind=='enum':value=_enum(value)
+  elif kind=='list':
+   if element=='struct':value=[pick(item,sub) if sub else item.to_dict() for item in value]
+   elif element=='enum':value=[_enum(item) for item in value]
+   else:value=list(value)
+  out[name]=value
+ return out
+
+def spec(*paths):
+ tree={}
+ for path in paths:
+  node=tree;parts=path.split('.')
+  for part in parts[:-1]:
+   if node.get(part) is None:node[part]={}
+   node=node[part]
+  node.setdefault(parts[-1],None)
+ return tree
+
+def telemetry_paths(topic):return [path for path,_ in FIELDS[topic].values()]
+OUTPUT=('torque','steeringAngleDeg','curvature','accel','gas','brake')
+SPECS={
+ 'carState':spec(*telemetry_paths('carState'),'vEgo','steeringAngleDeg','steeringPressed'),
+ 'carControl':spec(*telemetry_paths('carControl'),'latActive','longActive',*('actuatorsOutputDEPRECATED.'+k for k in OUTPUT)),
+ 'carOutput':spec(*('actuatorsOutput.'+k for k in OUTPUT)),
+ 'controlsState':spec(*telemetry_paths('controlsState'),'desiredCurvature','activeLaneLine','lateralControlState.torqueState.active',
+  *(f'lateralControlState.{state}.{k}' for state in ('angleState','pidState') for k in ('active','steeringAngleDesiredDeg'))),
+ 'selfdriveState':spec('alertHudVisual','alertSize'),
+ 'liveParameters':spec('roll'),
+ 'carParams':spec('maxLateralAccel'),
+ 'liveCalibration':spec('calStatus','rpyCalib','height'),
+ 'modelV2':spec('frameId','timestampEof',*(f'{line}.{axis}' for line in ('position','laneLines','roadEdges') for axis in 'xyz'),
+  'laneLineProbs','roadEdgeStds',*('leadsV3.'+k for k in ('x','y','v','prob'))),
+ 'radarState':spec('mdMonoTime',*(f'{lead}.{k}' for lead in ('leadOne','leadsCenter','leadsLeft','leadsRight') for k in ('status','dRel','yRel','vRel','radar','radarTrackId','modelProb'))),
+ 'liveTracks':spec(*('points.'+k for k in ('dRel','yRel','vRel','trackId','measured','radarSource','trackState'))),
+ 'qRoadEncodeIdx':spec('frameId','timestampEof','segmentId'),
+}
 
 
 def speed_at(states,times,stamp):
@@ -33,11 +100,6 @@ def prepare(value,route=None):
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  def save_summary(data):
   (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video')},ensure_ascii=False))
- if (dest/'data.json').exists():
-  cached=json.loads((dest/'data.json').read_text())
-  if cached.get('key')==key and (dest/'telemetry.json').is_file():
-   save_summary(cached)
-   return dest,attach(cached)
  print('로그 읽는 중:',src,flush=True)
  with src.open('rb') as source, zstandard.ZstdDecompressor().stream_reader(source) as reader:
   raw=reader.read(512*1024*1024+1)
@@ -46,16 +108,16 @@ def prepare(value,route=None):
  models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter()
  for e in log.Event.read_multiple_bytes(raw):
   kind=e.which();counts[kind]+=1
-  if kind in ('carState','carControl','controlsState','carOutput','selfdriveState','liveParameters','carParams','liveCalibration'):streams[kind].append((e.logMonoTime,e.valid,getattr(e,kind).to_dict()))
+  if kind in ('carState','carControl','controlsState','carOutput','selfdriveState','liveParameters','carParams','liveCalibration'):streams[kind].append((e.logMonoTime,e.valid,pick(getattr(e,kind),SPECS[kind])))
   if kind=='initData':streams[kind].append((e.logMonoTime,e.valid,{'dongleId':str(e.initData.dongleId)}))
   if kind=='deviceState':streams[kind].append((e.logMonoTime,e.valid,{'deviceType':str(e.deviceState.deviceType)}))
   if kind=='roadCameraState':streams[kind].append((e.logMonoTime,e.valid,{'sensor':str(e.roadCameraState.sensor)}))
   if kind=='modelV2':
-   models.append((e.logMonoTime,e.valid,e.modelV2.to_dict()));progress.update('log_read',frames=len(models))
-  elif kind=='radarState':radars.append((e.logMonoTime,e.valid,e.radarState.to_dict()))
-  elif kind=='liveTracks':live_tracks.append((e.logMonoTime,e.valid,e.liveTracks.to_dict()))
+   models.append((e.logMonoTime,e.valid,pick(e.modelV2,SPECS['modelV2'])));progress.update('log_read',frames=len(models))
+  elif kind=='radarState':radars.append((e.logMonoTime,e.valid,pick(e.radarState,SPECS['radarState'])))
+  elif kind=='liveTracks':live_tracks.append((e.logMonoTime,e.valid,pick(e.liveTracks,SPECS['liveTracks'])))
   elif kind=='carState':car_states.append((e.logMonoTime,e.valid,float(e.carState.vEgo)))
-  elif kind=='qRoadEncodeIdx':cameras.append(e.qRoadEncodeIdx.to_dict())
+  elif kind=='qRoadEncodeIdx':cameras.append(pick(e.qRoadEncodeIdx,SPECS['qRoadEncodeIdx']))
  if not models:raise ValueError('이 로그에 modelV2 데이터가 없습니다.')
  camera_by_id={q['frameId']:q['timestampEof'] for q in cameras}
  time_of=lambda stamp,m:camera_by_id.get(m['frameId'],m.get('timestampEof') or stamp)/1e9
@@ -105,9 +167,13 @@ def prepare(value,route=None):
   qs=sorted(cameras,key=lambda q:q['segmentId'])
   progress.update('video_read',frames=0)
   pts=[]
+  # Frame timestamps come from the packets; decoding every frame here only repeated the verify step below.
   with av.open(str(video)) as c:
-   for f in c.decode(video=0):
-    pts.append(float(f.pts*f.time_base));progress.update('video_read',frames=len(pts))
+   stream=c.streams.video[0]
+   for packet in c.demux(stream):
+    if packet.pts is None or packet.size==0:continue
+    pts.append(float(packet.pts*stream.time_base));progress.update('video_read',frames=len(pts))
+  pts.sort()
   if len(pts)==len(qs) and [q['segmentId'] for q in qs]==list(range(len(qs))):
    offsets=[q['timestampEof']/1e9-p for q,p in zip(qs,pts)]
    if max(offsets)-min(offsets)<.005:
@@ -144,9 +210,11 @@ def prepare(value,route=None):
  bounds=align_timeline(frames,video_info)
  telemetry_origin=origin+timeline_start-frames[0]['t']
  telemetry=extract_telemetry(streams,telemetry_origin,bounds['duration'])
- with (dest/'telemetry.json').open('w') as out:json.dump(telemetry,out,separators=(',',':'),allow_nan=False)
+ # Compact gzip files: about 5x smaller on disk and over the network (see compact.py).
+ write_gzip_json(dest/'telemetry.json.gz',telemetry)
  data={'route':log_entry['label'],'key':key,**bounds,'frames':frames,'video':video_info,'warnings':warnings,'counts':dict(counts)}
- with (dest/'data.json').open('w') as out:json.dump(data,out,ensure_ascii=False,separators=(',',':'),allow_nan=False)
+ write_gzip_json(dest/'data.json.gz',compact_data(data),ensure_ascii=False)
+ for stale in ('data.json','telemetry.json'):(dest/stale).unlink(missing_ok=True) # Plain files from an earlier version.
  save_summary(data)
  print('준비 완료:',len(frames),'개 모델 프레임',flush=True)
  return dest,attach(data)
