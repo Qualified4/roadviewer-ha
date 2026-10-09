@@ -2,7 +2,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
-  const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
+  const page=await browser.newPage({viewport:{width:390,height:844},reducedMotion:'reduce'}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
@@ -87,6 +87,60 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(sizes[1].height>440&&sizes[1].height>sizes[0].height,'video height must grow beyond the former cap');
   assert(sizes[1].visibleWidth>sizes[0].visibleWidth*1.2,'the actual image must grow with the width slider');
   for(const size of sizes){assert(Math.abs(size.height-size.roadHeight)<1,'split panels must stay aligned');assert(Math.abs(size.width-size.visibleWidth)<1,'image should use the available panel width');}
-  assert.deepEqual(errors,[]);console.log('PASS: camera overlay drawing, toggle, layer controls, missing calibration and preference restoration');
+
+  // Motion uses current samples while playback continues, and also settles while paused.
+  await page.setViewportSize({width:390,height:844});
+  await page.evaluate(()=>{
+   pause();setReplayLayout('auto');
+   document.getElementById('hideLabels').checked=true;document.getElementById('modelPath').checked=false;
+   data.frames=Array.from({length:41},(_,i)=>({t:i*.05,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[{x:20,y:0,p:1}],
+    overlay:{lanes:[],edges:[],path:[],heightDirection:[0,-.5,0],markers:[{kind:'model',index:0,point:[.3+i*.005,.8],projection:[.3+i*.005,.8,1]}]}}));
+   const slider=document.getElementById('overlayHeightRange');slider.value=60;slider.dispatchEvent(new Event('input'));
+   const height=document.getElementById('overlayHeight');if(height.getAttribute('aria-pressed')!=='true')height.click();
+   setTime(0);
+   const c=document.getElementById('videoOverlay').getContext('2d'),arc=c.arc.bind(c);
+   window.overlayDraws=[];c.arc=(x,y,...rest)=>{overlayDraws.push({x,y,time:t});return arc(x,y,...rest)};
+  });
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  const settleOverlay=()=>page.waitForTimeout(320);
+  // Pausing a native fade at its midpoint lets us check reversal without timing races.
+  const fade=await page.evaluate(()=>{
+   const button=document.getElementById('videoOverlayToggle'),layer=document.getElementById('videoOverlay');
+   button.click();const a=layer.getAnimations()[0];a.pause();a.currentTime=100;
+   const before=Number(getComputedStyle(layer).opacity);button.click();
+   const after=Number(getComputedStyle(layer).opacity);
+   return {before,after,visible:!layer.hidden};
+  });
+  assert(fade.before>0&&fade.before<1);assert(Math.abs(fade.after-fade.before)<.02,'fade reverses from its current opacity');assert(fade.visible);
+  await settleOverlay();
+  await page.evaluate(()=>{overlayDraws=[];document.getElementById('overlayHeight').click()});
+  await settleOverlay();
+  let draws=await page.evaluate(()=>overlayDraws);
+  assert(draws.length>2,'paused height changes draw intermediate positions');
+  assert(draws.some(p=>p.y>draws[0].y+1&&p.y<draws.at(-1).y-1),'height moves smoothly to ground');
+  const idleCount=draws.length;await page.waitForTimeout(80);
+  assert.equal(await page.evaluate(()=>overlayDraws.length),idleCount,'settled paused overlays do not keep redrawing');
+  await page.evaluate(()=>{setTime(0);overlayDraws=[];toggle();document.getElementById('overlayHeight').click()});
+  await settleOverlay();
+  draws=await page.evaluate(()=>overlayDraws);
+  assert(await page.evaluate(()=>playing&&t>.2),'height motion must not pause playback');
+  assert(draws.at(-1).x>draws[0].x,'motion keeps following the latest moving vehicle');
+  assert(draws.at(-1).y<draws[0].y-5,'vehicle rises during playback');
+  await page.evaluate(()=>pause());
+  // Reverse a height change mid-flight and finish at the saved target, without a jump.
+  await page.evaluate(()=>{overlayDraws=[];document.getElementById('overlayHeight').click()});
+  await page.waitForTimeout(90);
+  const reverse=await page.evaluate(()=>{const before=overlayDraws.at(-1).y;document.getElementById('overlayHeight').click();return {before,after:overlayDraws.at(-1).y}});
+  assert(Math.abs(reverse.after-reverse.before)<10,'height reversal starts from the current position');
+  await settleOverlay();
+  // Switching reduced motion on settles an in-flight fade and height change immediately.
+  await page.evaluate(()=>{document.getElementById('overlayHeight').click();document.getElementById('videoOverlayToggle').click()});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.waitForFunction(()=>document.getElementById('videoOverlay').hidden);
+  assert.equal(await page.locator('#videoOverlay').evaluate(e=>e.getAnimations().length),0);
+  await page.evaluate(()=>document.getElementById('videoOverlayToggle').click());
+  assert(await page.locator('#videoOverlay').isVisible());
+  assert.equal(await page.locator('#videoOverlay').evaluate(e=>e.getAnimations().length),0,'reduced motion shows overlay instantly');
+  assert.deepEqual(errors,[]);console.log('PASS: overlay drawing/layout, playback and paused motion, reversal, reduced motion, missing calibration and saved settings');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -8,6 +8,28 @@
  heightButton.setAttribute('aria-pressed',String(raised));
  try{enabled=localStorage.getItem('roadviewer-video-overlay')==='true'}catch{}
  button.setAttribute('aria-pressed',String(enabled));
+ // Fade stays on the compositor; height interpolation shares the existing replay tick.
+ let fade=null,heightMotion=null,displayHeight=raised?heightCm:0;
+ layer.style.opacity=enabled?'1':'0';
+ function currentHeight(){
+  if(heightMotion){
+   const p=motionAllowed()?Math.min(1,(performance.now()-heightMotion.start)/250):1;
+   const eased=p*p*(3-2*p);
+   displayHeight=heightMotion.from+(heightMotion.to-heightMotion.from)*eased;
+   if(p===1)heightMotion=null;
+  }
+  return displayHeight;
+ }
+ function moveHeight(){
+  const from=currentHeight(),to=raised?heightCm:0;
+  heightMotion=motionAllowed()&&enabled&&!video.hidden&&from!==to?{from,to,start:performance.now()}:null;
+  if(!heightMotion)displayHeight=to;
+  render();
+ }
+ window.renderVideoOverlayMotion=()=>{if(heightMotion&&data)window.renderVideoOverlay(data.frames[idx],frameAvailable(data.frames[idx]))};
+ matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',()=>{
+  if(!motionAllowed()){fade?.finish();currentHeight();render()}
+ });
  const on=id=>document.getElementById(id).checked;
  function label(target){
   if(on('hideLabels'))return '';
@@ -21,11 +43,12 @@
   return target.x.toFixed(1)+'m';
  }
  window.renderVideoOverlay=(frame,available)=>{
+  const height=currentHeight();
   const w=layer.parentElement.clientWidth,h=layer.parentElement.clientHeight,dpr=devicePixelRatio||1;
   if(layer.width!==Math.round(w*dpr)||layer.height!==Math.round(h*dpr)){layer.width=Math.round(w*dpr);layer.height=Math.round(h*dpr)}
   context.setTransform(dpr,0,0,dpr,0,0);context.clearRect(0,0,w,h);
-  layer.hidden=!enabled||video.hidden;status.textContent='';
-  if(!enabled)return;
+  layer.hidden=(!enabled&&!fade)||video.hidden;status.textContent='';
+  if(!enabled&&!fade)return;
   if(video.hidden){status.textContent='영상이 있는 구간에서 표시됩니다.';return}
   if(!available){status.textContent='이 구간에는 로그 데이터가 없습니다.';return}
   if(!frame.overlay){status.textContent='카메라 보정·센서 정보가 없어 겹쳐 표시할 수 없습니다.';return}
@@ -64,9 +87,9 @@
    }
    if(!target||target.x>Number(document.getElementById('range').value))continue;
    let point=marker.point;
-   if(raised&&heightCm>0){
+   if(height>0){
     if(!marker.projection||!frame.overlay.heightDirection)continue;
-    const projected=marker.projection.map((v,i)=>v+frame.overlay.heightDirection[i]*heightCm/100);
+    const projected=marker.projection.map((v,i)=>v+frame.overlay.heightDirection[i]*height/100);
     if(projected[2]<=.1)continue;
     point=[projected[0]/projected[2],projected[1]/projected[2]];
    }
@@ -79,7 +102,7 @@
    else if(shape==='cross'){context.moveTo(x-4,y-4);context.lineTo(x+4,y+4);context.moveTo(x-4,y+4);context.lineTo(x+4,y-4)}
    else context.arc(x,y-5,5,0,Math.PI*2);
    context.stroke();
-   if(raised&&heightCm>0){const [gx,gy]=xy(marker.point);context.beginPath();context.moveTo(x,y);context.lineTo(gx,gy);context.stroke()}
+   if(height>0){const [gx,gy]=xy(marker.point);context.beginPath();context.moveTo(x,y);context.lineTo(gx,gy);context.stroke()}
    if(marker.kind!=='raw'||on('liveTrackLabels')){
     const text=label(target);if(text){context.lineWidth=3;context.strokeStyle='#000c';context.strokeText(text,x,y-15);context.fillStyle=color;context.fillText(text,x,y-15)}
    }
@@ -88,12 +111,23 @@
   context.restore();
   status.textContent='차량은 위치 표식으로 표시됩니다.';
  };
- heightButton.onclick=()=>{raised=!raised;heightButton.setAttribute('aria-pressed',String(raised));try{localStorage.setItem('roadviewer-overlay-height',String(raised))}catch{}render()};
- button.onclick=()=>{enabled=!enabled;button.setAttribute('aria-pressed',String(enabled));try{localStorage.setItem('roadviewer-video-overlay',String(enabled))}catch{}render()};
+ heightButton.onclick=()=>{raised=!raised;heightButton.setAttribute('aria-pressed',String(raised));try{localStorage.setItem('roadviewer-overlay-height',String(raised))}catch{}moveHeight()};
+ button.onclick=()=>{
+  const opacity=layer.hidden?0:Number(getComputedStyle(layer).opacity);
+  if(fade){fade.onfinish=null;fade.cancel();fade=null}enabled=!enabled;
+  button.setAttribute('aria-pressed',String(enabled));
+  try{localStorage.setItem('roadviewer-video-overlay',String(enabled))}catch{}
+  layer.style.opacity=enabled?'1':'0';
+  if(motionAllowed()&&!video.hidden){
+   fade=layer.animate([{opacity},{opacity:enabled?1:0}],{duration:200,easing:'cubic-bezier(.4,0,.2,1)'});
+   fade.onfinish=()=>{fade=null;render()};
+  }
+  render();
+ };
  const heightDialog=document.getElementById('overlayHeightDialog'),settings=document.getElementById('overlayHeightSettings'),slider=document.getElementById('overlayHeightRange'),value=document.getElementById('overlayHeightValue');
  let oldOverflow='';
  const syncHeight=()=>{slider.value=String(heightCm);value.textContent=heightCm+' cm';heightButton.title='차량 위치 표식을 지면에서 '+heightCm+'cm 높이고 바닥까지 연결합니다.'};
- const setHeight=cm=>{heightCm=Math.max(0,Math.min(200,Math.round(Number(cm)||0)));syncHeight();try{localStorage.setItem('roadviewer-overlay-height-cm',String(heightCm))}catch{}render()};
+ const setHeight=cm=>{heightCm=Math.max(0,Math.min(200,Math.round(Number(cm)||0)));syncHeight();try{localStorage.setItem('roadviewer-overlay-height-cm',String(heightCm))}catch{}moveHeight()};
  slider.oninput=()=>setHeight(slider.value);document.getElementById('overlayHeightReset').onclick=()=>setHeight(60);
  settings.onclick=()=>{if(heightDialog.open)return;oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';heightDialog.showModal();slider.focus({preventScroll:true})};
  const closeHeight=()=>heightDialog.close();document.getElementById('overlayHeightClose').onclick=closeHeight;

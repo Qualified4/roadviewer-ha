@@ -6,9 +6,13 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
-  for(const width of [1280,390])for(const reduced of [false,true]){
-   const context=await browser.newContext({viewport:{width,height:900},reducedMotion:reduced?'reduce':'no-preference'}),page=await context.newPage(),errors=[];
+  for(const {width,touch} of [{width:1280,touch:false},{width:390,touch:true},{width:1024,touch:true}])for(const reduced of [false,true]){
+   const context=await browser.newContext({viewport:{width,height:900},hasTouch:touch,isMobile:touch,reducedMotion:reduced?'reduce':'no-preference'}),page=await context.newPage(),errors=[];
    page.on('pageerror',e=>errors.push(e.message));
+   await context.addInitScript(()=>{
+    addEventListener('pageswap',e=>{if(e.viewTransition)sessionStorage.setItem('snapshot-navigation','yes')});
+    addEventListener('pagereveal',e=>{if(e.viewTransition)sessionStorage.setItem('snapshot-navigation','yes')});
+   });
    let logs=[{id:'one',name:'00000395--0d0eda17c5 / 구간 7',files:{'rlog.zst':'00000395--0d0eda17c5--7--rlog.zst'},status:'processing',progress:{stage:'video_convert',percent:50},uploaded:2,bytes:1,prepared_bytes:0,video:true}];
    await page.route('https://rv.test/**',route=>{
     const p=new URL(route.request().url()).pathname;
@@ -41,7 +45,7 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    // Deleting reflows the list through a view transition.
    await page.evaluate(()=>{window.transitions=0;const start=document.startViewTransition.bind(document);document.startViewTransition=cb=>{transitions++;return start(cb)}});
    logs=[logs[0]];await page.evaluate(()=>refresh());await page.waitForFunction(()=>document.querySelectorAll('.log-row').length===1);
-   assert.equal(await page.evaluate(()=>transitions),reduced?0:1);
+   assert.equal(await page.evaluate(()=>transitions),reduced||width<=850||touch?0:1);
    // Dialogs fade/scale in and stay in the top layer while closing.
    await page.locator('#bulkOpen').click();
    assert.equal((await page.locator('#bulkDialog').evaluate(d=>d.getAnimations().length))>0,!reduced);
@@ -69,9 +73,28 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
    const tab=await page.evaluate(()=>{const t=document.getElementById('telemetryTab'),s=getComputedStyle(t.parentElement);return [s.getPropertyValue('--tab-x'),t.offsetLeft+'px']});
    assert.equal(tab[0],tab[1]);
+   if(!reduced)assert.equal(await page.locator('.tab-indicator').evaluate(e=>getComputedStyle(e).transitionTimingFunction),'cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1)');
+   if(touch)assert(await page.locator('button,a,summary,input,label').evaluateAll(es=>es.every(e=>getComputedStyle(e).webkitTapHighlightColor==='rgba(0, 0, 0, 0)')),'native rectangular touch highlights are disabled');
    await page.locator('#splitView').click();await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
    assert.equal(await page.locator('#splitView').getAttribute('aria-pressed'),'true');
-   assert.equal(await page.evaluate(()=>transitions),reduced?0:1,'tabs must not snapshot the fixed playback controls');
+   assert.equal(await page.evaluate(()=>transitions),reduced||width<=850||touch?0:1,'tabs must not snapshot the fixed playback controls');
+   if(touch){
+    await page.locator('#stackView').click();
+    assert.equal(await page.locator('#stackView').getAttribute('aria-pressed'),'true');
+    assert.equal(await page.evaluate(()=>transitions),0,'touch layout changes never capture the whole page');
+    await page.locator('#previousLog').click();await page.waitForURL('**/view/older/');
+    await page.waitForFunction(()=>typeof data!=='undefined'&&data);
+    await page.locator('.back').click();await page.waitForURL('https://rv.test/');
+    await page.locator('a.replay').first().click();await page.waitForURL('**/view/newer/');
+    await page.waitForFunction(()=>typeof data!=='undefined'&&data);
+    assert.equal(await page.evaluate(()=>sessionStorage.getItem('snapshot-navigation')),null,'touch page navigation never uses snapshots');
+    // Even before external CSS is available, a newly loaded document has an opaque dark canvas.
+    await page.route('**/assets/*.css*',r=>r.fulfill({body:'',contentType:'text/css'}));
+    for(const url of ['https://rv.test/','https://rv.test/view/two/']){
+     await page.goto(url);
+     assert.deepEqual(await page.evaluate(()=>[document.documentElement,document.body].map(e=>getComputedStyle(e).backgroundColor)),['rgb(12, 17, 24)','rgb(12, 17, 24)']);
+    }
+   }
    assert.deepEqual(errors,[]);await context.close();
   }
   console.log('PASS: list enter/reflow and progress, dialog enter/exit, page handoff, loading state, wheel glide, tab indicator, layout transitions and reduced motion');

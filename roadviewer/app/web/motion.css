@@ -11,8 +11,11 @@
 
 @media (prefers-reduced-motion:no-preference){
 
+/* Full-page snapshots are desktop-only; touch WebViews use ordinary navigation. */
+@media (min-width:851px) and (hover:hover) and (pointer:fine){
 /* ---------- Page transition: list -> replay (and back) ---------- */
 @view-transition{navigation:auto}
+::view-transition{background:#0c1118}
 .app-brand{view-transition-name:rv-brand}
 ::view-transition-group(*){animation-duration:.32s;animation-timing-function:var(--ease)}
 ::view-transition-old(root){animation:.25s var(--ease) both rv-fade-out}
@@ -36,6 +39,8 @@ html.rv-layout-transition #route{view-transition-name:none}
 ::view-transition-group(rv-controls){z-index:3}
 ::view-transition-old(rv-controls){display:none}
 ::view-transition-new(rv-controls){animation:none}
+
+}
 
 /* ---------- Dialogs and sheets ---------- */
 .camera-info-dialog,.bulk-dialog,.pair-dialog,.rv-choice-dialog{
@@ -63,7 +68,7 @@ dialog:not([open])::backdrop{opacity:0}
 /* ---------- Tabs ---------- */
 .vehicle-tabs{position:relative;isolation:isolate}
 .vehicle-tabs .tab-indicator{position:absolute;left:0;top:0;height:100%;width:var(--tab-width,0);transform:translateX(var(--tab-x,0));
- border-radius:6px;background:#17362f;box-shadow:inset 0 -2px var(--lane);z-index:-1;transition:transform .3s var(--spring),width .3s var(--spring)}
+ border-radius:6px;background:#17362f;box-shadow:inset 0 -2px var(--lane);z-index:-1;transition:transform .3s var(--ease),width .3s var(--ease)}
 .vehicle-tabs.has-indicator button[aria-selected=true]{background:transparent;box-shadow:none}
 .vehicle-tabs button{transition:color .2s var(--ease)}
 

@@ -93,7 +93,7 @@
   if(changed&&save&&motionAllowed()){
    const panel=show?view:roadView;
    panel.getAnimations().forEach(animation=>animation.cancel());
-   panel.animate([{opacity:.35},{opacity:1}],{duration:200,easing:'ease-out'});
+   panel.animate([{opacity:.35},{opacity:1}],{duration:200,easing:'cubic-bezier(.4,0,.2,1)'});
   }
  }
  roadTab.onclick=()=>selectTab('road');telemetryTab.onclick=()=>selectTab('telemetry');
