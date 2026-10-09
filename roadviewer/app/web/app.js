@@ -245,10 +245,15 @@ try{
  setReplayLayout(['split','stack'].includes(mode)?mode:'auto');
 }catch{setReplayLayout('auto')}
 // Same-document view transition: panels glide to their new place; unsupported or reduced motion switches at once.
+let layoutTransition=null,layoutRevision=0;
 function withLayoutTransition(update){
  if(!document.startViewTransition||!pageTransitionsAllowed())return update();
+ const revision=++layoutRevision;layoutTransition?.skipTransition();
  document.documentElement.classList.add('rv-layout-transition');
- document.startViewTransition(update).finished.finally(()=>document.documentElement.classList.remove('rv-layout-transition'));
+ const transition=document.startViewTransition(()=>{if(revision===layoutRevision)update()});layoutTransition=transition;
+ transition.ready.catch(()=>{});
+ const cleanup=()=>{if(layoutTransition===transition){layoutTransition=null;if(document.body.isConnected)document.documentElement.classList.remove('rv-layout-transition')}};
+ transition.finished.then(cleanup,cleanup);
 }
 function toggleReplayLayout(button,mode){
  const next=button.getAttribute('aria-pressed')==='true'?'auto':mode;
@@ -315,7 +320,7 @@ async function loadLogNavigation(){
   const active=logs.find(log=>log.id===current);
   recordingNameFiles=active?.files||{};
   syncReplayPin(!!active?.pinned);$('pinLog').disabled=!active;
-  if(data)renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';
+  if(data||active)renderRecordingName($('routeName'),data?.route||active.name,recordingNameFiles).id='route';
   populateSegments(logs,current);
   const index=logs.findIndex(log=>log.id===current);
   const neighbors=index<0?[]:[logs.slice(index+1).find(log=>log.status==='ready'),logs.slice(0,index).reverse().find(log=>log.status==='ready')];
@@ -328,7 +333,7 @@ async function loadLogNavigation(){
   });
  }catch{buttons.forEach(button=>{button.disabled=true;button.title='로그 목록을 불러오지 못했습니다. 새로고침해 주세요.'})}
 }
-loadLogNavigation();
+const pageReady=loadLogNavigation();
 
 // Keep the navigation in normal flow; the chosen row determines where sticking starts.
 const replayHeading=document.querySelector('.replay-heading');

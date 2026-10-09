@@ -34,7 +34,7 @@ http.serve_forever()
     return r.continue();
    });
    await page.addInitScript(()=>{
-    window.pageMotions=[];document.addEventListener('animationstart',e=>{if(e.animationName.startsWith('rv-page-'))pageMotions.push({name:e.animationName,target:e.target.className,transform:getComputedStyle(e.target).transform})});
+    window.pageMotions=[];const startTransition=document.startViewTransition.bind(document);document.startViewTransition=update=>{const transition=startTransition(update);transition.ready.then(()=>pageMotions.push({root:getComputedStyle(document.documentElement).viewTransitionName,title:!!document.querySelector('[style*="rv-route"]'),background:getComputedStyle(document.documentElement,'::view-transition').backgroundColor,morph:document.getAnimations().some(a=>a.effect?.pseudoElement==='::view-transition-group(rv-route)')}),()=>{});return transition};
     window.pendingFrames=new Set();const request=requestAnimationFrame,cancel=cancelAnimationFrame;
     window.requestAnimationFrame=callback=>{const id=request(time=>{pendingFrames.delete(id);callback(time)});pendingFrames.add(id);return id};
     window.cancelAnimationFrame=id=>{pendingFrames.delete(id);cancel(id)};
@@ -44,17 +44,20 @@ http.serve_forever()
     const badge=page.locator('.state-processing');
     assert(await badge.evaluate(e=>getComputedStyle(e).backgroundImage.includes('linear-gradient')),'processing sweep has a visible gradient in the real shell');
     assert.equal(await badge.evaluate(e=>getComputedStyle(e).backgroundSize),'220% 100%');
+    assert.equal(await badge.evaluate(e=>getComputedStyle(e).backgroundRepeat),'no-repeat','one beam per cycle');
     await badge.evaluate(e=>{window.badgeBefore=e;window.sweepBefore=e.getAnimations().find(a=>a.animationName==='rv-sweep');window.sweepTime=sweepBefore.currentTime});
     await page.waitForTimeout(100);await page.locator('#refresh').click();
     await page.waitForFunction(()=>!document.getElementById('refresh').disabled);
     assert(await badge.evaluate(e=>e===badgeBefore&&e.getAnimations().includes(sweepBefore)&&sweepBefore.currentTime>sweepTime),'visible sweep advances across metadata and stage updates');
    };
    await checkSweep();
+   assert(await page.evaluate(()=>document.activeElement.tagName!=='H1'),'first entry does not focus the brand');
    await page.evaluate(()=>{window.documentToken={};window.originalToken=documentToken;window.originalBrand=document.querySelector('.app-brand')});
    await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
    await page.waitForFunction(()=>!document.getElementById('play').disabled);
-   await page.waitForFunction(()=>pageMotions.some(a=>a.name==='rv-page-enter'));
-   assert(await page.evaluate(()=>pageMotions.filter(a=>/playback|replay-heading/.test(a.target)).every(a=>a.name==='rv-page-fade')),'navigation does not move fixed controls');
+   await page.waitForFunction(()=>pageMotions.some(a=>a.title&&a.morph));
+   assert(await page.evaluate(()=>pageMotions.every(a=>a.root==='none'&&a.background==='rgba(0, 0, 0, 0)')),'morphing excludes the full-page snapshot and opaque overlay');
+   await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
    assert(await page.evaluate(()=>documentToken===originalToken&&originalBrand===document.querySelector('.app-brand')),'document and brand persist');
    await page.locator('#play').click();await page.waitForFunction(()=>document.getElementById('video').currentTime>.1);
    await page.evaluate(()=>{window.departedVideo=document.getElementById('video');scrollTo(0,200)});
@@ -66,10 +69,17 @@ http.serve_forever()
    await page.goBack();await page.waitForURL(base+'view/'+ids[0]+'/');await page.waitForFunction(()=>document.getElementById('route').textContent==='first');
    await page.waitForFunction(()=>Math.abs(scrollY-200)<1);
    await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
-   await page.waitForFunction(()=>pageMotions.some(a=>a.target.includes('library')&&a.name==='rv-page-enter'));
+   await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
+   assert(await page.evaluate(()=>pageMotions.some(a=>a.title)),'back navigation morphs the log title');
    await page.waitForTimeout(400);assert.equal(await page.evaluate(()=>pendingFrames.size),0,'departed replay RAF loop is cancelled');
    await checkSweep();
    const before=listReads;await page.waitForTimeout(3200);assert(listReads-before<=2,'only the current library poller survives');
+   await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
+   await page.evaluate(()=>{window.savedTransition=document.startViewTransition;document.startViewTransition=undefined});
+   await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
+   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
+   assert(await page.evaluate(()=>!document.documentElement.classList.contains('rv-navigation-transition')),'unsupported browsers navigate without a transition');
+   await page.evaluate(()=>document.startViewTransition=savedTransition);
    // A slow abandoned replay request must not overwrite the next screen or keep its RAF alive.
    delayData=true;await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
    await page.waitForFunction(()=>document.querySelector('.back'));

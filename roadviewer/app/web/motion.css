@@ -9,46 +9,26 @@
  --spring:linear(0,.009,.035 2.1%,.141 4.4%,.723 12.9%,.938 16.7%,1.017 19.9%,1.067,1.099 24.3%,1.108 26%,1.104,1.088 30.6%,1.019 39.7%,.995 45.5%,.987 50.6%,.991 59.3%,1.001 74.7%,1);
 }
 
+.app-brand h1:focus{outline:none}
+
 @media (prefers-reduced-motion:no-preference){
 
-/* Full-page snapshots are desktop-only; touch WebViews animate live content below. */
-@media (min-width:851px) and (hover:hover) and (pointer:fine){
-/* ---------- Page transition: list -> replay (and back) ---------- */
-@view-transition{navigation:auto}
-::view-transition{background:#0c1118}
-.app-brand{view-transition-name:rv-brand}
+/* No automatic document snapshots: the router owns same-document transitions. */
+html.rv-navigation-transition,html.rv-layout-transition{view-transition-name:none}
+::view-transition{background:transparent;pointer-events:none}
 ::view-transition-group(*){animation-duration:.32s;animation-timing-function:var(--ease)}
-::view-transition-old(root){animation:.25s var(--ease) both rv-fade-out}
-::view-transition-new(root){animation:.25s var(--ease) both rv-fade-in}
-@keyframes rv-fade-in{from{opacity:0}}
-/* The tapped log name travels to the replay title; keep its text crisp while it moves. */
-::view-transition-old(rv-route),::view-transition-new(rv-route){height:100%;object-fit:none;object-position:left center}
-@keyframes rv-fade-out{to{opacity:0}}
-
-/* Replay layout and tab changes morph the panels to their new place (same-document transitions). */
-.replay-page #route{view-transition-name:rv-route}
-html.rv-layout-transition .camera-panel{view-transition-name:rv-camera}
-html.rv-layout-transition .road-panel{view-transition-name:rv-data}
-/* In-page transitions (list, layout, tabs) keep the page itself still; the page fade above is for navigation only. */
-html.rv-layout-transition::view-transition-old(root){display:none}
-html.rv-layout-transition::view-transition-new(root){animation:none;mix-blend-mode:normal}
-html.rv-layout-transition .playback{view-transition-name:rv-controls}
+::view-transition-old(root),::view-transition-new(root){display:none}
+html.rv-navigation-transition .camera-panel,html.rv-layout-transition .camera-panel{view-transition-name:rv-camera}
+html.rv-navigation-transition .road-panel,html.rv-layout-transition .road-panel{view-transition-name:rv-data}
+html.rv-navigation-transition .playback,html.rv-layout-transition .playback{view-transition-name:rv-controls}
 html.rv-layout-transition .replay-heading{view-transition-name:rv-heading}
-html.rv-layout-transition #route{view-transition-name:none}
+::view-transition-old(rv-route),::view-transition-new(rv-route){height:100%;object-fit:contain;object-position:left center}
 ::view-transition-group(rv-heading){z-index:2}
-::view-transition-group(rv-controls){z-index:3}
+::view-transition-group(rv-route){z-index:3}
+::view-transition-group(rv-controls){z-index:4}
 ::view-transition-old(rv-controls){display:none}
 ::view-transition-new(rv-controls){animation:none}
-
-}
-
-/* Same-document navigation animates live content on every screen size, without snapshots.
-   Never transform a page ancestor or fixed/sticky controls: their viewport geometry must stay intact. */
-.page-enter main>:not(header):not(dialog){animation:rv-page-fade .24s var(--ease) backwards}
-.page-enter main>:is(.views,.view-toolbar,.upload,.conversion-info,.library,footer){animation-name:rv-page-enter}
-@keyframes rv-page-fade{from{opacity:.35}to{opacity:1}}
-@keyframes rv-page-enter{from{opacity:.35;transform:translateY(10px)}to{opacity:1;transform:none}}
-
+/* Programmatic route focus announces the new page without outlining the static brand. */
 /* ---------- Dialogs and sheets ---------- */
 .camera-info-dialog,.bulk-dialog,.pair-dialog,.rv-choice-dialog{
  transition:opacity .2s var(--ease),transform var(--motion) var(--ease),overlay var(--motion) allow-discrete,display var(--motion) allow-discrete;
@@ -88,7 +68,7 @@ dialog:not([open])::backdrop{opacity:0}
 html.rv-layout-transition .library-page main>footer{view-transition-name:rv-footer}
 ::view-transition-group(*.log-row){animation-duration:.3s}
 /* Processing: a light sweep through the badge, and the measured progress as a thin bar. */
-.state-processing{position:relative;overflow:hidden;background-image:linear-gradient(100deg,transparent 30%,#ffd28a26 50%,transparent 70%);background-size:220% 100%;animation:rv-sweep 1.8s linear infinite}
+.state-processing{position:relative;overflow:hidden;background-image:linear-gradient(100deg,transparent 30%,#ffd28a26 50%,transparent 70%);background-size:220% 100%;background-repeat:no-repeat;animation:rv-sweep 1.8s linear infinite}
 @keyframes rv-sweep{from{background-position:120% 0}to{background-position:-100% 0}}
 .state-progress{display:block;position:absolute;bottom:0;left:0;right:0;height:2px;border-radius:2px;background:#d5a14b33;overflow:hidden}
 .state-progress>span{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(var(--progress,0));background:#ffd28a;transition:transform .6s var(--ease)}
@@ -123,5 +103,5 @@ progress::-webkit-progress-value{transition:width .4s var(--ease)}
 #wheelCritical[visibility=visible]{animation:rv-alert .8s var(--ease) infinite alternate;transform-box:fill-box;transform-origin:center}
 @keyframes rv-alert{to{opacity:.45;transform:scale(.9)}}
 .replay-loading .road-panel canvas,.replay-loading .video-wrap,.replay-loading .telemetry-summary{
- background:linear-gradient(100deg,#ffffff00 30%,#ffffff0d 50%,#ffffff00 70%) var(--panel);background-size:220% 100%;animation:rv-sweep 1.4s linear infinite}
+ background:linear-gradient(100deg,#ffffff00 30%,#ffffff0d 50%,#ffffff00 70%) var(--panel);background-size:220% 100%;background-repeat:no-repeat;animation:rv-sweep 1.4s linear infinite}
 }

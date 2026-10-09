@@ -289,7 +289,7 @@ $('upload').onclick=async()=>{
   uploadController=null;busy=false;document.body.classList.remove('uploading');void refresh();pickerIds.forEach(id=>$(id).disabled=false);selectionChanged();$('progress').hidden=true;
  }
 };
-refresh();setInterval(refresh,3000);setInterval(refreshProgress,1000);
+const pageReady=refresh();setInterval(refresh,3000);setInterval(refreshProgress,1000);
 // A hidden tab stops polling (each list request scans storage); catch up as soon as it is shown again.
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
 
