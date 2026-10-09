@@ -11,7 +11,7 @@
 
 @media (prefers-reduced-motion:no-preference){
 
-/* Full-page snapshots are desktop-only; touch WebViews use ordinary navigation. */
+/* Full-page snapshots are desktop-only; touch WebViews animate live content below. */
 @media (min-width:851px) and (hover:hover) and (pointer:fine){
 /* ---------- Page transition: list -> replay (and back) ---------- */
 @view-transition{navigation:auto}
@@ -41,6 +41,13 @@ html.rv-layout-transition #route{view-transition-name:none}
 ::view-transition-new(rv-controls){animation:none}
 
 }
+
+/* Same-document navigation animates live content on every screen size, without snapshots.
+   Never transform a page ancestor or fixed/sticky controls: their viewport geometry must stay intact. */
+.page-enter main>:not(header):not(dialog){animation:rv-page-fade .24s var(--ease) backwards}
+.page-enter main>:is(.views,.view-toolbar,.upload,.conversion-info,.library,footer){animation-name:rv-page-enter}
+@keyframes rv-page-fade{from{opacity:.35}to{opacity:1}}
+@keyframes rv-page-enter{from{opacity:.35;transform:translateY(10px)}to{opacity:1;transform:none}}
 
 /* ---------- Dialogs and sheets ---------- */
 .camera-info-dialog,.bulk-dialog,.pair-dialog,.rv-choice-dialog{

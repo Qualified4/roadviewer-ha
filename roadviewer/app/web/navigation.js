@@ -17,7 +17,7 @@ async function navigate(to,{replace=false,pop=false}={}){
   if(!response.ok)throw Error('화면을 불러오지 못했습니다. 다시 시도해 주세요.');
   const html=new DOMParser().parseFromString(await response.text(),'text/html');if(ticket!==revision)return;
   if(!html.querySelector('main')||!html.body.classList.contains(kind==='library'?'library-page':'replay-page'))throw Error('예상하지 못한 응답입니다. 연결 상태를 확인해 주세요.');
-  const root=document.createElement('div');root.className=html.body.className;
+  const root=document.createElement('div');root.className=html.body.className;if(current)root.classList.add('page-enter');
   html.querySelectorAll('script').forEach(s=>s.remove());root.append(...html.body.childNodes);
   for(const element of root.querySelectorAll('[href],[src]'))for(const attr of ['href','src'])if(element.hasAttribute(attr))element.setAttribute(attr,new URL(element.getAttribute(attr),url).href);
   if(!pop){saveScroll();history[replace?'replaceState':'pushState']({},'',url)}
