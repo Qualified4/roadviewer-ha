@@ -1,4 +1,6 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+// Dialog, sheet and view transitions animate; measure geometry once they have settled.
+const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition')&&document.getAnimations().every(a=>a.playState!=='running'||a.effect.getTiming().iterations===Infinity));
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
@@ -157,7 +159,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.setViewportSize({width:390,height:1000});
   await page.waitForFunction(()=>document.getElementById('layoutWidth').value==='100');
   for(const width of [390,1024,2200]){
-   await page.setViewportSize({width,height:1000});await page.locator('#layoutWidthButton').click();
+   await page.setViewportSize({width,height:1000});await page.locator('#layoutWidthButton').click();await settle(page);
    const slider=page.locator('#layoutWidth'),box=await slider.boundingBox();
    const rect=await page.locator('#layoutWidthDialog').boundingBox();assert(rect.x>=0&&rect.x+rect.width<=width);
    await page.mouse.move(box.x+10,box.y+box.height/2);await page.mouse.down();
@@ -168,7 +170,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.mouse.up();assert(Number(await slider.inputValue())>(width<=600?90:width<=1280?1150:1700));
    assert.equal(await page.evaluate(()=>localStorage.getItem(widthProfile().key)),await slider.inputValue());
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.getElementById('layoutWidthDialog').open&&document.body.style.overflow==='');
-   assert(await page.locator('#layoutWidthDialog').isHidden());
+   await page.locator('#layoutWidthDialog').waitFor({state:'hidden'});
    assert(await page.locator('#layoutWidthButton').evaluate(e=>e===document.activeElement));
    assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
   }

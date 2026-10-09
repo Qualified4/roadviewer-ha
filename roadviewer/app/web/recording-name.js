@@ -1,4 +1,7 @@
 'use strict';
+const motionAllowed=()=>!matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Small spring confirmation for icon swaps (copy done, copy failed).
+function popIcon(icon){if(motionAllowed())icon.animate?.([{transform:'scale(.5)',opacity:.3},{transform:'none',opacity:1}],{duration:380,easing:'cubic-bezier(.34,1.56,.64,1)'})}
 const COPY_ICON='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M15 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/></svg>';
 async function copyTextToClipboard(value,button){
  try{if(!navigator.clipboard?.writeText)throw Error('Clipboard unavailable');await navigator.clipboard.writeText(value)}
@@ -30,8 +33,8 @@ function renderRecordingName(container,name,files={}){
   e.stopPropagation();clearTimeout(timer);
   try{
    await copyTextToClipboard(info.original,button);
-   icon.textContent='✓';status.textContent='복사했습니다.';button.title='복사했습니다.';
-  }catch{icon.textContent='!';status.textContent='복사하지 못했습니다.';button.title='복사하지 못했습니다. 다시 시도해 주세요.'}
+   icon.textContent='✓';popIcon(icon);status.textContent='복사했습니다.';button.title='복사했습니다.';
+  }catch{icon.textContent='!';popIcon(icon);status.textContent='복사하지 못했습니다.';button.title='복사하지 못했습니다. 다시 시도해 주세요.'}
   timer=setTimeout(()=>{icon.innerHTML=COPY_ICON;status.textContent='';button.title=info.original+' 복사'},1800);
  };
  return text;

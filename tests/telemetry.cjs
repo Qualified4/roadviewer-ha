@@ -1,4 +1,6 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+// Dialog, sheet and view transitions animate; measure geometry once they have settled.
+const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition')&&document.getAnimations().every(a=>a.playState!=='running'||a.effect.getTiming().iterations===Infinity));
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
@@ -21,7 +23,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.html')?'text/html':name.endsWith('.png')?'image/png':'image/svg+xml'});
   });
   await page.goto('https://rv.test/view/one/');await page.waitForFunction(()=>!document.getElementById('play').disabled);assert.equal(reads,0,'road tab should not load telemetry');
-  await page.locator('#telemetryTab').click();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(reads,1);assert(await page.locator('#roadView').isHidden());assert(await page.locator('#video').isVisible());
+  await page.locator('#telemetryTab').click();await settle(page);await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(reads,1);assert(await page.locator('#roadView').isHidden());assert(await page.locator('#video').isVisible());
   assert.equal(await page.locator('.telemetry-chart').count(),6);
   await page.evaluate(()=>setTime(.11));assert((await page.locator('#telemetrySummary strong').last().textContent()).includes('개입'),'10ms intervention must be visible between model frames');
   await page.evaluate(()=>setTime(.45));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—');
@@ -67,11 +69,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal((await graphOrder())[0],'acceleration');
   const cancelGrab=await page.locator('[data-graph="acceleration"] .graph-handle').boundingBox();
   await page.mouse.move(cancelGrab.x+12,cancelGrab.y+20);await page.mouse.down();await page.mouse.move(cancelGrab.x+12,cancelGrab.y+80);
-  await page.keyboard.press('Escape');await page.mouse.up();assert(await page.locator('#graphDialog').isHidden());assert.equal(await page.locator('.graph-placeholder').count(),0);assert.equal(await page.locator('.graph-dragging').count(),0);
+  await page.keyboard.press('Escape');await page.mouse.up();await page.locator('#graphDialog').waitFor({state:'hidden'});assert.equal(await page.locator('.graph-placeholder').count(),0);assert.equal(await page.locator('.graph-dragging').count(),0);
   await page.locator('#chooseGraphs').click();assert.equal((await graphOrder())[0],'acceleration');
   await page.locator('#graphOptions input[value="acceleration"]').uncheck();await page.locator('#graphOptions input[value="acceleration"]').check();
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
-  await page.keyboard.press('Escape');assert(await page.locator('#graphDialog').isHidden());assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),20);
+  await page.keyboard.press('Escape');await page.locator('#graphDialog').waitFor({state:'hidden'});assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),20);
   await page.evaluate(()=>setTime(.1));
   for(const [id,value] of [['angle','목표: 3.00'],['autoPedals','가스 출력: 25.00'],['accelPlan','제어 목표: 0.30'],['jerk','요청: 0.40'],['accelRequest','감속 요청: 켜짐'],['longState','속도 제어: 해당'],['longState','비활성: 아님'],['curvature','요청: 0.00123'],['lateralAccel','목표: 1.20'],['rpm','기록값: 1500.00']])assert((await page.locator(`[data-graph="${id}"] .telemetry-legend`).textContent()).includes(value),id+' should show logged data');
   assert((await page.locator('[data-graph="pedals"] .telemetry-source-note').textContent()).includes('기록값이 모두 0'));
@@ -82,11 +84,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('#video').evaluate(e=>e.getBoundingClientRect().top),videoTop,'graph scroll must not move the video');
   await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=0);
   if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-desktop.png'});
-  await page.locator('#roadTab').click();assert(await page.locator('#roadView').isVisible());await page.locator('#telemetryTab').click();assert.equal(reads,1,'switching tabs reuses data');
+  await page.locator('#roadTab').click();await settle(page);assert(await page.locator('#roadView').isVisible());await page.locator('#telemetryTab').click();await settle(page);assert.equal(reads,1,'switching tabs reuses data');
   await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.locator('#telemetryTab').getAttribute('aria-selected'),'true');assert.equal(await page.locator('.telemetry-chart').count(),20);
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
   await page.setViewportSize({width:390,height:844});
-  await page.locator('#chooseGraphs').click();const dialog=await page.locator('#graphDialog').boundingBox();assert(dialog.x>=0&&dialog.x+dialog.width<=390&&dialog.y>=0&&dialog.y+dialog.height<=844);
+  await page.locator('#chooseGraphs').click();await settle(page);const dialog=await page.locator('#graphDialog').boundingBox();assert(dialog.x>=0&&dialog.x+dialog.width<=390&&dialog.y>=0&&dialog.y+dialog.height<=844);
   await page.locator('#graphDialog').evaluate(e=>e.scrollTop=0);
   assert(await page.locator('.graph-option').first().evaluate(row=>row.querySelector('.graph-handle').getBoundingClientRect().left>=row.querySelector('label').getBoundingClientRect().right));
   const touchGrab=await page.locator('[data-graph="acceleration"] .graph-handle').boundingBox(),touchDrop=await page.locator('[data-graph="speed"].graph-option').boundingBox();

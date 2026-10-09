@@ -1,0 +1,105 @@
+/* Motion for the whole app: one rhythm (the Magazine Home dashboard timing) and a spring for small
+   confirmations. Every effect is progressive: browsers without a feature switch instantly, and
+   reduced motion turns everything off. Only transform and opacity move. */
+:root{
+ --ease:cubic-bezier(.4,0,.2,1);
+ --ease-out:cubic-bezier(.2,0,0,1);
+ --motion:.25s;
+ /* Damped spring (one small overshoot), sampled for CSS linear(). */
+ --spring:linear(0,.009,.035 2.1%,.141 4.4%,.723 12.9%,.938 16.7%,1.017 19.9%,1.067,1.099 24.3%,1.108 26%,1.104,1.088 30.6%,1.019 39.7%,.995 45.5%,.987 50.6%,.991 59.3%,1.001 74.7%,1);
+}
+
+@media (prefers-reduced-motion:no-preference){
+
+/* ---------- Page transition: list -> replay (and back) ---------- */
+@view-transition{navigation:auto}
+.app-brand{view-transition-name:rv-brand}
+::view-transition-group(*){animation-duration:.32s;animation-timing-function:var(--ease)}
+::view-transition-old(root){animation:.16s var(--ease) both rv-fade-out}
+::view-transition-new(root){animation:.32s var(--ease-out) .04s both rv-rise-in}
+/* The tapped log name travels to the replay title; keep its text crisp while it moves. */
+::view-transition-old(rv-route),::view-transition-new(rv-route){height:100%;object-fit:none;object-position:left center}
+@keyframes rv-fade-out{to{opacity:0}}
+@keyframes rv-rise-in{from{opacity:0;transform:translateY(10px)}}
+
+/* Replay layout and tab changes morph the panels to their new place (same-document transitions). */
+.replay-page #route{view-transition-name:rv-route}
+.replay-page .camera-panel{view-transition-name:rv-camera}
+.replay-page .road-panel{view-transition-name:rv-data}
+/* In-page transitions (list, layout, tabs) keep the page itself still; the page fade above is for navigation only. */
+html.rv-layout-transition::view-transition-old(root),html.rv-layout-transition::view-transition-new(root){animation:none}
+
+/* ---------- Dialogs and sheets ---------- */
+.camera-info-dialog,.bulk-dialog,.pair-dialog,.rv-choice-dialog{
+ transition:opacity .2s var(--ease),transform var(--motion) var(--ease),overlay var(--motion) allow-discrete,display var(--motion) allow-discrete;
+}
+.camera-info-dialog:not([open]),.bulk-dialog:not([open]),.pair-dialog:not([open]){opacity:0;transform:translateY(10px) scale(.97)}
+@starting-style{.camera-info-dialog[open],.bulk-dialog[open],.pair-dialog[open]{opacity:0;transform:translateY(10px) scale(.97)}}
+/* Anchored choices drop from their button; translate only, so measuring the height stays exact. */
+.rv-choice-dialog:not([open]){opacity:0;transform:translateY(-6px)}
+@starting-style{.rv-choice-dialog[open]{opacity:0;transform:translateY(-6px)}}
+.camera-info-dialog::backdrop,.bulk-dialog::backdrop,.pair-dialog::backdrop,.rv-choice-dialog::backdrop{
+ transition:opacity var(--motion) var(--ease),overlay var(--motion) allow-discrete,display var(--motion) allow-discrete;
+}
+dialog:not([open])::backdrop{opacity:0}
+@starting-style{dialog[open]::backdrop{opacity:0}}
+@media(max-width:600px){
+ /* Phones: the same dialogs are bottom sheets, so they slide up from the edge. */
+ .camera-info-dialog,.rv-choice-dialog{transition-duration:.2s,.32s,.32s,.32s;transition-timing-function:var(--ease),var(--ease-out)}
+ .camera-info-dialog:not([open]),.rv-choice-dialog:not([open]){opacity:1;transform:translateY(calc(100% + 16px))}
+ @starting-style{.camera-info-dialog[open],.rv-choice-dialog[open]{opacity:1;transform:translateY(calc(100% + 16px))}}
+}
+
+/* ---------- Tabs ---------- */
+.vehicle-tabs{position:relative;isolation:isolate}
+.vehicle-tabs .tab-indicator{position:absolute;left:0;top:0;height:100%;width:var(--tab-width,0);transform:translateX(var(--tab-x,0));
+ border-radius:6px;background:#17362f;box-shadow:inset 0 -2px var(--lane);z-index:-1;transition:transform .3s var(--spring),width .3s var(--spring)}
+.vehicle-tabs.has-indicator button[aria-selected=true]{background:transparent;box-shadow:none}
+.vehicle-tabs button{transition:color .2s var(--ease)}
+
+/* ---------- Log list ---------- */
+.log-row{transition:opacity .3s var(--ease),transform .3s var(--ease-out)}
+/* New logs slide in; a row rebuilt for a status change stays put. */
+@starting-style{.log-row:not(.is-update){opacity:0;transform:translateY(-8px)}}
+.log-row{view-transition-class:log-row}
+/* The footer follows the list while rows reflow, instead of jumping over them. */
+html.rv-layout-transition .library-page main>footer{view-transition-name:rv-footer}
+::view-transition-group(*.log-row){animation-duration:.3s}
+/* Processing: a light sweep through the badge, and the measured progress as a thin bar. */
+.state-processing{position:relative;overflow:hidden;background-image:linear-gradient(100deg,transparent 30%,#ffd28a26 50%,transparent 70%);background-size:220% 100%;animation:rv-sweep 1.8s linear infinite}
+@keyframes rv-sweep{from{background-position:120% 0}to{background-position:-100% 0}}
+.state-progress{display:block;height:2px;margin-top:5px;border-radius:2px;background:#d5a14b33;overflow:hidden}
+.state-progress>span{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(var(--progress,0));background:#ffd28a;transition:transform .6s var(--ease)}
+.state.is-update:not(.state-processing){animation:rv-settle .45s var(--ease)}
+@keyframes rv-settle{from{opacity:.2}}
+
+/* ---------- Upload area ---------- */
+@property --rv-angle{syntax:'<angle>';inherits:false;initial-value:0deg}
+.picker-surface{transition:border-color .2s var(--ease),background-color .2s var(--ease),transform .25s var(--spring)}
+.picker-surface.is-dragover{transform:scale(1.01);border-color:transparent;
+ background:linear-gradient(#142f2b,#142f2b) padding-box,conic-gradient(from var(--rv-angle),#57d9b0,#81b5ff,#57d9b022,#57d9b0) border-box;
+ animation:rv-orbit 2.4s linear infinite}
+@keyframes rv-orbit{to{--rv-angle:360deg}}
+.picker-surface.is-dragover .picker-icon{animation:rv-bob 1s var(--ease) infinite alternate}
+@keyframes rv-bob{to{transform:translateY(-4px)}}
+progress::-webkit-progress-value{transition:width .4s var(--ease)}
+
+/* ---------- Small confirmations ---------- */
+@keyframes rv-pop{from{transform:scale(.6);opacity:.3}}
+.pin-recording[aria-pressed=true] svg,#pinLog[aria-pressed=true] svg{animation:rv-pin .45s var(--spring)}
+@keyframes rv-pin{0%{transform:translateY(-5px) rotate(-12deg)}100%{transform:none}}
+/* Pairing: the code appears digit by digit; success draws the check. */
+.pair-code>span{display:inline-block;animation:rv-digit .4s var(--ease-out) backwards;animation-delay:calc(var(--i) * 45ms)}
+@keyframes rv-digit{from{opacity:0;transform:translateY(8px)}}
+.pair-dialog[data-state=paired] .pair-done-mark{stroke-dasharray:30;animation:rv-draw .45s var(--ease) .05s backwards}
+.pair-dialog[data-state=paired] .pair-emblem{animation:rv-pop .45s var(--spring)}
+@keyframes rv-draw{from{stroke-dashoffset:30}}
+
+/* ---------- Replay: wheel, loading ---------- */
+/* Model frames arrive at 20 Hz; a short glide between them makes the wheel turn like a wheel. */
+#wheelRotate{transition:transform 60ms linear}
+#wheelCritical[visibility=visible]{animation:rv-alert .8s var(--ease) infinite alternate;transform-box:fill-box;transform-origin:center}
+@keyframes rv-alert{to{opacity:.45;transform:scale(.9)}}
+.replay-loading .road-panel canvas,.replay-loading .video-wrap,.replay-loading .telemetry-summary{
+ background:linear-gradient(100deg,#ffffff00 30%,#ffffff0d 50%,#ffffff00 70%) var(--panel);background-size:220% 100%;animation:rv-sweep 1.4s linear infinite}
+}

@@ -67,7 +67,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.setViewportSize({width,height:844});const box=await page.locator('#bulkDialog').boundingBox();
    assert(box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=844);
   }
-  await page.keyboard.press('Escape');assert(await page.locator('#bulkDialog').isHidden());
+  await page.keyboard.press('Escape');await page.locator('#bulkDialog').waitFor({state:'hidden'});
   await page.waitForFunction(()=>document.body.style.overflow==='');
   assert(await page.locator('#bulkOpen').evaluate(e=>e===document.activeElement));
   logs=[{id:'pinned',name:'고정 로그',pinned:true,status:'unconverted',bytes:10,prepared_bytes:20},{id:'free',name:'일반 로그',status:'ready',bytes:10,prepared_bytes:20},{id:'late',name:'나중 고정',status:'ready',bytes:10,prepared_bytes:20}];

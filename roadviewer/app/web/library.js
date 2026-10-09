@@ -2,6 +2,17 @@
 let uploadController=null,networkRestarting=false;
 let concurrencySaving=false,concurrencyRevision=0,savedConcurrency=1,savedAutoConvert=true,savedKeepOriginalVideo=true;
 const names={unconverted:'미변환',queued:'대기 중',processing:'처리 중',ready:'재생 가능',error:'변환 실패'};
+// Approximate overall conversion progress from the reported stage, shown as a thin bar under the badge.
+const STAGE_PROGRESS={log_read:[0,.25],log_analysis:[.25,.55],video_read:[.55,.6],video_convert:[.6,.8],video_verify:[.8,.95],saving:[.95,1]};
+function showState(state,m){
+ const text=processingText(m);let bar=state.querySelector('.state-progress');
+ if(m.status!=='processing'){state.textContent=text;return}
+ // Reuse the bar so it glides from the previous value instead of restarting at zero.
+ if(!bar){bar=document.createElement('span');bar.className='state-progress';bar.setAttribute('aria-hidden','true');bar.append(document.createElement('span'));state.replaceChildren(document.createTextNode(text),bar)}
+ else state.firstChild.nodeValue=text;
+ const p=m.progress||{},[from,to]=STAGE_PROGRESS[p.stage]||[0,0],part=Number.isFinite(p.percent)?Math.max(0,Math.min(100,p.percent))/100:0;
+ bar.firstChild.style.setProperty('--progress',String(from+(to-from)*part));
+}
 function processingText(m){
  if(m.status!=='processing')return m.status==='unconverted'&&m.auto_excluded?'미변환 · 수동 변환 필요':names[m.status];
  const p=m.progress||{},frames=Number.isFinite(p.frames)?Math.max(0,Math.floor(p.frames)).toLocaleString():'0';
@@ -124,7 +135,23 @@ function recordingActions(m){
 document.addEventListener('click',e=>document.querySelectorAll('.recording-more[open]').forEach(more=>{if(!more.contains(e.target))more.open=false}));
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.recording-more[open]').forEach(more=>{more.open=false;more.querySelector('summary').focus()})});
 
-async function refresh(){if(refreshing||busy||networkRestarting||document.hidden)return;refreshing=true;listRevision++;const settingsRevision=concurrencyRevision;try{const r=await fetch('api/logs',{cache:'no-store'});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=[1,2,3,4].includes(data.concurrency)?data.concurrency:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'));savedAutoConvert=data.auto_convert!==false;savedKeepOriginalVideo=data.keep_original_video!==false;syncAutoConvert()}$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id);if(cached?.signature===signature){cached.state.textContent=processingText(m);return cached.row;}const row=document.createElement('div');row.className='log-row';const info=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div'),state=document.createElement('span');title.className='log-name';const name=document.createElement('span');renderRecordingName(name,m.name,m.files);title.append(name);if(m.pinned){const badge=document.createElement('span');badge.className='pin-badge';badge.textContent='고정';badge.title='이 구간을 자동 삭제에서 보호합니다.';title.append(badge)}state.className=m.status==='processing'?'state state-processing':'state';state.textContent=processingText(m);title.append(state);meta.className='log-meta';meta.textContent=`${new Date(m.uploaded*1000).toLocaleString()} · 보관 파일 ${storageSize(m.bytes)} · 변환 ${storageSize(m.prepared_bytes)} · ${m.video?'영상 있음':'영상 없음'}${m.duration!=null?' · '+m.duration.toFixed(1)+'초':''}`;info.append(title,meta);if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}const actions=recordingActions(m);row.append(info,actions);logRows.set(m.id,{signature,row,state,status:m.status});return row});const list=$('list');rows.forEach((row,i)=>{if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});while(list.children.length>rows.length)list.lastElementChild.remove();const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){error(e.message)}finally{refreshing=false}}
+// Page transition: the tapped log name travels to the replay title (motion.css, app.js).
+document.addEventListener('click',e=>{
+ const link=e.target.closest?.('a.replay'),name=link?.closest('.log-row')?.querySelector('.recording-name-text');if(!name)return;
+ name.style.viewTransitionName='rv-route';
+ try{sessionStorage.setItem('rv-route',JSON.stringify({id:link.getAttribute('href').split('/').filter(Boolean).at(-1),text:name.textContent}))}catch{}
+});
+window.addEventListener('pageshow',()=>document.querySelectorAll('.recording-name-text').forEach(name=>name.style.viewTransitionName=''));
+async function refresh(){if(refreshing||busy||networkRestarting||document.hidden)return;refreshing=true;listRevision++;const settingsRevision=concurrencyRevision;try{const r=await fetch('api/logs',{cache:'no-store'});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=[1,2,3,4].includes(data.concurrency)?data.concurrency:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'));savedAutoConvert=data.auto_convert!==false;savedKeepOriginalVideo=data.keep_original_video!==false;syncAutoConvert()}$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id);if(cached?.signature===signature){showState(cached.state,m);return cached.row;}const row=document.createElement('div');row.className=cached?'log-row is-update':'log-row';row.dataset.id=m.id;const info=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div'),state=document.createElement('span');title.className='log-name';const name=document.createElement('span');renderRecordingName(name,m.name,m.files);title.append(name);if(m.pinned){const badge=document.createElement('span');badge.className='pin-badge';badge.textContent='고정';badge.title='이 구간을 자동 삭제에서 보호합니다.';title.append(badge)}state.className=(m.status==='processing'?'state state-processing':'state')+(cached?' is-update':'');showState(state,m);title.append(state);meta.className='log-meta';meta.textContent=`${new Date(m.uploaded*1000).toLocaleString()} · 보관 파일 ${storageSize(m.bytes)} · 변환 ${storageSize(m.prepared_bytes)} · ${m.video?'영상 있음':'영상 없음'}${m.duration!=null?' · '+m.duration.toFixed(1)+'초':''}`;info.append(title,meta);if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}const actions=recordingActions(m);row.append(info,actions);logRows.set(m.id,{signature,row,state,status:m.status});return row});const list=$('list'),apply=()=>{rows.forEach((row,i)=>{if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});while(list.children.length>rows.length)list.lastElementChild.remove()};
+ // Removed logs: the remaining rows glide into place instead of jumping (same-document view transition).
+ const present=new Set(data.logs.map(m=>m.id)),leaving=[...list.children].filter(row=>!present.has(row.dataset.id));
+ if(leaving.length&&document.startViewTransition&&motionAllowed()&&!document.hidden){
+  const named=[...list.children];named.forEach((row,i)=>row.style.viewTransitionName='log-row-'+i);
+  rows.forEach((row,i)=>{if(!row.style.viewTransitionName)row.style.viewTransitionName='log-new-'+i});
+  // rv-layout-transition keeps the rest of the page live; only the rows move (motion.css).
+  document.documentElement.classList.add('rv-layout-transition');
+  document.startViewTransition(apply).finished.finally(()=>{[...named,...rows].forEach(row=>row.style.viewTransitionName='');document.documentElement.classList.remove('rv-layout-transition')});
+ }else apply();const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){error(e.message)}finally{refreshing=false}}
 async function refreshProgress(){
  if(document.hidden||busy||networkRestarting||progressRefreshing||refreshing||![...logRows.values()].some(row=>row.status==='processing'||row.status==='queued'))return;
  progressRefreshing=true;const revision=listRevision;
@@ -136,7 +163,7 @@ async function refreshProgress(){
   if(refreshing||revision!==listRevision)return;
   for(const [id,progress] of Object.entries(data.progress||{})){
    const cached=logRows.get(id);
-   if(cached?.status==='processing')cached.state.textContent=processingText({status:'processing',progress});
+   if(cached?.status==='processing')showState(cached.state,{status:'processing',progress});
   }
  }catch{}finally{progressRefreshing=false}
 }

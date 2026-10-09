@@ -1,4 +1,6 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+// Dialog, sheet and view transitions animate; measure geometry once they have settled.
+const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition')&&document.getAnimations().every(a=>a.playState!=='running'||a.effect.getTiming().iterations===Infinity));
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
@@ -19,12 +21,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const dialog=page.locator('.rv-choice-dialog');
    assert(await dialog.isVisible());
    assert.equal(await page.getByRole('option',{selected:true}).textContent(),'1×✓');
-   const box=await dialog.boundingBox();assert(box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=844);
+   await settle(page);const box=await dialog.boundingBox();assert(box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=844);
    if(width===390)assert(Math.abs(box.y+box.height-836)<2);
    await page.getByRole('option',{name:'4×',exact:true}).click();
    assert.equal(await page.locator('#speed').inputValue(),'4');
    assert.equal(await page.locator('#speedChoice').textContent(),'4×');
-   assert(!(await dialog.isVisible()));
+   await dialog.waitFor({state:'hidden'});
    await page.locator('#rangeChoice').click();
    await page.keyboard.press('End');await page.keyboard.press('Enter');
    assert.equal(await page.locator('#range').inputValue(),'80');

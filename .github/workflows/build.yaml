@@ -69,6 +69,7 @@ jobs:
       - run: node tests/replay_layout.cjs
       - run: node tests/disclosure_animation.cjs
       - run: node tests/replay_gzip.cjs
+      - run: node tests/motion.cjs
       - run: node tests/upload_timeout.cjs
       - run: node tests/upload_stall.cjs
       - run: node tests/upload_mobile.cjs
