@@ -34,6 +34,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await page.locator('#playbackControls').isHidden(),'real playback failure replaces controls with an explanation');
   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
   await page.evaluate(()=>{setTime(0);toggle()});await page.waitForFunction(()=>v.currentTime>.1);await page.evaluate(()=>pause());
+  await page.evaluate(()=>{playbackError('테스트 재생 오류');v.dispatchEvent(new Event('canplay'))});
+  assert(await page.locator('#playbackControls').isHidden(),'late canplay must not clear a playback failure');
   assert.deepEqual(errors,[]);console.log('PASS: pending play cancellation at end/pause/resume, late resolution, real failures and subsequent playback');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

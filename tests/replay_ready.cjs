@@ -53,6 +53,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   ready=true;
   await page.waitForFunction(()=>document.getElementById('playbackMessage').textContent.includes('영상을 불러오는 중'));
   assert(await page.locator('#playbackControls').isHidden());
+  await page.locator('#video').evaluate(v=>v.dispatchEvent(new Event('loadedmetadata')));
+  assert(await page.locator('#playbackControls').isHidden(),'metadata alone does not make video playable');
   releaseVideo();
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert(await page.locator('#playbackControls').isVisible());assert(await page.locator('#playbackMessage').isHidden());
