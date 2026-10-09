@@ -117,7 +117,7 @@ details[open]:not(.is-closing)>.section-summary .section-disclosure::after, .man
 #cleanupStatus { grid-column: 1/-1; }
 #uploadStatus { color: var(--lane); font-size: 13px; margin: 12px 0 0; }
 #uploadStatus:empty, #cleanupStatus:empty, #storageStatus:empty { display: none; }
-body.uploading { overscroll-behavior-y: contain; }
+body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contain; }
 
 /* Explain the conversion before asking the user to configure it. */
 .conversion-overview { margin-top: 24px; padding: 20px; border-left: 2px solid #81b5ff70; border-radius: 0 10px 10px 0; background: #81b5ff06; }

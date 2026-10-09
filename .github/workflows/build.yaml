@@ -51,6 +51,11 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - run: ffmpeg -f lavfi -i color=c=black:s=160x90:r=10 -t 2 -c:v libx264 -pix_fmt yuv420p /tmp/roadviewer-test.mp4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install flask
+      - run: node tests/navigation.cjs
       - run: node tests/replay_ready.cjs
       - run: node tests/replay_coverage.cjs
       - run: node tests/replay_play_request.cjs

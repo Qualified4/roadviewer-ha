@@ -177,17 +177,41 @@ def too_large(e):
 def not_found(e):
  if request.path.startswith('/api/device/'):return jsonify(error='session_not_found' if '/uploads/' in request.path else 'not_found'),404
  return jsonify(error='로그 또는 파일을 찾을 수 없습니다.'),404
-@app.route('/')
-def index():
- response=send_from_directory(BASE/'web','library.html',conditional=False)
+PAGE_SCRIPTS={
+ 'library':['disclosure','recording-name','library','choices','bulk','storage-devices'],
+ 'replay':['recording-name','app','choices','video-overlay','camera-info','telemetry'],
+}
+
+def page_response(kind):
+ if request.args.get('fragment')=='1':
+  response=send_from_directory(BASE/'web','library.html' if kind=='library' else 'index.html',conditional=False)
+ else:
+  template=(BASE/'web'/'library.html').read_text()
+  version=re.search(r'assets/style.css\?v=([^"&]+)',template)[1]
+  prefix='../../' if kind=='replay' else ''
+  html=(BASE/'web'/'shell.html').read_text().replace('__ASSETS__',prefix+'assets/').replace('__VERSION__',version)
+  response=app.make_response(html)
  response.headers['Cache-Control']='no-store'
  return response
+
+@app.route('/')
+def index():return page_response('library')
 @app.route('/view/<id>/')
-def view(id):folder(id);return send_from_directory(BASE/'web','index.html')
+def view(id):folder(id);return page_response('replay')
 @app.route('/assets/<path:name>')
 def assets(name):
+ for kind,scripts in PAGE_SCRIPTS.items():
+  if name=='page-'+kind+'.js':
+   # Native module factory: trusted application sources share one page-local scope.
+   bindings='window,document,location,fetch,setTimeout,clearTimeout,setInterval,clearInterval,requestAnimationFrame,cancelAnimationFrame,ResizeObserver,MutationObserver,XMLHttpRequest,matchMedia'
+   source='export function mount(env) {\nconst {'+bindings+'}=env;\n'+ '\n;\n'.join((BASE/'web'/(script+'.js')).read_text() for script in scripts)
+   source+='\nreturn {canLeave:()=>'+('!busy&&!cleaning&&!networkRestarting' if kind=='library' else 'true')+'};\n}'
+   response=app.make_response(source);response.mimetype='application/javascript'
+   response.headers['Cache-Control']='public, max-age=31536000' if request.args.get('v') else 'no-cache'
+   return response
  # ?v= changes with every release, so versioned URLs never need revalidation.
  return send_from_directory(BASE/'web',name,max_age=31536000 if request.args.get('v') else None)
+
 def storage_used_bytes(root=None):
  total=0
  pending=[root or ROOT]
