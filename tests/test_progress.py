@@ -7,13 +7,14 @@ class ProgressTests(unittest.TestCase):
  def test_throttle_and_stage_transition(self):
   output=io.StringIO();now=[0]
   r=Reporter(output,clock=lambda:now[0])
-  r.update('log_analysis',frames=0)
-  for i in range(1,1000):r.update('log_analysis',frames=i)
-  now[0]=1;r.update('log_analysis',frames=1000)
-  r.update('log_analysis',frames=1001,force=True)
+  r.update('log_analysis',frames=0,total_frames=1001)
+  for i in range(1,1000):r.update('log_analysis',frames=i,total_frames=1001)
+  now[0]=1;r.update('log_analysis',frames=1000,total_frames=1001)
+  r.update('log_analysis',frames=1001,total_frames=1001,force=True)
   r.update('video_convert',percent=0)
   events=[json.loads(line) for line in output.getvalue().splitlines()]
   self.assertEqual([e.get('frames') for e in events],[0,1000,1001,None])
+  self.assertEqual([e.get('total_frames') for e in events],[1001,1001,1001,None])
  def test_broken_display_does_not_break_conversion(self):
   class Broken:
    def write(self,value):raise BrokenPipeError()
