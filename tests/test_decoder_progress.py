@@ -64,6 +64,8 @@ class DecoderProgressTests(unittest.TestCase):
     e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10)*1e9);e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
    stamp=round((pts[0]+10)*1e9)
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('carParams');e.carParams.brand='hyundai';messages.append(e.to_bytes())
+   e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('liveCalibration');e.liveCalibration.calStatus='calibrated';e.liveCalibration.rpyCalib=[0,0,0];e.liveCalibration.wideFromDeviceEuler=[.01,.02,.03];messages.append(e.to_bytes())
+   e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('wideRoadCameraState');e.wideRoadCameraState.sensor='os04c10';messages.append(e.to_bytes())
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True
    e.init('sendcan',1);e.sendcan[0].address=0x162;e.sendcan[0].src=0;e.sendcan[0].dat=((4<<64)|(200<<69)).to_bytes(32,'little');messages.append(e.to_bytes())
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('sendcan',1);e.sendcan[0].address=0x161;e.sendcan[0].src=0;e.sendcan[0].dat=((1<<66)|(150<<69)|(1<<120)).to_bytes(32,'little');messages.append(e.to_bytes())
@@ -79,6 +81,8 @@ class DecoderProgressTests(unittest.TestCase):
    with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src,'Route / segment')
    saved=json.loads(gzip.decompress((dest/'data.json.gz').read_bytes()))
    self.assertFalse((dest/'data.json').exists())
+   self.assertEqual(saved['cameraInfos'][0]['wideSensor'],'os04c10')
+   for value,expected in zip(saved['cameraInfos'][0]['wideRpy'],[.01,.02,.03]):self.assertAlmostEqual(value,expected)
    self.assertEqual(data['counts']['customReservedRawData1'],1);self.assertEqual(data['counts']['unknownEvent'],1)
    self.assertTrue(any('이벤트 1개' in warning for warning in data['warnings']))
    # Camera information is stored once and referenced by index from each frame.
@@ -94,7 +98,7 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertIsNone(saved['frames'][-1]['ccncRoad'])
    self.assertEqual(saved['route'],'Route / segment');self.assertNotIn('path',saved)
    self.assertEqual(json.loads((dest/'summary.json').read_text())['model_frames'],20)
-   self.assertEqual(saved['cameraInfos'][0]['calibrationStatus'],'unknown')
+   self.assertEqual(saved['cameraInfos'][0]['calibrationStatus'],'calibrated')
    self.assertTrue(saved['cameraInfos'][0]['heightDefault'])
    events=[json.loads(line) for line in output.getvalue().splitlines()]
    analysis=[e for e in events if e['stage']=='log_analysis']

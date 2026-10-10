@@ -101,7 +101,19 @@ async function readReplayJson(response){
 }
 // Undo compact.py: shared camera info, values derivable from others, and marker points.
 // Derived geometry is bounded to recent frames (box fade needs short history).
-const overlayGeometryCache=new Map();
+const overlayGeometryCache=new Map(),wideBasisCache=new WeakMap();
+function wideProjectionBasis(info){
+ if(!info||!['calibrated','recalibrating'].includes(info.calibrationStatus)||![info.rpy,info.wideRpy].every(a=>Array.isArray(a)&&a.length===3&&a.every(Number.isFinite)))return null;
+ if(wideBasisCache.has(info))return wideBasisCache.get(info);
+ const sensor=info.wideSensor,device=info.device;
+ const config=['ar0231','ox03c10'].includes(sensor)||(sensor==='unknown'&&['tici','pc'].includes(device))?[1928,1208,567]:sensor==='os04c10'&&['tici','tizi','mici'].includes(device)?[1344,760,425.25]:null;
+ if(!config)return null;
+ const rotation=([r,p,y])=>{const cr=Math.cos(r),sr=Math.sin(r),cp=Math.cos(p),sp=Math.sin(p),cy=Math.cos(y),sy=Math.sin(y);return [[cy*cp,cy*sp*sr-sy*cr,cy*sp*cr+sy*sr],[sy*cp,sy*sp*sr+cy*cr,sy*sp*cr-cy*sr],[-sp,cp*sr,cp*cr]]};
+ // Same order as openpilot: view_from_device * wide_from_device * device_from_calib.
+ const a=rotation(info.wideRpy),b=rotation(info.rpy),r=a.map(row=>[0,1,2].map(j=>row.reduce((sum,v,k)=>sum+v*b[k][j],0))),[w,h,f]=config;
+ const basis=[0,1,2].map(i=>[.5*r[0][i]+f/w*r[1][i],.5*r[0][i]+f/h*r[2][i],r[0][i]]);
+ wideBasisCache.set(info,basis);return basis;
+}
 function buildReplayOverlay(frame,g){
  const project=p=>p&&p.length===3&&p.every(Number.isFinite)?[0,1,2].map(k=>p.reduce((sum,v,i)=>sum+v*g.basis[i][k],0)):null;
  const screen=p=>{const q=project(p);if(!q||q[2]<=.1)return null;const uv=[q[0]/q[2],q[1]/q[2]];return uv.every(v=>Math.abs(v)<10)?uv:null};
@@ -133,14 +145,18 @@ function buildReplayOverlay(frame,g){
   markers.push(marker);
  });
  return {lanes:g.lanes.map(line=>line.map(screen)),edges:g.edges.map(line=>line.map(screen)),path:path.map(([x,y,z])=>screen([x,y,z+height])),
-  laneBands:g.lanes.map((line,i)=>band(line,frame.lp?.[i])),edgeBands:g.edges.map((line,i)=>band(line,edgeConfidence(frame.es?.[i]))),
+  laneBands:g.lanes.map((line,i)=>band(line,Math.min(.75,frame.lp?.[i]))),edgeBands:g.edges.map((line,i)=>band(line,edgeConfidence(frame.es?.[i]))),
   blindspotPaths,pathProjection:path.map(([x,y,z])=>project([x,y,z+height])),pathSides:path.map((p,i)=>project(normal(path,i))),
   targetLine,targetSections,heightDirection:project([0,0,-1]),markers};
 }
 function frameOverlay(frame,source){
  if(!source?.geometry)return source;
- if(overlayGeometryCache.has(frame))return overlayGeometryCache.get(frame);
- const result=buildReplayOverlay(frame,source.geometry);overlayGeometryCache.set(frame,result);
+ const wide=videoSource==='wide',cached=overlayGeometryCache.get(frame);
+ if(cached&&cached.wide===wide)return cached.result;
+ const basis=wide?wideProjectionBasis(frame.cameraInfo):source.geometry.basis;
+ const result=basis?buildReplayOverlay(frame,{...source.geometry,basis}):null;
+ if(result&&wide)result.wide=true;
+ overlayGeometryCache.set(frame,{wide,result});
  if(overlayGeometryCache.size>32)overlayGeometryCache.delete(overlayGeometryCache.keys().next().value);
  return result;
 }
@@ -216,7 +232,7 @@ function renderSteering(f){
  $('wheelLane').setAttribute('visibility',s?.lane&&!s?.critical?'visible':'hidden');
  $('wheelCritical').setAttribute('visibility',s?.critical?'visible':'hidden');
 }
-function laneAppearance(value){const p=Number.isFinite(value)?Math.max(0,Math.min(1,value)):0;return {width:15*p,alpha:.1*p,edge:p}}
+function laneAppearance(value,isLane=true){const p=Number.isFinite(value)?Math.max(0,Math.min(1,value)):0;return {width:15*(isLane?Math.min(.75,p):p),alpha:isLane&&p>.75?.075+(p-.75)*.9:.1*p,edge:p}}
 function ribbonEdges(points,width){
  const left=[],right=[];
  points.forEach((p,i)=>{

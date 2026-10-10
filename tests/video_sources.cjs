@@ -4,7 +4,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  try{
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   const videos={front:{start:0,duration:2,frames:20},qcamera:{start:.1,duration:2,frames:20},wide:{start:.2,duration:2,frames:20}};
-  const data={route:'three cameras',key:'cameras',duration:2.2,warnings:[],video:videos.front,videos,defaultVideo:'front',frames:Array.from({length:45},(_,i)=>({t:i/20,id:i,valid:false,lanes:[],edges:[],lp:[],es:[],leads:[]}))};
+  const data={route:'three cameras',key:'cameras',duration:2.2,warnings:[],video:videos.front,videos,defaultVideo:'front',frames:Array.from({length:45},(_,i)=>({t:i/20,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],cameraInfo:{device:'mici',sensor:'os04c10',wideSensor:'os04c10',calibrationStatus:'calibrated',rpy:[.02,.01,-.03],wideRpy:[.01,-.02,.04]},overlay:{geometry:{basis:[[.5,.5,1],[.85,0,0],[0,1.5,0]],height:1.22,lanes:[],edges:[],position:[[5,0,0],[20,1,0],[50,3,0]]}}}))};
   let failFront=false,legacy=false;const requested=[];
   await page.route('https://rv.test/**',route=>{
    const url=new URL(route.request().url()),p=url.pathname;
@@ -31,8 +31,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>!loading&&videoSource==='wide');
   let state=await page.evaluate(()=>({t,playing,time:v.currentTime,overlay:$('videoOverlay').hidden}));
   assert.equal(state.t,.75);assert.equal(state.playing,false);assert(Math.abs(state.time-.55)<.02,JSON.stringify(state));
-  assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true');assert.match(await page.locator('#overlayStatus').textContent(),/와이드/);
-  assert(await page.locator('#videoOverlay').isHidden());
+  assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true');assert.doesNotMatch(await page.locator('#overlayStatus').textContent(),/없습니다|표시할 수 없습니다|재분석/);
+  assert(await page.locator('#videoOverlay').isVisible());
+  const wide=await page.evaluate(()=>{const c=$('videoOverlay');return {path:data.frames[idx].overlay.path,pixels:c.getContext('2d').getImageData(0,0,c.width,c.height).data.some((v,i)=>i%4===3&&v>0)}});assert(wide.pixels,'wide overlay actually draws');
+  await page.evaluate(()=>{window.savedWideInfo=data.frames[idx].cameraInfo;data.frames[idx].cameraInfo={...savedWideInfo,wideRpy:null};overlayGeometryCache.clear();render()});
+  assert(await page.locator('#videoOverlay').isHidden());assert.match(await page.locator('#overlayStatus').textContent(),/재분석/);
+  await page.evaluate(()=>{data.frames[idx].cameraInfo=savedWideInfo;overlayGeometryCache.clear();render()});
+  await page.evaluate(()=>selectVideo('front'));await page.waitForFunction(()=>!loading);
+  assert.notDeepEqual(await page.evaluate(()=>data.frames[idx].overlay.path),wide.path,'front switch must not reuse wide projection');
+  await page.evaluate(()=>selectVideo('wide'));await page.waitForFunction(()=>!loading);
+  assert.deepEqual(await page.evaluate(()=>data.frames[idx].overlay.path),wide.path,'switching back recovers the same projection');
   await page.evaluate(()=>{toggle();selectVideo('front')});
   await page.waitForFunction(()=>!loading&&playing&&videoSource==='front');
   state=await page.evaluate(()=>({t,playing,time:v.currentTime}));assert(state.t>=.75&&state.t<1.2);assert(Math.abs(state.time-state.t)<.15);
@@ -45,6 +53,6 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   legacy=true;await page.reload();await page.waitForFunction(()=>!loading);
   assert(await page.locator('#videoSourceControl').isHidden());assert.equal(await page.evaluate(()=>videoSource),'qcamera');
   assert.equal(requested.at(-1),null);assert.deepEqual(errors,[]);
-  console.log('PASS: front preference, independent clocks, paused/playing switches, wide overlay guard, failure fallback, legacy qcamera');
+  console.log('PASS: front preference, independent clocks, paused/playing switches, wide projection/cache/metadata guard, failure fallback, legacy qcamera');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});

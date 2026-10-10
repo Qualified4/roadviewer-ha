@@ -32,7 +32,8 @@ const compact={route:'gzip',key:'gzip-key',duration:1,logStart:0,logEnd:.95,warn
    const parity=await page.evaluate(rows=>{
     let error=0;
     function compare(a,b){if(typeof b==='number'){if(!Number.isFinite(a))throw Error('nonfinite projection');error=Math.max(error,Math.abs(a-b));return}if(Array.isArray(b)){if(a.length!==b.length)throw Error('geometry length mismatch '+a.length+' vs '+b.length);b.forEach((v,i)=>compare(a[i],v));return}if(b&&typeof b==='object'){for(const k in b)compare(a[k],b[k]);return}if(a!==b)throw Error('geometry value mismatch')}
-    for(const {frame,expected} of rows)compare(buildReplayOverlay(frame,frame.overlay.geometry),expected);
+    for(const {frame,expected,wideInfo,wideBasis} of rows){compare(buildReplayOverlay(frame,frame.overlay.geometry),expected);compare(wideProjectionBasis(wideInfo),wideBasis)}
+    if(wideProjectionBasis({...rows[0].wideInfo,wideRpy:null})!==null||wideProjectionBasis({...rows[0].wideInfo,wideSensor:'unsupported'})!==null)throw Error('missing wide metadata must be rejected');
     const frame=rows[0].frame,source=frame.overlay;
     const first=frameOverlay(frame,source);if(frameOverlay(frame,source)!==first)throw Error('cache miss');
     for(let i=0;i<100;i++)frameOverlay({...frame},source);

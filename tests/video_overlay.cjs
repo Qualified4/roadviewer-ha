@@ -173,8 +173,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(videoLines.every(s=>s.glow>0&&s.width===1&&s.dash.length===0),'video keeps luminous solid ribbon outlines');
   assert(videoLines[0].alpha<videoLines[2].alpha,'video confidence still controls outline visibility');
 
-  const shared=await page.evaluate(()=>({full:laneAppearance(1),zero:laneAppearance(0),half:laneAppearance(.5),left:highlightBands({highlight:0,left:1,right:0}),both:highlightBands({highlight:3,left:0,right:1}),ribbon:ribbonEdges([[0,0],[10,0]],1.8)}));
-  assert.deepEqual(shared.full,{width:15,alpha:.1,edge:1});assert.equal(shared.zero.width,0);assert.equal(shared.half.width,7.5);assert.equal(shared.half.alpha,.05);
+  const shared=await page.evaluate(()=>({full:laneAppearance(1),threshold:laneAppearance(.75),upper:laneAppearance(.875),edge:laneAppearance(1,false),zero:laneAppearance(0),half:laneAppearance(.5),left:highlightBands({highlight:0,left:1,right:0}),both:highlightBands({highlight:3,left:0,right:1}),ribbon:ribbonEdges([[0,0],[10,0]],1.8)}));
+  assert.deepEqual(shared.full,{width:11.25,alpha:.3,edge:1});assert.equal(shared.threshold.width,shared.full.width);assert(Math.abs(shared.threshold.alpha-.075)<1e-9);assert.equal(shared.upper.width,shared.full.width);assert(Math.abs(shared.upper.alpha-.1875)<1e-9);assert.deepEqual(shared.edge,{width:15,alpha:.1,edge:1});assert.equal(shared.zero.width,0);assert.equal(shared.half.width,7.5);assert.equal(shared.half.alpha,.05);
   assert.deepEqual(shared.left,['#62ed9e',null,null]);assert.deepEqual(shared.both,[null,'#55b9ff','#62ed9e']);
   assert.deepEqual(shared.ribbon,[[[0,.9],[10,.9]],[[0,-.9],[10,-.9]]]);
   await page.evaluate(()=>{const f=data.frames[0];f.overlay.path=[];f.overlay.targetLine=[[.3,.7],[.7,.7]];f.ccncRoad={target:1,distance:25,highlight:0,left:0,right:0};render()});
