@@ -39,6 +39,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.reload();assert(!(await page.locator('#modelPath').isChecked()));assert(await page.locator('#hideLabels').isChecked());
   await page.evaluate(()=>localStorage.setItem('roadviewer-display-preferences','invalid JSON'));
   await page.reload();assert(await page.locator('#modelPath').isChecked());assert(await page.locator('#trackLabels').isChecked());
+  await page.evaluate(()=>localStorage.setItem('roadviewer-display-preferences',JSON.stringify({checks:{boxBsdLabels:false}})));
+  await page.reload();
+  assert(!(await page.locator('#boxLabels').isChecked()));assert(!(await page.locator('#bsdLabels').isChecked()));assert(await page.locator('#targetLabels').isChecked(),'legacy combined preference does not hide TARGET');
+  await page.locator('#overlayHeightSettings').click();await page.locator('#boxLabels').check();await page.locator('#targetLabels').uncheck();
+  await page.reload();
+  assert(await page.locator('#boxLabels').isChecked());assert(!(await page.locator('#bsdLabels').isChecked()));assert(!(await page.locator('#targetLabels').isChecked()),'three label choices persist independently');
   assert.deepEqual(errors,[]);console.log('PASS: model path default/drawing, checkbox and label persistence, malformed preference fallback');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

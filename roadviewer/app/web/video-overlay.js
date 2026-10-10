@@ -7,12 +7,12 @@
  const syncOpacity=()=>{opacitySlider.value=String(Math.round(boxOpacity*100));opacityValue.textContent=opacitySlider.value+'%'};
  syncOpacity();
  opacitySlider.oninput=()=>{boxOpacity=Number(opacitySlider.value)/100;syncOpacity();try{localStorage.setItem('roadviewer-ccnc-opacity',String(boxOpacity))}catch{}render()};
- let bsdHeight=1.2;
+ let bsdHeight=.8;
  const bsdSlider=document.getElementById('bsdHeight'),bsdValue=document.getElementById('bsdHeightValue');
  try{const saved=localStorage.getItem('roadviewer-bsd-height');if(saved!==null&&Number.isFinite(Number(saved)))bsdHeight=Math.max(0,Math.min(3,Number(saved)))}catch{}
  const syncBsdHeight=()=>{bsdSlider.value=String(Math.round(bsdHeight*100));bsdValue.textContent=bsdHeight.toFixed(2)+' m'};
  syncBsdHeight();bsdSlider.oninput=()=>{bsdHeight=Number(bsdSlider.value)/100;syncBsdHeight();try{localStorage.setItem('roadviewer-bsd-height',String(bsdHeight))}catch{}render()};
- let boxHeight=1.5;
+ let boxHeight=1.3;
  const boxHeightSlider=document.getElementById('ccncBoxHeight'),boxHeightValue=document.getElementById('ccncBoxHeightValue');
  try{const saved=localStorage.getItem('roadviewer-ccnc-box-height');if(saved!==null&&Number.isFinite(Number(saved)))boxHeight=Math.max(0,Math.min(3,Number(saved)))}catch{}
  const syncBoxHeight=()=>{boxHeightSlider.value=String(Math.round(boxHeight*100));boxHeightValue.textContent=boxHeight.toFixed(2)+' m'};
@@ -71,6 +71,7 @@
   layer.hidden=(!enabled&&!fade)||video.hidden;status.textContent='';
   if(!enabled&&!fade)return;
   if(video.hidden){status.textContent='영상이 있는 구간에서 표시됩니다.';return}
+  if(videoSource==='wide'){layer.hidden=true;status.textContent='와이드 영상에서는 전방 카메라용 겹쳐 보기를 표시하지 않습니다.';return}
   if(!available){status.textContent='이 구간에는 로그 데이터가 없습니다.';return}
   if(!frame.overlay){status.textContent='카메라 보정·센서 정보가 없어 겹쳐 표시할 수 없습니다.';return}
   if(!video.videoWidth||!video.videoHeight)return;
@@ -104,7 +105,7 @@
    }
    if(on('lanes'))roadBands(frame.overlay.laneBands,frame.overlay.lanes,i=>frame.lp[i],'#57d9b0');
    if(on('edges'))roadBands(frame.overlay.edgeBands,frame.overlay.edges,i=>edgeConfidence(frame.es[i]),'#ffa665');
-   const sections=frame.overlay.targetSections,trail=sections?.map(section=>targetSectionPoints(section))||[],target=sections?trail[0]:frame.overlay.targetLine;
+   const sections=frame.overlay.targetSections,trail=sections?.map(section=>targetSectionPoints(section))||[],target=sections?trail[0]:horizontalTargetLine(frame.overlay.targetLine);
    if([1,3].includes(road?.target)&&road.distance>0&&road.distance<204.6&&road.distance<=Number(document.getElementById('range').value)&&target?.length===2&&target.every(Boolean)){
     const color=road.target===3?'#edf7ff':'#7be5ff',length=8*targetBrakeLevel(data.frames,idx);
     // Small lane-following strips keep the glow on the road without a full-canvas blur.
@@ -120,7 +121,7 @@
       context.beginPath();[a,b,c,d].forEach((p,k)=>k?context.lineTo(...p):context.moveTo(...p));context.closePath();context.fill();
      }
     }
-    context.restore();const a=xy(target[0]),b=xy(target[1]);paintTargetLine(context,a,b,color,true);hudLabel(context,`TARGET · ${road.distance.toFixed(1)} m`,(a[0]+b[0])/2,Math.min(a[1],b[1])-18,color,left+4,left+vw-4);
+    context.restore();const a=xy(target[0]),b=xy(target[1]);paintTargetLine(context,a,b,color,true);if(on('targetLabels'))hudLabel(context,`TARGET · ${road.distance.toFixed(1)} m`,(a[0]+b[0])/2,Math.min(a[1],b[1])-18,color,left+4,left+vw-4);
    }
   }
   if(frame.valid&&on('bsdWalls')&&bsdHeight>0&&frame.overlay.heightDirection){
@@ -133,7 +134,7 @@
      bottom.push(valid?xy([p[0]/p[2],p[1]/p[2]]):null);upper.push(valid?xy([q[0]/q[2],q[1]/q[2]]):null);
     });paintBlindspotWall(context,bottom,upper,amount,t,true);
     const candidates=upper.filter(p=>p&&p[0]>left+12&&p[0]<left+vw-12&&p[1]>top+40&&p[1]<top+vh-12);
-    if(on('boxBsdLabels')&&candidates.length){
+    if(on('bsdLabels')&&candidates.length){
      const wanted=left+vw*(i?.8:.2),anchor=candidates.reduce((a,b)=>Math.abs(a[0]-wanted)<Math.abs(b[0]-wanted)?a:b);
      context.save();context.globalAlpha=amount;context.strokeStyle='#ffdd76';context.fillStyle='#ffdd76';context.lineWidth=1;
      context.beginPath();context.moveTo(...anchor);context.lineTo(anchor[0],anchor[1]-24);context.stroke();
@@ -170,7 +171,7 @@
    for(const i of visibleCorners){context.beginPath();context.arc(...corners[i],1.5,0,Math.PI*2);context.fill()}
    context.shadowBlur=0;context.globalAlpha=opacity;
    const text=label(target),x=(corners[4][0]+corners[5][0])/2,y=Math.min(...corners.slice(4).map(p=>p[1]))-8;
-   if(on('boxBsdLabels')&&text)hudLabel(context,`${target.slot} · ${text}`,x,y-6,color,left+4,left+vw-4);
+   if(on('boxLabels')&&text)hudLabel(context,`${target.slot} · ${text}`,x,y-6,color,left+4,left+vw-4);
    context.restore();
   }
   context.font='11px system-ui';context.textAlign='center';

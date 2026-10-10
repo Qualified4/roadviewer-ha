@@ -42,14 +42,14 @@ function addFiles(files,folders=[]){
  const rejected=[];
  for(const file of files){
   const path=file.webkitRelativePath||file.name;
-  if(!/(^|--)(rlog\.zst|qcamera\.ts)$/.test(file.name)){rejected.push(file.name);continue}
+  if(!/(^|--)(rlog\.zst|qcamera\.ts|fcamera\.hevc|ecamera\.hevc)$/.test(file.name)){rejected.push(file.name);continue}
   const index=selected.findIndex(f=>(f.webkitRelativePath||f.name)===path);
   if(index<0)selected.push(file);else selected[index]=file;
  }
  selectionChanged();
  const messages=[];
- if(rejected.length)messages.push('지원하지 않는 파일: '+rejected.join(', ')+'. rlog.zst 또는 qcamera.ts 파일을 선택하세요.');
- if(folders.length)messages.push('폴더는 추가할 수 없습니다. 폴더 안의 rlog.zst와 qcamera.ts 파일을 선택해 주세요.');
+ if(rejected.length)messages.push('지원하지 않는 파일: '+rejected.join(', ')+'. rlog.zst, qcamera.ts, fcamera.hevc 또는 ecamera.hevc 파일을 선택하세요.');
+ if(folders.length)messages.push('폴더는 추가할 수 없습니다. 폴더 안의 rlog.zst와 영상 파일을 선택해 주세요.');
  error(messages.join(' '));
 }
 for(const id of pickerIds){

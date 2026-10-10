@@ -1,3 +1,4 @@
+from video_sources import UPLOAD_KINDS,DEVICE_VIDEO_LIMIT,DEVICE_BATCH_LIMIT
 """Device-only HTTP contract. File transfer delegates to server's upload engine."""
 import errno, hashlib, hmac, json, re, secrets, time
 from collections import deque
@@ -134,11 +135,11 @@ class DeviceAPI:
         for segment in segments:
             if not isinstance(segment, dict) or set(segment) != {'route', 'segment', 'files'}: abort(400, description='invalid_segment')
             route = segment['route']; number = segment['segment']; kinds = segment['files']
-            if not isinstance(route, str) or not ROUTE.fullmatch(route) or type(number) is not int or not 0 <= number <= 999999 or not isinstance(kinds, list) or not 1 <= len(kinds) <= 2: abort(400, description='invalid_segment')
+            if not isinstance(route, str) or not ROUTE.fullmatch(route) or type(number) is not int or not 0 <= number <= 999999 or not isinstance(kinds, list) or not 1 <= len(kinds) <= 4: abort(400, description='invalid_segment')
             if (route, number) in seen: abort(400, description='duplicate_segment')
             seen.add((route, number)); names = set()
             for f in kinds:
-                if not isinstance(f, dict) or set(f) != {'kind', 'size', 'sha256'} or f.get('kind') not in ('rlog.zst', 'qcamera.ts') or type(f.get('size')) is not int or not 0 < f['size'] <= self.s.app.config['MAX_CONTENT_LENGTH'] or not isinstance(f.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', f['sha256']): abort(400, description='invalid_file')
+                if not isinstance(f, dict) or set(f) != {'kind', 'size', 'sha256'} or f.get('kind') not in UPLOAD_KINDS or type(f.get('size')) is not int or not 0 < f['size'] <= (self.s.app.config['MAX_CONTENT_LENGTH'] if f['kind']=='rlog.zst' else DEVICE_VIDEO_LIMIT) or not isinstance(f.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', f['sha256']): abort(400, description='invalid_file')
                 if f['kind'] in names: abort(400, description='duplicate_file')
                 names.add(f['kind']); files.append(dict(name=f'{route}--{number}--{f["kind"]}', size=f['size'], sha256=f['sha256']))
             if 'rlog.zst' not in names: abort(400, description='rlog_required')
@@ -165,7 +166,7 @@ class DeviceAPI:
                     if receipt['batch_hash'] != digest: return self.fail('batch_conflict', 409)
                     return jsonify(state='completed', result=receipt['result'])
             if len(self.state['receipts']) >= 256 or sum(1 for p in self.s.UPLOADS.iterdir() if (p/'device.json').is_file()) >= 32: return self.fail('session_limit_reached', 429)
-            response, status = self.s.create_upload(files)
+            response, status = self.s.create_upload(files, max_bytes=DEVICE_BATCH_LIMIT, max_files=200)
             if status != 201: return response, status
             p = self.s.UPLOADS / response.json['id']
             meta = dict(device_id=id, batch_id=body['batch_id'], batch_hash=digest, expires_at=time.time() + SESSION_TTL)

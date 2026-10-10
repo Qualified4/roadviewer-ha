@@ -113,11 +113,13 @@ Signed `POST /api/device/uploads` body (<= 65,536 bytes):
 ```
 
 - `batch_id`: 16–64 `[A-Za-z0-9_-]` characters, unique per device per batch. Save it with the manifest on the device.
-- 1–50 segments; each segment has one required `rlog.zst` and an optional `qcamera.ts`. No repeated route/segment or file kind. Video-only uploads are rejected; to attach video later send the matching rlog again with it (existing hash deduplication is reused).
+- 1–50 segments; each segment has one required `rlog.zst` and optional `qcamera.ts`, `fcamera.hevc` (high-quality front), and `ecamera.hevc` (wide). Missing optional files are simply omitted. Driver camera uploads are not accepted. No repeated route/segment or file kind. Video-only uploads are rejected; to attach video later send the matching rlog again with it (existing hash deduplication is reused).
 - `route`: either 8 hex characters, `--`, 10 hex characters, or legacy `YYYY-MM-DD--HH-MM-SS` digit shape. Legacy timestamps are identifiers only, not validated driving times. No paths, slashes or arbitrary names.
 - `segment`: integer 0–999999 (not string/bool).
 - `size`: positive integer of actual file bytes. `sha256`: mandatory SHA256 of the complete file. Additional fields at batch/segment/file level are rejected.
-- 100 files maximum; **sum of file sizes** must fit the add-on's `max_upload_mb` setting (default 512 MiB, configurable 16–2048 MiB), not 512 MiB per segment. Split larger batches client-side.
+- Device batches allow up to 200 files / 50 segments, **8 GiB total** and **2 GiB per video**. Each rlog must fit `max_upload_mb` (default 512 MiB). The browser upload total still uses `max_upload_mb`. All declared bytes participate in the same disk/quota reservations; these limits do not bypass available space, pin protection, or session timeouts. Split batches over 8 GiB client-side.
+- HEVC originals must contain an Annex B parameter-set header. The conversion worker validates codec, dimensions, frame count and each camera's encode timestamps. It streams HEVC into H.264 MP4 with bounded encoder/decoder threads. Video conversion is performed on Road Viewer, never on the driving device.
+- Playback metadata includes `videos` keyed by `front`, `qcamera`, and `wide`, each with its own `start` and `duration` on the log timeline. The legacy `video` field points to the preferred available stream (front → qcamera → wide). `GET /api/logs/<id>/video?source=<key>` uses the existing Ingress authorization and HTTP Range behavior. Wide playback suppresses the front-camera AR overlay because its camera calibration differs.
 - The server generates canonical flat names and UUID storage directories. Clients cannot select disk paths.
 
 201 response:
@@ -155,7 +157,7 @@ TLS protects chunks in flight; final SHA256 verifies the entire received file ag
 ```json
 {"logs":["new recording metadata objects"],"updated":["metadata of logs receiving video"],"duplicates":[{"id":"...","name":"...","video_differs":false}]}
 ```
-The strings above stand for objects; actual new/updated metadata contain `id`, `name`, `uploaded`, `status`, `files`, etc. Use the arrays to distinguish new, updated and duplicate entries. Upload completion means originals are registered, not that conversion is complete. An `updated` entry with `original_restored: true` means a missing TS was restored beside an existing MP4 after matching its cached original SHA256. The existing conversion state, MP4 and analysis are preserved; no new conversion is scheduled. A different TS or a missing cached digest is treated as a video mismatch and is not attached.
+The strings above stand for objects; actual new/updated metadata contain `id`, `name`, `uploaded`, `status`, `files`, etc. Use the arrays to distinguish new, updated and duplicate entries. Upload completion means originals are registered, not that conversion is complete. An `updated` entry with `original_restored: true` means a missing original camera file was restored beside an existing MP4 after matching its cached original SHA256. The existing conversion state, MP4 and analysis are preserved; no new conversion is scheduled. A different original video or a missing cached digest is treated as a video mismatch and is not attached.
 
 A completed finish is recorded persistently and may be retried: 200 with the same result. GET on a completed session returns `{state:"completed",result:{...}}`. Checksumming/registration can take time; allow 180 seconds and use status/reattachment after an uncertain response. A process crash between committing files and persisting the receipt may leave no receipt/session; recreate and upload the batch with fresh authentication. Existing rlog/video digest checks avoid duplicate recording data.
 
@@ -220,8 +222,8 @@ python3 -m venv /tmp/roadviewer-test-env
 실제 HTTPS/Nginx/Gunicorn 경계까지 확인하려면 Docker가 동작하는 WSL/Linux에서:
 
 ```bash
-docker build -t roadviewer:0.4.2 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.4.2 /tests/test_device_tls.py
+docker build -t roadviewer:0.4.3 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.4.3 /tests/test_device_tls.py
 ```
 
 임시 테스트 인증서를 신뢰하도록 설정한 테스트 클라이언트로 HTTPS 페어링·서명된 세션 생성과 UI 접근 차단을 검사합니다. 서버와 클라이언트가 컨테이너 내부에서 통신하므로 호스트 포트 공개나 공유기 설정은 필요하지 않습니다. 이미지 빌드에는 인터넷 연결이 필요합니다. 이 검사는 실제 Home Assistant/UniFi의 DNS·NAT 설정을 확인하지 않습니다.

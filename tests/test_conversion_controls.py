@@ -95,7 +95,7 @@ class ConversionTests(unittest.TestCase):
    self.assertEqual(self.request('post','/api/settings/processing',json={'keep_original_video':value}).status_code,400)
 
  def test_legacy_mp4_download_removal_restart_and_duplicates(self):
-  p=self.row(1,'ready',decoder_version='v25-road-perspective',video=True)
+  p=self.row(1,'ready',decoder_version='v26-ff-path-reference',video=True)
   meta=server.read_meta(p);meta['files']={'qcamera.ts':'route--0--qcamera.ts'}
   server.stored_digests(p,meta);server.save_meta(p,meta)
   prepared=p/'prepared';prepared.mkdir()
@@ -126,7 +126,7 @@ class ConversionTests(unittest.TestCase):
   self.request('delete',url);self.assertFalse(p.exists())
 
  def legacy_video(self,n,status='ready'):
-  p=self.row(n,status,video=True,decoder_version='v25-road-perspective',duration=60,conversion_revision=7,auto_excluded=status=='unconverted')
+  p=self.row(n,status,video=True,decoder_version='v26-ff-path-reference',duration=60,conversion_revision=7,auto_excluded=status=='unconverted')
   meta=server.read_meta(p);meta['files']={'rlog.zst':'rlog.zst','qcamera.ts':'qcamera.ts'}
   server.stored_digests(p,meta);server.save_meta(p,meta)
   (p/'qcamera.ts').unlink();(p/'camera.mp4').write_bytes(b'legacy-mp4')
@@ -203,5 +203,23 @@ class ConversionTests(unittest.TestCase):
   self.assertFalse(server.keep_original_video);self.assertEqual((p/'qcamera.ts').read_bytes(),b'ts')
   self.setting(True);server.requeue_startup();self.submit.assert_not_called()
   self.assertEqual((p/'camera.mp4').read_bytes(),b'legacy-mp4');self.assertTrue((p/'qcamera.ts').exists())
+
+
+ def test_all_cameras_keep_only_verified_mp4(self):
+  for index,keep in enumerate((True,False),60):
+   p=self.row(index,'queued');prepared=p/'prepared';prepared.mkdir();server.keep_original_video=keep
+   for original,mp4 in server.DERIVED.items():
+    (p/original).write_bytes(b'original');(prepared/mp4).write_bytes(b'verified')
+   # Wide validation failed: its original must survive even when retention is off.
+   (prepared/'ecamera.mp4').unlink()
+   (prepared/'summary.json').write_text(json.dumps(dict(duration=1,warnings=[],model_frames=1,video={'frames':1},videos={'qcamera':{'frames':1},'front':{'frames':1}})))
+   with patch.object(server,'ProgressChannel') as channel,patch.object(server.subprocess,'Popen') as popen:
+    channel.return_value.__enter__.return_value.options.return_value={}
+    popen.return_value.communicate.return_value=('','');popen.return_value.returncode=0;popen.return_value.poll.return_value=0
+    server.run_job(p.name)
+   for original,mp4 in (('qcamera.ts','camera.mp4'),('fcamera.hevc','fcamera.mp4')):
+    self.assertEqual((p/original).exists(),keep);self.assertEqual((p/mp4).exists(),not keep)
+   self.assertTrue((p/'ecamera.hevc').exists())
+   self.assertEqual(server.read_meta(p)['bytes'],server.original_bytes(p))
 
 if __name__=='__main__':unittest.main()

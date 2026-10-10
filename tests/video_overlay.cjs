@@ -25,10 +25,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('#overlayHeightDialog #modelPathWidth').count(),1);
   await page.locator('#overlayHeightSettings').click();
   for(const [id,changed,expected,key,saved] of [
-   ['ccncBoxHeight',250,'150','roadviewer-ccnc-box-height','1.5'],
+   ['ccncBoxHeight',250,'130','roadviewer-ccnc-box-height','1.3'],
    ['ccncOpacity',80,'30','roadviewer-ccnc-opacity','0.3'],
-   ['modelPathWidth',280,'180','roadviewer-path-width','1.8'],
-   ['bsdHeight',250,'120','roadviewer-bsd-height','1.2']]){
+   ['modelPathWidth',280,'186','roadviewer-path-width','1.86'],
+   ['bsdHeight',250,'80','roadviewer-bsd-height','0.8']]){
+   assert.equal(await page.locator('#'+id).inputValue(),expected,'first visit uses the default');
    await page.locator('#'+id).evaluate((e,value)=>{e.value=value;e.dispatchEvent(new Event('input'))},changed);
    await page.locator('#'+id+'Reset').click();assert.equal(await page.locator('#'+id).inputValue(),expected);
    assert.equal(await page.evaluate(key=>localStorage.getItem(key),key),saved,'reset saves default');
@@ -64,7 +65,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(!(await pixels()),'CCNC hidden by default');
   await settingAction('#ccncTargets','check');assert(await pixels(),'CCNC draws in video overlay');
   const renderedLabels=()=>page.evaluate(()=>{const labels=[],original=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(text,...args){labels.push({canvas:this.canvas.id,text:String(text),color:this.fillStyle});return original.call(this,text,...args)};try{render()}finally{CanvasRenderingContext2D.prototype.fillText=original}return labels});
-  assert(await page.locator('#boxBsdLabels').isChecked(),'box/BSD labels enabled by default');
+  assert(await page.locator('#boxLabels').isChecked(),'box labels enabled by default');
   await page.locator('#distanceLabels').check();
   for(const slot of ['LF','FF','RF']){
    await page.evaluate(slot=>{data.frames[0].ccncTargets[0].slot=slot;data.frames[0].ccncTargets[0].detect=slot==='RF'?4:3},slot);
@@ -72,9 +73,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert.deepEqual(labels.map(v=>v.canvas).sort(),['road','videoOverlay']);
    assert(labels.every(v=>v.color===(slot==='FF'?'#8deeff':'#4aaaff')),'slot determines color independently of detect');
   }
-  await settingAction('#boxBsdLabels','uncheck');
+  await settingAction('#boxLabels','uncheck');
   assert(!(await renderedLabels()).some(v=>v.text.startsWith('RF ·')),'both views hide box labels');assert(await pixels(),'box remains visible');
-  await settingAction('#boxBsdLabels','check');
+  await settingAction('#boxLabels','check');
   await page.evaluate(()=>{data.frames[0].ccncTargets[0].slot='FF';data.frames[0].ccncTargets[0].detect=4});
   await page.locator('#hideLabels').check();
   const overlayImage=()=>page.locator('#videoOverlay').evaluate(c=>c.toDataURL());
@@ -96,22 +97,34 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.emulateMedia({reducedMotion:'no-preference'});
   const transitions=await page.evaluate(()=>{
    window.boxFixture=data.frames[0];
-   data.frames=Array.from({length:25},(_,i)=>{const f=structuredClone(boxFixture);f.t=i*.05;if(i<2||i>=12){f.ccncTargets=[];f.overlay.markers=[]}return f});
-   return [2,3,6,12,13,15].map(i=>ccncBoxTransitions(data.frames,i,data.frames[i].t).map(e=>({height:e.height,alpha:e.alpha})));
+   data.frames=Array.from({length:65},(_,i)=>{const f=structuredClone(boxFixture);f.t=i*.05;if(i<2||i>=18){f.ccncTargets=[];f.overlay.markers=[]}return f});
+   return [2,6,12,18,25,38].map(i=>ccncBoxTransitions(data.frames,i,data.frames[i].t).map(e=>({height:e.height,alpha:e.alpha})));
   });
   assert.equal(transitions[0][0].height,0,'new box starts flat');
   assert(transitions[1][0].height>0&&transitions[1][0].height<1);assert.equal(transitions[2][0].height,1);
-  assert.equal(transitions[3][0].alpha,1);assert(transitions[4][0].alpha>0&&transitions[4][0].alpha<1);assert.deepEqual(transitions[5],[],'disappeared box is removed after 140ms');
-  await page.evaluate(()=>setTime(.1));const entering=await overlayImage();await page.evaluate(()=>setTime(.3));const grown=await overlayImage();assert.notEqual(entering,grown,'box visibly rises');
+  assert.equal(transitions[3][0].alpha,1);assert(transitions[4][0].alpha>0&&transitions[4][0].alpha<1);assert.deepEqual(transitions[5],[],'disappeared box is removed after 600ms fade without a hold');
+  const earlyFade=await page.evaluate(()=>ccncBoxTransitions(data.frames,19,.95)[0].alpha);assert(earlyFade<1&&earlyFade>0,'fade begins immediately without a hold');
+  assert.deepEqual(await page.evaluate(()=>ccncBoxTransitions(data.frames,31,1.55)),[],'600ms exit has finished');
+  await page.evaluate(()=>setTime(.1));const entering=await overlayImage();await page.evaluate(()=>setTime(.6));const grown=await overlayImage();assert.notEqual(entering,grown,'box visibly rises');
   const maxAlpha=()=>page.locator('#videoOverlay').evaluate(c=>{const pixels=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let max=0;for(let i=3;i<pixels.length;i+=4)max=Math.max(max,pixels[i]);return max});
-  const opaqueEdges=await maxAlpha();await page.evaluate(()=>setTime(.7));assert((await maxAlpha())<opaqueEdges,'faces and edges fade together');
+  const opaqueEdges=await maxAlpha();await page.evaluate(()=>setTime(1.25));assert((await maxAlpha())<opaqueEdges,'faces and edges fade together');
   const pausedBox=await overlayImage();await page.waitForTimeout(180);assert.equal(await overlayImage(),pausedBox,'box animation freezes while paused');
-  await page.evaluate(()=>setTime(.8));assert(!(await pixels()),'exit removes all box pixels');
+  await page.evaluate(()=>setTime(1.9));assert(!(await pixels()),'exit removes all box pixels');
   await page.evaluate(()=>setTime(.1));assert.equal(await overlayImage(),entering,'backward seeking repeats the same growth');
-  await page.evaluate(()=>{data.frames[13]=structuredClone(data.frames[6]);data.frames[13].t=.65;setTime(.65)});
+  await page.evaluate(()=>{data.frames[20]=structuredClone(data.frames[12]);data.frames[20].t=1;setTime(1)});
   assert.equal(await page.evaluate(()=>ccncBoxTransitions(data.frames,idx,t).length),1,'reappearance replaces fading slot without duplicate');
+  assert.equal(await page.evaluate(()=>ccncBoxTransitions(data.frames,idx,t)[0].height),1,'short dropout does not restart rising from the ground');
+  const flicker=await page.evaluate(()=>{
+   const frames=Array.from({length:60},(_,i)=>{const f=structuredClone(boxFixture);f.t=i*.05;if(i<2||i%3===0){f.ccncTargets=i%2?null:[];f.overlay.markers=[]}return f});
+   const values=[20,21,22,23,24].map(i=>ccncBoxTransitions(frames,i,frames[i].t));
+   const before=ccncBoxTransitions(frames,20,1);frames[20].valid=false;const gap=ccncBoxTransitions(frames,21,1.05);
+   const fresh=Array.from({length:60},(_,i)=>{const f=structuredClone(boxFixture);f.t=i*.05;if(i>2&&i<40){f.ccncTargets=[];f.overlay.markers=[]}return f});
+   return {values:values.map(row=>row.map(e=>[e.height,e.alpha])),gap,before:before.length,newHeight:ccncBoxTransitions(fresh,40,2)[0].height};
+  });
+  assert(flicker.values.every(row=>row.length===1&&row[0][0]===1&&row[0][1]>.95),'repeated short missing/null detections keep box height with immediate gentle fading');
+  assert.equal(flicker.before,1);assert.deepEqual(flicker.gap,[],'never fade across invalid log data');assert.equal(flicker.newHeight,0,'a detection after a completed exit grows anew');
   await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>setTime(.1));assert.equal(await overlayImage(),grown,'reduced motion shows full box immediately');
-  await page.evaluate(()=>setTime(.6));assert(!(await pixels()),'reduced motion hides removed box immediately');
+  await page.evaluate(()=>setTime(.9));assert(!(await pixels()),'reduced motion hides removed box immediately');
   await page.evaluate(()=>{data.frames=[boxFixture];setTime(0)});
   await setBoxHeight(200);
   await settingAction('#ccncTargets','uncheck');assert(!(await pixels()));
@@ -120,13 +133,13 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.evaluate(()=>{data.frames[0].overlay=null;render()});
   assert((await page.locator('#overlayStatus').textContent()).includes('보정'));
   await page.locator('#modelPathWidth').evaluate(e=>{e.value=200;e.dispatchEvent(new Event('input'))});
-  await settingAction('#boxBsdLabels','uncheck');
+  await settingAction('#boxLabels','uncheck');
   await settingAction('#bsdWalls','uncheck');await page.locator('#bsdHeight').evaluate(e=>{e.value=240;e.dispatchEvent(new Event('input'))});
   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert(!(await page.locator('#bsdWalls').isChecked()));assert.equal(await page.locator('#bsdHeight').inputValue(),'240');
   await settingAction('#bsdWalls','check');await page.locator('#bsdHeight').evaluate(e=>{e.value=120;e.dispatchEvent(new Event('input'))});
 
-  assert(!(await page.locator('#boxBsdLabels').isChecked()),'box/BSD label preference survives reload');await settingAction('#boxBsdLabels','check');
+  assert(!(await page.locator('#boxLabels').isChecked()),'box label preference survives reload');await settingAction('#boxLabels','check');
   assert.equal(await page.locator('#modelPathWidth').inputValue(),'200','path width survives reload');
   assert.equal(await page.locator('#ccncBoxHeight').inputValue(),'200','box height survives reload');
   assert.equal(await page.locator('#ccncOpacity').inputValue(),'45','box opacity survives reload');
@@ -156,6 +169,13 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.deepEqual(shared.ribbon,[[[0,.9],[10,.9]],[[0,-.9],[10,-.9]]]);
   await page.evaluate(()=>{const f=data.frames[0];f.overlay.path=[];f.overlay.targetLine=[[.3,.7],[.7,.7]];f.ccncRoad={target:1,distance:25,highlight:0,left:0,right:0};render()});
   assert(await pixels(),'target distance line draws');
+  await page.evaluate(()=>{data.frames[0].lanes=[[],[[0,-2],[50,-2]],[[0,2],[50,2]]];render()});
+  const targetLabels=()=>renderedLabels().then(rows=>rows.filter(row=>row.text.startsWith('TARGET')));
+  assert.equal((await targetLabels()).length,2,'TARGET labels appear in camera and road views');
+  await settingAction('#targetLabels','uncheck');assert.deepEqual(await targetLabels(),[],'TARGET toggle hides both labels');assert(await pixels(),'TARGET line remains visible');
+  assert(await page.locator('#boxLabels').isChecked());assert(await page.locator('#bsdLabels').isChecked());
+  await settingAction('#targetLabels','check');assert.equal((await targetLabels()).length,2);
+
   const targetStats=()=>page.evaluate(()=>{let fills=0;const original=CanvasRenderingContext2D.prototype.fill;CanvasRenderingContext2D.prototype.fill=function(...args){if(this.canvas.id==='videoOverlay')fills++;return original.apply(this,args)};try{render()}finally{CanvasRenderingContext2D.prototype.fill=original}return fills});
   const brakeTest=await page.evaluate(()=>{
    const make=(a,t=0)=>({valid:true,t,roadSignals:{acceleration:a}});
@@ -168,6 +188,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.evaluate(()=>{const f=data.frames[0];f.overlay.targetSections=Array.from({length:17},(_,i)=>[[.5,.7+i*.012,1],[.2+i*.008,0,0]]);f.roadSignals={acceleration:0}});
   const targetWidths=await page.evaluate(()=>[1,1.8,3].map(width=>{const p=targetSectionPoints([[.5,.7,1],[.2,0,0]],width);return p[1][0]-p[0][0]}));
   for(let i=0;i<3;i++)assert(Math.abs(targetWidths[i]-[.2,.36,.6][i])<1e-9,'target width uses car width');
+  const levelTarget=await page.evaluate(()=>({projected:targetSectionPoints([[.5,.7,1],[.2,.12,.08]],1.8),legacy:horizontalTargetLine([[.3,.6],[.7,.8]]),invalid:horizontalTargetLine([null,[1,2]])}));
+  assert.equal(levelTarget.projected[0][1],levelTarget.projected[1][1],'camera roll/depth cannot tilt TARGET');assert.deepEqual(levelTarget.legacy,[[.3,.7],[.7,.7]]);assert.equal(levelTarget.invalid,null);
   const noBrake=await targetStats();
   await page.evaluate(()=>{data.frames[0].roadSignals.acceleration=-1.5});const lightBrake=await targetStats();
   await page.evaluate(()=>{data.frames[0].roadSignals.acceleration=-3});const heavyBrake=await targetStats();
@@ -181,6 +203,13 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    let textAlpha;const fill=x.fillText.bind(x);x.fillText=(...args)=>{textAlpha=x.globalAlpha;fill(...args)};
    hudLabel(x,'TARGET · 25.0 m',150,50,'#7be5ff');return {textAlpha,alpha:x.globalAlpha,blur:x.shadowBlur};
   });assert.deepEqual(labelState,{textAlpha:.25,alpha:.25,blur:9},'HUD labels preserve fade and canvas state');
+  const wallGrid=await page.evaluate(()=>{
+   const strokes=[],vertical=[];let pathStrokes=0,fills=0;const c=document.createElement('canvas'),x=c.getContext('2d'),stroke=x.stroke.bind(x),fill=x.fill.bind(x);
+   x.fill=(...args)=>{fills++;fill(...args)};
+   x.stroke=(...args)=>{if(args.length)pathStrokes++;else vertical.push(x.shadowBlur);if(x.strokeStyle==='#ffd367')strokes.push(1);stroke(...args)};
+   paintBlindspotWall(x,[[10,90],[190,50]],[[10,10],[190,0]],1,0,true);const camera=strokes.length,cameraBeams=pathStrokes,cameraFills=fills;
+   paintBlindspotWall(x,[[10,90],[190,50]],[[10,10],[190,0]],1,0,false);return {camera,cameraBeams,cameraFills,vertical,plan:strokes.length};
+  });assert.deepEqual(wallGrid,{camera:0,cameraBeams:3,cameraFills:1,vertical:Array.from({length:5},()=>[10,4,0]).flat(),plan:1},'five alternating lines use rim glow, five remain thin, and no wide streak fills return');
   let wallTestTime=0;const wallImage=()=>page.evaluate(time=>{const c=document.createElement('canvas');c.width=200;c.height=100;paintBlindspotWall(c.getContext('2d'),[[10,90],[190,90]],[[10,10],[190,10]],1,time,true);return c.toDataURL()},wallTestTime||0);
   const stillWall=await wallImage();wallTestTime=.8;assert.equal(await wallImage(),stillWall,'reduced motion disables wall scan');
   await page.emulateMedia({reducedMotion:'no-preference'});wallTestTime=0;const scanningWall=await wallImage();wallTestTime=.8;assert.notEqual(await wallImage(),scanningWall,'wall scan follows replay time');await page.emulateMedia({reducedMotion:'reduce'});
@@ -219,10 +248,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#bsdHeight').evaluate(e=>{e.value=120;e.dispatchEvent(new Event('input'))});await settingAction('#ccncRoad','check');
 
   assert((await renderedLabels()).some(v=>v.text==='좌측 사각지대 감지'),'BSD label appears when enabled');
-  await settingAction('#boxBsdLabels','uncheck');
+  await settingAction('#boxLabels','uncheck');assert((await renderedLabels()).some(v=>v.text.includes('사각지대 감지')),'box toggle leaves BSD label visible');
+  await settingAction('#bsdLabels','uncheck');
   assert(!(await renderedLabels()).some(v=>v.text.includes('사각지대 감지')),'BSD label hides');assert(await pixels(),'BSD wall remains visible');
-  await settingAction('#boxBsdLabels','check');
+  await settingAction('#boxLabels','check');
 
+  assert(!(await renderedLabels()).some(v=>v.text.includes('사각지대 감지')),'box toggle cannot restore hidden BSD labels');await settingAction('#bsdLabels','check');
   const wallGlows=await page.evaluate(()=>{const found={road:[],videoOverlay:[]},original=CanvasRenderingContext2D.prototype.stroke;CanvasRenderingContext2D.prototype.stroke=function(...args){found[this.canvas.id]?.push(this.shadowBlur);return original.apply(this,args)};try{render()}finally{CanvasRenderingContext2D.prototype.stroke=original}return found});
   assert(wallGlows.road.every(v=>v===0),'all top-down strokes, including BSD and distance line, have no glow');assert(wallGlows.videoOverlay.some(v=>v>0),'video retains glow');
   await page.emulateMedia({reducedMotion:'no-preference'});
