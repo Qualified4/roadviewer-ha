@@ -15,6 +15,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await page.locator('#trackLabels').isChecked());
   assert.deepEqual(await page.locator('.target-label-mode input').evaluateAll(inputs=>inputs.map(input=>input.id)),['hideLabels','trackLabels','distanceLabels','yRelLabels','speedLabels','relativeSpeedLabels','liveTrackLabels']);
   assert(await page.locator('#modelPath').isChecked());assert(!(await page.locator('#hideScc').isChecked()));
+  const laneStyles=await page.evaluate(()=>{
+   const f=data.frames[0],saved={lanes:f.lanes,lp:f.lp,edges:f.edges,es:f.es},strokes=[],original=ctx.stroke;
+   f.lp=[0,.49,.5,1,NaN];f.lanes=f.lp.map((p,i)=>[[0,i-2],[40,i-2]]);f.edges=[[[0,-6],[40,-6]],[[0,6],[40,6]]];f.es=[.2,1.5];
+   ctx.stroke=function(...args){if(['#57d9b0','#ffa665'].includes(this.strokeStyle))strokes.push({color:this.strokeStyle,width:this.lineWidth,alpha:this.globalAlpha,dash:this.getLineDash()});return original.apply(this,args)};
+   try{render()}finally{ctx.stroke=original;Object.assign(f,saved);render()}return strokes;
+  });
+  const lanes=laneStyles.filter(s=>s.color==='#57d9b0');assert.equal(lanes.length,5);
+  for(const [i,p] of [0,.49,.5,1,0].entries()){assert(Math.abs(lanes[i].width-(1+3*p))<1e-6);assert(Math.abs(lanes[i].alpha-p)<1e-6);assert.deepEqual(lanes[i].dash,p<.5?[6,5]:[])}
+  const edges=laneStyles.filter(s=>s.color==='#ffa665');assert.deepEqual(edges.map(s=>s.width),[2,2]);assert.deepEqual(edges.map(s=>s.dash),[[],[6,5]]);
   await page.evaluate(()=>{const f=data.frames[0];f.liveTracksValid=true;f.liveTracksDeltaMs=0;f.liveTracks=[{trackId:1,x:10,y:0,yRel:0,vRel:0,source:'scc',measured:true},{trackId:2,x:12,y:0,yRel:0,vRel:0,source:'frontRadar',measured:true}];render()});
   assert.equal(await page.locator('#rawRows tr').count(),2);
   await page.locator('#hideScc').check();assert.equal(await page.locator('#rawRows tr').count(),1);
