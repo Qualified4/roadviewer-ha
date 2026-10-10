@@ -37,9 +37,24 @@ class ConversionTests(unittest.TestCase):
   for _ in range(3):self.assertEqual(self.request('post',url+'/convert').status_code,200)
   self.submit.assert_called_once_with(p.name)
   m=server.read_meta(p);self.assertTrue(m['manual_conversion']);self.assertFalse(m['auto_excluded'])
-  self.assertEqual(self.request('delete',url+'/prepared').status_code,409)
   self.submit.reset_mock();server.requeue_startup();self.submit.assert_called_once_with(p.name)
   self.assertEqual(self.request('delete',url).status_code,200);self.assertFalse(p.exists())
+ def test_remove_cancels_queued_conversion_and_preserves_processing(self):
+  for manual in (False,True):
+   p=self.row(10+int(manual),'queued',manual_conversion=manual);prepared=p/'prepared';prepared.mkdir();(prepared/'data.json').write_text('{}')
+   with patch.object(server.pool,'discard') as discard:
+    self.assertEqual(self.request('delete','/api/logs/'+p.name+'/prepared').status_code,200)
+    discard.assert_called_once_with(p.name)
+   self.assertFalse(prepared.exists());self.assertTrue((p/'rlog.zst').exists());self.assertTrue((p/'qcamera.ts').exists())
+   m=server.read_meta(p);self.assertEqual(m['status'],'unconverted');self.assertTrue(m['auto_excluded']);self.assertFalse(m['manual_conversion'])
+   with patch.object(server.subprocess,'Popen') as popen:server.run_job(p.name);popen.assert_not_called()
+  server.requeue_startup();server.queue_unconverted();self.submit.assert_not_called()
+  p=self.row(12,'processing');prepared=p/'prepared';prepared.mkdir();(prepared/'data.json').write_text('{}')
+  with patch.object(server.pool,'discard') as discard:
+   response=self.request('delete','/api/logs/'+p.name+'/prepared')
+   self.assertEqual(response.status_code,409);self.assertEqual(response.json['error'],'처리 중에는 변환 데이터를 제거할 수 없습니다.');discard.assert_not_called()
+  self.assertTrue(prepared.exists());self.assertEqual(server.read_meta(p)['status'],'processing')
+
  def test_bulk_deletion_rechecks_pin_before_mutating_files(self):
   p=self.row(1,'ready');prepared=p/'prepared';prepared.mkdir();(prepared/'data.json').write_text('{}')
   url='/api/logs/'+p.name

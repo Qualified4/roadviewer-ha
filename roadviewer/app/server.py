@@ -570,7 +570,8 @@ def remove_prepared(id):
  with lock:
   p=folder(id);m=read_meta(p)
   if request.args.get('skip_pinned')=='1' and storage_policy.pinned(m):return jsonify(skipped='pinned')
-  if m['status'] in ('queued','processing'):return jsonify(error='대기 또는 처리 중에는 변환 데이터를 제거할 수 없습니다.'),409
+  if m['status']=='processing':return jsonify(error='처리 중에는 변환 데이터를 제거할 수 없습니다.'),409
+  pool.discard(id)
   clear_prepared(p,m)
   m.update(status='unconverted',manual_conversion=False,auto_excluded=True)
   save_meta(p,m)
