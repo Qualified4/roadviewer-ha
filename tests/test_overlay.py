@@ -1,7 +1,7 @@
 import math,sys,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
-from overlay import OverlayProjector,project_point,camera_config,projection_coordinates
+from overlay import OverlayProjector,project_point,camera_config,projection_coordinates,restore_ccnc_targets
 
 class OverlayTests(unittest.TestCase):
  def test_device_id_is_session_metadata_and_missing_is_unknown(self):
@@ -57,7 +57,17 @@ class OverlayTests(unittest.TestCase):
     raised=[v+n*1.2 for v,n in zip([uv[0]*depth,uv[1]*depth,depth],out['heightDirection'])]
     expected=project_point((x,y,0),[0,0,0],config)
     for actual,value in zip([raised[0]/raised[2],raised[1]/raised[2]],expected):self.assertAlmostEqual(actual,value,places=5)
-  self.assertEqual(out['targetLine'],[project_point((15,y,1.2),[0,0,0],config) for y in (-1.8,1.8)])
+  self.assertEqual(out['targetLine'],[project_point((15,y,1.2),[0,0,0],config) for y in (-.9,.9)])
+  self.assertEqual(len(out['targetSections']),11,'stop at the available 10 m lane boundary')
+  for width in (1,1.8,3):
+   for index,section in enumerate(out['targetSections']):
+    center,side=section
+    for sign in (-1,1):
+     q=[v+sign*width/2*w for v,w in zip(center,side)]
+     expected=project_point((15-index*.5,sign*width/2,1.2),[0,0,0],config)
+     for actual,value in zip([q[j]/q[2] for j in (0,1)],expected):self.assertAlmostEqual(actual,value,places=5)
+  self.assertEqual(p.project(0,model,{'ccncRoad':{'target':0,'distance':15}})['targetSections'],[])
+
   for width in (1,1.8,3):
    for i,x in enumerate((10,20)):
     for sign in (-1,1):
@@ -101,5 +111,35 @@ class OverlayTests(unittest.TestCase):
    self.assertTrue(p.camera_info(0)['heightDefault']);self.assertIsNone(p.camera_info(0)['rpy'])
   empty=OverlayProjector({}).camera_info(0)
   self.assertEqual(empty['device'],'unknown');self.assertEqual(empty['sensor'],'unknown')
+
+class RoadPerspectiveTests(unittest.TestCase):
+ def test_ccnc_distance_and_lane_center_inverse(self):
+  target={'slot':'LF','detect':3,'x':40,'y':1,'yRel':-1}
+  def model(sign):return {'laneLines':[{},*[{'x':[0,20,40,60],'y':[offset+sign*d for d in (0,1,4,9)],'z':[1.2]*4} for offset in (-1.8,1.8)]]}
+  for sign in (-1,0,1):
+   result=restore_ccnc_targets([target],model(sign))[0]
+   self.assertEqual(result['x'],50);self.assertEqual(result['y'],1+sign*6.5);self.assertEqual(result['yRel'],-result['y']);self.assertTrue(result['curveRestored'])
+   self.assertEqual(result['displayX'],40);self.assertEqual(result['displayY'],1)
+  self.assertEqual(target['x'],40,'held CAN samples must not be modified repeatedly')
+  self.assertEqual(restore_ccnc_targets([target],model(1),False)[0]['y'],1)
+  self.assertFalse(restore_ccnc_targets([target],{'laneLines':[]})[0]['curveRestored'])
+  self.assertEqual(restore_ccnc_targets([{**target,'x':80}],model(1))[0]['y'],1,'do not extrapolate missing lane geometry')
+  self.assertIsNone(restore_ccnc_targets(None,{}));self.assertEqual(restore_ccnc_targets([],{}),[])
+
+ def test_projected_bands_narrow_with_distance_and_bsd_stops_at_40m(self):
+  streams={'liveCalibration':[(0,True,{'calStatus':'calibrated','rpyCalib':[0,0,0],'height':[1.2]})],'deviceState':[(0,True,{'deviceType':'tici'})]}
+  lane={'x':[0,10,20,60],'y':[1.8]*4,'z':[1.2]*4}
+  model={'laneLines':[lane]*4,'laneLineProbs':[1]*4,'roadEdges':[lane,lane],'roadEdgeStds':[0,2]}
+  out=OverlayProjector(streams).project(0,model,{})
+  for key in ('laneBands','edgeBands'):
+   a,b=out[key][0];near=abs(a[1][0]-b[1][0]);far=abs(a[3][0]-b[3][0]);self.assertAlmostEqual(near/far,6,places=3)
+   self.assertIsNone(a[0]);self.assertIsNone(b[0])
+  strong=out['edgeBands'][0];weak=out['edgeBands'][1]
+  self.assertGreater(abs(strong[0][1][0]-strong[1][1][0]),abs(weak[0][1][0]-weak[1][1][0]))
+  for path in out['blindspotPaths']:
+   self.assertEqual(path[-1][2],40);self.assertEqual(len(path),21);self.assertTrue(all(p[2]<=40 for p in path))
+  lane['x']=[0,10,20,33]
+  short=OverlayProjector(streams).project(0,model,{})
+  self.assertEqual(short['blindspotPaths'][0][-1][2],33,'short models must not be extrapolated')
 
 if __name__=='__main__':unittest.main()

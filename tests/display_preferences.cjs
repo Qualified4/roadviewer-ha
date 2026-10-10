@@ -23,6 +23,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    window.pathDraws=0;const stroke=ctx.stroke.bind(ctx);
    ctx.stroke=()=>{if(ctx.strokeStyle==='#c4a5ff')window.pathDraws++;stroke()};
   });
+  const roadImage=()=>page.locator('#road').evaluate(c=>c.toDataURL());
+  const originalPath=await roadImage();
+  await page.locator('#modelPathWidth').evaluate(e=>{e.value=300;e.dispatchEvent(new Event('input'))});
+  assert.equal(await roadImage(),originalPath,'top-down model path stays a line independent of car width');
   await page.evaluate(()=>render());
   assert((await page.evaluate(()=>window.pathDraws))>0);
   await page.locator('#lanes').uncheck();await page.locator('#liveTrackLabels').check();await page.locator('#yRelLabels').check();
