@@ -94,7 +94,7 @@ def ccnc_targets(payload):
   detect=(bits>>offset)&31;distance=(bits>>(offset+5))&2047;lateral=(bits>>(offset+16))&127
   if not 1<=detect<=14 or distance>=2046:continue
   if slot=='FF' and lateral>=64:lateral-=128
-  y_rel=round(lateral*.1*(-1 if slot=='RF' else 1),1)
+  y_rel=round(lateral*.1*(-1 if slot in ('FF','RF') else 1),1)
   targets.append({'slot':slot,'detect':detect,'x':round(distance*.1,1),'yRel':y_rel,'y':-y_rel})
  return targets
 
@@ -123,7 +123,7 @@ def prepare(value,route=None):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str((src.parent/name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if (src.parent/name).is_file())+'v26-ff-path-reference').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str((src.parent/name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if (src.parent/name).is_file())+'v27-ff-sign-telemetry').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  def save_summary(data):
   (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{})},ensure_ascii=False))
@@ -271,7 +271,7 @@ def prepare(value,route=None):
  timeline_start=frames[0]['t']
  bounds=align_timeline(frames,video_info,videos)
  telemetry_origin=origin+timeline_start-frames[0]['t']
- telemetry=extract_telemetry(streams,telemetry_origin,bounds['duration'])
+ telemetry=extract_telemetry(streams,telemetry_origin,bounds['duration'],frames)
  # Compact gzip files: about 5x smaller on disk and over the network (see compact.py).
  write_gzip_json(dest/'telemetry.json.gz',telemetry)
  data={'route':log_entry['label'],'key':key,**bounds,'frames':frames,'video':video_info,'videos':videos,'defaultVideo':default_video,'warnings':warnings,'counts':dict(counts)}

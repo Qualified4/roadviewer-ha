@@ -24,6 +24,9 @@
   {id:'curvature',title:'주행 곡률',unit:'1/m',precision:5,checkZero:true,note:'실제 추정 곡률·제어 목표·차량 명령입니다. 각도·토크 방식에서는 곡률 명령을 사용하지 않을 수 있습니다.',lines:[ctl('actualCurvature','실제 추정'),ctl('desiredCurvature','목표'),cc('commandCurvature','요청'),out('outputCurvature','출력 기록')]},
   {id:'lateralAccel',title:'횡가속도 제어',unit:'m/s²',note:'토크 제어기의 실제 추정값과 목표값입니다.',lines:[ctl('actualLateralAccel','실제 추정'),ctl('desiredLateralAccel','목표')]},
   {id:'control',title:'자동 제어 상태',binary:true,lines:[cc('enabled','시스템 켜짐'),cc('latActive','자동 조향'),cc('longActive','자동 가감속')]},
+  {id:'ccncVisible',title:'LF · FF · RF 표시 상태',binary:true,booleanLabels:['표시 안 함','표시 중'],note:'로그에 기록된 계기판 차량 표시 명령입니다. 기록이 없거나 오래된 구간은 확인 불가로 표시합니다.',lines:['LF','FF','RF'].map(slot=>line('ccnc',slot+'Visible',slot))},
+  {id:'ccncDistance',title:'LF · FF · RF 전방 거리',unit:'m',note:'박스에 적용한 거리 복원값입니다. 필터링된 계기판 명령 기반으로 실제 레이더 원시 거리와 다를 수 있습니다.',lines:['LF','FF','RF'].map(slot=>line('ccnc',slot+'Distance',slot))},
+  {id:'ccncLateral',title:'LF · FF · RF 좌우 위치 (yRel)',unit:'m',note:'박스에 적용한 경로·차선 보정값입니다. 왼쪽은 양수, 오른쪽은 음수이며 원시 레이더 좌표와 다를 수 있습니다.',lines:['LF','FF','RF'].map(slot=>line('ccnc',slot+'Lateral',slot))},
   {id:'cruiseState',title:'크루즈 상태',binary:true,note:'차량의 크루즈 상태입니다. 순정 ACC 작동과 openpilot 자동 가감속 활성 여부는 다를 수 있습니다.',lines:[cs('cruiseEnabled','작동'),cs('cruiseAvailable','사용 가능'),cc('longActive','자동 가감속')]},
  ];
  const defaultGraphs=[...graphs];

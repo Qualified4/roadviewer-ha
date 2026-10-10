@@ -34,14 +34,16 @@ class VideoSourcesTests(unittest.TestCase):
  def test_multi_camera_progress_is_monotonic(self):
   events=[]
   class Capture:
-   def update(self,stage,**fields):events.append((stage,fields.get('percent',0)))
+   def update(self,stage,**fields):events.append((stage,fields))
   progress=VideoProgress(Capture(),3)
   for i in range(3):
    progress.index=i
    for stage in ('video_read','video_convert','video_verify'):
     for percent in (0,50,100):progress.update(stage,percent=percent)
-  self.assertEqual({stage for stage,_ in events},{'video_convert'})
-  values=[value for _,value in events];self.assertEqual(values,sorted(values))
+  self.assertEqual({stage for stage,_ in events},{'video_read','video_convert','video_verify'})
+  values=[fields['video_percent'] for _,fields in events];self.assertEqual(values,sorted(values))
+  self.assertEqual([fields['video_percent'] for stage,fields in events[:9] if stage=='video_convert'],[0,0,0])
+  self.assertEqual([fields['percent'] for _,fields in events[:3]],[0,50,100])
   self.assertAlmostEqual(values[0],0);self.assertAlmostEqual(values[-1],100)
 
  def test_hevc_clock_gaps_and_retained_mp4(self):

@@ -13,7 +13,7 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     addEventListener('pageswap',e=>{if(e.viewTransition)sessionStorage.setItem('snapshot-navigation','yes')});
     addEventListener('pagereveal',e=>{if(e.viewTransition)sessionStorage.setItem('snapshot-navigation','yes')});
    });
-   let logs=[{id:'one',name:'00000395--0d0eda17c5 / 구간 7',files:{'rlog.zst':'00000395--0d0eda17c5--7--rlog.zst'},status:'processing',progress:{stage:'video_convert',percent:50},uploaded:2,bytes:1,prepared_bytes:0,video:true}];
+   let logs=[{id:'one',name:'00000395--0d0eda17c5 / 구간 7',files:{'rlog.zst':'00000395--0d0eda17c5--7--rlog.zst'},status:'processing',progress:{stage:'video_verify',percent:50},uploaded:2,bytes:1,prepared_bytes:0,video:true}];
    await page.route('https://rv.test/**',route=>{
     const p=new URL(route.request().url()).pathname;
     if(p==='/api/logs')return route.fulfill({json:{logs,concurrency:1,auto_convert:true,keep_original_video:true,max_upload_mb:512,storage_used_bytes:1}});
@@ -22,7 +22,7 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     return route.fulfill(asset(p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','')));
    });
    await page.goto('https://rv.test/');await page.locator('.log-row').waitFor();
-   // Processing: a sweep in the badge and a progress bar at video_convert 50% = 0.875 overall.
+   // Processing: a sweep in the badge and a progress bar at video_verify 50% = 0.875 overall.
    assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.875');
    assert.equal((await running(page)).includes('rv-sweep'),!reduced);
    assert((await page.locator('.state-processing').boundingBox()).height<=30,'processing badge stays compact');
@@ -48,8 +48,13 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     [{stage:'log_analysis',frames:1,total_frames:0},'0.5'],
     [{stage:'log_analysis',total_frames:20},'0.5'],
     [{stage:'video_read',frames:5},'0.75'],
-    [{stage:'video_convert',percent:75},'0.9375'],
-    [{stage:'video_verify',percent:90},'1'],
+    [{stage:'video_convert',percent:75},'0.75'],
+    [{stage:'video_verify',percent:0},'0.75'],
+    [{stage:'video_verify',percent:90},'0.975'],
+    [{stage:'video_verify',percent:100},'1'],
+    [{stage:'video_verify',percent:100,video_percent:50},'0.875'],
+    [{stage:'video_convert',percent:50,video_percent:50},'0.875'],
+    [{stage:'video_verify',percent:50,video_percent:75},'0.9375'],
     [{stage:'saving'},null],
    ];
    for(const [i,[progress,expected]] of progressCases.entries()){

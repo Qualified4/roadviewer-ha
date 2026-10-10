@@ -51,4 +51,17 @@ class TelemetryTests(unittest.TestCase):
   result=extract_telemetry({'carState':[(10_000_000_000,True,{'vEgo':10}),(12_000_000_000,True,{'vEgo':20})]},9.5,1)
   self.assertEqual(result['streams']['carState']['times'],[.5])
 
+ def test_ccnc_graphs_match_boxes_and_distinguish_missing(self):
+  frames=[{'t':0,'valid':True,'ccncTargets':[{'slot':'FF','x':9.25,'yRel':-1.873}]},
+          {'t':.05,'valid':True,'ccncTargets':[]},
+          {'t':.10,'valid':True,'ccncTargets':None},
+          {'t':.15,'valid':False,'ccncTargets':[{'slot':'LF','x':20,'yRel':3}]}]
+  stream=extract_telemetry({},0,1,frames)['streams']['ccnc']
+  self.assertEqual(stream['times'],[0,.05,.1,.15])
+  self.assertEqual(stream['values']['FFVisible'],[True,False,None,None])
+  self.assertEqual(stream['values']['LFVisible'],[False,False,None,None])
+  self.assertEqual(stream['values']['RFVisible'],[False,False,None,None])
+  self.assertEqual(stream['values']['FFDistance'],[9.25,None,None,None])
+  self.assertEqual(stream['values']['FFLateral'],[-1.873,None,None,None])
+
 if __name__=='__main__':unittest.main()

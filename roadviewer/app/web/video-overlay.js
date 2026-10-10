@@ -137,9 +137,10 @@
     if(on('bsdLabels')&&candidates.length){
      const wanted=left+vw*(i?.8:.2),anchor=candidates.reduce((a,b)=>Math.abs(a[0]-wanted)<Math.abs(b[0]-wanted)?a:b);
      context.save();context.globalAlpha=amount;context.strokeStyle='#ffdd76';context.fillStyle='#ffdd76';context.lineWidth=1;
-     context.beginPath();context.moveTo(...anchor);context.lineTo(anchor[0],anchor[1]-24);context.stroke();
-     context.shadowColor='#ffd24f';context.shadowBlur=6;context.beginPath();context.arc(...anchor,2,0,Math.PI*2);context.fill();
-     hudLabel(context,i?'우측 사각지대 감지':'좌측 사각지대 감지',anchor[0],anchor[1]-36,'#ffdd76',left+4,left+vw-4);context.restore();
+     const labelX=Math.max(left+85,Math.min(left+vw-85,anchor[0]+(i?-65:65)));
+     context.beginPath();context.moveTo(...anchor);context.lineTo(anchor[0]+(i?-24:24),anchor[1]-24);context.lineTo(labelX,anchor[1]-24);context.stroke();
+     context.shadowColor='#ffd24f';context.shadowBlur=6;context.beginPath();context.arc(...anchor,3,0,Math.PI*2);context.fill();
+     hudLabel(context,i?'우측 사각지대 감지':'좌측 사각지대 감지',labelX,anchor[1]-36,'#ffdd76',left+4,left+vw-4);context.restore();
     }
    });
   }

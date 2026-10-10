@@ -15,6 +15,13 @@ class ProgressTests(unittest.TestCase):
   events=[json.loads(line) for line in output.getvalue().splitlines()]
   self.assertEqual([e.get('frames') for e in events],[0,1000,1001,None])
   self.assertEqual([e.get('total_frames') for e in events],[1001,1001,1001,None])
+ def test_video_verification_total_keeps_stage_percentage(self):
+  output=io.StringIO();r=Reporter(output)
+  r.update('video_convert',percent=90,video_percent=50)
+  r.update('video_verify',percent=50,video_percent=75)
+  events=[json.loads(line) for line in output.getvalue().splitlines()]
+  self.assertEqual(events,[{'stage':'video_convert','percent':90,'video_percent':50},
+                           {'stage':'video_verify','percent':50,'video_percent':75}])
  def test_broken_display_does_not_break_conversion(self):
   class Broken:
    def write(self,value):raise BrokenPipeError()
