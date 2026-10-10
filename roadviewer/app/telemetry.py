@@ -36,7 +36,7 @@ def number(value,factor=1):
  result=value*factor
  return round(result,6) if math.isfinite(result) else None
 
-def extract_telemetry(streams,origin,duration):
+def extract_telemetry(streams,origin,duration,frames=()):
  result={}
  for topic,fields in FIELDS.items():
   times=[];values={key:[] for key in fields}
@@ -75,4 +75,15 @@ def extract_telemetry(streams,origin,duration):
   if 'longState' in values:
    for name,code in LONG_STATES.items():values['long_'+name]=[value==code if value is not None else None for value in values['longState']]
   result[topic]={'times':times,'values':values}
+ # Use the same restored coordinates and freshness as the rendered boxes.
+ values={slot+field:[] for slot in ('LF','FF','RF') for field in ('Visible','Distance','Lateral')}
+ for frame in frames:
+  targets=frame.get('ccncTargets') if frame.get('valid') else None
+  by_slot={target['slot']:target for target in targets or []}
+  for slot in ('LF','FF','RF'):
+   target=by_slot.get(slot)
+   values[slot+'Visible'].append(target is not None if targets is not None else None)
+   values[slot+'Distance'].append(number(target['x']) if target else None)
+   values[slot+'Lateral'].append(number(target['yRel']) if target else None)
+ result['ccnc']={'times':[frame['t'] for frame in frames],'values':values}
  return {'duration':duration,'maxGap':.15,'streams':result}

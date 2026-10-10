@@ -95,7 +95,7 @@ class ConversionTests(unittest.TestCase):
    self.assertEqual(self.request('post','/api/settings/processing',json={'keep_original_video':value}).status_code,400)
 
  def test_legacy_mp4_download_removal_restart_and_duplicates(self):
-  p=self.row(1,'ready',decoder_version='v26-ff-path-reference',video=True)
+  p=self.row(1,'ready',decoder_version='v27-ff-sign-telemetry',video=True)
   meta=server.read_meta(p);meta['files']={'qcamera.ts':'route--0--qcamera.ts'}
   server.stored_digests(p,meta);server.save_meta(p,meta)
   prepared=p/'prepared';prepared.mkdir()
@@ -126,7 +126,7 @@ class ConversionTests(unittest.TestCase):
   self.request('delete',url);self.assertFalse(p.exists())
 
  def legacy_video(self,n,status='ready'):
-  p=self.row(n,status,video=True,decoder_version='v26-ff-path-reference',duration=60,conversion_revision=7,auto_excluded=status=='unconverted')
+  p=self.row(n,status,video=True,decoder_version='v27-ff-sign-telemetry',duration=60,conversion_revision=7,auto_excluded=status=='unconverted')
   meta=server.read_meta(p);meta['files']={'rlog.zst':'rlog.zst','qcamera.ts':'qcamera.ts'}
   server.stored_digests(p,meta);server.save_meta(p,meta)
   (p/'qcamera.ts').unlink();(p/'camera.mp4').write_bytes(b'legacy-mp4')

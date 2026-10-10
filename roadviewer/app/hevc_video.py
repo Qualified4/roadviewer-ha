@@ -13,8 +13,8 @@ class VideoProgress:
             self.reporter.update(stage, **fields)
             return
         percent = fields.get('percent', 0) / 100
-        part = 0 if stage == 'video_read' else .1 + .8 * percent if stage == 'video_convert' else .9 + .1 * percent
-        self.reporter.update('video_convert', percent=100 * (self.index + part) / self.count, force=fields.get('force', False))
+        part = percent if stage == 'video_verify' else 0
+        self.reporter.update(stage, **fields, video_percent=100 * (self.index + part) / self.count)
 
 
 def prepare_video(source, output, indices, origin, progress):

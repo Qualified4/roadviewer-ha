@@ -315,17 +315,41 @@ function hudLabel(ctx,text,x,y,color,left=4,right=ctx.canvas.clientWidth||ctx.ca
  ctx.strokeStyle=color;ctx.lineWidth=.7;ctx.globalAlpha=.65*opacity;ctx.stroke();ctx.fillStyle=color;ctx.globalAlpha=opacity;ctx.fillText(text,x,y);ctx.restore();
 }
 // Smooth, repeatable irregular movement along the road; never randomize each frame.
-function blindspotStreakPosition(index,time){
- const base=(index+1)/11,amplitude=Math.min(.10,base*.8,(1-base)*.8),phase=index*2.39996;
+function blindspotStreakPosition(index,time,count=10){
+ const base=(index+1)/(count+1),amplitude=Math.min(.10,base*.8,(1-base)*.8),phase=index*2.39996;
  return base+amplitude*(.65*Math.sin(time*(.75+index*.037)+phase)+.35*Math.sin(time*.43+phase*1.7));
 }
+function paintBlindspotEdge(ctx,w,h,amount,side,time){
+ if(amount<=0)return;
+ ctx.save();
+ const pulse=motionAllowed()?.88+.12*Math.sin(time*2):1;
+ ctx.globalAlpha=amount*pulse;
+ // An elliptical glow fades both toward the road and toward the top/bottom.
+ ctx.translate(side?w:0,(h+22)/2);ctx.scale(Math.min(30,w*.06),Math.max(1,(h-30)/2));
+ const glow=ctx.createRadialGradient(0,0,0,0,0,1);
+ glow.addColorStop(0,'#ffce55b0');glow.addColorStop(.25,'#ffc53675');glow.addColorStop(.65,'#ffbd2928');glow.addColorStop(1,'#ffbd2900');
+ ctx.fillStyle=glow;ctx.fillRect(side?-1:0,-1,1,2);ctx.restore();
+ ctx.save();ctx.globalAlpha=amount*pulse;
+ const rim=ctx.createLinearGradient(0,22,0,h-8);
+ rim.addColorStop(0,'#ffda7000');rim.addColorStop(.15,'#ffda70b0');rim.addColorStop(.5,'#ffe59be6');rim.addColorStop(.85,'#ffda70b0');rim.addColorStop(1,'#ffda7000');
+ ctx.fillStyle=rim;ctx.fillRect(side?w-2:0,22,2,Math.max(0,h-30));ctx.restore();
+}
+
 function paintBlindspotWall(ctx,bottom,top,amount,time,glow=false){
  if(amount<=0)return;ctx.save();ctx.strokeStyle='#ffd367';ctx.lineWidth=.7;ctx.setLineDash([]);
- const grid=new Path2D(),rim=new Path2D(),base=new Path2D();
+ const grid=new Path2D(),rim=new Path2D(),base=new Path2D(),surface=new Path2D();
+ // Fill each continuous wall once: per-segment gradients create visible broad bands.
+ if(glow){
+  let run=[];
+  const flush=()=>{if(run.length>1){surface.moveTo(...bottom[run[0]]);for(const j of run.slice(1))surface.lineTo(...bottom[j]);for(const j of run.slice().reverse())surface.lineTo(...top[j]);surface.closePath()}run=[]};
+  for(let j=0;j<bottom.length;j++){if(bottom[j]&&top[j])run.push(j);else flush()}flush();
+  const points=bottom.concat(top).filter(Boolean);
+  if(points.length){const ys=points.map(p=>p[1]),gradient=ctx.createLinearGradient(0,Math.min(...ys),0,Math.max(...ys)+1);gradient.addColorStop(0,'#ffc94718');gradient.addColorStop(.55,'#ffcd4930');gradient.addColorStop(1,'#ffb92852');ctx.fillStyle=gradient;ctx.globalAlpha=amount;ctx.fill(surface)}
+ }
  for(let i=1;i<bottom.length;i++){
   const a=bottom[i-1],b=bottom[i],c=top[i],d=top[i-1];if(!a||!b||!c||!d)continue;
-  const gradient=ctx.createLinearGradient(a[0],a[1],d[0],d[1]);gradient.addColorStop(0,glow?'#e99b286e':'#ffbd3840');gradient.addColorStop(.45,glow?'#b9792938':'#ffd84d18');gradient.addColorStop(1,glow?'#ffd65a45':'#ffdd5510');ctx.fillStyle=gradient;
-  ctx.beginPath();[a,b,c,d].forEach((p,j)=>j?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.globalAlpha=amount;ctx.fill();
+  if(!glow){const gradient=ctx.createLinearGradient(a[0],a[1],d[0],d[1]);gradient.addColorStop(0,glow?'#e99b286e':'#ffbd3840');gradient.addColorStop(.45,glow?'#b9792938':'#ffd84d18');gradient.addColorStop(1,glow?'#ffd65a45':'#ffdd5510');ctx.fillStyle=gradient;
+  ctx.beginPath();[a,b,c,d].forEach((p,j)=>j?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.globalAlpha=amount;ctx.fill()}
   if(!glow){grid.moveTo(...a);grid.lineTo(...d)}
   if(!glow)for(const ratio of [.25,.5,.75]){grid.moveTo(a[0]+(d[0]-a[0])*ratio,a[1]+(d[1]-a[1])*ratio);grid.lineTo(b[0]+(c[0]-b[0])*ratio,b[1]+(c[1]-b[1])*ratio)}
   for(const [p,q] of [[a,b],[d,c]]){rim.moveTo(...p);rim.lineTo(...q)}
@@ -337,17 +361,18 @@ function paintBlindspotWall(ctx,bottom,top,amount,time,glow=false){
  if(glow){
   const clock=motionAllowed()?time:0;
   const at=(points,position)=>{const x=position*(points.length-1),i=Math.min(points.length-2,Math.floor(x)),a=points[i],b=points[i+1];return a&&b?a.map((v,k)=>v+(b[k]-v)*(x-i)):null};
-  for(let i=0;i<10;i++){
-   const position=blindspotStreakPosition(i,clock),a=at(bottom,position),b=at(top,position);if(!a||!b)continue;
-   const lit=i%2===0;
+  for(let i=0;i<64;i++){
+   const position=blindspotStreakPosition(i,clock,64),a=at(bottom,position),b=at(top,position);if(!a||!b)continue;
+   const lit=i%2===0,strong=i%8===0;
    ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);
-   if(lit){ctx.strokeStyle='#ffbc35';ctx.lineWidth=5;ctx.globalAlpha=amount*.22;ctx.shadowColor='#ffc13e';ctx.shadowBlur=10;ctx.stroke()}
-   ctx.strokeStyle=lit?'#ffe18a':'#ffe3a0';ctx.lineWidth=lit?1.8:(i%3===0?1.5:1);ctx.globalAlpha=amount*(lit?.95:(.4+.22*(.5+.5*Math.sin(clock*.65+i*1.7))));ctx.shadowColor='#ffc83d';ctx.shadowBlur=lit?4:0;
+   if(strong){ctx.strokeStyle='#ffc64b';ctx.lineWidth=2.5;ctx.globalAlpha=amount*.16;ctx.shadowColor='#ffc13e';ctx.shadowBlur=5;ctx.stroke()}
+   ctx.strokeStyle=strong?'#ffe9a0':'#ffd368';ctx.lineWidth=strong?1.2:(lit?.7:.45);ctx.globalAlpha=amount*(strong?.8:(lit?.32:.12)+.08*(.5+.5*Math.sin(clock*.65+i*1.7)));ctx.shadowColor='#ffc83d';ctx.shadowBlur=lit?2:0;
    ctx.stroke();ctx.shadowBlur=0;
   }
   // Perimeter styling is independent of the thin moving vertical streaks.
   ctx.strokeStyle='#ffbc35';ctx.lineWidth=5;ctx.globalAlpha=amount*.22;ctx.shadowColor='#ffc13e';ctx.shadowBlur=10;ctx.stroke(rim);
-  ctx.lineWidth=3;ctx.globalAlpha=amount*.7;ctx.stroke(base);
+  ctx.lineWidth=7;ctx.globalAlpha=amount*.25;ctx.shadowBlur=14;ctx.stroke(base);
+  ctx.lineWidth=2;ctx.globalAlpha=amount*.9;ctx.shadowBlur=5;ctx.stroke(base);
  }
  ctx.strokeStyle='#ffe18a';ctx.lineWidth=glow?1.8:1.4;ctx.globalAlpha=amount*.95;ctx.shadowColor='#ffc83d';ctx.shadowBlur=glow?4:0;ctx.stroke(rim);ctx.restore();
 }
@@ -398,7 +423,6 @@ function render(lazy){
  function line(points,color,dashed,alpha,width=2){path(points);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.setLineDash(dashed?[6,5]:[]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1}
  if(valid){
   const screen=points=>(points||[]).map(p=>p?[X(p[1]),Y(p[0])]:null);
-  if(checked('bsdWalls'))blindspotLevels(data.frames,idx,f.t).forEach((amount,i)=>{const bottom=screen(limitRoadPoints(f.lanes[i+1],Math.min(40,range)));paintBlindspotWall(ctx,bottom,bottom.map(p=>p?[p[0],Math.max(Y(Math.min(40,range)),p[1]-18*amount)]:null),amount,f.t)});
   if(checked('ccncRoad')){
    highlightBands(f.ccncRoad).forEach((color,i)=>{if(color)paintBand(ctx,screen(f.lanes[i]),screen(f.lanes[i+1]),color,.1,.55)});
    const road=f.ccncRoad;
@@ -438,6 +462,7 @@ function render(lazy){
   if(checked('liveTrackLabels'))annotate(targetValue(target,target.yRel),x,y,'#78e9fa',target.y<0?-1:1);
  }
  ctx.restore();
+ if(valid&&checked('bsdWalls'))blindspotLevels(data.frames,idx,t).forEach((amount,i)=>paintBlindspotEdge(ctx,w,h,amount,i,t));
  if(checked('ccncRoad')&&frameAvailable(f))drawBlinkers(ctx,f.roadSignals??f.ccncRoad,f.t,42,w-16,(h-48)/2);
  ctx.fillStyle='#e6edf5';ctx.beginPath();ctx.moveTo(cx,cy-14);ctx.lineTo(cx-7,cy+4);ctx.lineTo(cx+7,cy+4);ctx.closePath();ctx.fill();ctx.textAlign='center';ctx.fillText('내 차량',cx,cy+20);ctx.textAlign='left';
  if(!valid){ctx.fillStyle='#ffd39f';ctx.fillText(missingModelMessage(),45,45)}

@@ -209,7 +209,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    x.stroke=(...args)=>{if(args.length)pathStrokes++;else vertical.push(x.shadowBlur);if(x.strokeStyle==='#ffd367')strokes.push(1);stroke(...args)};
    paintBlindspotWall(x,[[10,90],[190,50]],[[10,10],[190,0]],1,0,true);const camera=strokes.length,cameraBeams=pathStrokes,cameraFills=fills;
    paintBlindspotWall(x,[[10,90],[190,50]],[[10,10],[190,0]],1,0,false);return {camera,cameraBeams,cameraFills,vertical,plan:strokes.length};
-  });assert.deepEqual(wallGrid,{camera:0,cameraBeams:3,cameraFills:1,vertical:Array.from({length:5},()=>[10,4,0]).flat(),plan:1},'five alternating lines use rim glow, five remain thin, and no wide streak fills return');
+  });assert.deepEqual(wallGrid,{camera:0,cameraBeams:4,cameraFills:1,vertical:Array.from({length:64},(_,i)=>i%8===0?[5,2]:[i%2===0?2:0]).flat(),plan:1},'dense fine moving filaments share one seamless surface, with a soft base glow and no wide streak fills');
+  const edgePixels=await page.evaluate(()=>{
+   const c=document.createElement('canvas');c.width=300;c.height=200;const x=c.getContext('2d');
+   const alpha=(px,py)=>x.getImageData(px,py,1,1).data[3];
+   paintBlindspotEdge(x,300,200,1,1,0);
+   const right=[alpha(299,100),alpha(285,100),alpha(150,100),alpha(0,100),alpha(299,22)];
+   x.clearRect(0,0,300,200);paintBlindspotEdge(x,300,200,1,0,0);
+   return {right,left:alpha(0,100),opposite:alpha(299,100)};
+  });assert(edgePixels.right[0]>edgePixels.right[1]&&edgePixels.right[1]>0);assert.equal(edgePixels.right[2],0);assert.equal(edgePixels.right[3],0);assert(edgePixels.right[4]<edgePixels.right[0]);assert(edgePixels.left>0);assert.equal(edgePixels.opposite,0);
   let wallTestTime=0;const wallImage=()=>page.evaluate(time=>{const c=document.createElement('canvas');c.width=200;c.height=100;paintBlindspotWall(c.getContext('2d'),[[10,90],[190,90]],[[10,10],[190,10]],1,time,true);return c.toDataURL()},wallTestTime||0);
   const stillWall=await wallImage();wallTestTime=.8;assert.equal(await wallImage(),stillWall,'reduced motion disables wall scan');
   await page.emulateMedia({reducedMotion:'no-preference'});wallTestTime=0;const scanningWall=await wallImage();wallTestTime=.8;assert.notEqual(await wallImage(),scanningWall,'wall scan follows replay time');await page.emulateMedia({reducedMotion:'reduce'});

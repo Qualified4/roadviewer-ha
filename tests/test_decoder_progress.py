@@ -12,8 +12,8 @@ class DecoderProgressTests(unittest.TestCase):
   payload=bits.to_bytes(32,'little');targets=decoder.ccnc_targets(payload)
   self.assertEqual([t['slot'] for t in targets],['LF','FF','RF'])
   self.assertEqual([t['x'] for t in targets],[25,12.3,35])
-  self.assertEqual([t['yRel'] for t in targets],[3.5,-.5,-4.2])
-  self.assertEqual([t['y'] for t in targets],[-3.5,.5,4.2])
+  self.assertEqual([t['yRel'] for t in targets],[3.5,.5,-4.2])
+  self.assertEqual([t['y'] for t in targets],[-3.5,-.5,4.2])
   self.assertEqual(decoder.ccnc_targets(bytes(32)),[])
   self.assertEqual(decoder.ccnc_targets(bytes(16)),[])
   self.assertEqual(decoder.ccnc_targets(((3<<64)|(2046<<69)).to_bytes(32,'little')),[])
@@ -24,6 +24,14 @@ class DecoderProgressTests(unittest.TestCase):
   self.assertIsNone(decoder.ccnc_at(rows,times,250_000_000))
   self.assertIsNone(decoder.ccnc_at(rows,times,300_000_000))
   self.assertEqual(decoder.ccnc_at(rows,times,400_000_000),[])
+
+ def test_ff_positive_lateral_restores_to_right_of_path(self):
+  targets=decoder.ccnc_targets(((4<<64)|(74<<69)|(12<<80)).to_bytes(32,'little'))
+  model={'position':{'x':[0,9.25,20],'y':[0,.673,1],'z':[0,0,0]}}
+  target=decoder.restore_ccnc_targets(targets,model)[0]
+  self.assertEqual(target['x'],9.25)
+  self.assertEqual(target['y'],1.873)
+  self.assertEqual(target['yRel'],-1.873)
 
  def test_ccnc_road_bits(self):
   bits=(2<<57)|(1<<66)|(250<<69)|(3<<105)|(12<<109)|(1<<120)
