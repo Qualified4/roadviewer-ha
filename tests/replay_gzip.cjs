@@ -28,6 +28,17 @@ const compact={route:'gzip',key:'gzip-key',duration:1,logStart:0,logEnd:.95,warn
    await page.goto('https://rv.test/view/one/');
    await page.waitForFunction(()=>!document.getElementById('play').disabled);
    assert.deepEqual(requests,[supported?'?format=gzip':'']);
+   const fixtures=JSON.parse(require('child_process').execFileSync('python3',['tests/overlay_geometry_fixture.py'],{encoding:'utf8'}));
+   const parity=await page.evaluate(rows=>{
+    let error=0;
+    function compare(a,b){if(typeof b==='number'){if(!Number.isFinite(a))throw Error('nonfinite projection');error=Math.max(error,Math.abs(a-b));return}if(Array.isArray(b)){if(a.length!==b.length)throw Error('geometry length mismatch '+a.length+' vs '+b.length);b.forEach((v,i)=>compare(a[i],v));return}if(b&&typeof b==='object'){for(const k in b)compare(a[k],b[k]);return}if(a!==b)throw Error('geometry value mismatch')}
+    for(const {frame,expected} of rows)compare(buildReplayOverlay(frame,frame.overlay.geometry),expected);
+    const frame=rows[0].frame,source=frame.overlay;
+    const first=frameOverlay(frame,source);if(frameOverlay(frame,source)!==first)throw Error('cache miss');
+    for(let i=0;i<100;i++)frameOverlay({...frame},source);
+    return {error,cache:overlayGeometryCache.size};
+   },fixtures);
+   assert(parity.error<.001,`runtime geometry differs by ${parity.error}`);assert.equal(parity.cache,32);
    const expanded=await page.evaluate(()=>{const f=data.frames[3];return {info:f.cameraInfo,shared:data.frames[0].cameraInfo===data.frames[19].cameraInfo,live:f.liveTracks[0],radar:f.radarTargets[0],point:f.overlay.markers[0].point}});
    assert.deepEqual(expanded.info,info);assert(expanded.shared,'frames share one camera info object');
    assert.equal(expanded.live.index,0);assert.equal(expanded.live.y,-1.25);

@@ -1,7 +1,19 @@
 import math,sys,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
-from overlay import OverlayProjector,project_point,camera_config,projection_coordinates,restore_ccnc_targets
+from overlay_reference import OverlayProjector
+from overlay import project_point,camera_config,projection_coordinates,restore_ccnc_targets
+
+class StoredGeometryTests(unittest.TestCase):
+ def test_only_source_geometry_is_stored(self):
+  from overlay import OverlayProjector as SourceProjector
+  streams={'liveCalibration':[(0,True,{'calStatus':'calibrated','rpyCalib':[0,0,0],'height':[1.2]})],'deviceState':[(0,True,{'deviceType':'tici'})]}
+  model={'position':{'x':[10,20],'y':[0,1],'z':[0,.1]}}
+  out=SourceProjector(streams).project(0,model,{})
+  self.assertEqual(set(out),{'geometry'})
+  self.assertEqual(set(out['geometry']),{'basis','height','lanes','edges','position'})
+  self.assertEqual(out['geometry']['position'],[(10,0,0),(20,1,.1)])
+  self.assertIsNone(SourceProjector({}).project(0,model,{}))
 
 class OverlayTests(unittest.TestCase):
  def test_device_id_is_session_metadata_and_missing_is_unknown(self):

@@ -26,6 +26,21 @@ class CompactTests(unittest.TestCase):
   self.assertEqual(frame['overlay']['lanes'],[[None,[-1.2528,3.0348]]])
   self.assertEqual(compact_data(json.loads(json.dumps(data))),data)
 
+ def test_new_overlay_coordinates_keep_precision_and_gaps(self):
+  overlay={'laneBands':[[[None,[.123456789,.87654321]]]],'laneDepths':[[12.123456789]],
+           'pathProjection':[[1.123456789,2.123456789,.10000123]],
+           'pathSides':[[.123456789,.987654321,.00000123]],
+           'markers':[{'box':[[1.123456789,2.123456789,.10000123]]}]}
+  data={'frames':[{'overlay':overlay,'lp':[.4999999]}]}
+  compact_data(data)
+  self.assertNotIn('laneDepths',overlay)
+  self.assertIsNone(overlay['laneBands'][0][0][0])
+  self.assertEqual(overlay['laneBands'][0][0][1],[.1235,.8765])
+  self.assertEqual(overlay['pathSides'][0],[.123457,.987654,.000001])
+  self.assertEqual(overlay['markers'][0]['box'],overlay['pathProjection'])
+  self.assertEqual(data['frames'][0]['lp'],[.4999999])
+  self.assertEqual(compact_data(json.loads(json.dumps(data))),data)
+
 class MigrationTests(unittest.TestCase):
  def setUp(self):
   self.root=tempfile.TemporaryDirectory();root=Path(self.root.name)
