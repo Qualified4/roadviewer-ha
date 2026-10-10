@@ -81,7 +81,7 @@ for(const event of ['progress','loadedmetadata','loadeddata','durationchange','e
 function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render(lazy)}
 function step(n){if(loading)return;pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
 function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
-function tick(now){if(playing&&data){const next=t+(now-last)/1000*Number($('speed').value);setTime(next>=data.duration-.001?data.duration:next,false,true);if(t>=data.duration)pause()}else window.renderVideoOverlayMotion?.();last=now;requestAnimationFrame(tick)}
+function tick(now){now=Math.max(now,last);if(playing&&data){const next=t+(now-last)/1000*Number($('speed').value);setTime(next>=data.duration-.001?data.duration:next,false,true);if(t>=data.duration)pause()}else window.renderVideoOverlayMotion?.();last=now;requestAnimationFrame(tick)}
 function setPlaybackState(ready,message){
  loading=!ready;$('play').disabled=!ready;
  $('playbackControls').hidden=!ready;$('playbackMessage').hidden=ready;
@@ -232,7 +232,7 @@ function renderSteering(f){
  $('wheelLane').setAttribute('visibility',s?.lane&&!s?.critical?'visible':'hidden');
  $('wheelCritical').setAttribute('visibility',s?.critical?'visible':'hidden');
 }
-function laneAppearance(value,isLane=true){const p=Number.isFinite(value)?Math.max(0,Math.min(1,value)):0;return {width:15*(isLane?Math.min(.75,p):p),alpha:isLane&&p>.75?.075+(p-.75)*.9:.1*p,edge:p}}
+function laneAppearance(value,isLane=true){const p=Number.isFinite(value)?Math.max(0,Math.min(1,value)):0;return {width:15*(isLane?Math.min(.75,p):p),alpha:isLane&&p>.75?.075+(p-.75)*.5:.1*p,edge:p}}
 function ribbonEdges(points,width){
  const left=[],right=[];
  points.forEach((p,i)=>{
