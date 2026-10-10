@@ -67,11 +67,20 @@ class DecoderProgressTests(unittest.TestCase):
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True
    e.init('sendcan',1);e.sendcan[0].address=0x162;e.sendcan[0].src=0;e.sendcan[0].dat=((4<<64)|(200<<69)).to_bytes(32,'little');messages.append(e.to_bytes())
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('sendcan',1);e.sendcan[0].address=0x161;e.sendcan[0].src=0;e.sendcan[0].dat=((1<<66)|(150<<69)|(1<<120)).to_bytes(32,'little');messages.append(e.to_bytes())
+   # New reserved data is recognized, and a future union tag must not abort replay.
+   e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.customReservedRawData1=b'future metadata';messages.insert(1,e.to_bytes())
+   unknown=bytearray(messages[1]);schema=decoder.log.Event.schema
+   self.assertEqual(int.from_bytes(unknown[:4],'little'),0) # one segment
+   pointer=int.from_bytes(unknown[8:16],'little');offset=16+((pointer>>2)&0x3fffffff)*8+schema.node.struct.discriminantOffset*2
+   unknown[offset:offset+2]=schema.node.struct.discriminantCount.to_bytes(2,'little')
+   messages.insert(2,bytes(unknown))
    src=root/'rlog.zst';src.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
    output=io.StringIO();counter=iter(range(10000));reporter=Reporter(output,clock=lambda:next(counter))
    with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src,'Route / segment')
    saved=json.loads(gzip.decompress((dest/'data.json.gz').read_bytes()))
    self.assertFalse((dest/'data.json').exists())
+   self.assertEqual(data['counts']['customReservedRawData1'],1);self.assertEqual(data['counts']['unknownEvent'],1)
+   self.assertTrue(any('이벤트 1개' in warning for warning in data['warnings']))
    # Camera information is stored once and referenced by index from each frame.
    self.assertEqual(saved['cameraInfos'][data['frames'][0]['cameraInfo']]['deviceId'],'test-device-id')
    self.assertEqual(saved['frames'][0]['ccncTargets'][0]['slot'],'FF')

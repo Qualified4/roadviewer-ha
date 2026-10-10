@@ -136,7 +136,12 @@ def prepare(value,route=None):
  video_indices=collections.defaultdict(list)
  models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter()
  for e in log.Event.read_multiple_bytes(raw):
-  kind=e.which();counts[kind]+=1
+  try:kind=e.which()
+  except capnp.KjException as exc:
+   # A newer Event union member has no name in our schema. Preserve known events.
+   if 'Attempted to call which on a non-union type' not in str(exc):raise
+   counts['unknownEvent']+=1;continue
+  counts[kind]+=1
   if kind in ('carState','carControl','controlsState','carOutput','selfdriveState','liveParameters','carParams','liveCalibration'):streams[kind].append((e.logMonoTime,e.valid,pick(getattr(e,kind),SPECS[kind])))
   if kind=='initData':streams[kind].append((e.logMonoTime,e.valid,{'dongleId':str(e.initData.dongleId)}))
   if kind=='deviceState':streams[kind].append((e.logMonoTime,e.valid,{'deviceType':str(e.deviceState.deviceType)}))
@@ -207,6 +212,7 @@ def prepare(value,route=None):
  progress.update('log_analysis',frames=len(frames),total_frames=len(models),force=True)
  frames.sort(key=lambda f:f['t'])
  video_info=None;warnings=[]
+ if counts['unknownEvent']:warnings.append(f"지원하지 않는 새 로그 이벤트 {counts['unknownEvent']}개를 건너뛰었습니다.")
  video_inputs={key:next((src.parent/name for name in names[:2] if (src.parent/name).is_file()),None) for key,names in SOURCES.items()}
  camera_progress=VideoProgress(progress,sum(path is not None for path in video_inputs.values()))
  try:
