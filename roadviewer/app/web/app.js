@@ -80,7 +80,7 @@ for(const event of ['progress','loadedmetadata','loadeddata','durationchange','e
 function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render(lazy)}
 function step(n){if(loading)return;pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
 function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
-function tick(now){if(playing&&data){setTime(t+(now-last)/1000*Number($('speed').value),false,true);if(t>=data.duration-.001)pause()}else window.renderVideoOverlayMotion?.();last=now;requestAnimationFrame(tick)}
+function tick(now){if(playing&&data){const next=t+(now-last)/1000*Number($('speed').value);setTime(next>=data.duration-.001?data.duration:next,false,true);if(t>=data.duration)pause()}else window.renderVideoOverlayMotion?.();last=now;requestAnimationFrame(tick)}
 function setPlaybackState(ready,message){
  loading=!ready;$('play').disabled=!ready;
  $('playbackControls').hidden=!ready;$('playbackMessage').hidden=ready;
