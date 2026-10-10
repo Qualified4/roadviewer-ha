@@ -48,6 +48,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#modelPath').uncheck();assert(!(await pixels()));
   await page.evaluate(()=>{data.frames[0].leads=[{x:20,y:0,p:1}];data.frames[0].overlay.markers=[{kind:'model',index:0,point:[.5,.8],projection:[.5,.8,1]}];data.frames[0].overlay.heightDirection=[0,-1,0];document.getElementById('hideLabels').checked=true;render()});
   assert(await pixels());
+  await page.evaluate(()=>{data.frames[0].leads[0].x=100;render()});assert(await pixels(),'camera markers beyond the road range remain visible');
+  await page.evaluate(()=>{data.frames[0].leads[0].x=20;render()});
   const alphaAt=y=>page.evaluate(y=>{const c=document.getElementById('videoOverlay');return c.getContext('2d').getImageData(Math.floor(c.width*.5),Math.floor((c.height-c.width*90/160)/2+c.width*90/160*y),1,1).data[3]},y);
   assert(await alphaAt(.65)>0,'raised marker must connect to ground');
   await settingAction('#overlayHeight','click');
@@ -92,6 +94,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const overlayImage=()=>page.locator('#videoOverlay').evaluate(c=>c.toDataURL());
   const setBoxHeight=async value=>page.locator('#ccncBoxHeight').evaluate((e,v)=>{e.value=v;e.dispatchEvent(new Event('input'))},value);
   await setBoxHeight(0);const flat=await overlayImage();assert(await pixels(),'zero height keeps the footprint');
+  await page.evaluate(()=>{window.savedBoxDistance=data.frames[0].ccncTargets[0].x;data.frames[0].ccncTargets[0].x=100;render()});assert(await pixels(),'camera boxes beyond the road range remain visible');
+  await page.evaluate(()=>{data.frames[0].ccncTargets[0].x=savedBoxDistance;render()});
   await setBoxHeight(300);assert.notEqual(await overlayImage(),flat,'box grows from its base');
   await setBoxHeight(150);
   const beforeHeight=await overlayImage();
@@ -179,6 +183,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.deepEqual(shared.ribbon,[[[0,.9],[10,.9]],[[0,-.9],[10,-.9]]]);
   await page.evaluate(()=>{const f=data.frames[0];f.overlay.path=[];f.overlay.targetLine=[[.3,.7],[.7,.7]];f.ccncRoad={target:1,distance:25,highlight:0,left:0,right:0};render()});
   assert(await pixels(),'target distance line draws');
+  await page.evaluate(()=>{data.frames[0].ccncRoad.distance=100;render()});assert(await pixels(),'camera TARGET beyond the road range remains visible');
+  await page.evaluate(()=>{data.frames[0].ccncRoad.distance=25;render()});
+
   await page.evaluate(()=>{data.frames[0].lanes=[[],[[0,-2],[50,-2]],[[0,2],[50,2]]];render()});
   const targetLabels=()=>renderedLabels().then(rows=>rows.filter(row=>row.text.startsWith('TARGET')));
   assert.equal((await targetLabels()).length,2,'TARGET labels appear in camera and road views');
