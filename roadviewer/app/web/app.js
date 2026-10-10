@@ -123,7 +123,7 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
  data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){videoReadyPending=true;v.src=new URL('../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now()),location.href).href;setPlaybackState(false,'영상을 불러오는 중입니다. 잠시 기다려 주세요.');v.load()}else{setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료')}};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)playbackError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
-for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
+for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 document.onkeydown=e=>{if(['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
 function renderSteering(f){
@@ -139,6 +139,7 @@ function renderSteering(f){
  $('wheelLane').setAttribute('visibility',s?.lane&&!s?.critical?'visible':'hidden');
  $('wheelCritical').setAttribute('visibility',s?.critical?'visible':'hidden');
 }
+function laneAppearance(value){const p=Number.isFinite(value)?Math.max(0,Math.min(1,value)):0;return {width:.5+2.5*p,alpha:p}}
 let renderedFrame='';
 function render(lazy){
  window.renderTelemetry?.();
@@ -180,9 +181,9 @@ function render(lazy){
   if(!box)return;labels.push(box);ctx.strokeStyle=color;ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(side>0?box.left:box.right,box.top+6);ctx.stroke();ctx.fillStyle=color;ctx.textAlign='left';lines.forEach((line,i)=>ctx.fillText(line,box.left,box.top+10+i*13));
  }
  function path(points){ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(X(y),Y(x)):ctx.moveTo(X(y),Y(x)))}
- function line(points,color,dashed,alpha){path(points);ctx.strokeStyle=color;ctx.lineWidth=2;ctx.globalAlpha=alpha;ctx.setLineDash(dashed?[6,5]:[]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1}
+ function line(points,color,dashed,alpha,width=2){path(points);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.setLineDash(dashed?[6,5]:[]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1}
  if(valid){
-  if(checked('lanes')){if(f.lanes[1]?.length&&f.lanes[2]?.length){path([...f.lanes[1],...f.lanes[2].slice().reverse()]);ctx.closePath();ctx.fillStyle='rgba(87,217,176,0.065)';ctx.fill()}f.lanes.forEach((l,i)=>line(l,'#57d9b0',f.lp[i]<.5,(i===1||i===2)?.9:.3))}
+  if(checked('lanes')){if(f.lanes[1]?.length&&f.lanes[2]?.length){path([...f.lanes[1],...f.lanes[2].slice().reverse()]);ctx.closePath();ctx.fillStyle=`rgba(87,217,176,${.065*Math.min(laneAppearance(f.lp[1]).alpha,laneAppearance(f.lp[2]).alpha)})`;ctx.fill()}f.lanes.forEach((l,i)=>{const style=laneAppearance(f.lp[i]);line(l,'#57d9b0',false,style.alpha,style.width)})}
   if(checked('edges'))f.edges.forEach((l,i)=>line(l,'#ffa665',f.es[i]>1,.95));
   if(checked('modelPath')&&f.position?.length>1)line(f.position,'#c4a5ff',false,1);
   if(checked('leads')){
@@ -195,6 +196,13 @@ function render(lazy){
    annotate(`${style.label} ${target.index+1} · ${targetValue(target,target.yRel)}`,x,y,style.color,target.group==='left'?-1:1);
   }
  }
+ if(checked('ccncTargets')&&frameAvailable(f))for(const target of f.ccncTargets||[]){
+  if(target.x<0||target.x>range)continue;
+  const x=X(target.y),y=Y(target.x),color=target.detect%2?'#94a5b8':'#f4f7fb';
+  ctx.strokeStyle=color;ctx.lineWidth=2;ctx.strokeRect(x-8,y-11,16,22);
+  annotate(`${target.slot} · ${targetValue(target,target.yRel)}`,x,y,color,target.slot==='LF'?-1:1);
+ }
+ $('ccncStatus').textContent=checked('ccncTargets')&&(!frameAvailable(f)||f.ccncTargets==null)?'이 시점의 CCNC 송신 데이터가 없습니다.':'';
  const rawVisible=frameAvailable(f)&&f.liveTracksValid;
  const rawTargets=rawVisible?(f.liveTracks||[]).filter(target=>!checked('hideScc')||String(target.source).toLowerCase()!=='scc'):[];
  if(checked('liveTracks'))for(const target of rawTargets){

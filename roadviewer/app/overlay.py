@@ -77,10 +77,16 @@ class OverlayProjector:
     if a[0]<=x<=b[0] and b[0]>a[0]:return a[2]+(b[2]-a[2])*(x-a[0])/(b[0]-a[0])+height
    return min(path,key=lambda p:abs(p[0]-x))[2]+height
   markers=[]
-  groups=[('model',frame.get('leads',[])),('selected',[frame['selected']] if frame.get('selected') else []),('radar',frame.get('radarTargets',[])),('raw',frame.get('liveTracks',[]))]
+  groups=[('model',frame.get('leads',[])),('selected',[frame['selected']] if frame.get('selected') else []),('radar',frame.get('radarTargets',[])),('raw',frame.get('liveTracks',[])),('ccnc',frame.get('ccncTargets') or [])]
   for kind,targets in groups:
    for i,target in enumerate(targets):
     x,y=target['x'],target['y']
     point=project_point((x,y,ground_z(x)),rpy,config) if x>0 else None
-    if point:markers.append({'kind':kind,'index':i,'point':point,'projection':projection_coordinates((x,y,ground_z(x)),rpy,config)})
+    if point:
+     marker={'kind':kind,'index':i,'point':point,'projection':projection_coordinates((x,y,ground_z(x)),rpy,config)}
+     if kind=='ccnc':
+      # Rear-bottom midpoint is the target. Nominal passenger-car dimensions, not measured size.
+      marker['box']=[projection_coordinates((x+dx,y+dy,ground_z(x+dx)-up),rpy,config)
+                     for up in (0,1.5) for dx in (0,4.5) for dy in (-.9,.9)]
+     markers.append(marker)
   return {'heightDirection':projection_coordinates((0,0,-1),rpy,config),'lanes':[line(l) for l in model.get('laneLines',[])],'edges':[line(l) for l in model.get('roadEdges',[])],'path':line(model.get('position',{}),height),'markers':markers}

@@ -1,6 +1,12 @@
 'use strict';
 (()=>{
  const layer=document.getElementById('videoOverlay'),context=layer.getContext('2d'),video=document.getElementById('video'),button=document.getElementById('videoOverlayToggle'),status=document.getElementById('overlayStatus');
+ let boxOpacity=.3;
+ const opacitySlider=document.getElementById('ccncOpacity'),opacityValue=document.getElementById('ccncOpacityValue');
+ try{const saved=localStorage.getItem('roadviewer-ccnc-opacity');if(saved!==null&&Number.isFinite(Number(saved)))boxOpacity=Math.max(0,Math.min(1,Number(saved)))}catch{}
+ const syncOpacity=()=>{opacitySlider.value=String(Math.round(boxOpacity*100));opacityValue.textContent=opacitySlider.value+'%'};
+ syncOpacity();
+ opacitySlider.oninput=()=>{boxOpacity=Number(opacitySlider.value)/100;syncOpacity();try{localStorage.setItem('roadviewer-ccnc-opacity',String(boxOpacity))}catch{}render()};
  let enabled=false,raised=true,heightCm=60;
  try{const saved=localStorage.getItem('roadviewer-overlay-height-cm');if(saved!==null&&Number.isFinite(Number(saved)))heightCm=Math.max(0,Math.min(200,Math.round(Number(saved))))}catch{}
  const heightButton=document.getElementById('overlayHeight');
@@ -56,20 +62,40 @@
   const ratio=Math.min(w/video.videoWidth,h/video.videoHeight),vw=video.videoWidth*ratio,vh=video.videoHeight*ratio,left=(w-vw)/2,top=(h-vh)/2;
   const xy=p=>[left+p[0]*vw,top+p[1]*vh];
   context.save();context.beginPath();context.rect(left,top,vw,vh);context.clip();
-  function line(points,color,dashed=false,alpha=1){
+  function line(points,color,dashed=false,alpha=1,width=2){
    context.beginPath();let connected=false;
    for(const point of points||[]){if(!point){connected=false;continue}const [x,y]=xy(point);if(connected)context.lineTo(x,y);else context.moveTo(x,y);connected=true}
-   context.strokeStyle=color;context.lineWidth=2;context.globalAlpha=alpha;context.setLineDash(dashed?[6,5]:[]);context.stroke();context.setLineDash([]);context.globalAlpha=1;
+   context.strokeStyle=color;context.lineWidth=width;context.globalAlpha=alpha;context.setLineDash(dashed?[6,5]:[]);context.stroke();context.setLineDash([]);context.globalAlpha=1;
   }
   if(frame.valid){
-   if(on('lanes'))frame.overlay.lanes.forEach((points,i)=>line(points,'#57d9b0',frame.lp[i]<.5,frame.lp[i]<.5?.4:.9));
+   if(on('lanes'))frame.overlay.lanes.forEach((points,i)=>{const style=laneAppearance(frame.lp[i]);line(points,'#57d9b0',false,style.alpha,style.width)});
    if(on('edges'))frame.overlay.edges.forEach((points,i)=>line(points,'#ffa665',frame.es[i]>1));
    if(on('modelPath'))line(frame.overlay.path,'#c4a5ff');
   }
+  function drawBox(marker,color,target){
+   if(marker.box?.length!==8||!marker.box.every(p=>p?.length===3&&p.every(Number.isFinite)&&p[2]>.1))return;
+   const corners=marker.box.map(p=>xy([p[0]/p[2],p[1]/p[2]]));
+   const faces=[[0,1,5,4],[4,5,7,6],[1,3,7,5],[2,0,4,6],[3,2,6,7]];
+   context.save();context.fillStyle=color;context.strokeStyle=color;context.lineWidth=1.2;
+   for(const face of faces){
+    const points=face.map(i=>corners[i]);
+    const area=points.reduce((sum,p,i)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1]},0);
+    if(area>=0)continue; // Only camera-facing surfaces: no doubled alpha through the box.
+    context.beginPath();points.forEach(([x,y],i)=>i?context.lineTo(x,y):context.moveTo(x,y));context.closePath();
+    context.globalAlpha=boxOpacity;context.fill();context.globalAlpha=.85;context.stroke();
+   }
+   context.globalAlpha=1;
+   const text=label(target),x=(corners[4][0]+corners[5][0])/2,y=Math.min(...corners.slice(4).map(p=>p[1]))-8;
+   if(text){context.lineWidth=3;context.strokeStyle='#000c';context.strokeText(`${target.slot} · ${text}`,x,y);context.fillStyle=color;context.fillText(`${target.slot} · ${text}`,x,y)}
+   context.restore();
+  }
   context.font='11px system-ui';context.textAlign='center';
-  for(const marker of frame.overlay.markers){
+  for(const marker of [...frame.overlay.markers].sort((a,b)=>a.kind==='ccnc'&&b.kind==='ccnc'?(frame.ccncTargets[b.index].x-frame.ccncTargets[a.index].x):a.kind==='ccnc'?-1:b.kind==='ccnc'?1:0)){
    let target,color='#81b5ff',shape='circle';
-   if(marker.kind==='raw'){
+   if(marker.kind==='ccnc'){
+    if(!on('ccncTargets'))continue;
+    target=frame.ccncTargets?.[marker.index];color=target?.detect%2?'#94a5b8':'#f4f7fb';shape='box';
+   }else if(marker.kind==='raw'){
     if(!on('liveTracks')||!frame.liveTracksValid)continue;
     target=frame.liveTracks[marker.index];
     if(on('hideScc')&&String(target?.source).toLowerCase()==='scc')continue;
@@ -86,6 +112,7 @@
     }
    }
    if(!target||target.x>Number(document.getElementById('range').value))continue;
+   if(marker.kind==='ccnc'){drawBox(marker,color,target);continue}
    let point=marker.point;
    if(height>0){
     if(!marker.projection||!frame.overlay.heightDirection)continue;
@@ -109,7 +136,7 @@
    context.globalAlpha=1;
   }
   context.restore();
-  status.textContent='차량은 위치 표식으로 표시됩니다.';
+  status.textContent=on('ccncTargets')?'LF · FF · RF 박스는 지면에 고정됩니다. 크기는 추정값입니다.':'차량은 위치 표식으로 표시됩니다.';
  };
  heightButton.onclick=()=>{raised=!raised;heightButton.setAttribute('aria-pressed',String(raised));try{localStorage.setItem('roadviewer-overlay-height',String(raised))}catch{}moveHeight()};
  button.onclick=()=>{
