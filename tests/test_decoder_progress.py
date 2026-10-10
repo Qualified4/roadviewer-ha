@@ -25,6 +25,14 @@ class DecoderProgressTests(unittest.TestCase):
   self.assertIsNone(decoder.ccnc_at(rows,times,300_000_000))
   self.assertEqual(decoder.ccnc_at(rows,times,400_000_000),[])
 
+ def test_ccnc_road_bits(self):
+  bits=(2<<57)|(1<<66)|(250<<69)|(3<<105)|(12<<109)|(1<<120)
+  road=decoder.ccnc_road(bits.to_bytes(32,'little'))
+  self.assertEqual(road,{'target':1,'distance':25.,'highlight':3,'left':1,'right':0,'blinkerLeft':True,'blinkerRight':False})
+  self.assertNotIn('highlightDistance',road)
+  self.assertFalse(decoder.ccnc_road(bytes(32))['target'])
+  self.assertIsNone(decoder.ccnc_road(bytes(16)))
+
  def test_real_video_and_log_progress(self):
   with tempfile.TemporaryDirectory() as root:
    root=Path(root);video=root/'qcamera.ts'
@@ -43,13 +51,14 @@ class DecoderProgressTests(unittest.TestCase):
     for name,values in [('modelV2',dict(frameId=i,timestampEof=stamp,laneLines=[],laneLineProbs=[],roadEdges=[],roadEdgeStds=[])),('qRoadEncodeIdx',dict(frameId=i,segmentId=i,timestampEof=stamp))]:
      e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
    for i in range(100):
-    e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10+i*.01)*1e9);e.valid=True;e.init('carState');e.carState.vEgo=20;e.carState.engineRpm=1800;e.carState.gas=.25;e.carState.steeringPressed=i==31;messages.append(e.to_bytes())
+    e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10+i*.01)*1e9);e.valid=True;e.init('carState');e.carState.leftBlindspot=i<20;e.carState.rightBlindspot=i>=20;e.carState.leftBlinker=True;e.carState.vEgo=20;e.carState.engineRpm=1800;e.carState.gas=.25;e.carState.steeringPressed=i==31;messages.append(e.to_bytes())
    for name,values in [('carControl',{'latActive':True,'longActive':True,'actuators':{'steeringAngleDeg':7,'accel':-1.5,'aTarget':-1.2,'jerk':-.3,'longControlState':'stopping'}}),('carOutput',{'actuatorsOutput':{'gas':.25,'brake':.5,'accel':-1}}),('controlsState',{'lateralControlState':{'torqueState':{'active':True,'actualLateralAccel':.8,'desiredLateralAccel':1.2}}})]:
     e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10)*1e9);e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
    stamp=round((pts[0]+10)*1e9)
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('carParams');e.carParams.brand='hyundai';messages.append(e.to_bytes())
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True
    e.init('sendcan',1);e.sendcan[0].address=0x162;e.sendcan[0].src=0;e.sendcan[0].dat=((4<<64)|(200<<69)).to_bytes(32,'little');messages.append(e.to_bytes())
+   e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('sendcan',1);e.sendcan[0].address=0x161;e.sendcan[0].src=0;e.sendcan[0].dat=((1<<66)|(150<<69)|(1<<120)).to_bytes(32,'little');messages.append(e.to_bytes())
    src=root/'rlog.zst';src.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
    output=io.StringIO();counter=iter(range(10000));reporter=Reporter(output,clock=lambda:next(counter))
    with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src,'Route / segment')
@@ -60,6 +69,11 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertEqual(saved['frames'][0]['ccncTargets'][0]['slot'],'FF')
    self.assertEqual(saved['frames'][0]['ccncTargets'][0]['x'],20)
    self.assertIsNone(saved['frames'][-1]['ccncTargets'])
+   self.assertEqual(saved['frames'][0]['roadSignals'],{'blinkerLeft':True,'blinkerRight':False,'blindspotLeft':True,'blindspotRight':False})
+   self.assertTrue(saved['frames'][-1]['roadSignals']['blindspotRight'])
+   self.assertEqual(saved['frames'][0]['ccncRoad']['distance'],15)
+   self.assertEqual(saved['frames'][0]['ccncRoad']['left'],1)
+   self.assertIsNone(saved['frames'][-1]['ccncRoad'])
    self.assertEqual(saved['route'],'Route / segment');self.assertNotIn('path',saved)
    self.assertEqual(json.loads((dest/'summary.json').read_text())['model_frames'],20)
    self.assertEqual(saved['cameraInfos'][0]['calibrationStatus'],'unknown')

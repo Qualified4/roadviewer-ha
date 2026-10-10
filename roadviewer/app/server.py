@@ -67,7 +67,7 @@ def run_job(id):
       elif (p/'qcamera.ts').is_file():
        (p/'camera.mp4').unlink(missing_ok=True)
       m['bytes']=original_bytes(p)
-     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v23-ccnc-targets');save_meta(p,m)
+     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v24-ccnc-road-overlay');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
@@ -638,7 +638,7 @@ def requeue_startup():
  pending=[]
  for p in recording_paths():
   m=read_meta(p)
-  stale=m['status']=='ready' and (m.get('decoder_version')!='v23-ccnc-targets' or bool(m.get('video'))!=has_video(p) or prepared_file(p,'data.json')[0] is None)
+  stale=m['status']=='ready' and (m.get('decoder_version')!='v24-ccnc-road-overlay' or bool(m.get('video'))!=has_video(p) or prepared_file(p,'data.json')[0] is None)
   if m['status'] in ('queued','processing') or stale:
    clear_prepared(p,m)
    m.update(status='unconverted',video=has_video(p))

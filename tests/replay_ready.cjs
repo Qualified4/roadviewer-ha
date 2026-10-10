@@ -73,7 +73,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const route=await page.locator('.replay-heading .route').boundingBox();
    assert(route.y>=stuck.y+stuck.height&&route.y+route.height<=heading.y+heading.height);
    assert.equal(await page.locator('.camera-panel .note').count(),0);
-   assert((await page.locator('.road-panel .note').textContent()).includes('차선: 확률이 높을수록 굵고 선명하게 표시'));
+   assert((await page.locator('.road-panel .note').textContent()).includes('차선: 확률이 높을수록 넓고 선명하게 표시'));
    assert.equal(await page.getByRole('tab',{name:'주행 상황',exact:true}).getAttribute('aria-selected'),'true');
    for(const selector of ['.back','#previousLog','#nextLog']){
     const box=await page.locator(selector).boundingBox();
