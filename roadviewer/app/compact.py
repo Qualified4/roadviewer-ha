@@ -11,6 +11,12 @@ def r4(value): return round(value, 4) if isinstance(value, float) else value
 
 def round_points(points): return [[r4(p[0]), r4(p[1])] if p else p for p in points] if points else points
 
+def round_coordinates(value, digits):
+    # Only coordinate arrays: never change confidence values or detection thresholds.
+    if isinstance(value, (list, tuple)): return [round_coordinates(item, digits) for item in value]
+    return round(value, digits) if isinstance(value, float) else value
+
+
 def compact_target(target, fields=('x', 'yRel', 'vRel')):
     for key in fields:
         if key in target: target[key] = r4(target[key])
@@ -38,11 +44,22 @@ def compact_data(data):
             for key in ('x', 'y', 'vRel'):
                 if key in frame['selected']: frame['selected'][key] = r4(frame['selected'][key])
         overlay = frame.get('overlay')
+        if overlay and 'geometry' in overlay:
+            overlay['geometry'] = {key:round_coordinates(value, 6 if key == 'basis' else 4) for key,value in overlay['geometry'].items()}
+            continue
         if overlay:
             # Normalised image coordinates: 1e-4 is about 0.2 px on the 1928 px sensor.
             for key in ('lanes', 'edges'): overlay[key] = [round_points(line) for line in overlay.get(key, [])]
             overlay['path'] = round_points(overlay.get('path'))
+            for key in ('laneBands', 'edgeBands', 'targetLine'):
+                if key in overlay: overlay[key] = round_coordinates(overlay[key], 4)
+            # Homogeneous projections are divided by depth; keep six decimals for
+            # near-plane points and adjustable path width / wall height vectors.
+            for key in ('blindspotPaths', 'pathProjection', 'pathSides', 'targetSections', 'heightDirection'):
+                if key in overlay: overlay[key] = round_coordinates(overlay[key], 6)
+            overlay.pop('laneDepths', None)  # No renderer consumes this duplicate depth array.
             for marker in overlay.get('markers', []):
+                if 'box' in marker: marker['box'] = round_coordinates(marker['box'], 6)
                 if marker.get('projection'):
                     # The point is projection[0:2] / projection[2]; the browser recomputes it.
                     marker.pop('point', None)

@@ -100,12 +100,59 @@ async function readReplayJson(response){
  return new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).json();
 }
 // Undo compact.py: shared camera info, values derivable from others, and marker points.
+// Derived geometry is bounded to recent frames (box fade needs short history).
+const overlayGeometryCache=new Map();
+function buildReplayOverlay(frame,g){
+ const project=p=>p&&p.length===3&&p.every(Number.isFinite)?[0,1,2].map(k=>p.reduce((sum,v,i)=>sum+v*g.basis[i][k],0)):null;
+ const screen=p=>{const q=project(p);if(!q||q[2]<=.1)return null;const uv=[q[0]/q[2],q[1]/q[2]];return uv.every(v=>Math.abs(v)<10)?uv:null};
+ const sample=(points,x)=>{for(let i=1;i<points.length;i++){const a=points[i-1],b=points[i];if(a.length!==3||b.length!==3||![...a,...b].every(Number.isFinite))continue;if(a[0]<=x&&x<=b[0]&&b[0]>a[0]){const t=(x-a[0])/(b[0]-a[0]);return [x,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t]}}return null};
+ const normal=(points,i)=>{const a=points[Math.max(0,i-1)],b=points[Math.min(points.length-1,i+1)],dx=b[0]-a[0],dy=b[1]-a[1],n=Math.hypot(dx,dy);return n?[-dy/n,dx/n,0]:[0,1,0]};
+ const band=(points,confidence)=>{const width=.15*Math.max(0,Math.min(1,Number.isFinite(confidence)?confidence:0));return [-1,1].map(sign=>points.map((p,i)=>{const n=normal(points,i);return screen(p.map((v,k)=>v+n[k]*width*sign))}))};
+ const inner=g.lanes.slice(1,3),path=g.position,height=g.height;
+ const ground=x=>{if(!path.length)return height;const p=sample(path,x);return (p||path.reduce((a,b)=>Math.abs(a[0]-x)<=Math.abs(b[0]-x)?a:b))[2]+height};
+ const blindspotPaths=inner.map(points=>{if(points.length<2||!points.every(p=>Number.isFinite(p[0])))return [];const start=Math.max(0,points[0][0]),end=Math.min(40,points.at(-1)[0]);if(end<=start)return [];const xs=[start];for(let x=2;x<40;x+=2)if(start<x&&x<end)xs.push(x);xs.push(end);return xs.map(x=>project(sample(points,x)))});
+ let targetLine=[];const targetSections=[],road=frame.ccncRoad||{},distance=road.distance||0;
+ if([1,3].includes(road.target)&&distance>0&&distance<204.6)targetLine=inner.map(points=>screen(sample(points,distance)));
+ if(targetLine.length===2&&targetLine.every(Boolean))for(let i=0;i<17;i++){
+  const a=sample(inner[0],distance-i*.5),b=sample(inner[1],distance-i*.5);if(!a||!b||a[0]<=0)break;
+  const width=Math.hypot(...a.map((v,k)=>v-b[k]));if(width<.1)break;
+  const center=a.map((v,k)=>(v+b[k])/2),side=a.map((v,k)=>(b[k]-v)/width);
+  if(![-1,1].every(sign=>screen(center.map((v,k)=>v+sign*.9*side[k]))))break;
+  targetSections.push([project(center),project(side)]);
+ }
+ if(targetSections.length){const [center,side]=targetSections[0];targetLine=[-1,1].map(sign=>{const p=center.map((v,k)=>v+sign*.9*side[k]);return [p[0]/p[2],p[1]/p[2]]})}
+ const markers=[];
+ for(const [kind,targets] of [['model',frame.leads||[]],['selected',frame.selected?[frame.selected]:[]],['radar',frame.radarTargets||[]],['raw',frame.liveTracks||[]],['ccnc',frame.ccncTargets||[]]])targets.forEach((target,index)=>{
+  const x=target.x,y=target.y??-target.yRel,p=[x,y,ground(x)],point=x>0?screen(p):null;if(!point)return;
+  const marker={kind,index,point,projection:project(p)};
+  if(kind==='ccnc'){
+   let fx=1,fy=0;
+   if(inner.length===2){const samples=inner.map(line=>[sample(line,x),sample(line,x+5)]);if(samples.every(pair=>pair.every(Boolean))){const lateral=samples.reduce((sum,[a,b])=>sum+b[1]-a[1],0)/2,length=Math.hypot(5,lateral);fx=5/length;fy=lateral/length}}
+   marker.box=[];for(const up of [0,1.5])for(const dx of [0,4.5])for(const dy of [-.9,.9])marker.box.push(project([x+dx*fx-dy*fy,y+dx*fy+dy*fx,ground(x+dx*fx)-up]));
+  }
+  markers.push(marker);
+ });
+ return {lanes:g.lanes.map(line=>line.map(screen)),edges:g.edges.map(line=>line.map(screen)),path:path.map(([x,y,z])=>screen([x,y,z+height])),
+  laneBands:g.lanes.map((line,i)=>band(line,frame.lp?.[i])),edgeBands:g.edges.map((line,i)=>band(line,edgeConfidence(frame.es?.[i]))),
+  blindspotPaths,pathProjection:path.map(([x,y,z])=>project([x,y,z+height])),pathSides:path.map((p,i)=>project(normal(path,i))),
+  targetLine,targetSections,heightDirection:project([0,0,-1]),markers};
+}
+function frameOverlay(frame,source){
+ if(!source?.geometry)return source;
+ if(overlayGeometryCache.has(frame))return overlayGeometryCache.get(frame);
+ const result=buildReplayOverlay(frame,source.geometry);overlayGeometryCache.set(frame,result);
+ if(overlayGeometryCache.size>32)overlayGeometryCache.delete(overlayGeometryCache.keys().next().value);
+ return result;
+}
+
 function expandReplayData(replay){
+ overlayGeometryCache.clear();
  const infos=replay.cameraInfos;
  for(const frame of replay.frames){
   if(infos&&typeof frame.cameraInfo==='number')frame.cameraInfo=infos[frame.cameraInfo];
   frame.liveTracks?.forEach((target,i)=>{target.index??=i;target.y??=-target.yRel});
   frame.radarTargets?.forEach(target=>{target.y??=-target.yRel});
+  if(frame.overlay?.geometry){let source=frame.overlay;Object.defineProperty(frame,'overlay',{configurable:true,enumerable:true,get:()=>frameOverlay(frame,source),set:value=>{source=value;overlayGeometryCache.delete(frame)}});continue}
   for(const marker of frame.overlay?.markers||[])if(!marker.point&&marker.projection){const [a,b,c]=marker.projection;marker.point=[a/c,b/c]}
  }
  return replay;
@@ -243,6 +290,7 @@ function ccncBoxTransitions(frames,index,time){
  const find=(i,slot)=>{
   const frame=frames[i];if(!frame?.valid||!Array.isArray(frame.ccncTargets))return null;
   const targetIndex=frame.ccncTargets.findIndex(target=>target.slot===slot),target=frame.ccncTargets[targetIndex];
+  if(!target)return null;
   const marker=frame.overlay?.markers?.find(marker=>marker.kind==='ccnc'&&marker.index===targetIndex);
   return target&&marker?.box?.length===8?{target,marker}:null;
  };

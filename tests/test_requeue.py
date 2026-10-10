@@ -10,7 +10,7 @@ class RequeueTests(unittest.TestCase):
  def test_cleanup_finishes_before_any_job_and_preserves_originals(self):
   with tempfile.TemporaryDirectory() as root,patch.object(server,'ROOT',Path(root)):
    paths=[]
-   for n,status,version in [(1,'ready','v25-road-perspective'),(2,'processing','old'),(3,'queued','old'),(4,'ready','v27-ff-sign-telemetry')]:
+   for n,status,version in [(1,'ready','v25-road-perspective'),(2,'processing','old'),(3,'queued','old'),(4,'ready','v28-runtime-geometry')]:
     p=Path(root)/f'{n:032x}';p.mkdir();paths.append(p)
     (p/'rlog.zst').write_bytes(b'original log');(p/'qcamera.ts').write_bytes(b'original video')
     (p/'prepared').mkdir();(p/'prepared/camera.mp4').write_bytes(b'old mp4');(p/'prepared/data.json').write_text('{}')
@@ -52,7 +52,7 @@ class RequeueTests(unittest.TestCase):
  def test_restored_backup_without_video_is_rebuilt_as_log_only(self):
   with tempfile.TemporaryDirectory() as root,patch.object(server,'ROOT',Path(root)),patch.object(server,'submit') as submit:
    p=Path(root)/('c'*32);p.mkdir();(p/'rlog.zst').write_bytes(b'log');(p/'prepared').mkdir();(p/'prepared/data.json').write_text('{}')
-   server.save_meta(p,dict(id=p.name,status='ready',video=True,decoder_version='v27-ff-sign-telemetry'))
+   server.save_meta(p,dict(id=p.name,status='ready',video=True,decoder_version='v28-runtime-geometry'))
    server.requeue_startup()
    submit.assert_called_once_with(p.name);self.assertFalse(server.read_meta(p)['video']);self.assertFalse((p/'prepared').exists())
 if __name__=='__main__':unittest.main()
