@@ -232,7 +232,7 @@ function renderSteering(f){
  $('wheelLane').setAttribute('visibility',s?.lane&&!s?.critical?'visible':'hidden');
  $('wheelCritical').setAttribute('visibility',s?.critical?'visible':'hidden');
 }
-function laneAppearance(value,isLane=true){const p=Number.isFinite(value)?Math.max(0,Math.min(1,value)):0;return {width:15*(isLane?Math.min(.75,p):p),alpha:isLane&&p>.75?.075+(p-.75)*.9:.1*p,edge:p}}
+function laneAppearance(value,isLane=true){const p=Number.isFinite(value)?Math.max(0,Math.min(1,value)):0;return {width:15*(isLane?Math.min(.75,p):p),alpha:isLane&&p>.75?.075+(p-.75)*.5:.1*p,edge:p}}
 function ribbonEdges(points,width){
  const left=[],right=[];
  points.forEach((p,i)=>{
