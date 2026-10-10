@@ -36,7 +36,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   }
   await page.locator('#overlayHeightClose').click();await page.locator('#overlayHeightDialog').waitFor({state:'hidden'});
 
-  assert(await page.locator('#videoOverlay').isHidden());
+  assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true','overlay enabled by default');
+  assert(await page.locator('#videoOverlay').isVisible());
+  await page.locator('#videoOverlayToggle').click();
+  await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  assert(await page.locator('#videoOverlay').isHidden(),'saved off preference survives reload');
   await page.locator('#videoOverlayToggle').click();
   assert(await page.locator('#videoOverlay').isVisible());
   const pixels=()=>page.evaluate(()=>{const c=document.getElementById('videoOverlay'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;return d.some((v,i)=>i%4===3&&v>0)});
@@ -60,9 +64,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await setHeight(75);await page.keyboard.press('Escape');await page.locator('#overlayHeightDialog').waitFor({state:'hidden'});
   assert(await page.locator('#overlayHeightSettings').evaluate(e=>e===document.activeElement));
   // CCNC display commands have their own toggle; unknown TrackID/speed are never invented.
-  assert.equal(await page.locator('#ccncTargets').isChecked(),false);
+  assert.equal(await page.locator('#ccncTargets').isChecked(),true);
+  await settingAction('#ccncTargets','uncheck');
   await page.evaluate(()=>{data.frames[0].leads=[];data.frames[0].ccncTargets=[{slot:'FF',detect:4,x:20,y:0,yRel:0}];data.frames[0].overlay.markers=[{kind:'ccnc',index:0,point:[.5,.8],projection:[.5,.8,1],box:[[.4,.8,1],[.6,.8,1],[.43,.7,1],[.57,.7,1],[.4,.5,1],[.6,.5,1],[.43,.45,1],[.57,.45,1]]}];render()});
-  assert(!(await pixels()),'CCNC hidden by default');
+  assert(!(await pixels()),'CCNC hidden when disabled');
   await settingAction('#ccncTargets','check');assert(await pixels(),'CCNC draws in video overlay');
   const renderedLabels=()=>page.evaluate(()=>{const labels=[],original=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(text,...args){labels.push({canvas:this.canvas.id,text:String(text),color:this.fillStyle});return original.call(this,text,...args)};try{render()}finally{CanvasRenderingContext2D.prototype.fillText=original}return labels});
   assert(await page.locator('#boxLabels').isChecked(),'box labels enabled by default');
@@ -73,6 +78,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert.deepEqual(labels.map(v=>v.canvas).sort(),['road','videoOverlay']);
    assert(labels.every(v=>v.color===(slot==='FF'?'#8deeff':'#4aaaff')),'slot determines color independently of detect');
   }
+  const boxLabelPosition=()=>page.evaluate(()=>{const calls=[],original=hudLabel;hudLabel=function(...args){if(args[1].startsWith('RF ·'))calls.push({canvas:args[0].canvas.id,y:args[3],plain:args[7]===false});return original(...args)};try{render()}finally{hudLabel=original}return calls.find(c=>c.canvas==='videoOverlay')});
+  const aboveLabel=await boxLabelPosition();
+  assert(!(await page.locator('#boxLabelsBelow').isChecked()));
+  await settingAction('#boxLabelsBelow','check');
+  const belowLabel=await boxLabelPosition();assert(belowLabel.y>aboveLabel.y);assert(belowLabel.plain,'below labels have no background or border');
+  await settingAction('#boxLabelsBelow','uncheck');
   await settingAction('#boxLabels','uncheck');
   assert(!(await renderedLabels()).some(v=>v.text.startsWith('RF ·')),'both views hide box labels');assert(await pixels(),'box remains visible');
   await settingAction('#boxLabels','check');

@@ -31,7 +31,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>!loading&&videoSource==='wide');
   let state=await page.evaluate(()=>({t,playing,time:v.currentTime,overlay:$('videoOverlay').hidden}));
   assert.equal(state.t,.75);assert.equal(state.playing,false);assert(Math.abs(state.time-.55)<.02,JSON.stringify(state));
-  await page.locator('#videoOverlayToggle').click();assert.match(await page.locator('#overlayStatus').textContent(),/와이드/);
+  assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true');assert.match(await page.locator('#overlayStatus').textContent(),/와이드/);
   assert(await page.locator('#videoOverlay').isHidden());
   await page.evaluate(()=>{toggle();selectVideo('front')});
   await page.waitForFunction(()=>!loading&&playing&&videoSource==='front');
