@@ -166,13 +166,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    try{render()}finally{CanvasRenderingContext2D.prototype.stroke=original}
    f.lanes=[];f.lp=[];f.overlay.lanes=[];render();return result;
   });
-  for(const canvas of ['road','videoOverlay']){
-   const lines=laneStyles.filter(s=>s.canvas===canvas);assert.equal(lines.length,4);
-   assert(lines.every(s=>canvas==='road'?s.glow===0:s.glow>0),'glow belongs only to video');
-   assert(lines.every(s=>s.width===1),'lane outlines are exactly 1 CSS px');
-   assert(lines[0].alpha<lines[2].alpha,'confidence controls outline visibility');
-   assert(lines.every(s=>s.dash.length===0),'probability does not make lanes dashed');
-  }
+  const roadLines=laneStyles.filter(s=>s.canvas==='road');assert.equal(roadLines.length,2);
+  assert(roadLines.every(s=>s.glow===0),'plan-view lanes do not glow');
+  for(const [i,p] of [.2,.8].entries()){assert(Math.abs(roadLines[i].width-(1+3*p))<1e-6);assert(Math.abs(roadLines[i].alpha-p)<1e-6);assert.deepEqual(roadLines[i].dash,p<.5?[6,5]:[])}
+  const videoLines=laneStyles.filter(s=>s.canvas==='videoOverlay');assert.equal(videoLines.length,4);
+  assert(videoLines.every(s=>s.glow>0&&s.width===1&&s.dash.length===0),'video keeps luminous solid ribbon outlines');
+  assert(videoLines[0].alpha<videoLines[2].alpha,'video confidence still controls outline visibility');
 
   const shared=await page.evaluate(()=>({full:laneAppearance(1),zero:laneAppearance(0),half:laneAppearance(.5),left:highlightBands({highlight:0,left:1,right:0}),both:highlightBands({highlight:3,left:0,right:1}),ribbon:ribbonEdges([[0,0],[10,0]],1.8)}));
   assert.deepEqual(shared.full,{width:15,alpha:.1,edge:1});assert.equal(shared.zero.width,0);assert.equal(shared.half.width,7.5);assert.equal(shared.half.alpha,.05);
