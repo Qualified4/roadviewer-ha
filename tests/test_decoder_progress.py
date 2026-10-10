@@ -51,7 +51,7 @@ class DecoderProgressTests(unittest.TestCase):
     for name,values in [('modelV2',dict(frameId=i,timestampEof=stamp,laneLines=[],laneLineProbs=[],roadEdges=[],roadEdgeStds=[])),('qRoadEncodeIdx',dict(frameId=i,segmentId=i,timestampEof=stamp))]:
      e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
    for i in range(100):
-    e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10+i*.01)*1e9);e.valid=True;e.init('carState');e.carState.leftBlindspot=i<20;e.carState.rightBlindspot=i>=20;e.carState.leftBlinker=True;e.carState.vEgo=20;e.carState.engineRpm=1800;e.carState.gas=.25;e.carState.steeringPressed=i==31;messages.append(e.to_bytes())
+    e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10+i*.01)*1e9);e.valid=True;e.init('carState');e.carState.leftBlindspot=i<20;e.carState.rightBlindspot=i>=20;e.carState.leftBlinker=True;e.carState.vEgo=20;e.carState.aEgo=-1.5;e.carState.engineRpm=1800;e.carState.gas=.25;e.carState.steeringPressed=i==31;messages.append(e.to_bytes())
    for name,values in [('carControl',{'latActive':True,'longActive':True,'actuators':{'steeringAngleDeg':7,'accel':-1.5,'aTarget':-1.2,'jerk':-.3,'longControlState':'stopping'}}),('carOutput',{'actuatorsOutput':{'gas':.25,'brake':.5,'accel':-1}}),('controlsState',{'lateralControlState':{'torqueState':{'active':True,'actualLateralAccel':.8,'desiredLateralAccel':1.2}}})]:
     e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10)*1e9);e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
    stamp=round((pts[0]+10)*1e9)
@@ -67,9 +67,10 @@ class DecoderProgressTests(unittest.TestCase):
    # Camera information is stored once and referenced by index from each frame.
    self.assertEqual(saved['cameraInfos'][data['frames'][0]['cameraInfo']]['deviceId'],'test-device-id')
    self.assertEqual(saved['frames'][0]['ccncTargets'][0]['slot'],'FF')
-   self.assertEqual(saved['frames'][0]['ccncTargets'][0]['x'],20)
+   self.assertEqual(saved['frames'][0]['ccncTargets'][0]['x'],25)
+   self.assertEqual(saved['frames'][0]['ccncTargets'][0]['displayX'],20)
    self.assertIsNone(saved['frames'][-1]['ccncTargets'])
-   self.assertEqual(saved['frames'][0]['roadSignals'],{'blinkerLeft':True,'blinkerRight':False,'blindspotLeft':True,'blindspotRight':False})
+   self.assertEqual(saved['frames'][0]['roadSignals'],{'blinkerLeft':True,'blinkerRight':False,'blindspotLeft':True,'blindspotRight':False,'acceleration':-1.5})
    self.assertTrue(saved['frames'][-1]['roadSignals']['blindspotRight'])
    self.assertEqual(saved['frames'][0]['ccncRoad']['distance'],15)
    self.assertEqual(saved['frames'][0]['ccncRoad']['left'],1)

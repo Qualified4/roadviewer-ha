@@ -4,7 +4,7 @@ import av,zstandard,capnp
 from steering import SteeringReplay
 from timeline import align_timeline
 from progress import Reporter
-from overlay import OverlayProjector
+from overlay import OverlayProjector,restore_ccnc_targets
 from telemetry import extract_telemetry,FIELDS
 from compact import compact_data,write_gzip_json
 BASE=Path(__file__).resolve().parent
@@ -121,7 +121,7 @@ def prepare(value,route=None):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v24-ccnc-road-overlay').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v25-road-perspective').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  def save_summary(data):
   (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video')},ensure_ascii=False))
@@ -148,7 +148,8 @@ def prepare(value,route=None):
   elif kind=='liveTracks':live_tracks.append((e.logMonoTime,e.valid,pick(e.liveTracks,SPECS['liveTracks'])))
   elif kind=='carState':
    car_states.append((e.logMonoTime,e.valid,float(e.carState.vEgo)))
-   road_signals.append((e.logMonoTime,e.valid,{name:bool(getattr(e.carState,field)) for name,field in [('blinkerLeft','leftBlinker'),('blinkerRight','rightBlinker'),('blindspotLeft','leftBlindspot'),('blindspotRight','rightBlindspot')]}))
+   acceleration=float(e.carState.aEgo)
+   road_signals.append((e.logMonoTime,e.valid,{'acceleration':acceleration if math.isfinite(acceleration) else None,**{name:bool(getattr(e.carState,field)) for name,field in [('blinkerLeft','leftBlinker'),('blinkerRight','rightBlinker'),('blindspotLeft','leftBlindspot'),('blindspotRight','rightBlindspot')]}}))
   elif kind=='qRoadEncodeIdx':cameras.append(pick(e.qRoadEncodeIdx,SPECS['qRoadEncodeIdx']))
  if not models:raise ValueError('이 로그에 modelV2 데이터가 없습니다.')
  camera_by_id={q['frameId']:q['timestampEof'] for q in cameras}
@@ -192,7 +193,7 @@ def prepare(value,route=None):
       radar_targets.append({'group':group,'index':number,'x':target['dRel'],'y':-target['yRel'],'yRel':target['yRel'],'vRel':target['vRel'],'radar':target.get('radar',False),'trackId':target.get('radarTrackId',-1),'modelProb':target.get('modelProb',0)})
   leads=[{'x':l['x'][0],'y':l['y'][0],'p':l['prob'],'speedKph':float(l['v'][0])*3.6 if l.get('v') and math.isfinite(l['v'][0]) else None} for l in m.get('leadsV3',[])[:2] if l.get('x') and l.get('y')]
   frames.append({'t':round(time_of(stamp,m)-origin,6),'id':m['frameId'],'egoSpeedKph':ego_speed,'steering':steering.at(time_of(stamp,m)*1e9),'valid':valid,'position':points(m.get('position',{'x':[],'y':[]})),'lanes':[points(l) for l in m['laneLines']],'laneY0':[first_y(l) for l in m['laneLines']],'lp':m['laneLineProbs'],'edges':[points(l) for l in m['roadEdges']],'edgeY0':[first_y(l) for l in m['roadEdges']],'es':m['roadEdgeStds'],'leads':leads,'selected':selected,'radarTargets':radar_targets,'liveTracks':raw_targets,'liveTracksValid':live_valid,'liveTracksDeltaMs':live_delta})
-  frames[-1]['ccncTargets']=ccnc_at(ccnc,ccnc_times,time_of(stamp,m)*1e9)
+  frames[-1]['ccncTargets']=restore_ccnc_targets(ccnc_at(ccnc,ccnc_times,time_of(stamp,m)*1e9),m,valid)
   frames[-1]['ccncRoad']=ccnc_at(ccnc_roads,ccnc_road_times,time_of(stamp,m)*1e9)
   frames[-1]['roadSignals']=ccnc_at(road_signals,signal_times,time_of(stamp,m)*1e9)
   frames[-1]['cameraInfo']=overlay.camera_info(time_of(stamp,m)*1e9)

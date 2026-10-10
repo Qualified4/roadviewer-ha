@@ -319,3 +319,22 @@ i.model-path{background:#c4a5ff}
 :where(button:enabled,a[href],summary,[role=button],.layers label):active{filter:brightness(1.2)}
 
 .box-opacity{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted,#94a5b8);max-width:100%}.box-opacity input{width:100px;min-width:60px;accent-color:#81b5ff}.box-opacity output{min-width:4ch;text-align:right;font-variant-numeric:tabular-nums}
+
+.overlay-settings-dialog{width:min(520px,calc(100vw - 24px))}
+.overlay-settings-dialog .rv-choice-header{z-index:2}
+.overlay-settings-body{display:grid;gap:18px}
+.overlay-settings-body>.camera-info-note{margin:0}
+.overlay-settings-section{display:grid;gap:14px;border-top:1px solid var(--line);padding-top:16px}
+.overlay-settings-section h3{margin:0;font-size:13px;color:var(--text)}
+.overlay-settings-section>label{display:flex;align-items:center;gap:8px;min-height:32px}
+.overlay-settings-section input[type=checkbox]{accent-color:var(--lane);width:16px;height:16px}
+.overlay-settings-section .box-opacity{display:grid;grid-template-columns:100px minmax(0,1fr) 60px}
+.overlay-settings-section .box-opacity input{width:100%;min-width:0;min-height:32px;margin:0}
+.overlay-settings-section .camera-info-note{margin:0;line-height:1.6}
+.overlay-settings-section .layout-width{margin:0}
+.overlay-settings-section .view-toggle{justify-self:start}
+#overlayStatus:empty{display:none}
+#overlayStatus{margin:0;padding:6px 12px;border-bottom:1px solid var(--line)}
+@media(max-width:600px){.overlay-settings-dialog{width:calc(100% - 16px)}.overlay-tools{gap:6px;padding:8px}.overlay-tools button{font-size:11px;padding:7px 8px;gap:5px}.overlay-tools svg{width:16px;height:16px}.overlay-tools .toggle-track{width:26px}.overlay-settings-section .box-opacity{grid-template-columns:90px minmax(0,1fr) 52px}}
+
+.overlay-settings-section .slider-reset{grid-column:2/-1;justify-self:end;font-size:11px;padding:6px 10px}

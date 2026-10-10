@@ -123,7 +123,7 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
  data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){videoReadyPending=true;v.src=new URL('../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now()),location.href).href;setPlaybackState(false,'영상을 불러오는 중입니다. 잠시 기다려 주세요.');v.load()}else{setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료')}};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)playbackError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
-for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncRoad','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
+for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncRoad','boxBsdLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 document.onkeydown=e=>{if(['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
 function renderSteering(f){
@@ -160,7 +160,9 @@ function paintBand(ctx,left,right,color,alpha,edge=0,glow=false){
  }
  for(let i=0;i<Math.min(left.length,right.length);i++){if(left[i]&&right[i]){a.push(left[i]);b.push(right[i])}else flush()}flush();ctx.restore();
 }
-function paintLane(ctx,points,probability){const s=laneAppearance(probability);if(s.width>0)paintBand(ctx,...ribbonEdges(points,s.width),'#57d9b0',s.alpha,s.edge,true)}
+function edgeConfidence(std){return Number.isFinite(std)?1/(1+Math.max(0,std)):0}
+function paintLane(ctx,points,probability,color='#57d9b0'){const s=laneAppearance(probability);if(s.width>0)paintBand(ctx,...ribbonEdges(points,s.width),color,s.alpha,s.edge)}
+function limitRoadPoints(points,limit=40){const result=(points||[]).filter(p=>p&&p.every(Number.isFinite)&&p[0]>=0&&p[0]<limit);const end=targetAt(points,limit);if(end)result.push(end);return result}
 const highlightColors=[null,'#62ed9e','#edf7ff','#55b9ff','#ffa65a','#ff6175'];
 function highlightBands(road){return [road?.left===1?'#62ed9e':null,highlightColors[road?.highlight]||null,road?.right===1?'#62ed9e':null]}
 function targetAt(points,x){for(let i=1;i<(points?.length||0);i++){const a=points[i-1],b=points[i];if(a[0]<=x&&x<=b[0]&&b[0]>a[0])return [x,a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0])]}return null}
@@ -175,7 +177,7 @@ function blinkerLaneAnchors(lanes){
   return [Math.max(.15,Math.min(.85,x)),.72];
  });
 }
-function drawBlinkers(ctx,road,time,left,right,centerY,anchors=null){
+function drawBlinkers(ctx,road,time,left,right,centerY,anchors=null,glow=false){
  if(!road)return;
  const size=Math.max(10,Math.min(24,(right-left)/18)),phase=motionAllowed()?((time%1.2)+1.2)%1.2:0;
  ctx.save();ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.strokeStyle='#a0ffe1';ctx.fillStyle='#62edb9';
@@ -186,7 +188,7 @@ function drawBlinkers(ctx,road,time,left,right,centerY,anchors=null){
    const pulse=motionAllowed()?.25+.75*Math.max(0,1-Math.abs(phase-(.2+i*.25))/.35):1;
    const x=origin+direction*i*size*1.1,y=anchor?anchor[1]:centerY;
    ctx.beginPath();[[0,-1],[.65,-1],[1.5,0],[.65,1],[0,1],[.85,0]].forEach(([px,py],j)=>j?ctx.lineTo(x+direction*px*size,y+py*size):ctx.moveTo(x+direction*px*size,y+py*size));ctx.closePath();
-   ctx.shadowBlur=0;ctx.globalAlpha=.24*pulse;ctx.fill();ctx.shadowColor='#a0ffe1';ctx.shadowBlur=4;ctx.globalAlpha=pulse;ctx.stroke();
+   ctx.shadowBlur=0;ctx.globalAlpha=.24*pulse;ctx.fill();ctx.shadowColor='#a0ffe1';ctx.shadowBlur=glow?4:0;ctx.globalAlpha=pulse;ctx.stroke();
   }
  }ctx.restore();
 }
@@ -204,6 +206,31 @@ function blindspotLevels(frames,index,time){
   return level<.01?0:level>.99?1:level;
  });
 }
+function targetSectionPoints(section,width=modelPathWidth){
+ if(!section?.every(p=>p?.length===3&&p.every(Number.isFinite)))return null;
+ const [center,side]=section,points=[-1,1].map(sign=>center.map((v,k)=>v+sign*width/2*side[k]));
+ return points.every(p=>p[2]>.1)?points.map(p=>[p[0]/p[2],p[1]/p[2]]):null;
+}
+function targetBrakeLevel(frames,index){
+ const current=frames[index];if(!current?.valid||!Number.isFinite(current.roadSignals?.acceleration))return 0;
+ let sum=0,weights=0;
+ for(let i=index;i>=0;i--){
+  const frame=frames[i],age=current.t-frame.t;if(age>.25||!frame.valid||!Number.isFinite(frame.roadSignals?.acceleration))break;
+  const weight=1-age/.3;sum+=Math.max(0,-frame.roadSignals.acceleration)*weight;weights+=weight;
+ }
+ return Math.min(1,sum/weights/3);
+}
+function targetGradient(ctx,a,b,color){
+ const gradient=ctx.createLinearGradient(...a,...b);
+ for(const [position,alpha] of [[0,'00'],[.18,'cc'],[.5,'ff'],[.82,'cc'],[1,'00']])gradient.addColorStop(position,color+alpha);
+ return gradient;
+}
+function paintTargetLine(ctx,a,b,color,glow=false){
+ ctx.save();ctx.strokeStyle=targetGradient(ctx,a,b,color);ctx.lineWidth=glow?3:2;ctx.setLineDash([]);ctx.lineCap='round';
+ if(glow){ctx.shadowColor=color;ctx.shadowBlur=7}
+ ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();ctx.restore();
+}
+function ccncTargetColor(target){return target?.slot==='FF'?'#8deeff':'#4aaaff'}
 function hudLabel(ctx,text,x,y,color,left=4,right=ctx.canvas.clientWidth||ctx.canvas.width){
  ctx.save();const opacity=ctx.globalAlpha;ctx.font='600 11px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.shadowBlur=0;
  const width=ctx.measureText(text).width+18,height=23;
@@ -211,13 +238,18 @@ function hudLabel(ctx,text,x,y,color,left=4,right=ctx.canvas.clientWidth||ctx.ca
  ctx.beginPath();ctx.roundRect(x-width/2,y-height/2,width,height,5);ctx.globalAlpha=.9*opacity;ctx.fillStyle='#071b2d';ctx.fill();
  ctx.strokeStyle=color;ctx.lineWidth=.7;ctx.globalAlpha=.65*opacity;ctx.stroke();ctx.fillStyle=color;ctx.globalAlpha=opacity;ctx.fillText(text,x,y);ctx.restore();
 }
-function paintBlindspotWall(ctx,bottom,top,amount,time){
+function paintBlindspotWall(ctx,bottom,top,amount,time,glow=false){
  if(amount<=0)return;ctx.save();ctx.strokeStyle='#ffce55';ctx.lineWidth=.7;ctx.setLineDash([]);
  const scan=motionAllowed()?((time/1.6)%1+1)%1:.6,grid=new Path2D(),rim=new Path2D(),beam=new Path2D();
  for(let i=1;i<bottom.length;i++){
   const a=bottom[i-1],b=bottom[i],c=top[i],d=top[i-1];if(!a||!b||!c||!d)continue;
   const gradient=ctx.createLinearGradient(a[0],a[1],d[0],d[1]);gradient.addColorStop(0,'#ffbd3866');gradient.addColorStop(.65,'#ffd84d24');gradient.addColorStop(1,'#ffdd5510');ctx.fillStyle=gradient;
   ctx.beginPath();[a,b,c,d].forEach((p,j)=>j?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.globalAlpha=amount;ctx.fill();
+  if(glow&&motionAllowed()){
+   const lo=Math.max(0,scan-.16),hi=Math.min(1,scan+.16),at=(p,q,r)=>[p[0]+(q[0]-p[0])*r,p[1]+(q[1]-p[1])*r];
+   const sweep=ctx.createLinearGradient(...at(a,d,lo),...at(a,d,hi));sweep.addColorStop(0,'#ffe88700');sweep.addColorStop(.5,'#fff1a66e');sweep.addColorStop(1,'#ffe88700');
+   ctx.fillStyle=sweep;ctx.beginPath();[at(a,d,lo),at(b,c,lo),at(b,c,hi),at(a,d,hi)].forEach((p,j)=>j?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.fill();
+  }
   grid.moveTo(...a);grid.lineTo(...d);
   for(const ratio of [.25,.5,.75]){grid.moveTo(a[0]+(d[0]-a[0])*ratio,a[1]+(d[1]-a[1])*ratio);grid.lineTo(b[0]+(c[0]-b[0])*ratio,b[1]+(c[1]-b[1])*ratio)}
   for(const [p,q] of [[a,b],[d,c]]){rim.moveTo(...p);rim.lineTo(...q)}
@@ -227,8 +259,8 @@ function paintBlindspotWall(ctx,bottom,top,amount,time){
  }
  ctx.globalAlpha=amount*.3;ctx.stroke(grid);
  // Batch the luminous perimeter rather than blurring each grid segment.
- ctx.lineWidth=1.4;ctx.globalAlpha=amount*.95;ctx.shadowColor='#ffc83d';ctx.shadowBlur=7;ctx.stroke(rim);
- ctx.lineWidth=1;ctx.globalAlpha=amount*.3;ctx.stroke(beam);ctx.restore();
+ ctx.lineWidth=1.4;ctx.globalAlpha=amount*.95;ctx.shadowColor='#ffc83d';ctx.shadowBlur=glow?7:0;ctx.stroke(rim);
+ ctx.lineWidth=glow?2:1;ctx.globalAlpha=amount*(glow?.85:.3);ctx.stroke(beam);ctx.restore();
 }
 let modelPathWidth=1.8;
 try{const saved=localStorage.getItem('roadviewer-path-width');if(saved!==null&&Number.isFinite(Number(saved)))modelPathWidth=Math.max(1,Math.min(3,Number(saved)))}catch{}
@@ -276,18 +308,18 @@ function render(lazy){
  function line(points,color,dashed,alpha,width=2){path(points);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.setLineDash(dashed?[6,5]:[]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1}
  if(valid){
   const screen=points=>(points||[]).map(p=>p?[X(p[1]),Y(p[0])]:null);
+  if(checked('bsdWalls'))blindspotLevels(data.frames,idx,f.t).forEach((amount,i)=>{const bottom=screen(limitRoadPoints(f.lanes[i+1],Math.min(40,range)));paintBlindspotWall(ctx,bottom,bottom.map(p=>p?[p[0],Math.max(Y(Math.min(40,range)),p[1]-18*amount)]:null),amount,f.t)});
   if(checked('ccncRoad')){
-   blindspotLevels(data.frames,idx,f.t).forEach((amount,i)=>{const bottom=screen(f.lanes[i+1]);paintBlindspotWall(ctx,bottom,bottom.map(p=>p?[p[0],p[1]-18*amount]:null),amount,f.t)});
-   highlightBands(f.ccncRoad).forEach((color,i)=>{if(color)paintBand(ctx,screen(f.lanes[i]),screen(f.lanes[i+1]),color,.1,.55,true)});
+   highlightBands(f.ccncRoad).forEach((color,i)=>{if(color)paintBand(ctx,screen(f.lanes[i]),screen(f.lanes[i+1]),color,.1,.55)});
    const road=f.ccncRoad;
    if([1,3].includes(road?.target)&&road.distance>0&&road.distance<204.6&&road.distance<=range){
     const a=targetAt(f.lanes[1],road.distance),b=targetAt(f.lanes[2],road.distance);
-    if(a&&b){ctx.save();ctx.shadowColor='#7be5ff';ctx.shadowBlur=6;line([a,b],road.target===3?'#edf7ff':'#7be5ff',false,.95,2);ctx.restore();hudLabel(ctx,`TARGET · ${road.distance.toFixed(1)} m`,X((a[1]+b[1])/2),Y(road.distance)-17,'#d9faff')}
+    if(a&&b){const center=(a[1]+b[1])/2;paintTargetLine(ctx,[X(center-modelPathWidth/2),Y(road.distance)],[X(center+modelPathWidth/2),Y(road.distance)],road.target===3?'#edf7ff':'#7be5ff');hudLabel(ctx,`TARGET · ${road.distance.toFixed(1)} m`,X((a[1]+b[1])/2),Y(road.distance)-17,'#d9faff')}
    }
   }
-  if(checked('modelPath')&&f.position?.length>1){const [a,b]=ribbonEdges(f.position,modelPathWidth);paintBand(ctx,screen(a),screen(b),'#c4a5ff',.1,.6)}
+  if(checked('modelPath')&&f.position?.length>1)line(f.position,'#c4a5ff',false,.9,2);
   if(checked('lanes'))f.lanes.forEach((l,i)=>paintLane(ctx,screen(l),f.lp[i]));
-  if(checked('edges'))f.edges.forEach((l,i)=>line(l,'#ffa665',f.es[i]>1,.95));
+  if(checked('edges'))f.edges.forEach((l,i)=>paintLane(ctx,screen(l),edgeConfidence(f.es[i]),'#ffa665'));
 
   if(checked('leads')){
    f.leads.forEach((l,i)=>{if(l.x<0||l.x>range)return;ctx.globalAlpha=l.p<.5?.45:1;ctx.strokeStyle='#81b5ff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(X(l.y),Y(l.x),7,0,Math.PI*2);ctx.stroke();annotate(`모델 ${i+1} · ${targetValue(l,-l.y)}`,X(l.y),Y(l.x),'#c5daff',i===0?1:-1);ctx.globalAlpha=1});
@@ -301,9 +333,9 @@ function render(lazy){
  }
  if(checked('ccncTargets')&&frameAvailable(f))for(const target of f.ccncTargets||[]){
   if(target.x<0||target.x>range)continue;
-  const x=X(target.y),y=Y(target.x),color=target.detect%2?'#4aaaff':'#8deeff';
+  const x=X(target.y),y=Y(target.x),color=ccncTargetColor(target);
   ctx.strokeStyle=color;ctx.lineWidth=2;ctx.strokeRect(x-8,y-11,16,22);
-  annotate(`${target.slot} · ${targetValue(target,target.yRel)}`,x,y,color,target.slot==='LF'?-1:1);
+  if(checked('boxBsdLabels'))annotate(`${target.slot} · ${targetValue(target,target.yRel)}`,x,y,color,target.slot==='LF'?-1:1);
  }
  $('ccncStatus').textContent=checked('ccncTargets')&&(!frameAvailable(f)||f.ccncTargets==null)?'이 시점의 CCNC 송신 데이터가 없습니다.':'';
  const rawVisible=frameAvailable(f)&&f.liveTracksValid;
@@ -487,7 +519,7 @@ if(replayHeading){
 
 // Share layer and label preferences between recordings on this browser.
 const displayPreferenceKey='roadviewer-display-preferences';
-const displayControls=[...document.querySelectorAll('.road-panel .layers input')];
+const displayControls=[...document.querySelectorAll('.road-panel .layers input, .overlay-settings-body input')];
 try{
  const saved=JSON.parse(localStorage.getItem(displayPreferenceKey)||'null');
  if(saved&&typeof saved==='object'){
