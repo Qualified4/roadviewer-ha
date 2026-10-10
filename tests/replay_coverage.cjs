@@ -62,6 +62,13 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert.deepEqual(await seekTo(.5),{playing:false,t:.5},scenario.name+' paused again');
    await page.waitForTimeout(150);
    assert.equal(await page.evaluate(()=>t),.5);
+   const boundary=await page.evaluate(()=>{
+    pause();setTime(data.duration-.0005);playing=true;last=performance.now();
+    const schedule=window.requestAnimationFrame;window.requestAnimationFrame=()=>0;
+    try{tick(last)}finally{window.requestAnimationFrame=schedule}
+    return {time:t,playing,seek:document.getElementById('seek').value};
+   });
+   assert.deepEqual(boundary,{time:duration,playing:false,seek:String(duration)},scenario.name+' snaps the final sub-millisecond to the endpoint');
    // Run across both start and end boundaries at 4x.
    await page.evaluate(()=>setTime(0));await page.selectOption('#speed','4',{force:true});await page.locator('#play').click();
    await page.waitForFunction(()=>!playing&&t>=data.duration-.001);

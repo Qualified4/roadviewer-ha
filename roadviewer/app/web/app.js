@@ -80,7 +80,7 @@ for(const event of ['progress','loadedmetadata','loadeddata','durationchange','e
 function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render(lazy)}
 function step(n){if(loading)return;pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
 function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
-function tick(now){if(playing&&data){setTime(t+(now-last)/1000*Number($('speed').value),false,true);if(t>=data.duration-.001)pause()}else window.renderVideoOverlayMotion?.();last=now;requestAnimationFrame(tick)}
+function tick(now){if(playing&&data){const next=t+(now-last)/1000*Number($('speed').value);setTime(next>=data.duration-.001?data.duration:next,false,true);if(t>=data.duration)pause()}else window.renderVideoOverlayMotion?.();last=now;requestAnimationFrame(tick)}
 function setPlaybackState(ready,message){
  loading=!ready;$('play').disabled=!ready;
  $('playbackControls').hidden=!ready;$('playbackMessage').hidden=ready;
@@ -206,6 +206,37 @@ function blindspotLevels(frames,index,time){
   return level<.01?0:level>.99?1:level;
  });
 }
+// Slot transitions use log time: pause/seek/replay cannot leave a stale animation behind.
+function ccncBoxTransitions(frames,index,time){
+ const current=frames[index];if(!current?.valid||!Array.isArray(current.ccncTargets))return [];
+ const find=(i,slot)=>{
+  const frame=frames[i];if(!frame?.valid||!Array.isArray(frame.ccncTargets))return null;
+  const targetIndex=frame.ccncTargets.findIndex(target=>target.slot===slot),target=frame.ccncTargets[targetIndex];
+  const marker=frame.overlay?.markers?.find(marker=>marker.kind==='ccnc'&&marker.index===targetIndex);
+  return target&&marker?.box?.length===8?{target,marker}:null;
+ };
+ const ease=value=>{const p=Math.max(0,Math.min(1,value));return p*p*(3-2*p)};
+ const entries=[];
+ for(const slot of ['LF','FF','RF']){
+  let source=index,entry=find(source,slot);
+  if(!entry&&motionAllowed())while(source>0&&time-frames[source].t<.14){
+   if(!frames[source-1].valid||!Array.isArray(frames[source-1].ccncTargets)||frames[source].t-frames[source-1].t>.15)break;
+   entry=find(--source,slot);if(entry)break;
+  }
+  if(!entry)continue;
+  const fading=source!==index,alpha=fading?1-ease((time-frames[source+1].t)/.14):1;
+  if(alpha<=0)continue;
+  let height=1;
+  if(motionAllowed()){
+   let start=source;
+   while(start>0&&frames[source].t-frames[start].t<.18&&frames[start].t-frames[start-1].t<=.15&&find(start-1,slot))start--;
+   // A target already present at the log boundary is not a new detection.
+   if(start>0&&frames[start-1].valid&&Array.isArray(frames[start-1].ccncTargets)&&!find(start-1,slot))height=ease(((fading?frames[source+1].t:time)-frames[start].t)/.18);
+  }
+  entries.push({...entry,height,alpha,animated:fading||height<1});
+ }
+ return entries;
+}
 function targetSectionPoints(section,width=modelPathWidth){
  if(!section?.every(p=>p?.length===3&&p.every(Number.isFinite)))return null;
  const [center,side]=section,points=[-1,1].map(sign=>center.map((v,k)=>v+sign*width/2*side[k]));
@@ -238,30 +269,45 @@ function hudLabel(ctx,text,x,y,color,left=4,right=ctx.canvas.clientWidth||ctx.ca
  ctx.beginPath();ctx.roundRect(x-width/2,y-height/2,width,height,5);ctx.globalAlpha=.9*opacity;ctx.fillStyle='#071b2d';ctx.fill();
  ctx.strokeStyle=color;ctx.lineWidth=.7;ctx.globalAlpha=.65*opacity;ctx.stroke();ctx.fillStyle=color;ctx.globalAlpha=opacity;ctx.fillText(text,x,y);ctx.restore();
 }
+// Smooth, repeatable irregular movement along the road; never randomize each frame.
+function blindspotStreakPosition(index,time){
+ const base=(index+1)/11,amplitude=Math.min(.10,base*.8,(1-base)*.8),phase=index*2.39996;
+ return base+amplitude*(.65*Math.sin(time*(.75+index*.037)+phase)+.35*Math.sin(time*.43+phase*1.7));
+}
 function paintBlindspotWall(ctx,bottom,top,amount,time,glow=false){
- if(amount<=0)return;ctx.save();ctx.strokeStyle='#ffce55';ctx.lineWidth=.7;ctx.setLineDash([]);
- const scan=motionAllowed()?((time/1.6)%1+1)%1:.6,grid=new Path2D(),rim=new Path2D(),beam=new Path2D();
+ if(amount<=0)return;ctx.save();ctx.strokeStyle='#ffd367';ctx.lineWidth=.7;ctx.setLineDash([]);
+ const grid=new Path2D(),rim=new Path2D(),base=new Path2D();
  for(let i=1;i<bottom.length;i++){
   const a=bottom[i-1],b=bottom[i],c=top[i],d=top[i-1];if(!a||!b||!c||!d)continue;
-  const gradient=ctx.createLinearGradient(a[0],a[1],d[0],d[1]);gradient.addColorStop(0,'#ffbd3866');gradient.addColorStop(.65,'#ffd84d24');gradient.addColorStop(1,'#ffdd5510');ctx.fillStyle=gradient;
+  const gradient=ctx.createLinearGradient(a[0],a[1],d[0],d[1]);gradient.addColorStop(0,glow?'#e99b286e':'#ffbd3840');gradient.addColorStop(.45,glow?'#b9792938':'#ffd84d18');gradient.addColorStop(1,glow?'#ffd65a45':'#ffdd5510');ctx.fillStyle=gradient;
   ctx.beginPath();[a,b,c,d].forEach((p,j)=>j?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.globalAlpha=amount;ctx.fill();
-  if(glow&&motionAllowed()){
-   const lo=Math.max(0,scan-.16),hi=Math.min(1,scan+.16),at=(p,q,r)=>[p[0]+(q[0]-p[0])*r,p[1]+(q[1]-p[1])*r];
-   const sweep=ctx.createLinearGradient(...at(a,d,lo),...at(a,d,hi));sweep.addColorStop(0,'#ffe88700');sweep.addColorStop(.5,'#fff1a66e');sweep.addColorStop(1,'#ffe88700');
-   ctx.fillStyle=sweep;ctx.beginPath();[at(a,d,lo),at(b,c,lo),at(b,c,hi),at(a,d,hi)].forEach((p,j)=>j?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.fill();
-  }
-  grid.moveTo(...a);grid.lineTo(...d);
+  if(!glow){grid.moveTo(...a);grid.lineTo(...d)}
   for(const ratio of [.25,.5,.75]){grid.moveTo(a[0]+(d[0]-a[0])*ratio,a[1]+(d[1]-a[1])*ratio);grid.lineTo(b[0]+(c[0]-b[0])*ratio,b[1]+(c[1]-b[1])*ratio)}
   for(const [p,q] of [[a,b],[d,c]]){rim.moveTo(...p);rim.lineTo(...q)}
+  base.moveTo(...a);base.lineTo(...b);
   if(i===1||!bottom[i-2]||!top[i-2]){rim.moveTo(...a);rim.lineTo(...d)}
   if(i===bottom.length-1||!bottom[i+1]||!top[i+1]){rim.moveTo(...b);rim.lineTo(...c)}
-  beam.moveTo(a[0]+(d[0]-a[0])*scan,a[1]+(d[1]-a[1])*scan);beam.lineTo(b[0]+(c[0]-b[0])*scan,b[1]+(c[1]-b[1])*scan);
  }
- ctx.globalAlpha=amount*.3;ctx.stroke(grid);
- // Batch the luminous perimeter rather than blurring each grid segment.
- ctx.lineWidth=1.4;ctx.globalAlpha=amount*.95;ctx.shadowColor='#ffc83d';ctx.shadowBlur=glow?7:0;ctx.stroke(rim);
- ctx.lineWidth=glow?2:1;ctx.globalAlpha=amount*(glow?.85:.3);ctx.stroke(beam);ctx.restore();
+ ctx.globalAlpha=amount*(glow?.12:.3);ctx.stroke(grid);
+ if(glow){
+  const clock=motionAllowed()?time:0;
+  const at=(points,position)=>{const x=position*(points.length-1),i=Math.min(points.length-2,Math.floor(x)),a=points[i],b=points[i+1];return a&&b?a.map((v,k)=>v+(b[k]-v)*(x-i)):null};
+  for(let i=0;i<10;i++){
+   const position=blindspotStreakPosition(i,clock),a=at(bottom,position),b=at(top,position);if(!a||!b)continue;
+   const sides=[position-.012,position+.012].map(p=>[at(bottom,p),at(top,p)]);if(!sides.flat().every(Boolean))continue;
+   const mid=pair=>pair[0].map((v,k)=>(v+pair[1][k])/2),shine=ctx.createLinearGradient(...mid(sides[0]),...mid(sides[1]));
+   shine.addColorStop(0,'#ffce5500');shine.addColorStop(.5,'#ffd56855');shine.addColorStop(1,'#ffce5500');ctx.fillStyle=shine;ctx.globalAlpha=amount;
+   ctx.beginPath();[sides[0][0],sides[1][0],sides[1][1],sides[0][1]].forEach((p,j)=>j?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.fill();
+   ctx.strokeStyle='#ffe3a0';ctx.lineWidth=i%3===0?1.5:1;ctx.globalAlpha=amount*(.4+.22*(.5+.5*Math.sin(clock*.65+i*1.7)));ctx.shadowColor='#ffc547';ctx.shadowBlur=4;
+   ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();ctx.shadowBlur=0;
+  }
+  // Solid core plus a restrained outer glow gives the panel weight, without blinking.
+  ctx.strokeStyle='#ffbc35';ctx.lineWidth=5;ctx.globalAlpha=amount*.22;ctx.shadowColor='#ffc13e';ctx.shadowBlur=10;ctx.stroke(rim);
+  ctx.lineWidth=3;ctx.globalAlpha=amount*.7;ctx.stroke(base);
+ }
+ ctx.strokeStyle='#ffe18a';ctx.lineWidth=glow?1.8:1.4;ctx.globalAlpha=amount*.95;ctx.shadowColor='#ffc83d';ctx.shadowBlur=glow?4:0;ctx.stroke(rim);ctx.restore();
 }
+
 let modelPathWidth=1.8;
 try{const saved=localStorage.getItem('roadviewer-path-width');if(saved!==null&&Number.isFinite(Number(saved)))modelPathWidth=Math.max(1,Math.min(3,Number(saved)))}catch{}
 let renderedFrame='';

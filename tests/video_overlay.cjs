@@ -93,6 +93,26 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.evaluate(()=>{data.frames[0].overlay.markers[0].box[0][2]=-.1;render()});assert(!(await pixels()),'box crossing camera near plane is omitted');
   await page.evaluate(()=>{data.frames[0].overlay.markers[0].box[0][2]=1;render()});
 
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  const transitions=await page.evaluate(()=>{
+   window.boxFixture=data.frames[0];
+   data.frames=Array.from({length:25},(_,i)=>{const f=structuredClone(boxFixture);f.t=i*.05;if(i<2||i>=12){f.ccncTargets=[];f.overlay.markers=[]}return f});
+   return [2,3,6,12,13,15].map(i=>ccncBoxTransitions(data.frames,i,data.frames[i].t).map(e=>({height:e.height,alpha:e.alpha})));
+  });
+  assert.equal(transitions[0][0].height,0,'new box starts flat');
+  assert(transitions[1][0].height>0&&transitions[1][0].height<1);assert.equal(transitions[2][0].height,1);
+  assert.equal(transitions[3][0].alpha,1);assert(transitions[4][0].alpha>0&&transitions[4][0].alpha<1);assert.deepEqual(transitions[5],[],'disappeared box is removed after 140ms');
+  await page.evaluate(()=>setTime(.1));const entering=await overlayImage();await page.evaluate(()=>setTime(.3));const grown=await overlayImage();assert.notEqual(entering,grown,'box visibly rises');
+  const maxAlpha=()=>page.locator('#videoOverlay').evaluate(c=>{const pixels=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let max=0;for(let i=3;i<pixels.length;i+=4)max=Math.max(max,pixels[i]);return max});
+  const opaqueEdges=await maxAlpha();await page.evaluate(()=>setTime(.7));assert((await maxAlpha())<opaqueEdges,'faces and edges fade together');
+  const pausedBox=await overlayImage();await page.waitForTimeout(180);assert.equal(await overlayImage(),pausedBox,'box animation freezes while paused');
+  await page.evaluate(()=>setTime(.8));assert(!(await pixels()),'exit removes all box pixels');
+  await page.evaluate(()=>setTime(.1));assert.equal(await overlayImage(),entering,'backward seeking repeats the same growth');
+  await page.evaluate(()=>{data.frames[13]=structuredClone(data.frames[6]);data.frames[13].t=.65;setTime(.65)});
+  assert.equal(await page.evaluate(()=>ccncBoxTransitions(data.frames,idx,t).length),1,'reappearance replaces fading slot without duplicate');
+  await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>setTime(.1));assert.equal(await overlayImage(),grown,'reduced motion shows full box immediately');
+  await page.evaluate(()=>setTime(.6));assert(!(await pixels()),'reduced motion hides removed box immediately');
+  await page.evaluate(()=>{data.frames=[boxFixture];setTime(0)});
   await setBoxHeight(200);
   await settingAction('#ccncTargets','uncheck');assert(!(await pixels()));
   await settingAction('#ccncTargets','check');
@@ -164,6 +184,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   let wallTestTime=0;const wallImage=()=>page.evaluate(time=>{const c=document.createElement('canvas');c.width=200;c.height=100;paintBlindspotWall(c.getContext('2d'),[[10,90],[190,90]],[[10,10],[190,10]],1,time,true);return c.toDataURL()},wallTestTime||0);
   const stillWall=await wallImage();wallTestTime=.8;assert.equal(await wallImage(),stillWall,'reduced motion disables wall scan');
   await page.emulateMedia({reducedMotion:'no-preference'});wallTestTime=0;const scanningWall=await wallImage();wallTestTime=.8;assert.notEqual(await wallImage(),scanningWall,'wall scan follows replay time');await page.emulateMedia({reducedMotion:'reduce'});
+  const streaks=await page.evaluate(()=>{
+   const tracks=Array.from({length:10},(_,i)=>Array.from({length:301},(_,j)=>blindspotStreakPosition(i,j*.1)));
+   return {bounded:tracks.flat().every(v=>v>0&&v<1),reverse:tracks.every(row=>row.some((v,i)=>i&&v>row[i-1])&&row.some((v,i)=>i&&v<row[i-1])),smooth:tracks.every(row=>row.every((v,i)=>!i||Math.abs(v-row[i-1])<.02)),repeat:blindspotStreakPosition(3,2.5)===blindspotStreakPosition(3,2.5)};
+  });assert.deepEqual(streaks,{bounded:true,reverse:true,smooth:true,repeat:true},'vertical streaks move smoothly back and forth without wrap jumps');
   const anchors=await page.evaluate(()=>({
    straight:blinkerLaneAnchors([[],[[.2,.9],[.45,.5]],[[.8,.9],[.55,.5]]]),
    curved:blinkerLaneAnchors([[],[[.3,.9],[.55,.5]],[[.9,.9],[.65,.5]]]),
