@@ -10,7 +10,8 @@ try{
 function clock(n){n=Math.max(0,n);return `${Math.floor(n/60)}:${(n%60).toFixed(2).padStart(5,'0')}`}
 function nearest(time){const f=data.frames;let a=0,b=f.length-1;while(a<b){const m=(a+b)>>1;if(f[m].t<time)a=m+1;else b=m}return a>0&&Math.abs(f[a-1].t-time)<Math.abs(f[a].t-time)?a-1:a}
 function pause(){playing=false;pauseVideo();$('play').textContent='재생'}
-let videoPlayPending=false,videoPauseRevision=0;
+let videoPlayPending=false,videoPauseRevision=0,videoSource=null,resumeAfterVideo=false;
+const failedVideos=new Set();
 function pauseVideo(){videoPauseRevision++;v.pause()}
 const LOG_EDGE_TOLERANCE=.1;
 function recordingEndTolerance(cadence){
@@ -60,7 +61,7 @@ function syncVideo(seek=false){
  if(hold){pauseVideo();return}
  if(playing&&v.paused&&!videoPlayPending){
   videoPlayPending=true;const pauseRevision=videoPauseRevision;
-  v.play().catch(e=>{if(pauseRevision===videoPauseRevision&&playing&&videoAvailable()&&!finalVideoFrame()){playbackError('영상을 재생할 수 없습니다. '+e.message)}}).finally(()=>{videoPlayPending=false;if(!playing||!videoAvailable()||finalVideoFrame())pauseVideo()});
+  v.play().catch(e=>{if(pauseRevision===videoPauseRevision&&playing&&videoAvailable()&&!finalVideoFrame()){videoFailure('영상을 재생할 수 없습니다. '+e.message)}}).finally(()=>{videoPlayPending=false;if(!playing||!videoAvailable()||finalVideoFrame())pauseVideo()});
  }
 }
 function updateVideoBuffer(){
@@ -109,6 +110,35 @@ function expandReplayData(replay){
  }
  return replay;
 }
+const videoLabels={front:'고화질 전방',qcamera:'전방 · 저용량',wide:'와이드'};
+function setupVideoSources(){
+ failedVideos.clear();resumeAfterVideo=false;
+ const choices=data.videos|| (data.video?{qcamera:data.video}:{}),select=$('videoSource');
+ select.replaceChildren(...Object.keys(videoLabels).filter(key=>choices[key]).map(key=>new Option(videoLabels[key],key)));
+ $('videoSourceControl').hidden=select.options.length<2;
+ select.dispatchEvent(new Event('rv:sync'));
+ return Object.keys(videoLabels).find(key=>choices[key])||null;
+}
+function selectVideo(source){
+ const info=(data.videos||{qcamera:data.video})[source];if(!info)return;
+ resumeAfterVideo=playing||resumeAfterVideo;pause();videoPlayPending=false;videoSource=source;data.video=info;
+ $('videoSource').value=source;$('videoSource').dispatchEvent(new Event('rv:sync'));
+ $('cameraTitle').textContent=source==='wide'?'와이드 카메라':'전방 카메라';
+ v.setAttribute('aria-label',videoLabels[source]);
+ videoReadyPending=true;
+ const id=location.pathname.split('/').filter(Boolean).at(-1);
+ const url=new URL('../../api/logs/'+id+'/video',location.href);
+ url.searchParams.set('v',data.key||Date.now());if(data.videos)url.searchParams.set('source',source);
+ v.src=url.href;setPlaybackState(false,'영상을 불러오는 중입니다. 잠시 기다려 주세요.');v.load();updateVideoBuffer();setTime(t);
+}
+function videoFailure(message){
+ if(!data?.video)return;
+ failedVideos.add(videoSource);
+ const source=Object.keys(videoLabels).find(key=>data.videos?.[key]&&!failedVideos.has(key));
+ if(source){selectVideo(source);showError('선택한 영상을 읽지 못해 '+videoLabels[source]+' 영상으로 전환했습니다.');return}
+ resumeAfterVideo=false;playbackError(message);
+}
+$('videoSource').onchange=()=>{failedVideos.clear();selectVideo($('videoSource').value)};
 let dataRetryTimer=null,recordingNameFiles={};
 async function loadData(){const id=location.pathname.split('/').filter(Boolean).at(-1);clearTimeout(dataRetryTimer);const res=await fetch(replayUrl('../../api/logs/'+id+'/data'),{cache:'no-cache'});
  if(res.status===409){
@@ -120,9 +150,9 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
   throw Error(state.error||'로그 변환에 실패했습니다. 목록을 확인하세요.');
  }
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
- data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;if(data.video){videoReadyPending=true;v.src=new URL('../../api/logs/'+id+'/video?v='+encodeURIComponent(data.key||Date.now()),location.href).href;setPlaybackState(false,'영상을 불러오는 중입니다. 잠시 기다려 주세요.');v.load()}else{setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
+ data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;t=0;const source=setupVideoSources();if(source){selectVideo(source)}else{videoSource=null;setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
-v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료')}};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)playbackError('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
+v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)videoFailure('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
 for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncRoad','boxBsdLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 document.onkeydown=e=>{if(['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
@@ -208,39 +238,54 @@ function blindspotLevels(frames,index,time){
 }
 // Slot transitions use log time: pause/seek/replay cannot leave a stale animation behind.
 function ccncBoxTransitions(frames,index,time){
- const current=frames[index];if(!current?.valid||!Array.isArray(current.ccncTargets))return [];
+ const current=frames[index];if(!current?.valid)return [];
+ const rise=.45,fade=.6,motion=motionAllowed();
  const find=(i,slot)=>{
   const frame=frames[i];if(!frame?.valid||!Array.isArray(frame.ccncTargets))return null;
   const targetIndex=frame.ccncTargets.findIndex(target=>target.slot===slot),target=frame.ccncTargets[targetIndex];
   const marker=frame.overlay?.markers?.find(marker=>marker.kind==='ccnc'&&marker.index===targetIndex);
   return target&&marker?.box?.length===8?{target,marker}:null;
  };
+ const connected=i=>i>0&&frames[i-1].valid&&frames[i].t-frames[i-1].t<=.15;
  const ease=value=>{const p=Math.max(0,Math.min(1,value));return p*p*(3-2*p)};
  const entries=[];
  for(const slot of ['LF','FF','RF']){
   let source=index,entry=find(source,slot);
-  if(!entry&&motionAllowed())while(source>0&&time-frames[source].t<.14){
-   if(!frames[source-1].valid||!Array.isArray(frames[source-1].ccncTargets)||frames[source].t-frames[source-1].t>.15)break;
+  if(!entry&&motion)while(connected(source)&&time-frames[source].t<fade){
    entry=find(--source,slot);if(entry)break;
   }
   if(!entry)continue;
-  const fading=source!==index,alpha=fading?1-ease((time-frames[source+1].t)/.14):1;
+  const fading=source!==index,alpha=fading?1-ease((time-frames[source+1].t)/fade):1;
   if(alpha<=0)continue;
   let height=1;
-  if(motionAllowed()){
-   let start=source;
-   while(start>0&&frames[source].t-frames[start].t<.18&&frames[start].t-frames[start-1].t<=.15&&find(start-1,slot))start--;
-   // A target already present at the log boundary is not a new detection.
-   if(start>0&&frames[start-1].valid&&Array.isArray(frames[start-1].ccncTargets)&&!find(start-1,slot))height=ease(((fading?frames[source+1].t:time)-frames[start].t)/.18);
+  if(motion){
+   const growthTime=fading?frames[source+1].t:time;let start=source;
+   // Reuse the visible slot across brief dropouts, including stale CAN samples.
+   // Only inspect enough history to establish a fully grown box, never the whole log.
+   while(growthTime-frames[start].t<rise){
+    let previous=start;
+    while(connected(previous)&&frames[start].t-frames[previous-1].t<=fade){
+     previous--;if(find(previous,slot))break;
+    }
+    if(previous===start||!find(previous,slot))break;
+    start=previous;
+   }
+   // A target already present at a log boundary is not a new detection.
+   if(connected(start))height=ease((growthTime-frames[start].t)/rise);
   }
   entries.push({...entry,height,alpha,animated:fading||height<1});
  }
  return entries;
 }
+function horizontalTargetLine(points){
+ if(points?.length!==2||!points.every(p=>p?.length===2&&p.every(Number.isFinite)))return null;
+ const y=(points[0][1]+points[1][1])/2;
+ return points.map(p=>[p[0],y]);
+}
 function targetSectionPoints(section,width=modelPathWidth){
  if(!section?.every(p=>p?.length===3&&p.every(Number.isFinite)))return null;
  const [center,side]=section,points=[-1,1].map(sign=>center.map((v,k)=>v+sign*width/2*side[k]));
- return points.every(p=>p[2]>.1)?points.map(p=>[p[0]/p[2],p[1]/p[2]]):null;
+ return points.every(p=>p[2]>.1)?horizontalTargetLine(points.map(p=>[p[0]/p[2],p[1]/p[2]])):null;
 }
 function targetBrakeLevel(frames,index){
  const current=frames[index];if(!current?.valid||!Number.isFinite(current.roadSignals?.acceleration))return 0;
@@ -282,33 +327,32 @@ function paintBlindspotWall(ctx,bottom,top,amount,time,glow=false){
   const gradient=ctx.createLinearGradient(a[0],a[1],d[0],d[1]);gradient.addColorStop(0,glow?'#e99b286e':'#ffbd3840');gradient.addColorStop(.45,glow?'#b9792938':'#ffd84d18');gradient.addColorStop(1,glow?'#ffd65a45':'#ffdd5510');ctx.fillStyle=gradient;
   ctx.beginPath();[a,b,c,d].forEach((p,j)=>j?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.globalAlpha=amount;ctx.fill();
   if(!glow){grid.moveTo(...a);grid.lineTo(...d)}
-  for(const ratio of [.25,.5,.75]){grid.moveTo(a[0]+(d[0]-a[0])*ratio,a[1]+(d[1]-a[1])*ratio);grid.lineTo(b[0]+(c[0]-b[0])*ratio,b[1]+(c[1]-b[1])*ratio)}
+  if(!glow)for(const ratio of [.25,.5,.75]){grid.moveTo(a[0]+(d[0]-a[0])*ratio,a[1]+(d[1]-a[1])*ratio);grid.lineTo(b[0]+(c[0]-b[0])*ratio,b[1]+(c[1]-b[1])*ratio)}
   for(const [p,q] of [[a,b],[d,c]]){rim.moveTo(...p);rim.lineTo(...q)}
   base.moveTo(...a);base.lineTo(...b);
   if(i===1||!bottom[i-2]||!top[i-2]){rim.moveTo(...a);rim.lineTo(...d)}
   if(i===bottom.length-1||!bottom[i+1]||!top[i+1]){rim.moveTo(...b);rim.lineTo(...c)}
  }
- ctx.globalAlpha=amount*(glow?.12:.3);ctx.stroke(grid);
+ if(!glow){ctx.globalAlpha=amount*.3;ctx.stroke(grid)}
  if(glow){
   const clock=motionAllowed()?time:0;
   const at=(points,position)=>{const x=position*(points.length-1),i=Math.min(points.length-2,Math.floor(x)),a=points[i],b=points[i+1];return a&&b?a.map((v,k)=>v+(b[k]-v)*(x-i)):null};
   for(let i=0;i<10;i++){
    const position=blindspotStreakPosition(i,clock),a=at(bottom,position),b=at(top,position);if(!a||!b)continue;
-   const sides=[position-.012,position+.012].map(p=>[at(bottom,p),at(top,p)]);if(!sides.flat().every(Boolean))continue;
-   const mid=pair=>pair[0].map((v,k)=>(v+pair[1][k])/2),shine=ctx.createLinearGradient(...mid(sides[0]),...mid(sides[1]));
-   shine.addColorStop(0,'#ffce5500');shine.addColorStop(.5,'#ffd56855');shine.addColorStop(1,'#ffce5500');ctx.fillStyle=shine;ctx.globalAlpha=amount;
-   ctx.beginPath();[sides[0][0],sides[1][0],sides[1][1],sides[0][1]].forEach((p,j)=>j?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.fill();
-   ctx.strokeStyle='#ffe3a0';ctx.lineWidth=i%3===0?1.5:1;ctx.globalAlpha=amount*(.4+.22*(.5+.5*Math.sin(clock*.65+i*1.7)));ctx.shadowColor='#ffc547';ctx.shadowBlur=4;
-   ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();ctx.shadowBlur=0;
+   const lit=i%2===0;
+   ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);
+   if(lit){ctx.strokeStyle='#ffbc35';ctx.lineWidth=5;ctx.globalAlpha=amount*.22;ctx.shadowColor='#ffc13e';ctx.shadowBlur=10;ctx.stroke()}
+   ctx.strokeStyle=lit?'#ffe18a':'#ffe3a0';ctx.lineWidth=lit?1.8:(i%3===0?1.5:1);ctx.globalAlpha=amount*(lit?.95:(.4+.22*(.5+.5*Math.sin(clock*.65+i*1.7))));ctx.shadowColor='#ffc83d';ctx.shadowBlur=lit?4:0;
+   ctx.stroke();ctx.shadowBlur=0;
   }
-  // Solid core plus a restrained outer glow gives the panel weight, without blinking.
+  // Perimeter styling is independent of the thin moving vertical streaks.
   ctx.strokeStyle='#ffbc35';ctx.lineWidth=5;ctx.globalAlpha=amount*.22;ctx.shadowColor='#ffc13e';ctx.shadowBlur=10;ctx.stroke(rim);
   ctx.lineWidth=3;ctx.globalAlpha=amount*.7;ctx.stroke(base);
  }
  ctx.strokeStyle='#ffe18a';ctx.lineWidth=glow?1.8:1.4;ctx.globalAlpha=amount*.95;ctx.shadowColor='#ffc83d';ctx.shadowBlur=glow?4:0;ctx.stroke(rim);ctx.restore();
 }
 
-let modelPathWidth=1.8;
+let modelPathWidth=1.86;
 try{const saved=localStorage.getItem('roadviewer-path-width');if(saved!==null&&Number.isFinite(Number(saved)))modelPathWidth=Math.max(1,Math.min(3,Number(saved)))}catch{}
 let renderedFrame='';
 function render(lazy){

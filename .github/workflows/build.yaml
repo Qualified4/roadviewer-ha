@@ -66,6 +66,7 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install flask
       - run: node tests/navigation.cjs
+      - run: node tests/video_sources.cjs
       - run: node tests/replay_ready.cjs
       - run: node tests/replay_coverage.cjs
       - run: node tests/replay_play_request.cjs
@@ -175,6 +176,8 @@ jobs:
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/smoke.py
       - name: Decoder progress tests
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_decoder_progress.py
+      - name: Multi-camera HEVC conversion tests
+        run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_video_sources.py
       - name: Speed alignment tests
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_speed.py
 

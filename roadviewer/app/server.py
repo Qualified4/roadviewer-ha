@@ -9,6 +9,7 @@ from werkzeug.exceptions import HTTPException
 from storage_policy import StoragePolicy,atomic_json
 from device_api import DeviceAPI
 from device_network import DeviceNetwork
+from video_sources import SOURCES,ORIGINALS,DERIVED,UPLOAD_KINDS,STORED_KINDS,validate_hevc
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
 options_path=Path('/data/options.json');options=json.loads(options_path.read_text()) if options_path.exists() else {}
@@ -16,7 +17,7 @@ DEVICE_HOST_PORT=int(os.environ.get('RV_DEVICE_HOST_PORT','0')) or None
 app=Flask(__name__,static_folder=None)
 app.config.update(MAX_CONTENT_LENGTH=int(options.get('max_upload_mb',512))*1024*1024,MAX_FORM_PARTS=220)
 lock=threading.RLock();processes={};job_progress={};active_uploads=Counter();finishing_uploads=set();registration_lock=threading.Lock()
-ID=re.compile(r'^[a-f0-9]{32}$');FLAT=re.compile(r'^(?P<route>.{20})--(?P<segment>\d+)--(?P<kind>rlog\.zst|qcamera\.ts)$')
+ID=re.compile(r'^[a-f0-9]{32}$');FLAT=re.compile(r'^(?P<route>.{20})--(?P<segment>\d+)--(?P<kind>rlog\.zst|qcamera\.ts|fcamera\.hevc|ecamera\.hevc)$')
 def folder(id):
  if not ID.fullmatch(id):abort(404)
  p=ROOT/id
@@ -26,10 +27,10 @@ def folder(id):
 def read_meta(p):return json.loads((p/'meta.json').read_text())
 def save_meta(p,m):
  temp=p/'meta.tmp';temp.write_text(json.dumps(m,ensure_ascii=False));temp.replace(p/'meta.json')
-def original_bytes(p,kinds=('rlog.zst','qcamera.ts','camera.mp4')):return sum((p/k).stat().st_size for k in kinds if (p/k).is_file())
-def has_video(p):return (p/'qcamera.ts').is_file() or (p/'camera.mp4').is_file()
+def original_bytes(p,kinds=STORED_KINDS):return sum((p/k).stat().st_size for k in kinds if (p/k).is_file())
+def has_video(p):return any((p/k).is_file() for k in (*ORIGINALS,*DERIVED.values()))
 def video_download_kind(p):
- return 'qcamera.ts' if (p/'qcamera.ts').is_file() else 'camera.mp4' if (p/'camera.mp4').is_file() else None
+ return next((kind for source in ('front','qcamera','wide') for kind in SOURCES[source][:2] if (p/kind).is_file()),None)
 
 def run_job(id):
  p=ROOT/id
@@ -51,7 +52,7 @@ def run_job(id):
     proc=subprocess.Popen([sys.executable,'-B',str(BASE/'decoder.py'),str(p/'rlog.zst'),m['name']],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,**channel.options());processes[id]=proc
    channel.start()
    try:
-    stdout,stderr=proc.communicate(timeout=600)
+    stdout,stderr=proc.communicate(timeout=1800 if any((p/k).is_file() for k in ('fcamera.hevc','ecamera.hevc')) else 600)
     if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
     # The decoder writes the large data file. Only its small summary is needed here.
     summary=json.loads((p/'prepared/summary.json').read_text())
@@ -59,15 +60,15 @@ def run_job(id):
      if not (p/'meta.json').exists():return
      m=read_meta(p)
      if m.get('conversion_revision',0)!=revision:return
-     if summary.get('video') and (p/'prepared/camera.mp4').is_file():
+     available=summary.get('videos',{'qcamera':summary.get('video')})
+     for source,(original,mp4,_) in SOURCES.items():
+      if not available.get(source) or not (p/'prepared'/mp4).is_file():continue
       if not keep_original_video:
-       # Preserve the verified MP4 before removing the uploaded TS.
-       (p/'prepared/camera.mp4').replace(p/'camera.mp4')
-       (p/'qcamera.ts').unlink(missing_ok=True)
-      elif (p/'qcamera.ts').is_file():
-       (p/'camera.mp4').unlink(missing_ok=True)
-      m['bytes']=original_bytes(p)
-     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v25-road-perspective');save_meta(p,m)
+       (p/'prepared'/mp4).replace(p/mp4)
+       (p/original).unlink(missing_ok=True)
+      elif (p/original).is_file():(p/mp4).unlink(missing_ok=True)
+     m['bytes']=original_bytes(p)
+     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v26-ff-path-reference');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
@@ -104,10 +105,10 @@ def recording_paths():
 
 def clear_prepared(p,m):
  if (p/'prepared').exists():shutil.rmtree(p/'prepared')
- # A restored TS makes the formerly sole MP4 regenerable again.
- if (p/'qcamera.ts').is_file() and (p/'camera.mp4').is_file():
-  (p/'camera.mp4').unlink()
-  m['bytes']=original_bytes(p,('rlog.zst','qcamera.ts'))
+ # Never remove the only retained copy of any camera.
+ for original,mp4 in DERIVED.items():
+  if (p/original).is_file():(p/mp4).unlink(missing_ok=True)
+ m['bytes']=original_bytes(p)
  m.update(duration=None,model_frames=None,warnings=[],error=None,conversion_revision=m.get('conversion_revision',0)+1)
 
 def queue_unconverted():
@@ -258,10 +259,10 @@ def file_digest(path):
 
 def stored_digests(path,meta):
  cached=meta.get('content_hashes',{});updated={}
- for kind in ('rlog.zst','qcamera.ts'):
+ for kind in UPLOAD_KINDS:
   file=path/kind
   if not file.is_file():
-   if kind=='qcamera.ts' and (path/'camera.mp4').is_file() and kind in cached:updated[kind]=cached[kind]
+   if kind in DERIVED and (path/DERIVED[kind]).is_file() and kind in cached:updated[kind]=cached[kind]
    continue
   stat=file.stat();old=cached.get(kind,{})
   if old.get('size')==stat.st_size and old.get('mtime_ns')==stat.st_mtime_ns and old.get('sha256'):
@@ -271,7 +272,7 @@ def stored_digests(path,meta):
  return {kind:value['sha256'] for kind,value in updated.items()}
 
 def register_files(files):
- if not files or len(files)>100:return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
+ if not files or len(files)>(200 if request.path.startswith('/api/device/') else 100):return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
  if shutil.disk_usage(ROOT).free<(request.content_length or 0)+100*1024*1024:return upload_error('insufficient_disk_space','로그를 저장할 디스크 공간이 부족합니다.',507)
  staged=[];duplicates=[];updated=[]
  try:
@@ -282,7 +283,7 @@ def register_files(files):
     if path.is_absolute() or '..' in path.parts or not path.name:raise ValueError('허용하지 않는 파일 경로입니다.')
     match=FLAT.fullmatch(path.name)
     if match:group=str(path.parent)+'/'+match['route']+'--'+match['segment'];kind=match['kind'];label=match['route']+' / 구간 '+str(int(match['segment']))
-    elif path.name in ('rlog.zst','qcamera.ts'):group=str(path.parent);kind=path.name;label=path.parent.name or '업로드한 로그'
+    elif path.name in UPLOAD_KINDS:group=str(path.parent);kind=path.name;label=path.parent.name or '업로드한 로그'
     else:raise ValueError('지원하지 않는 파일: '+path.name)
     if group not in groups:
      group_dir=Path(temp)/uuid.uuid4().hex;group_dir.mkdir();groups[group]={'dir':group_dir,'label':label,'files':{}}
@@ -292,6 +293,7 @@ def register_files(files):
      # Finished chunked uploads already live under ROOT: move instead of copying up to 512 MB.
      os.replace(f.path,g['dir']/kind);g.setdefault('known',{})[kind]=f.sha256
     else:f.save(g['dir']/kind)
+    if kind.endswith('.hevc'):validate_hevc(g['dir']/kind)
     g['files'][kind]=path.name
    for g in groups.values():
     if 'rlog.zst' not in g['files']:raise ValueError(g['label']+': 영상과 짝이 되는 rlog.zst를 함께 올려주세요.')
@@ -320,9 +322,10 @@ def register_files(files):
      for g,match in zip(groups.values(),matches):
       if match is None:
        changes=True
-      elif 'qcamera.ts' in g['hashes']:
+      else:
        path=ROOT/match[0]['id']
-       if not (path/'qcamera.ts').is_file() and (not has_video(path) or g['hashes']['qcamera.ts']==match[1].get('qcamera.ts')):changes=True
+       if any(kind in g['hashes'] and not (path/kind).is_file() and
+              (not (path/DERIVED[kind]).is_file() or g['hashes'][kind]==match[1].get(kind)) for kind in ORIGINALS):changes=True
      if changes:
       storage_policy.admit(0,[{'name':name} for g in groups.values() for name in g['files'].values()],commit=True,protected_ids={match[0]['id'] for match in matches if match})
      for g in groups.values():
@@ -330,38 +333,33 @@ def register_files(files):
       if match:
        meta,hashes=match
        p=ROOT/meta['id'];meta=read_meta(p)
-       if 'qcamera.ts' in g['hashes'] and not (p/'qcamera.ts').is_file() and (p/'camera.mp4').is_file() and g['hashes']['qcamera.ts']==hashes.get('qcamera.ts'):
-        # Restore the exact original without invalidating the MP4 or analysis in use.
-        target=p/'qcamera.ts';(g['dir']/'qcamera.ts').replace(target);stat=target.stat()
-        meta.setdefault('files',{})['qcamera.ts']=g['files']['qcamera.ts']
-        meta.setdefault('content_hashes',{})['qcamera.ts']={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':g['hashes']['qcamera.ts']}
-        meta['bytes']=original_bytes(p)
-        save_meta(p,meta);existing[g['hashes']['rlog.zst']]=(meta,hashes)
-        updated.append(dict(meta,original_restored=True))
-        continue
-       if 'qcamera.ts' in g['hashes'] and not has_video(p):
-        # Cancel the old conversion before removing any of its output files.
-        proc=processes.get(meta['id'])
-        if proc and proc.poll() is None:
-         proc.terminate()
-         try:proc.wait(timeout=3)
-         except subprocess.TimeoutExpired:proc.kill();proc.wait()
-        (g['dir']/'qcamera.ts').replace(p/'qcamera.ts')
-        meta.setdefault('files',{})['qcamera.ts']=g['files']['qcamera.ts']
-        meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted',video=True,duration=None,model_frames=None,warnings=[],error=None,conversion_revision=meta.get('conversion_revision',0)+1,bytes=original_bytes(p,('rlog.zst','qcamera.ts')))
-        stat=(p/'qcamera.ts').stat()
-        meta.setdefault('content_hashes',{})['qcamera.ts']={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':g['hashes']['qcamera.ts']}
-        hashes={**hashes,'qcamera.ts':g['hashes']['qcamera.ts']}
-        save_meta(p,meta)
-        if (p/'prepared').exists():shutil.rmtree(p/'prepared')
+       added=[kind for kind in ORIGINALS if kind in g['hashes'] and not (p/kind).is_file() and
+              (not (p/DERIVED[kind]).is_file() or g['hashes'][kind]==hashes.get(kind))]
+       if added:
+        restored=all((p/DERIVED[kind]).is_file() and g['hashes'][kind]==hashes.get(kind) for kind in added)
+        if not restored:
+         proc=processes.get(meta['id'])
+         if proc and proc.poll() is None:
+          proc.terminate()
+          try:proc.wait(timeout=3)
+          except subprocess.TimeoutExpired:proc.kill();proc.wait()
+        for kind in added:
+         target=p/kind;(g['dir']/kind).replace(target);stat=target.stat()
+         meta.setdefault('files',{})[kind]=g['files'][kind]
+         meta.setdefault('content_hashes',{})[kind]={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':g['hashes'][kind]}
+         hashes={**hashes,kind:g['hashes'][kind]}
+        if not restored:
+         clear_prepared(p,meta)
+         meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted')
+        meta.update(video=True,bytes=original_bytes(p));save_meta(p,meta)
         existing[g['hashes']['rlog.zst']]=(meta,hashes)
-        updated.append(meta)
+        updated.append(dict(meta,original_restored=True) if restored else meta)
         continue
-       video_diff='qcamera.ts' in g['hashes'] and g['hashes']['qcamera.ts']!=hashes.get('qcamera.ts')
+       video_diff=any(kind in g['hashes'] and g['hashes'][kind]!=hashes.get(kind) for kind in ORIGINALS)
        duplicates.append({'id':meta['id'],'name':g['label'],'video_differs':video_diff})
        continue
       id=uuid.uuid4().hex;p=g['dir']
-      m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':'qcamera.ts' in g['files'],'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None,'content_hashes':{kind:{'size':(p/kind).stat().st_size,'mtime_ns':(p/kind).stat().st_mtime_ns,'sha256':digest} for kind,digest in g['hashes'].items()}};save_meta(p,m);p.rename(ROOT/id);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
+      m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':any(kind in g['files'] for kind in ORIGINALS),'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None,'content_hashes':{kind:{'size':(p/kind).stat().st_size,'mtime_ns':(p/kind).stat().st_mtime_ns,'sha256':digest} for kind,digest in g['hashes'].items()}};save_meta(p,m);p.rename(ROOT/id);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
   return jsonify(logs=staged,duplicates=duplicates,updated=updated),201
  except ValueError as e:return jsonify(error=str(e)),400
  finally:
@@ -444,14 +442,14 @@ def begin_upload():
  if not isinstance(body,dict):return jsonify(error='invalid_upload'),400
  with registration_lock,lock:return create_upload(body.get('files'))
 
-def create_upload(files):
- if not isinstance(files,list) or not 1<=len(files)<=100:return jsonify(error='invalid_files'),400
+def create_upload(files,max_bytes=None,max_files=100):
+ if not isinstance(files,list) or not 1<=len(files)<=max_files:return jsonify(error='invalid_files'),400
  for f in files:
   if not isinstance(f,dict) or not isinstance(f.get('name'),str) or type(f.get('size')) is not int or f['size']<=0:return jsonify(error='invalid_file'),400
   path=PurePosixPath(f['name'].replace('\\','/'))
-  if path.is_absolute() or '..' in path.parts or not (path.name in ('rlog.zst','qcamera.ts') or FLAT.fullmatch(path.name)):return jsonify(error='invalid_file_path'),400
+  if path.is_absolute() or '..' in path.parts or not (path.name in UPLOAD_KINDS or FLAT.fullmatch(path.name)):return jsonify(error='invalid_file_path'),400
  total=sum(f['size'] for f in files)
- if total>app.config['MAX_CONTENT_LENGTH']:return too_large(None)
+ if total>(max_bytes if max_bytes is not None else app.config['MAX_CONTENT_LENGTH']):return too_large(None)
  if sum(1 for p in UPLOADS.iterdir() if (p/'reservation.json').is_file())>=UPLOAD_SESSION_LIMIT:return jsonify(error='session_limit_reached'),429
  # Chunks are moved into place when finished, so no second copy needs room.
  amount=storage_policy.admit(total,files,staging=False)
@@ -587,13 +585,13 @@ def download_video(id):
 
 @app.route('/api/logs/<id>/original/<kind>')
 def original(id,kind):
- if kind not in ('rlog.zst','qcamera.ts','camera.mp4'):abort(404)
+ if kind not in STORED_KINDS:abort(404)
  p=folder(id);file=p/kind
  if not file.is_file():abort(404)
- source_kind='qcamera.ts' if kind=='camera.mp4' else kind
+ source_kind=next((original for original,mp4 in DERIVED.items() if kind==mp4),kind)
  name=PurePosixPath(read_meta(p).get('files',{}).get(source_kind,source_kind)).name
- if kind=='camera.mp4':name=str(PurePosixPath(name).with_suffix('.mp4'))
- mime={'qcamera.ts':'video/mp2t','camera.mp4':'video/mp4','rlog.zst':'application/zstd'}[kind]
+ if kind.endswith('.mp4'):name=str(PurePosixPath(name).with_suffix('.mp4'))
+ mime='video/mp4' if kind.endswith('.mp4') else 'video/hevc' if kind.endswith('.hevc') else 'video/mp2t' if kind=='qcamera.ts' else 'application/zstd'
  return send_file(file,as_attachment=True,download_name=name,mimetype=mime,conditional=True)
 
 @app.route('/api/logs/<id>/data')
@@ -630,7 +628,13 @@ def telemetry(id):
 def video(id):
  p=folder(id)
  if read_meta(p)['status']!='ready':return jsonify(error='로그를 준비 중이거나 변환에 실패했습니다.'),409
- file=p/'camera.mp4' if (p/'camera.mp4').is_file() else p/'prepared/camera.mp4'
+ summary_file=p/'prepared/summary.json'
+ summary=json.loads(summary_file.read_text()) if summary_file.is_file() else {}
+ preferred=next((key for key in ('front','qcamera','wide') if summary.get('videos',{}).get(key)),'qcamera')
+ source=request.args.get('source',preferred)
+ if source not in SOURCES:abort(404)
+ name=SOURCES[source][1]
+ file=p/name if (p/name).is_file() else p/'prepared'/name
  if not file.exists():abort(404)
  return send_file(file,mimetype='video/mp4',conditional=True)
 def requeue_startup():
@@ -638,7 +642,7 @@ def requeue_startup():
  pending=[]
  for p in recording_paths():
   m=read_meta(p)
-  stale=m['status']=='ready' and (m.get('decoder_version')!='v25-road-perspective' or bool(m.get('video'))!=has_video(p) or prepared_file(p,'data.json')[0] is None)
+  stale=m['status']=='ready' and (m.get('decoder_version')!='v26-ff-path-reference' or bool(m.get('video'))!=has_video(p) or prepared_file(p,'data.json')[0] is None)
   if m['status'] in ('queued','processing') or stale:
    clear_prepared(p,m)
    m.update(status='unconverted',video=has_video(p))

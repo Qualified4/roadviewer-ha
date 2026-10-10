@@ -1,8 +1,9 @@
-def align_timeline(frames, video):
+def align_timeline(frames, video, videos=None):
  """Use the union of model and synchronized video coverage, starting at zero."""
- start=min(frames[0]['t'],video['start'] if video else frames[0]['t'])
+ streams=list(videos.values()) if videos is not None else ([video] if video else [])
+ start=min([frames[0]['t']]+[item['start'] for item in streams])
  for frame in frames:frame['t']=round(frame['t']-start,6)
- if video:video['start']=round(video['start']-start,6)
+ for item in streams:item['start']=round(item['start']-start,6)
  log_start,log_end=frames[0]['t'],frames[-1]['t']
- end=max(log_end,video['start']+video['duration'] if video else log_end)
+ end=max([log_end]+[item['start']+item['duration'] for item in streams])
  return {'duration':end,'logStart':log_start,'logEnd':log_end}

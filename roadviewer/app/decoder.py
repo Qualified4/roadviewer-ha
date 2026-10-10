@@ -3,6 +3,8 @@ import sys,json,hashlib,bisect,collections,math
 import av,zstandard,capnp
 from steering import SteeringReplay
 from timeline import align_timeline
+from video_sources import SOURCES
+from hevc_video import prepare_video,VideoProgress
 from progress import Reporter
 from overlay import OverlayProjector,restore_ccnc_targets
 from telemetry import extract_telemetry,FIELDS
@@ -121,16 +123,17 @@ def prepare(value,route=None):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v25-road-perspective').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str((src.parent/name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if (src.parent/name).is_file())+'v26-ff-path-reference').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  def save_summary(data):
-  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video')},ensure_ascii=False))
+  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{})},ensure_ascii=False))
  print('로그 읽는 중:',src,flush=True)
  with src.open('rb') as source, zstandard.ZstdDecompressor().stream_reader(source) as reader:
   raw=reader.read(512*1024*1024+1)
  if len(raw)>512*1024*1024:raise ValueError('압축 해제된 로그가 512MB 제한을 초과합니다.')
  streams=collections.defaultdict(list)
  ccnc=[];ccnc_roads=[];road_signals=[]
+ video_indices=collections.defaultdict(list)
  models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter()
  for e in log.Event.read_multiple_bytes(raw):
   kind=e.which();counts[kind]+=1
@@ -150,7 +153,9 @@ def prepare(value,route=None):
    car_states.append((e.logMonoTime,e.valid,float(e.carState.vEgo)))
    acceleration=float(e.carState.aEgo)
    road_signals.append((e.logMonoTime,e.valid,{'acceleration':acceleration if math.isfinite(acceleration) else None,**{name:bool(getattr(e.carState,field)) for name,field in [('blinkerLeft','leftBlinker'),('blinkerRight','rightBlinker'),('blindspotLeft','leftBlindspot'),('blindspotRight','rightBlindspot')]}}))
-  elif kind=='qRoadEncodeIdx':cameras.append(pick(e.qRoadEncodeIdx,SPECS['qRoadEncodeIdx']))
+  elif kind in ('qRoadEncodeIdx','roadEncodeIdx','wideRoadEncodeIdx'):
+   video_indices[kind].append(pick(getattr(e,kind),SPECS['qRoadEncodeIdx']))
+ cameras=video_indices['qRoadEncodeIdx']
  if not models:raise ValueError('이 로그에 modelV2 데이터가 없습니다.')
  camera_by_id={q['frameId']:q['timestampEof'] for q in cameras}
  time_of=lambda stamp,m:camera_by_id.get(m['frameId'],m.get('timestampEof') or stamp)/1e9
@@ -202,57 +207,74 @@ def prepare(value,route=None):
  progress.update('log_analysis',frames=len(frames),total_frames=len(models),force=True)
  frames.sort(key=lambda f:f['t'])
  video_info=None;warnings=[]
- if video.exists() and cameras:
-  print('전방 영상 준비 중…',flush=True)
-  qs=sorted(cameras,key=lambda q:q['segmentId'])
-  progress.update('video_read',frames=0)
-  pts=[]
-  # Frame timestamps come from the packets; decoding every frame here only repeated the verify step below.
-  with av.open(str(video)) as c:
-   stream=c.streams.video[0]
-   for packet in c.demux(stream):
-    if packet.pts is None or packet.size==0:continue
-    pts.append(float(packet.pts*stream.time_base));progress.update('video_read',frames=len(pts))
-  pts.sort()
-  if len(pts)==len(qs) and [q['segmentId'] for q in qs]==list(range(len(qs))):
-   offsets=[q['timestampEof']/1e9-p for q,p in zip(qs,pts)]
-   if max(offsets)-min(offsets)<.005:
-    converted_percent=0
-    progress.update('video_convert',percent=0)
-    output_video=dest/'camera.mp4' if video.suffix=='.ts' else video
-    if video.suffix=='.ts':
-     with av.open(str(video)) as inp, av.open(str(dest/'camera.mp4'),'w',options={'movflags':'+faststart'}) as out:
-      stream=inp.streams.video[0]; target=out.add_stream_from_template(stream);offset=round(pts[0]/float(stream.time_base))
-      for packet in inp.demux(stream):
-       if packet.dts is None:continue
-       packet.pts-=offset;packet.dts-=offset;packet.stream=target
-       position=float(packet.pts*stream.time_base) if packet.pts is not None else 0
-       out.mux(packet)
-       converted_percent=max(converted_percent,min(99,100*position/max(pts[-1]-pts[0],.001)))
-       progress.update('video_convert',percent=converted_percent)
-    progress.update('video_convert',percent=100,force=True)
-    progress.update('video_verify',percent=0)
-    with av.open(str(output_video)) as check:
-     video_duration=float(check.duration)/av.time_base if check.duration is not None else pts[-1]-pts[0]+(pts[-1]-pts[-2] if len(pts)>1 else .05)
-     decoded_count=0;first_pts=0
-     for f in check.decode(video=0):
-      if decoded_count==0:first_pts=float(f.pts*f.time_base)
-      decoded_count+=1
-      progress.update('video_verify',percent=min(99,100*decoded_count/len(pts)))
-     if decoded_count!=len(pts):raise ValueError('변환된 영상 프레임 수가 다릅니다.')
-    video_info={'start':qs[0]['timestampEof']/1e9-origin-first_pts,'duration':video_duration,'frames':len(pts),'timestampSpreadMs':(max(offsets)-min(offsets))*1000}
-   else:warnings.append('영상과 로그의 프레임 시간이 일치하지 않아 영상 동기화를 중단했습니다.')
-  else:warnings.append('영상과 로그의 프레임 수가 일치하지 않아 영상 동기화를 중단했습니다.')
- elif video.exists():warnings.append('카메라 프레임 정보가 없어 영상 동기화를 사용할 수 없습니다.')
- else:warnings.append('저장된 영상이 없어 도로 형태만 표시합니다.')
+ video_inputs={key:next((src.parent/name for name in names[:2] if (src.parent/name).is_file()),None) for key,names in SOURCES.items()}
+ camera_progress=VideoProgress(progress,sum(path is not None for path in video_inputs.values()))
+ try:
+  if video.exists() and cameras:
+   print('전방 영상 준비 중…',flush=True)
+   qs=sorted(cameras,key=lambda q:q['segmentId'])
+   camera_progress.update('video_read',frames=0)
+   pts=[]
+   # Frame timestamps come from the packets; decoding every frame here only repeated the verify step below.
+   with av.open(str(video)) as c:
+    stream=c.streams.video[0]
+    for packet in c.demux(stream):
+     if packet.pts is None or packet.size==0:continue
+     pts.append(float(packet.pts*stream.time_base));camera_progress.update('video_read',frames=len(pts))
+   pts.sort()
+   if len(pts)==len(qs) and [q['segmentId'] for q in qs]==list(range(len(qs))):
+    offsets=[q['timestampEof']/1e9-p for q,p in zip(qs,pts)]
+    if max(offsets)-min(offsets)<.005:
+     converted_percent=0
+     camera_progress.update('video_convert',percent=0)
+     output_video=dest/'camera.mp4' if video.suffix=='.ts' else video
+     if video.suffix=='.ts':
+      with av.open(str(video)) as inp, av.open(str(dest/'camera.mp4'),'w',options={'movflags':'+faststart'}) as out:
+       stream=inp.streams.video[0]; target=out.add_stream_from_template(stream);offset=round(pts[0]/float(stream.time_base))
+       for packet in inp.demux(stream):
+        if packet.dts is None:continue
+        packet.pts-=offset;packet.dts-=offset;packet.stream=target
+        position=float(packet.pts*stream.time_base) if packet.pts is not None else 0
+        out.mux(packet)
+        converted_percent=max(converted_percent,min(99,100*position/max(pts[-1]-pts[0],.001)))
+        camera_progress.update('video_convert',percent=converted_percent)
+     camera_progress.update('video_convert',percent=100,force=True)
+     camera_progress.update('video_verify',percent=0)
+     with av.open(str(output_video)) as check:
+      video_duration=float(check.duration)/av.time_base if check.duration is not None else pts[-1]-pts[0]+(pts[-1]-pts[-2] if len(pts)>1 else .05)
+      decoded_count=0;first_pts=0
+      for f in check.decode(video=0):
+       if decoded_count==0:first_pts=float(f.pts*f.time_base)
+       decoded_count+=1
+       camera_progress.update('video_verify',percent=min(99,100*decoded_count/len(pts)))
+      if decoded_count!=len(pts):raise ValueError('변환된 영상 프레임 수가 다릅니다.')
+     video_info={'start':qs[0]['timestampEof']/1e9-origin-first_pts,'duration':video_duration,'frames':len(pts),'timestampSpreadMs':(max(offsets)-min(offsets))*1000}
+    else:warnings.append('영상과 로그의 프레임 시간이 일치하지 않아 영상 동기화를 중단했습니다.')
+   else:warnings.append('영상과 로그의 프레임 수가 일치하지 않아 영상 동기화를 중단했습니다.')
+  elif video.exists():warnings.append('카메라 프레임 정보가 없어 영상 동기화를 사용할 수 없습니다.')
+ except Exception as exc:
+  (dest/'camera.mp4').unlink(missing_ok=True)
+  warnings.append('qcamera 영상 준비 실패: '+str(exc))
+ videos={'qcamera':video_info} if video_info else {}
+ camera_progress.index=int(video_inputs['qcamera'] is not None)
+ for source in ('front','wide'):
+  original,mp4,topic=SOURCES[source]
+  source_file=video_inputs[source]
+  if source_file is None:continue
+  try:videos[source]=prepare_video(source_file,dest/mp4,video_indices[topic],origin,camera_progress)
+  except Exception as exc:warnings.append(original+' 영상 준비 실패: '+str(exc))
+  camera_progress.index+=1
+ default_video=next((source for source in ('front','qcamera','wide') if source in videos),None)
+ video_info=videos.get(default_video)
+ if not videos:warnings.append('재생 가능한 영상이 없어 도로 형태만 표시합니다.')
  progress.update('saving')
  timeline_start=frames[0]['t']
- bounds=align_timeline(frames,video_info)
+ bounds=align_timeline(frames,video_info,videos)
  telemetry_origin=origin+timeline_start-frames[0]['t']
  telemetry=extract_telemetry(streams,telemetry_origin,bounds['duration'])
  # Compact gzip files: about 5x smaller on disk and over the network (see compact.py).
  write_gzip_json(dest/'telemetry.json.gz',telemetry)
- data={'route':log_entry['label'],'key':key,**bounds,'frames':frames,'video':video_info,'warnings':warnings,'counts':dict(counts)}
+ data={'route':log_entry['label'],'key':key,**bounds,'frames':frames,'video':video_info,'videos':videos,'defaultVideo':default_video,'warnings':warnings,'counts':dict(counts)}
  write_gzip_json(dest/'data.json.gz',compact_data(data),ensure_ascii=False)
  for stale in ('data.json','telemetry.json'):(dest/stale).unlink(missing_ok=True) # Plain files from an earlier version.
  save_summary(data)

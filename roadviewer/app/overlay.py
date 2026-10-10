@@ -21,7 +21,10 @@ def restore_ccnc_targets(targets,model,valid=True):
  restored=[]
  for target in targets:
   x=target['x']/0.8;correction=None
-  if len(curves)==2:
+  # FF is normally encoded relative to model Position; side slots use lane curvature.
+  path=sample_line(points3(model.get('position',{})),x) if valid and target['slot']=='FF' else None
+  if path is not None:correction=path[1]
+  if correction is None and len(curves)==2:
    samples=[(sample_line(c,0),sample_line(c,x)) for c in curves]
    if all(a is not None and b is not None for a,b in samples):correction=sum(b[1]-a[1] for a,b in samples)/2
   y=target['y']+(correction or 0)
@@ -155,6 +158,7 @@ class OverlayProjector:
     point=[v+sign*.9*w for v,w in zip(center,side)]
     target_line.append([round(point[j]/point[2],6) for j in (0,1)])
   markers=[]
+  box_lanes=[points3(lane) for lane in model.get('laneLines',[])[1:3]]
   groups=[('model',frame.get('leads',[])),('selected',[frame['selected']] if frame.get('selected') else []),('radar',frame.get('radarTargets',[])),('raw',frame.get('liveTracks',[])),('ccnc',frame.get('ccncTargets') or [])]
   for kind,targets in groups:
    for i,target in enumerate(targets):
@@ -163,8 +167,16 @@ class OverlayProjector:
     if point:
      marker={'kind':kind,'index':i,'point':point,'projection':projection_coordinates((x,y,ground_z(x)),rpy,config)}
      if kind=='ccnc':
-      # Rear-bottom midpoint is the target. Nominal passenger-car dimensions, not measured size.
-      marker['box']=[projection_coordinates((x+dx,y+dy,ground_z(x+dx)-up),rpy,config)
+      # Follow the lane-center direction over the next 5m, without extrapolation.
+      forward_x,forward_y=1.,0.
+      if len(box_lanes)==2:
+       samples=[(sample_line(lane,x),sample_line(lane,x+5)) for lane in box_lanes]
+       if all(a is not None and b is not None for a,b in samples):
+        lateral=sum(b[1]-a[1] for a,b in samples)/2
+        length=math.hypot(5,lateral);forward_x,forward_y=5/length,lateral/length
+      # Rotate around the rear-bottom midpoint, preserving nominal width/length.
+      # The 1.5m projection basis is rescaled to the chosen height in the browser.
+      marker['box']=[projection_coordinates((x+dx*forward_x-dy*forward_y,y+dx*forward_y+dy*forward_x,ground_z(x+dx*forward_x)-up),rpy,config)
                      for up in (0,1.5) for dx in (0,4.5) for dy in (-.9,.9)]
      markers.append(marker)
   lane_depths=[[p[2] if p else None for p in (projection_coordinates(point,rpy,config) for point in points3(lane))] for lane in model.get('laneLines',[])[1:3]]

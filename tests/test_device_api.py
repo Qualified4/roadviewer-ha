@@ -475,4 +475,42 @@ class DeviceTests(unittest.TestCase):
     with self.assertRaises(OSError):s.devices.authenticate()
   self.assertEqual(list(s.UPLOADS.iterdir()),[])
 
+
+ def test_high_quality_manifest_and_limits(self):
+  body=self.batch()
+  for kind in ('fcamera.hevc','ecamera.hevc'):
+   body['segments'][0]['files'].append({'kind':kind,'size':600*1024*1024,'sha256':'a'*64})
+  with patch('shutil.disk_usage',return_value=SimpleNamespace(free=20*1024**3)):
+   response=self.signed(body)
+  self.assertEqual(response.status_code,201,response.json)
+  manifest=json.loads((s.UPLOADS/response.json['id']/'manifest.json').read_text())
+  self.assertEqual(len(manifest),4);self.assertGreater(s.storage_policy.reserved(),1200*1024*1024)
+  session=response.json
+  self.assertEqual(self.external('/api/device/uploads/'+session['id'],'DELETE',headers=self.token(session)).status_code,200)
+  self.assertEqual(s.storage_policy.reserved(),0)
+  body['segments'][0]['files'][-1]['size']=2*1024**3+1
+  self.assertEqual(self.signed(body).status_code,400)
+  body['segments'][0]['files'][-1]['size']=1;body['segments'][0]['files'][-1]['kind']='dcamera.hevc'
+  self.assertEqual(self.signed(body).status_code,400)
+
+ def test_high_quality_upload_late_attach_and_pin(self):
+  def transfer(number, payloads):
+   body={'batch_id':f'high_quality_batch_{number}', 'segments':[{'route':'00000395--0d0eda17c5','segment':7,'files':[
+    {'kind':kind,'size':len(payload),'sha256':hashlib.sha256(payload).hexdigest()} for kind,payload in payloads]}]}
+   session=self.signed(body);self.assertEqual(session.status_code,201,session.json)
+   session=session.json;path='/api/device/uploads/'+session['id'];headers=self.token(session)
+   for index,(_,payload) in enumerate(payloads):
+    result=self.external(f'{path}/files/{index}?offset=0','PUT',data=payload,headers=headers)
+    self.assertEqual(result.status_code,200,result.json)
+   result=self.external(path+'/finish',headers=headers)
+   self.assertEqual(result.status_code,201,result.json)
+   self.assertEqual(s.storage_policy.reserved(),0)
+   return result.json
+  first=transfer(1,[('rlog.zst',b'late-hq-log'),('qcamera.ts',b'video')]);meta=first['logs'][0]
+  s.storage_policy.settings['pinned_logs']=[meta['id']]
+  result=transfer(2,[('rlog.zst',b'late-hq-log'),('fcamera.hevc',b'\x00\x00\x01\x40\x01front'),('ecamera.hevc',b'\x00\x00\x01\x40\x01wide')])
+  self.assertEqual(result['logs'],[]);self.assertEqual(result['updated'][0]['id'],meta['id'])
+  self.assertEqual(len(s.recording_paths()),1);self.assertTrue(s.storage_policy.pinned(meta))
+  self.assertTrue((s.ROOT/meta['id']/'qcamera.ts').is_file())
+
 if __name__=='__main__':unittest.main()

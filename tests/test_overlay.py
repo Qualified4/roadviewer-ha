@@ -45,6 +45,28 @@ class OverlayTests(unittest.TestCase):
   self.assertGreater(out['markers'][2]['point'][0],.5)
   self.assertIsNone(OverlayProjector({}).project(100,model,frame))
 
+ def test_boxes_follow_lane_center_five_meters_ahead(self):
+  streams={'liveCalibration':[(0,True,{'calStatus':'calibrated','rpyCalib':[0,0,0],'height':[1.2]})],'deviceState':[(0,True,{'deviceType':'tici'})]}
+  projector=OverlayProjector(streams);config=camera_config('tici','unknown')
+  for slope in (-.6,0,.6):
+   # Different boundary slopes verify that both sides contribute to the heading.
+   lanes=[{'x':[0,10,15,20],'y':[offset+slope*x+spread*x for x in (0,10,15,20)],'z':[1.2]*4} for offset,spread in ((-1.8,-.05),(1.8,.05))]
+   model={'laneLines':[{},*lanes,{}]}
+   frame={'ccncTargets':[{'slot':slot,'x':10,'y':y} for slot,y in (('LF',-3),('FF',0),('RF',3))]}
+   out=projector.project(0,model,frame)
+   fx=1/math.hypot(1,slope);fy=slope*fx
+   for marker,target in zip(out['markers'],frame['ccncTargets']):
+    box=marker['box']
+    for k in range(3):self.assertAlmostEqual((box[0][k]+box[1][k])/2,marker['projection'][k],msg='rear anchor must not move')
+    expected=[projection_coordinates((10+dx*fx-dy*fy,target['y']+dx*fy+dy*fx,1.2-up),[0,0,0],config)
+              for up in (0,1.5) for dx in (0,4.5) for dy in (-.9,.9)]
+    for point,want in zip(box,expected):
+     for actual,value in zip(point,want):self.assertAlmostEqual(actual,value)
+   # Missing, short or invalid geometry must retain the original straight box.
+   fallback=projector.project(0,{},frame)['markers']
+   for invalid in ([{},lanes[0]], [{},lanes[0],{'x':[0,12],'y':[0,1],'z':[1.2]*2}], [{},lanes[0],{'x':[0,20],'y':[0,float('nan')],'z':[1.2]*2}]):
+    self.assertEqual(projector.project(0,{'laneLines':invalid},frame)['markers'],fallback)
+
  def test_target_line_and_path_width_projection(self):
   streams={'liveCalibration':[(0,True,{'calStatus':'calibrated','rpyCalib':[0,0,0],'height':[1.2]})],'deviceState':[(0,True,{'deviceType':'tici'})]}
   model={'position':{'x':[10,20],'y':[0,0],'z':[0,0]},'laneLines':[{'x':[10,20],'y':[y,y],'z':[1.2,1.2]} for y in (-5.4,-1.8,1.8,5.4)]}
@@ -125,6 +147,20 @@ class RoadPerspectiveTests(unittest.TestCase):
   self.assertFalse(restore_ccnc_targets([target],{'laneLines':[]})[0]['curveRestored'])
   self.assertEqual(restore_ccnc_targets([{**target,'x':80}],model(1))[0]['y'],1,'do not extrapolate missing lane geometry')
   self.assertIsNone(restore_ccnc_targets(None,{}));self.assertEqual(restore_ccnc_targets([],{}),[])
+
+ def test_ff_uses_position_offset_with_lane_fallback(self):
+  targets=[{'slot':slot,'x':24,'y':.5} for slot in ('LF','FF','RF')]
+  for sign in (-1,1):
+   model={'position':{'x':[0,20,40],'y':[.2,sign*2,sign*6],'z':[1.2]*3},
+          'laneLines':[{},*[{'x':[0,20,40],'y':[offset,offset+sign,offset+sign*3],'z':[1.2]*3} for offset in (-1.8,1.8)]]}
+   result=restore_ccnc_targets(targets,model)
+   self.assertEqual([r['y'] for r in result],[.5+sign*2,.5+sign*4,.5+sign*2])
+   self.assertEqual(result[1]['yRel'],-result[1]['y']);self.assertEqual(result[1]['displayY'],.5)
+   self.assertTrue(result[1]['curveRestored']);self.assertEqual(result[1]['x'],30)
+   self.assertEqual(restore_ccnc_targets(targets,model,False)[1]['y'],.5)
+   for position in ({},{'x':[0,10],'y':[0,1],'z':[1.2]*2},{'x':[0,40],'y':[0,float('nan')],'z':[1.2]*2}):
+    self.assertEqual(restore_ccnc_targets(targets,{**model,'position':position})[1]['y'],.5+sign*2,'unavailable path falls back without extrapolation')
+  self.assertTrue(all(t['x']==24 and t['y']==.5 for t in targets))
 
  def test_projected_bands_narrow_with_distance_and_bsd_stops_at_40m(self):
   streams={'liveCalibration':[(0,True,{'calStatus':'calibrated','rpyCalib':[0,0,0],'height':[1.2]})],'deviceState':[(0,True,{'deviceType':'tici'})]}

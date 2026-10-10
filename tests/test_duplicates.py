@@ -106,6 +106,46 @@ class DuplicateTests(unittest.TestCase):
   self.assertEqual(r.status_code,201);self.assertEqual(len(r.json['updated']),1)
   self.assertFalse((server.UPLOADS/session).exists());self.assertEqual(self.count(),1)
 
+
+ def test_hevc_late_attachment_retention_and_validation(self):
+  front=b'\x00\x00\x00\x01\x40\x01front';wide=b'\x00\x00\x01\x42\x01wide'
+  meta=self.upload([('rlog.zst',b'hq-log'),('qcamera.ts',b'video')]).json['logs'][0];p=server.ROOT/meta['id']
+  meta['status']='ready';server.save_meta(p,meta)
+  (p/'prepared').mkdir();(p/'prepared/data.json').write_text('{}')
+  result=self.upload([('rlog.zst',b'hq-log'),('fcamera.hevc',front),('ecamera.hevc',wide)])
+  self.assertEqual(result.status_code,201,result.json);self.assertEqual(self.count(),1)
+  self.assertEqual(result.json['updated'][0]['id'],meta['id'])
+  self.assertEqual(server.original_bytes(p),len(b'hq-logvideo')+len(front)+len(wide))
+  self.assertFalse((p/'prepared').exists())
+  # Model keep-original-off: retain MP4 and cached original digest.
+  (p/'fcamera.hevc').unlink();(p/'fcamera.mp4').write_bytes(b'mp4-front')
+  meta=server.read_meta(p);meta['status']='ready';server.save_meta(p,meta)
+  (p/'prepared').mkdir();(p/'prepared/data.json').write_text('{}')
+  restored=self.upload([('rlog.zst',b'hq-log'),('fcamera.hevc',front)])
+  self.assertTrue(restored.json['updated'][0]['original_restored'])
+  self.assertTrue((p/'prepared/data.json').exists())
+  server.clear_prepared(p,meta)
+  self.assertFalse((p/'fcamera.mp4').exists())
+  (p/'ecamera.hevc').unlink();(p/'ecamera.mp4').write_bytes(b'only-wide-copy')
+  server.clear_prepared(p,meta);self.assertTrue((p/'ecamera.mp4').exists())
+  self.assertEqual(self.upload([('rlog.zst',b'bad-log'),('fcamera.hevc',b'not-video')]).status_code,400)
+  self.assertEqual(self.count(),1)
+
+ def test_video_source_whitelist_and_range(self):
+  import json
+  meta=self.upload([('rlog.zst',b'video-source-log')]).json['logs'][0];p=server.ROOT/meta['id']
+  meta['status']='ready';server.save_meta(p,meta);(p/'prepared').mkdir()
+  (p/'prepared/camera.mp4').write_bytes(b'qcamera')
+  (p/'prepared/fcamera.mp4').write_bytes(b'front-video')
+  (p/'ecamera.mp4').write_bytes(b'wide-video')
+  (p/'prepared/summary.json').write_text(json.dumps({'videos':{'front':{'start':0}}}))
+  path='/api/logs/'+meta['id']+'/video'
+  with self.c.get(path,environ_overrides=PEER) as response:self.assertEqual(response.data,b'front-video')
+  with self.c.get(path+'?source=qcamera',environ_overrides=PEER) as response:self.assertEqual(response.data,b'qcamera')
+  with self.c.get(path+'?source=wide',environ_overrides=PEER,headers={'Range':'bytes=0-3'}) as response:
+   self.assertEqual(response.status_code,206);self.assertEqual(response.data,b'wide')
+  self.assertEqual(self.c.get(path+'?source=../rlog.zst',environ_overrides=PEER).status_code,404)
+
 if __name__=='__main__':
  try:unittest.main()
  finally:server.pool.shutdown()
