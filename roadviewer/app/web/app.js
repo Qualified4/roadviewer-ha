@@ -480,8 +480,11 @@ function render(lazy){
    }
   }
   if(checked('modelPath')&&f.position?.length>1)line(f.position,'#c4a5ff',false,.9,2);
-  if(checked('lanes'))f.lanes.forEach((l,i)=>paintLane(ctx,screen(l),f.lp[i]));
-  if(checked('edges'))f.edges.forEach((l,i)=>paintLane(ctx,screen(l),edgeConfidence(f.es[i]),'#ffa665'));
+  if(checked('lanes')){
+   if(f.lanes[1]?.length&&f.lanes[2]?.length){path([...f.lanes[1],...f.lanes[2].slice().reverse()]);ctx.closePath();ctx.fillStyle='rgba(87,217,176,0.065)';ctx.fill()}
+   f.lanes.forEach((l,i)=>{const p=Number.isFinite(f.lp[i])?Math.max(0,Math.min(1,f.lp[i])):0;line(l,'#57d9b0',p<.5,p,1+3*p)});
+  }
+  if(checked('edges'))f.edges.forEach((l,i)=>line(l,'#ffa665',f.es[i]>1,.95));
 
   if(checked('leads')){
    f.leads.forEach((l,i)=>{if(l.x<0||l.x>range)return;ctx.globalAlpha=l.p<.5?.45:1;ctx.strokeStyle='#81b5ff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(X(l.y),Y(l.x),7,0,Math.PI*2);ctx.stroke();annotate(`모델 ${i+1} · ${targetValue(l,-l.y)}`,X(l.y),Y(l.x),'#c5daff',i===0?1:-1);ctx.globalAlpha=1});
