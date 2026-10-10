@@ -37,7 +37,31 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
   await page.mouse.move(box.x+48+.25*(box.width-56),box.y+45);await page.mouse.down();await page.mouse.move(box.x+48+.4*(box.width-56),box.y+45,{steps:4});await page.mouse.up();
   assert.equal(await page.evaluate(()=>playing),true);assert(Math.abs(await page.evaluate(()=>t)-.8)<.06);await page.evaluate(()=>pause());
   await canvas.focus();await page.keyboard.press('ArrowRight');assert(await page.evaluate(()=>t)>.85);
-  await page.locator('#graphZoomIn').click();assert((await page.locator('#graphTime').textContent()).includes('0.3–1.3')||!(await page.locator('#graphTime').textContent()).includes('0.0–2.0'));
+  // Control the animation clock to verify intermediate ranges and retargeting without timing races.
+  await page.evaluate(()=>{
+   pause();setTime(1);const now=performance.now.bind(performance);let clock=now();
+   Object.defineProperty(performance,'now',{configurable:true,value:()=>clock});
+   const range=()=>document.getElementById('graphTime').textContent.split(' · ')[1];
+   const click=id=>document.getElementById(id).click();
+   try{
+    click('graphZoomIn');if(range()!=='0.0–2.0s')throw Error('zoom must begin at the displayed range');
+    clock+=120;renderTelemetry();if(range()==='0.0–2.0s'||range()==='0.5–1.5s')throw Error('zoom must render an intermediate range');
+    const before=range();click('graphZoomIn');if(range()!==before)throw Error('repeated zoom must not jump');
+    clock+=240;renderTelemetry();if(range()!=='0.8–1.3s')throw Error('repeated clicks must accumulate target zoom');
+    click('graphZoomOut');clock+=240;renderTelemetry();if(range()!=='0.5–1.5s')throw Error('zoom out must reach target');
+    click('graphReset');clock+=120;renderTelemetry();if(range()==='0.0–2.0s'||range()==='0.5–1.5s')throw Error('reset must animate');
+    clock+=120;renderTelemetry();if(range()!=='0.0–2.0s')throw Error('reset must reach full duration');
+    if(t!==1||playing)throw Error('zoom must not seek or start playback');
+   }finally{delete performance.now}
+  });
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.evaluate(()=>document.getElementById('graphZoomIn').click());
+  assert((await page.locator('#graphTime').textContent()).includes('0.5–1.5'),'reduced motion zoom is immediate');
+  await page.evaluate(()=>document.getElementById('graphReset').click());
+  assert((await page.locator('#graphTime').textContent()).includes('0.0–2.0'),'reduced motion reset is immediate');
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  await page.locator('#graphZoomIn').click();
+  await page.waitForTimeout(300); // Wait beyond 240ms: rounded axis text can match before zoom finishes.
   const displayedRange=async()=>(await page.locator('#graphTime').textContent()).split(' · ')[1];
   const centered=async()=>assert(await canvas.evaluate(c=>Math.abs(parseFloat(c.parentElement.querySelector('.telemetry-cursor').style.left)-(48+(c.getBoundingClientRect().width-56)/2))<2),'zoomed playhead should be centered');
   await page.evaluate(()=>setTime(.7));assert.equal(await displayedRange(),'0.2–1.2s');await centered();
@@ -51,7 +75,7 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
   }
   await page.evaluate(()=>setTime(.1));assert.equal(await displayedRange(),'0.0–1.0s');
   await page.evaluate(()=>setTime(1.9));assert.equal(await displayedRange(),'1.0–2.0s');
-  await page.locator('#graphReset').click();assert((await page.locator('#graphTime').textContent()).includes('0.0–2.0'));
+  await page.locator('#graphReset').click();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('0.0–2.0'));
   await page.locator('#chooseGraphs').click();assert(await page.locator('#graphDialog').isVisible());assert.equal(await page.locator('#graphOptions input').count(),23);
   for(const input of await page.locator('#graphOptions input').all())await input.check();
   await page.locator('#graphDialog').evaluate(e=>e.scrollTop=0);
