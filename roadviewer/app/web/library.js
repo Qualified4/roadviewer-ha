@@ -106,16 +106,17 @@ function recordingActions(m){
  if(m.status==='ready'){
   const replay=document.createElement('a');replay.className='replay';replay.href=`view/${m.id}/`;replay.textContent='재생';actions.append(replay);
  }
- const waiting=m.status==='queued'||m.status==='processing',removing=m.status==='ready';
+ const waiting=m.status==='processing',removing=m.status==='ready'||m.status==='queued';
  const conversion=document.createElement('button');conversion.type='button';
  conversion.textContent=waiting?names[m.status]:removing?'제거':'변환';conversion.disabled=waiting;
  conversion.onclick=async()=>{
   if(removing&&!confirm(`${m.name}
-변환된 분석·그래프와 재생용 임시 영상을 제거할까요? 원본 로그·TS 및 TS 없이 보관하는 MP4는 유지되며 자동으로 다시 변환되지 않습니다.`))return;
+대기 중이면 변환을 취소하고, 변환된 분석·그래프와 재생용 임시 영상을 제거할까요? 원본 로그·TS 및 TS 없이 보관하는 MP4는 유지되며 자동으로 다시 변환되지 않습니다.`))return;
   conversion.disabled=true;
   try{await api(`api/logs/${m.id}/${removing?'prepared':'convert'}`,{method:removing?'DELETE':'POST'});logRows.delete(m.id);await refresh()}
   catch(e){error(e.message);conversion.disabled=false}
  };
+ if(m.status==='queued'){const queued=document.createElement('button');queued.type='button';queued.textContent=names.queued;queued.disabled=true;actions.append(queued)}
  (removing?menu:actions).append(conversion);
  for(const [kind,label] of [['rlog.zst','로그 다운로드'],[m.video_download||'qcamera.ts','영상 다운로드']]){
   if(kind!=='rlog.zst'&&!m.video)continue;

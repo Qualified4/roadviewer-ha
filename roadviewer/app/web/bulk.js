@@ -54,7 +54,7 @@
   const protectedCount=converting||!protectPinned?0:selected.filter(row=>row.log.pinned).length,targetCount=selected.length-protectedCount;
   if(!targetCount)return;
   const protection=protectedCount?`고정된 ${protectedCount}개는 제외합니다. `:!protectPinned?'고정된 항목도 삭제 대상에 포함합니다. ':'';
-  const message=protection+(complete?`선택한 ${targetCount}개 로그의 원본·영상·변환 데이터를 완전히 삭제할까요? 되돌릴 수 없습니다.`:`선택한 ${targetCount}개 로그의 변환 데이터를 제거할까요? 보관 로그·TS와 유일한 MP4는 유지합니다. 대기·처리 중인 항목은 제외하며 자동 재변환하지 않습니다.`);
+  const message=protection+(complete?`선택한 ${targetCount}개 로그의 원본·영상·변환 데이터를 완전히 삭제할까요? 되돌릴 수 없습니다.`:`선택한 ${targetCount}개 로그의 변환 데이터를 제거할까요? 보관 로그·TS와 유일한 MP4는 유지합니다. 대기 중인 변환은 취소하고 처리 중인 항목만 제외하며 자동 재변환하지 않습니다.`);
   if(!converting&&!confirm(message))return;
   running=true;sync();let succeeded=0,skipped=0;const failures=[];
   $('bulkFailures').hidden=true;$('bulkFailures').replaceChildren();
