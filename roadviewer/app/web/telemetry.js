@@ -37,6 +37,9 @@
  const roadTab=$('roadTab'),telemetryTab=$('telemetryTab'),roadView=$('roadView'),view=$('telemetryView'),scroll=$('telemetryGraphs'),status=$('telemetryStatus');
  let payload=null,loadedKey=null,loadingKey=null,failedKey=null,requestId=0,span=null,start=0,gesture=null;
  const cards=new Map(),seriesCache=new Map();
+ const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
+ let zoomMotion=null,zoomFrame=0;
+ function stopZoom(){cancelAnimationFrame(zoomFrame);zoomFrame=0;zoomMotion=null}
  const summaries=[['속도',cs('speed'),'km/h'],['가속도',cs('acceleration'),'m/s²'],['조향각',cs('steeringAngle'),'°'],['조향 개입',cs('steeringPressed'),'']].map(([label,series,unit])=>{
   const cell=document.createElement('div'),name=document.createElement('span'),value=document.createElement('strong');name.textContent=label;value.textContent='—';cell.append(name,value);$('telemetrySummary').append(cell);return {series,unit,value};
  });
@@ -70,7 +73,7 @@
   if(!data||tab!=='telemetry')return;
   const version=data.key||location.pathname;
   if(loadedKey===version||loadingKey===version||failedKey===version)return;
-  payload=null;seriesCache.clear();loadingKey=version;status.textContent='차량 정보를 불러오는 중…';$('retryTelemetry').hidden=true;
+  stopZoom();payload=null;seriesCache.clear();loadingKey=version;status.textContent='차량 정보를 불러오는 중…';$('retryTelemetry').hidden=true;
   const ticket=++requestId,controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),30000);
   try{
    const id=location.pathname.split('/').filter(Boolean).at(-1),r=await fetch(replayUrl('../../api/logs/'+encodeURIComponent(id)+'/telemetry?v='+encodeURIComponent(version)),{cache:'no-cache',signal:controller.signal});
@@ -88,7 +91,7 @@
  function placeIndicator(){const selected=tab==='telemetry'?telemetryTab:roadTab;tabs.style.setProperty('--tab-x',selected.offsetLeft+'px');tabs.style.setProperty('--tab-width',selected.offsetWidth+'px');indicator.style.height=selected.offsetHeight+'px';indicator.style.top=selected.offsetTop+'px'}
  new ResizeObserver(placeIndicator).observe(tabs);
  function selectTab(next,save=true){
-  const update=()=>{tab=next;const show=tab==='telemetry';roadView.hidden=show;view.hidden=!show;document.querySelector('.road-ranges').hidden=show;
+  const update=()=>{stopZoom();tab=next;const show=tab==='telemetry';roadView.hidden=show;view.hidden=!show;document.querySelector('.road-ranges').hidden=show;
   roadTab.setAttribute('aria-selected',String(!show));telemetryTab.setAttribute('aria-selected',String(show));roadTab.tabIndex=show?-1:0;telemetryTab.tabIndex=show?0:-1;
   if(save)try{localStorage.setItem(tabKey,tab)}catch{}
   placeIndicator();void load();render();
@@ -100,7 +103,7 @@
  function domain(){const duration=Math.max(.001,data?.duration||payload?.duration||1),width=Math.min(span??duration,duration);start=Math.max(0,Math.min(start,duration-width));return [start,start+width]}
  function seekFrom(event,canvas,range){const r=canvas.getBoundingClientRect(),left=48,right=Math.max(left+1,r.width-8),fraction=Math.max(0,Math.min(1,(event.clientX-r.left-left)/(right-left)));setTime(range[0]+fraction*(range[1]-range[0]));last=performance.now()}
  function installSeeking(canvas){
-  canvas.addEventListener('pointerdown',e=>{if(!payload||e.button!==0)return;gesture={canvas,id:e.pointerId,x:e.clientX,y:e.clientY,range:domain(),horizontal:false,touch:e.pointerType==='touch'};canvas.setPointerCapture(e.pointerId);if(!gesture.touch)seekFrom(e,canvas,gesture.range)});
+  canvas.addEventListener('pointerdown',e=>{if(!payload||e.button!==0)return;stopZoom();gesture={canvas,id:e.pointerId,x:e.clientX,y:e.clientY,range:domain(),horizontal:false,touch:e.pointerType==='touch'};canvas.setPointerCapture(e.pointerId);if(!gesture.touch)seekFrom(e,canvas,gesture.range)});
   canvas.addEventListener('pointermove',e=>{if(!gesture||gesture.canvas!==canvas||gesture.id!==e.pointerId)return;const dx=Math.abs(e.clientX-gesture.x),dy=Math.abs(e.clientY-gesture.y);if(dx>6&&dx>dy)gesture.horizontal=true;if(!gesture.touch||gesture.horizontal)seekFrom(e,canvas,gesture.range)});
   canvas.addEventListener('pointerup',e=>{if(!gesture||gesture.id!==e.pointerId)return;const g=gesture;gesture=null;if(!g.touch||g.horizontal||Math.hypot(e.clientX-g.x,e.clientY-g.y)<6)seekFrom(e,canvas,g.range);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);update()});
   canvas.addEventListener('pointercancel',()=>{gesture=null;update()});canvas.addEventListener('lostpointercapture',()=>{if(gesture?.canvas===canvas){gesture=null;update()}});
@@ -151,8 +154,16 @@
   initialPreviewTimes.clear();
   for(const summary of summaries){const value=current(summary.series);summary.value.textContent=summary.series.key==='steeringPressed'?(value===null?'확인 불가':value?'개입':'없음'):format(value,summary.unit)}
   if(!payload)return;
+  if(zoomMotion){
+   const {from,target,began}=zoomMotion,duration=Math.max(.001,data.duration),width=target??duration;
+   const progress=reducedMotion.matches?1:Math.min(1,Math.max(0,(performance.now()-began)/240)),ease=1-(1-progress)**3;
+   const left=target===null?0:Math.max(0,Math.min(t-width/2,duration-width));
+   span=(from[1]-from[0])+(width-(from[1]-from[0]))*ease;start=from[0]+(left-from[0])*ease;
+   if(progress===1){span=target;stopZoom()}
+   else if(!zoomFrame)zoomFrame=requestAnimationFrame(()=>{zoomFrame=0;update()});
+  }
   let range=domain();
-  if(!gesture&&(span!==null||t<range[0]||t>range[1])){start=t-(range[1]-range[0])/2;range=domain()}
+  if(!zoomMotion&&!gesture&&(span!==null||t<range[0]||t>range[1])){start=t-(range[1]-range[0])/2;range=domain()}
   $('graphTime').textContent=clock(t)+' · '+range[0].toFixed(1)+'–'+range[1].toFixed(1)+'s';
   const bounds=scroll.getBoundingClientRect();
   for(const card of cards.values()){
@@ -169,8 +180,13 @@
   const preview=[...initialPreviewTimes];
   status.textContent=preview.length?'시작 데이터 미리보기 · '+Math.min(...preview).toFixed(3)+(preview.length>1?'–'+Math.max(...preview).toFixed(3):'')+'초의 첫 유효값':'';
  }
- function zoom(factor){if(!payload)return;const range=domain(),duration=data.duration;span=Math.min(duration,Math.max(.5,(range[1]-range[0])*factor));start=t-span/2;update()}
- $('graphZoomIn').onclick=()=>zoom(.5);$('graphZoomOut').onclick=()=>zoom(2);$('graphReset').onclick=()=>{span=null;start=0;update()};
+ function zoom(factor){
+  if(!payload)return;
+  const range=domain(),duration=data.duration,current=zoomMotion?(zoomMotion.target??duration):range[1]-range[0];
+  const target=factor===null?null:Math.min(duration,Math.max(.5,current*factor));
+  stopZoom();zoomMotion={from:range,target,began:performance.now()};update();
+ }
+ $('graphZoomIn').onclick=()=>zoom(.5);$('graphZoomOut').onclick=()=>zoom(2);$('graphReset').onclick=()=>zoom(null);
  $('retryTelemetry').onclick=()=>{failedKey=null;void load()};
  scroll.addEventListener('scroll',update,{passive:true});new ResizeObserver(update).observe(scroll);
  const dialog=$('graphDialog'),opener=$('chooseGraphs');let oldOverflow='',dialogOpen=false;
