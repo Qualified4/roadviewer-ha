@@ -76,6 +76,21 @@ class OverlayProjector:
    for a,b in zip(path,path[1:]):
     if a[0]<=x<=b[0] and b[0]>a[0]:return a[2]+(b[2]-a[2])*(x-a[0])/(b[0]-a[0])+height
    return min(path,key=lambda p:abs(p[0]-x))[2]+height
+  # Camera-space center and lateral direction let the browser vary path width without re-analysis.
+  path_projection=[];path_sides=[]
+  for i,(x,y,z) in enumerate(path):
+   a=path[max(0,i-1)];b=path[min(len(path)-1,i+1)];dx,dy=b[0]-a[0],b[1]-a[1];length=math.hypot(dx,dy)
+   nx,ny=(-dy/length,dx/length) if length else (0,1)
+   path_projection.append(projection_coordinates((x,y,z+height),rpy,config))
+   path_sides.append(projection_coordinates((nx,ny,0),rpy,config))
+  target_line=[];road=frame.get('ccncRoad') or {};distance=road.get('distance',0)
+  if road.get('target') in (1,3) and 0<distance<204.6:
+   for lane in model.get('laneLines',[])[1:3]:
+    points=points3(lane);point=None
+    for a,b in zip(points,points[1:]):
+     if a[0]<=distance<=b[0] and b[0]>a[0]:
+      ratio=(distance-a[0])/(b[0]-a[0]);point=project_point((distance,a[1]+ratio*(b[1]-a[1]),a[2]+ratio*(b[2]-a[2])),rpy,config);break
+    target_line.append(point)
   markers=[]
   groups=[('model',frame.get('leads',[])),('selected',[frame['selected']] if frame.get('selected') else []),('radar',frame.get('radarTargets',[])),('raw',frame.get('liveTracks',[])),('ccnc',frame.get('ccncTargets') or [])]
   for kind,targets in groups:
@@ -89,4 +104,5 @@ class OverlayProjector:
       marker['box']=[projection_coordinates((x+dx,y+dy,ground_z(x+dx)-up),rpy,config)
                      for up in (0,1.5) for dx in (0,4.5) for dy in (-.9,.9)]
      markers.append(marker)
-  return {'heightDirection':projection_coordinates((0,0,-1),rpy,config),'lanes':[line(l) for l in model.get('laneLines',[])],'edges':[line(l) for l in model.get('roadEdges',[])],'path':line(model.get('position',{}),height),'markers':markers}
+  lane_depths=[[p[2] if p else None for p in (projection_coordinates(point,rpy,config) for point in points3(lane))] for lane in model.get('laneLines',[])[1:3]]
+  return {'laneDepths':lane_depths,'pathProjection':path_projection,'pathSides':path_sides,'targetLine':target_line,'heightDirection':projection_coordinates((0,0,-1),rpy,config),'lanes':[line(l) for l in model.get('laneLines',[])],'edges':[line(l) for l in model.get('roadEdges',[])],'path':line(model.get('position',{}),height),'markers':markers}

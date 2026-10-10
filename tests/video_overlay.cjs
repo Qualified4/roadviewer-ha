@@ -44,22 +44,31 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(!(await pixels()),'CCNC hidden by default');
   await page.locator('#ccncTargets').check();assert(await pixels(),'CCNC draws in video overlay');
   const overlayImage=()=>page.locator('#videoOverlay').evaluate(c=>c.toDataURL());
+  const setBoxHeight=async value=>page.locator('#ccncBoxHeight').evaluate((e,v)=>{e.value=v;e.dispatchEvent(new Event('input'))},value);
+  await setBoxHeight(0);const flat=await overlayImage();assert(await pixels(),'zero height keeps the footprint');
+  await setBoxHeight(300);assert.notEqual(await overlayImage(),flat,'box grows from its base');
+  await setBoxHeight(150);
   const beforeHeight=await overlayImage();
   await page.locator('#overlayHeight').click();assert.equal(await overlayImage(),beforeHeight,'3D box ignores height toggle');
   await page.locator('#overlayHeight').click();
   const setOpacity=async value=>page.locator('#ccncOpacity').evaluate((e,v)=>{e.value=v;e.dispatchEvent(new Event('input'))},value);
-  await setOpacity(0);const wireframe=await overlayImage();assert(await pixels(),'zero fill keeps outlines');
-  await setOpacity(100);assert.notEqual(await overlayImage(),wireframe,'opacity changes filled faces');
+  const boxEdges=()=>page.evaluate(()=>{const edges=[],original=CanvasRenderingContext2D.prototype.stroke;CanvasRenderingContext2D.prototype.stroke=function(){if(this.canvas.id==='videoOverlay'&&this.strokeStyle==='#8deeff')edges.push(this.globalAlpha);return original.call(this)};try{render()}finally{CanvasRenderingContext2D.prototype.stroke=original}return edges});
+  await setOpacity(0);assert.equal((await boxEdges()).filter(a=>a>0).length,12,'transparent cube shows all twelve edges');const wireframe=await overlayImage();assert(await pixels(),'zero fill keeps outlines');
+  await setOpacity(100);assert((await boxEdges()).some(a=>a===0),'opaque cube hides far edges');assert.notEqual(await overlayImage(),wireframe,'opacity changes filled faces');
   await setOpacity(45);assert.equal(await page.locator('#ccncOpacityValue').textContent(),'45%');
   await page.evaluate(()=>{data.frames[0].overlay.markers[0].box[0][2]=-.1;render()});assert(!(await pixels()),'box crossing camera near plane is omitted');
   await page.evaluate(()=>{data.frames[0].overlay.markers[0].box[0][2]=1;render()});
 
+  await setBoxHeight(200);
   await page.locator('#ccncTargets').uncheck();assert(!(await pixels()));
   await page.locator('#ccncTargets').check();
   await page.locator('#overlayHeight').click();
   await page.evaluate(()=>{data.frames[0].overlay=null;render()});
   assert((await page.locator('#overlayStatus').textContent()).includes('보정'));
+  await page.locator('#modelPathWidth').evaluate(e=>{e.value=200;e.dispatchEvent(new Event('input'))});
   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  assert.equal(await page.locator('#modelPathWidth').inputValue(),'200','path width survives reload');
+  assert.equal(await page.locator('#ccncBoxHeight').inputValue(),'200','box height survives reload');
   assert.equal(await page.locator('#ccncOpacity').inputValue(),'45','box opacity survives reload');
   assert.equal(await page.locator('#ccncTargets').isChecked(),true,'CCNC preference survives reload');
   assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true');
@@ -74,11 +83,57 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    f.lanes=[];f.lp=[];f.overlay.lanes=[];render();return result;
   });
   for(const canvas of ['road','videoOverlay']){
-   const lines=laneStyles.filter(s=>s.canvas===canvas);assert.equal(lines.length,2);
-   assert(lines[0].width<lines[1].width&&lines[0].alpha<lines[1].alpha,'confidence controls thickness and alpha');
+   const lines=laneStyles.filter(s=>s.canvas===canvas);assert.equal(lines.length,4);
+   assert(lines.every(s=>s.width===1),'lane outlines are exactly 1 CSS px');
+   assert(lines[0].alpha<lines[2].alpha,'confidence controls outline visibility');
    assert(lines.every(s=>s.dash.length===0),'probability does not make lanes dashed');
   }
 
+  const shared=await page.evaluate(()=>({full:laneAppearance(1),zero:laneAppearance(0),half:laneAppearance(.5),left:highlightBands({highlight:0,left:1,right:0}),both:highlightBands({highlight:3,left:0,right:1}),ribbon:ribbonEdges([[0,0],[10,0]],1.8)}));
+  assert.deepEqual(shared.full,{width:15,alpha:.1,edge:1});assert.equal(shared.zero.width,0);assert.equal(shared.half.width,7.5);assert.equal(shared.half.alpha,.05);
+  assert.deepEqual(shared.left,['#62ed9e',null,null]);assert.deepEqual(shared.both,[null,'#55b9ff','#62ed9e']);
+  assert.deepEqual(shared.ribbon,[[[0,.9],[10,.9]],[[0,-.9],[10,-.9]]]);
+  await page.evaluate(()=>{const f=data.frames[0];f.overlay.path=[];f.overlay.targetLine=[[.3,.7],[.7,.7]];f.ccncRoad={target:1,distance:25,highlight:0,left:0,right:0};render()});
+  assert(await pixels(),'target distance line draws');
+  await page.evaluate(()=>{data.frames[0].ccncRoad.target=0;render()});assert(!(await pixels()),'hidden TARGET does not draw a distance line');
+  await page.evaluate(()=>{data.frames[0].ccncRoad.blinkerLeft=true;render()});assert(await pixels(),'blinker renders');
+  const labelState=await page.evaluate(()=>{
+   const c=document.createElement('canvas');c.width=300;c.height=100;const x=c.getContext('2d');x.globalAlpha=.25;x.shadowBlur=9;
+   let textAlpha;const fill=x.fillText.bind(x);x.fillText=(...args)=>{textAlpha=x.globalAlpha;fill(...args)};
+   hudLabel(x,'TARGET · 25.0 m',150,50,'#7be5ff');return {textAlpha,alpha:x.globalAlpha,blur:x.shadowBlur};
+  });assert.deepEqual(labelState,{textAlpha:.25,alpha:.25,blur:9},'HUD labels preserve fade and canvas state');
+  let wallTestTime=0;const wallImage=()=>page.evaluate(time=>{const c=document.createElement('canvas');c.width=200;c.height=100;paintBlindspotWall(c.getContext('2d'),[[10,90],[190,90]],[[10,10],[190,10]],1,time);return c.toDataURL()},wallTestTime||0);
+  const stillWall=await wallImage();wallTestTime=.8;assert.equal(await wallImage(),stillWall,'reduced motion disables wall scan');
+  await page.emulateMedia({reducedMotion:'no-preference'});wallTestTime=0;const scanningWall=await wallImage();wallTestTime=.8;assert.notEqual(await wallImage(),scanningWall,'wall scan follows replay time');await page.emulateMedia({reducedMotion:'reduce'});
+  const anchors=await page.evaluate(()=>({
+   straight:blinkerLaneAnchors([[],[[.2,.9],[.45,.5]],[[.8,.9],[.55,.5]]]),
+   curved:blinkerLaneAnchors([[],[[.3,.9],[.55,.5]],[[.9,.9],[.65,.5]]]),
+   missing:blinkerLaneAnchors([]),gaps:blinkerLaneAnchors([[],[null,[.4,.5]],[]])
+  }));
+  for(let i=0;i<2;i++)assert(Math.abs(anchors.curved[i][0]-anchors.straight[i][0]-.1)<1e-6,'AR arrows follow curved lane positions');
+  assert.deepEqual(anchors.missing,[[.32,.72],[.68,.72]]);assert.deepEqual(anchors.gaps,anchors.missing,'missing geometry falls back to central AR positions');
+  const chevrons=await page.evaluate(()=>{
+   const c=document.createElement('canvas');c.width=400;c.height=100;const x=c.getContext('2d');let strokes=0;const stroke=x.stroke.bind(x);x.stroke=()=>{strokes++;stroke()};
+   drawBlinkers(x,{blinkerLeft:true,blinkerRight:true},0,10,390,50);const rows=[];const pixels=x.getImageData(0,0,400,100).data;for(let y=0;y<100;y++)for(let px=0;px<400;px++)if(pixels[(y*400+px)*4+3]>5){rows.push(y);break}return {strokes,center:(Math.min(...rows)+Math.max(...rows))/2};
+  });assert.equal(chevrons.strokes,6,'three chevrons per direction');assert(Math.abs(chevrons.center-50)<2,'AR arrows stay vertically centered');
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  const easing=await page.evaluate(()=>{
+   const frames=Array.from({length:41},(_,i)=>({t:i*.05,valid:true,roadSignals:{blindspotLeft:i>=4&&i<20,blindspotRight:i>=20}}));
+   return [0,4,10,19,20,25,40].map(i=>blindspotLevels(frames,i,frames[i].t));
+  });
+  assert.deepEqual(easing[0],[0,0]);assert(easing[1][0]>0&&easing[1][0]<easing[2][0]);assert.equal(easing[3][0],1);
+  assert(easing[4][0]<1&&easing[4][0]>easing[5][0]);assert.equal(easing[6][0],0);assert.equal(easing[6][1],1);
+  await page.emulateMedia({reducedMotion:'reduce'});
+  assert.deepEqual(await page.evaluate(()=>blindspotLevels([{t:0,valid:true,roadSignals:{blindspotLeft:true}}],0,0)),[1,0]);
+  await page.evaluate(()=>{const f=data.frames[0];f.ccncRoad.blinkerLeft=false;f.roadSignals={blindspotLeft:true};f.overlay.lanes=[[],[[.2,.9],[.4,.55]],[[.8,.9],[.6,.55]],[]];f.overlay.laneDepths=[[5,40],[5,40]];f.overlay.heightDirection=[0,-1,0];render()});
+  assert(await pixels(),'blindspot renders without a CCNC command or radar detection');
+  const wallBefore=await page.locator('#videoOverlay').evaluate(c=>c.toDataURL());
+  await page.locator('#overlayHeight').click();
+  assert.equal(await page.locator('#videoOverlay').evaluate(c=>c.toDataURL()),wallBefore,'marker height does not move wall');
+  await page.evaluate(()=>{data.frames[0].roadSignals=null;data.frames[0].overlay.lanes=[];data.frames[0].ccncRoad.blinkerLeft=true;render()});
+
+  await page.locator('#ccncRoad').uncheck();assert(!(await pixels()),'road toggle hides blinker');await page.locator('#ccncRoad').check();
+  await page.evaluate(()=>{const f=data.frames[0];f.ccncRoad=null;f.overlay.path=[[.5,.6],[.5,.9]];render()});
   await page.evaluate(()=>{document.getElementById('modelPath').checked=true;render()});
   for(const viewport of [390,2200]){
    await page.setViewportSize({width:viewport,height:1000});

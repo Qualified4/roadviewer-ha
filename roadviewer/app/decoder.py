@@ -96,6 +96,13 @@ def ccnc_targets(payload):
   targets.append({'slot':slot,'detect':detect,'x':round(distance*.1,1),'yRel':y_rel,'y':-y_rel})
  return targets
 
+def ccnc_road(payload):
+ if len(payload)!=32:return None
+ bits=int.from_bytes(payload,'little')
+ return {'target':(bits>>66)&7,'distance':round(((bits>>69)&2047)*.1,1),
+         'highlight':(bits>>105)&15,'left':(bits>>120)&7,'right':(bits>>123)&7,
+         'blinkerLeft':bool((bits>>57)&7),'blinkerRight':bool((bits>>60)&7)}
+
 def ccnc_at(rows,times,stamp):
  # Hold only the most recent command; never pull a future command into an earlier frame.
  i=bisect.bisect_right(times,stamp)-1
@@ -114,7 +121,7 @@ def prepare(value,route=None):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v23-ccnc-targets').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+'v24-ccnc-road-overlay').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  def save_summary(data):
   (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video')},ensure_ascii=False))
@@ -123,7 +130,7 @@ def prepare(value,route=None):
   raw=reader.read(512*1024*1024+1)
  if len(raw)>512*1024*1024:raise ValueError('압축 해제된 로그가 512MB 제한을 초과합니다.')
  streams=collections.defaultdict(list)
- ccnc=[]
+ ccnc=[];ccnc_roads=[];road_signals=[]
  models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter()
  for e in log.Event.read_multiple_bytes(raw):
   kind=e.which();counts[kind]+=1
@@ -135,10 +142,13 @@ def prepare(value,route=None):
    models.append((e.logMonoTime,e.valid,pick(e.modelV2,SPECS['modelV2'])));progress.update('log_read',frames=len(models))
   elif kind=='sendcan':
    for msg in e.sendcan:
+    if msg.address==0x161 and msg.src<128 and len(msg.dat)==32:ccnc_roads.append((e.logMonoTime,e.valid,ccnc_road(msg.dat)))
     if msg.address==0x162 and msg.src<128 and len(msg.dat)==32:ccnc.append((e.logMonoTime,e.valid,ccnc_targets(msg.dat)))
   elif kind=='radarState':radars.append((e.logMonoTime,e.valid,pick(e.radarState,SPECS['radarState'])))
   elif kind=='liveTracks':live_tracks.append((e.logMonoTime,e.valid,pick(e.liveTracks,SPECS['liveTracks'])))
-  elif kind=='carState':car_states.append((e.logMonoTime,e.valid,float(e.carState.vEgo)))
+  elif kind=='carState':
+   car_states.append((e.logMonoTime,e.valid,float(e.carState.vEgo)))
+   road_signals.append((e.logMonoTime,e.valid,{name:bool(getattr(e.carState,field)) for name,field in [('blinkerLeft','leftBlinker'),('blinkerRight','rightBlinker'),('blindspotLeft','leftBlindspot'),('blindspotRight','rightBlindspot')]}))
   elif kind=='qRoadEncodeIdx':cameras.append(pick(e.qRoadEncodeIdx,SPECS['qRoadEncodeIdx']))
  if not models:raise ValueError('이 로그에 modelV2 데이터가 없습니다.')
  camera_by_id={q['frameId']:q['timestampEof'] for q in cameras}
@@ -148,8 +158,10 @@ def prepare(value,route=None):
  ordered=sorted(zip(rt,radars),key=lambda item:item[0]);rt=[a for a,b in ordered];radars=[b for a,b in ordered]
  live_tracks.sort(key=lambda row:row[0]);lt_times=[row[0] for row in live_tracks]
  car_states.sort(key=lambda row:row[0]);car_times=[row[0] for row in car_states]
- if not any(valid and p.get('brand')=='hyundai' for _,valid,p in streams['carParams']):ccnc=[]
+ if not any(valid and p.get('brand')=='hyundai' for _,valid,p in streams['carParams']):ccnc=[];ccnc_roads=[]
+ ccnc_roads.sort(key=lambda row:row[0]);ccnc_road_times=[row[0] for row in ccnc_roads]
  ccnc.sort(key=lambda row:row[0]);ccnc_times=[row[0] for row in ccnc]
+ road_signals.sort(key=lambda row:row[0]);signal_times=[row[0] for row in road_signals]
  steering=SteeringReplay(streams)
  overlay=OverlayProjector(streams)
  models.sort(key=lambda row:time_of(row[0],row[2]))
@@ -181,6 +193,8 @@ def prepare(value,route=None):
   leads=[{'x':l['x'][0],'y':l['y'][0],'p':l['prob'],'speedKph':float(l['v'][0])*3.6 if l.get('v') and math.isfinite(l['v'][0]) else None} for l in m.get('leadsV3',[])[:2] if l.get('x') and l.get('y')]
   frames.append({'t':round(time_of(stamp,m)-origin,6),'id':m['frameId'],'egoSpeedKph':ego_speed,'steering':steering.at(time_of(stamp,m)*1e9),'valid':valid,'position':points(m.get('position',{'x':[],'y':[]})),'lanes':[points(l) for l in m['laneLines']],'laneY0':[first_y(l) for l in m['laneLines']],'lp':m['laneLineProbs'],'edges':[points(l) for l in m['roadEdges']],'edgeY0':[first_y(l) for l in m['roadEdges']],'es':m['roadEdgeStds'],'leads':leads,'selected':selected,'radarTargets':radar_targets,'liveTracks':raw_targets,'liveTracksValid':live_valid,'liveTracksDeltaMs':live_delta})
   frames[-1]['ccncTargets']=ccnc_at(ccnc,ccnc_times,time_of(stamp,m)*1e9)
+  frames[-1]['ccncRoad']=ccnc_at(ccnc_roads,ccnc_road_times,time_of(stamp,m)*1e9)
+  frames[-1]['roadSignals']=ccnc_at(road_signals,signal_times,time_of(stamp,m)*1e9)
   frames[-1]['cameraInfo']=overlay.camera_info(time_of(stamp,m)*1e9)
   frames[-1]['overlay']=overlay.project(time_of(stamp,m)*1e9,m,frames[-1])
   progress.update('log_analysis',frames=len(frames))

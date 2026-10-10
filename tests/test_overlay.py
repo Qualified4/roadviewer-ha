@@ -45,6 +45,29 @@ class OverlayTests(unittest.TestCase):
   self.assertGreater(out['markers'][2]['point'][0],.5)
   self.assertIsNone(OverlayProjector({}).project(100,model,frame))
 
+ def test_target_line_and_path_width_projection(self):
+  streams={'liveCalibration':[(0,True,{'calStatus':'calibrated','rpyCalib':[0,0,0],'height':[1.2]})],'deviceState':[(0,True,{'deviceType':'tici'})]}
+  model={'position':{'x':[10,20],'y':[0,0],'z':[0,0]},'laneLines':[{'x':[10,20],'y':[y,y],'z':[1.2,1.2]} for y in (-5.4,-1.8,1.8,5.4)]}
+  p=OverlayProjector(streams);frame={'ccncRoad':{'target':1,'distance':15}}
+  out=p.project(0,model,frame);config=camera_config('tici','unknown')
+  self.assertEqual(out['laneDepths'],[[10,20],[10,20]])
+  for i,y in enumerate((-1.8,1.8)):
+   for j,x in enumerate((10,20)):
+    uv=out['lanes'][i+1][j];depth=out['laneDepths'][i][j]
+    raised=[v+n*1.2 for v,n in zip([uv[0]*depth,uv[1]*depth,depth],out['heightDirection'])]
+    expected=project_point((x,y,0),[0,0,0],config)
+    for actual,value in zip([raised[0]/raised[2],raised[1]/raised[2]],expected):self.assertAlmostEqual(actual,value,places=5)
+  self.assertEqual(out['targetLine'],[project_point((15,y,1.2),[0,0,0],config) for y in (-1.8,1.8)])
+  for width in (1,1.8,3):
+   for i,x in enumerate((10,20)):
+    for sign in (-1,1):
+     q=[c+sign*n*width/2 for c,n in zip(out['pathProjection'][i],out['pathSides'][i])]
+     expected=projection_coordinates((x,sign*width/2,1.2),[0,0,0],config)
+     for actual,value in zip(q,expected):self.assertAlmostEqual(actual,value)
+  self.assertEqual(p.project(0,model,{'ccncRoad':{'target':0,'distance':15}})['targetLine'],[])
+  self.assertEqual(p.project(0,model,{'ccncRoad':{'target':1,'distance':204.6}})['targetLine'],[])
+  self.assertEqual(p.project(0,model,{'ccncRoad':{'target':1,'distance':30}})['targetLine'],[None,None])
+
  def test_startup_metadata_arrives_after_first_model(self):
   second=1_000_000_000
   calibration={'calStatus':'calibrated','rpyCalib':[0,0,0]}
