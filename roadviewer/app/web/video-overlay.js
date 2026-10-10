@@ -106,7 +106,7 @@
    if(on('lanes'))roadBands(frame.overlay.laneBands,frame.overlay.lanes,i=>frame.lp[i],'#57d9b0');
    if(on('edges'))roadBands(frame.overlay.edgeBands,frame.overlay.edges,i=>edgeConfidence(frame.es[i]),'#ffa665',false);
    const sections=frame.overlay.targetSections,trail=sections?.map(section=>targetSectionPoints(section))||[],target=sections?trail[0]:horizontalTargetLine(frame.overlay.targetLine);
-   if([1,3].includes(road?.target)&&road.distance>0&&road.distance<204.6&&road.distance<=Number(document.getElementById('range').value)&&target?.length===2&&target.every(Boolean)){
+   if([1,3].includes(road?.target)&&road.distance>0&&road.distance<204.6&&target?.length===2&&target.every(Boolean)){
     const color=road.target===3?'#edf7ff':'#7be5ff',length=8*targetBrakeLevel(data.frames,idx);
     // Small lane-following strips keep the glow on the road without a full-canvas blur.
     context.save();
@@ -179,7 +179,7 @@
   }
   context.font='11px system-ui';context.textAlign='center';
   if(on('ccncTargets')){
-   const boxes=ccncBoxTransitions(data.frames,idx,t).filter(entry=>entry.target.x<=Number(document.getElementById('range').value)).sort((a,b)=>b.target.x-a.target.x);
+   const boxes=ccncBoxTransitions(data.frames,idx,t).sort((a,b)=>b.target.x-a.target.x);
    boxAnimating=boxes.some(entry=>entry.animated);
    for(const entry of boxes)drawBox(entry.marker,ccncTargetColor(entry.target),entry.target,entry.height,entry.alpha);
   }
@@ -202,7 +202,7 @@
      if(marker.kind==='selected'){color='#eee7bc';shape='diamond'}
     }
    }
-   if(!target||target.x>Number(document.getElementById('range').value))continue;
+   if(!target)continue;
    let point=marker.point;
    if(height>0){
     if(!marker.projection||!frame.overlay.heightDirection)continue;
