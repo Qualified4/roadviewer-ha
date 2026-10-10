@@ -1,82 +1,94 @@
-# Road Viewer device upload API v1
+# Road Viewer 장치 업로드 API v1
 
-This repository provides the Road Viewer server and web UI. Compatible device uploaders are maintained separately. Existing browser uploads and Home Assistant Ingress remain supported. One Gunicorn worker with multiple threads is required; do not add workers/replicas sharing this data directory.
+한국어 · [English](device-api.en.md)
 
-## Deployment and HTTPS
+구현 기준: **Road Viewer 0.5.3**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
 
-Base URL: `https://<certificate-domain>:<WAN-port>` (no path prefix), for example `https://example.com:18443`.
+공유 데이터 디렉터리는 **Gunicorn worker 1개와 여러 thread**를 전제로 합니다. 같은 디렉터리를 사용하는 worker나 서버 복제본을 추가하지 마세요.
 
-1. Place a valid certificate and its private key in Home Assistant's `/ssl` directory (for example using an existing certificate/ACME add-on). Its SAN must cover the domain. Certificates do not bind a port number.
-2. Road Viewer add-on options:
+## 배포와 HTTPS
+
+기본 주소는 경로 접두사 없는 `https://<인증서 도메인>:<외부 포트>`입니다. 예: `https://example.com:18443`.
+
+1. Home Assistant의 `/ssl`에 신뢰할 수 있는 인증서와 개인키를 준비합니다. 인증서 SAN에 도메인이 포함되어야 합니다.
+2. 앱 옵션에서 다음과 같이 파일명을 지정합니다. 절대 경로가 아니라 `/ssl` 바로 아래 파일명입니다.
+
    ```yaml
    max_upload_mb: 512
    device_certfile: fullchain.pem
    device_keyfile: privkey.pem
    ```
-   The certificate options are filenames directly under `/ssl`, not absolute paths. Road Viewer mounts `/ssl` read-only. It does not request or renew certificates. On startup it reads `GET http://supervisor/addons/self/info` to obtain `network["8443/tcp"]`. The internal Ingress network form edits only this app's mapping through `/addons/self/options` and explicitly requests its restart through `/addons/self/restart`. Default Supervisor permissions suffice; no manager role or host networking is used. If this lookup fails, external HTTPS stays disabled and Ingress shows a configuration error. There is no separate `device_api_enabled` option.
-3. Open Road Viewer → 로그 업로드 → 외부 장치 연결. Turn on 외부 연결 to show the HTTPS port field, choose an unused host port such as **18443**, save, then click 지금 재시작. The mapping defaults to disabled (`null`); switching off and saving clears it. The form reads existing Supervisor mappings, distinguishes saved and active settings, and reconnects after the app restarts. It validates TLS before enabling or restarting. Missing/invalid TLS at actual startup still fails closed; correct the files or clear the mapping if the app cannot start. Uploads/playback may be interrupted; apply after work is finished.
-4. UniFi: `WAN TCP 18443 → Home Assistant Green LAN IP TCP 18443` (the host mapping above). Alternatively choose host 18099 and forward `18443 → 18099`. Do not forward the Ingress HTTP port 8099 or private upstream 8098.
-5. Verify DNS resolves to your WAN, certificate trust and firewall rules from outside your LAN. Certificate verification must remain enabled on the device.
 
-TLS terminates at **Nginx inside the Road Viewer container on 8443**. Nginx forwards only `/api/device/` to **127.0.0.1:8098**. The same single Gunicorn worker also serves Ingress at 8099. The application checks the actual Gunicorn socket, not Host/X-Forwarded headers; the device listener cannot serve UI, assets, management APIs or browser upload endpoints. The Ingress listener rejects device API paths and keeps its existing Supervisor peer and mutation-header checks. The port number is not an authentication mechanism.
+3. Road Viewer의 **로그 업로드 → 외부 장치 연결**에서 외부 연결을 켜고, 사용하지 않는 HTTPS 호스트 포트를 입력합니다. **네트워크 설정 저장 → 지금 재시작** 순서로 적용합니다. 기본값은 꺼짐(`null`)이며 끄고 저장하면 매핑을 해제합니다.
+4. 공유기에서 외부 TCP 포트를 Home Assistant의 해당 호스트 포트로 전달합니다. Ingress 8099나 내부 upstream 8098은 외부로 공개하지 않습니다.
+5. 외부 네트워크에서 DNS·인증서·방화벽을 확인합니다. 클라이언트의 TLS 검증을 끄지 않습니다.
 
-Nginx checks certificate file mtimes every minute via the startup supervisor and reloads a valid updated pair; existing TLS configuration stays active during a failed renewal. Access logs are disabled. Certificate files/master credentials must not be committed or shared. No CORS support is provided for the device API. The single static test page described below is served within the device namespace; it exposes no management UI or credentials.
+앱은 시작 시 Supervisor의 `/addons/self/info`에서 `network["8443/tcp"]`를 읽습니다. 내부 설정은 `/addons/self/options`로 이 앱의 포트 매핑만 변경하며, 명시적인 재시작은 `/addons/self/restart`로 요청합니다. 다른 앱이나 포트 설정은 유지합니다. 별도의 `device_api_enabled` 옵션은 없습니다. 조회 실패 시 외부 API는 꺼진 상태를 유지합니다.
 
-Home Assistant configuration reference: [ports and SSL mounts](https://developers.home-assistant.io/docs/apps/configuration/).
+컨테이너 Nginx의 **8443**에서 TLS를 종료하고 `/api/device/`만 **127.0.0.1:8098**로 전달합니다. 같은 Gunicorn worker가 Ingress 8099도 담당합니다. 실제 소켓으로 리스너를 구분하므로 Host나 X-Forwarded 헤더를 조작해 UI·관리 API에 접근할 수 없습니다. Ingress에서는 장치 API를 차단합니다.
 
-## Pairing
+인증서는 앱 외부에서 발급·갱신합니다. 앱은 매분 파일 변경을 확인해 유효한 새 인증서 쌍을 재로딩합니다. 갱신 검증 실패 시 기존 TLS 설정을 유지합니다. 초기 인증서 오류는 앱 시작을 차단할 수 있으므로 파일이나 포트 설정을 바로잡아야 합니다. CORS는 제공하지 않고 접근 로그는 비활성화합니다.
 
-In the Ingress UI, open **로그 업로드 → 외부 장치 연결 → 새 장치 연결**. A 96-bit random, 24-character uppercase hex code is shown with a countdown. It lasts **300 seconds**. Creating another code replaces the previous code. Cancel, expiry, a successful pair, or server restart invalidates it. A successful code is consumed under the same lock as credential creation. The UI shows waiting/paired/expired states. Pairing has a global limit of 10 valid-shape attempts/minute; at most 100 device records are retained.
+## 페어링
+
+Ingress의 **로그 업로드 → 외부 장치 연결 → 새 장치 연결**에서 96비트 난수인 **24자리 대문자 16진수 코드**를 발급합니다. 유효기간은 **300초**, 사용 횟수는 1회입니다. 새 발급·취소·만료·성공·서버 재시작으로 이전 코드는 무효화됩니다. 코드 소모와 장치 등록은 같은 잠금으로 처리합니다.
+
+올바른 형식의 페어링 시도는 전역 분당 10회, 등록 장치는 최대 100개입니다. UI는 대기·완료·만료를 표시하고 복사·새 발급·취소를 지원합니다.
 
 `POST /api/device/pair`, `Content-Type: application/json`:
 
 ```json
-{"code":"<24 uppercase hex characters>","metadata":{"name":"My comma","dongle_id":"optional identifier"}}
+{"code":"<대문자 16진수 24자리>","metadata":{"name":"My comma","dongle_id":"optional identifier"}}
 ```
 
-`metadata.name`: nonblank string, max 80 characters. `dongle_id`: optional string, max 80 characters. No other metadata fields. Dongle ID is descriptive, never a credential. Request <= 4096 bytes.
+- 본문 최대 4096바이트.
+- `metadata.name`: 공백만 아닌 문자열, 최대 80자.
+- `dongle_id`: 선택 문자열, 최대 80자. 설명용이며 인증 수단이 아닙니다.
+- 추가 필드는 허용하지 않습니다.
 
-201 response, returned **once**:
+201 응답은 최초 한 번만 반환합니다.
+
 ```json
-{"device_id":"<32 lowercase hex>","device_secret":"<64 lowercase hex>","algorithm":"HMAC-SHA256"}
+{"device_id":"<소문자 16진수 32자리>","device_secret":"<소문자 16진수 64자리>","algorithm":"HMAC-SHA256"}
 ```
 
-The device must protect these values persistently. Neither is stored in browser localStorage. No UI/API can read back a device secret. If the response is lost, revoke that device and pair again.
+장치는 두 값을 안전하게 영구 보관해야 합니다. UI/API에서 장기 키를 다시 조회할 수 없습니다. 응답을 잃으면 해당 장치를 연결 해제하고 새로 페어링합니다.
 
-Road Viewer stores a random 256-bit root secret in `/data/roadviewer/.devices.json` with mode 0600, alongside device records, replay nonces and short-lived completion receipts. Per-device secrets are derived with HMAC-SHA256 from that root and the unique device ID; individual plaintext secrets are not recorded. HMAC verification cannot use only a one-way hash of the client key. A local persistent root secret is used rather than encryption with another colocated key; filesystem/backup protection remains essential. Compromise of this file compromises all device credentials. The file is retained by Home Assistant backups as authentication configuration; logs/video are excluded as before. Corrupt credential state is not silently reset.
+서버는 `/data/roadviewer/.devices.json`에 256비트 루트 비밀값, 장치 기록, 재전송 방지 nonce와 완료 영수증을 저장합니다(권한 0600). 장치 키는 루트 비밀값과 고유 ID로 HMAC 파생하며 개별 키 원문은 보관하지 않습니다. 파일 손상 시 조용히 초기화하지 않습니다. 이 인증 설정은 백업 대상이며, 유출되면 모든 장치 키가 영향을 받습니다.
 
-## HMAC request authentication
+## HMAC 요청 인증
 
-Only session creation/reattachment uses long-term authentication. The secret is **never sent again**. All other upload operations use the short-lived token below.
+장기 인증은 세션 생성·재연결에만 사용합니다. 장기 키를 다시 전송하지 않습니다.
 
-`POST /api/device/uploads` requires:
+`POST /api/device/uploads` 헤더:
 
-| Header | Value |
+| 헤더 | 값 |
 |---|---|
 | `X-RV-Device` | device_id |
-| `X-RV-Timestamp` | decimal Unix UTC seconds, 10 digits |
-| `X-RV-Nonce` | unique random 16–64 characters from `[A-Za-z0-9_-]`, at least 128 random bits recommended |
-| `X-RV-Signature` | lowercase hex HMAC-SHA256 |
+| `X-RV-Timestamp` | UTC Unix 초, 10자리 십진수 |
+| `X-RV-Nonce` | 새 난수 16~64자, `[A-Za-z0-9_-]`; 최소 128비트 난수 권장 |
+| `X-RV-Signature` | HMAC-SHA256 소문자 16진수 |
 | `Content-Type` | application/json |
 
-Timestamp must be within ±120 seconds of the server. Synchronize the device clock. Nonce replay is rejected for the entire timestamp acceptance interval, including restarts. Nonces are persisted before success; do not reuse a nonce after a connection failure or a validation/capacity error. Outstanding nonce records are capped at 10,000; expired entries are pruned on authentication.
+시각 오차는 서버 기준 ±120초입니다. nonce는 허용 시각 구간 전체와 재시작 이후에도 재사용할 수 없습니다. 인증 성공 후 본문 검증·용량 검사에 실패하거나 응답을 잃어도 새 nonce를 사용합니다. 미만료 nonce 기록은 최대 10,000개이며 인증 시 만료분을 정리합니다.
 
-Canonical string, UTF-8, **LF separators with no final LF**:
+UTF-8 서명 원문은 **LF로 구분하고 끝에는 LF를 붙이지 않습니다.**
+
 ```text
 RV1
 <device_id>
-<timestamp header exactly>
-<nonce header exactly>
+<timestamp 헤더 원문>
+<nonce 헤더 원문>
 POST
 /api/device/uploads
-<lowercase SHA256 hex of exact request body bytes>
+<실제로 전송할 본문 바이트의 SHA256 소문자 16진수>
 ```
 
-Signature key is the **ASCII bytes of the 64-character secret**, not hex-decoded bytes. Method is uppercase. No query string or alternate path spelling is accepted. JSON whitespace and encoding affect the body hash. Send exactly the bytes used to compute it.
+키는 **64자리 secret 문자열의 ASCII 바이트**이며 hex 디코딩한 바이트가 아닙니다. 메서드는 대문자, 경로는 정확히 위 값이며 query나 다른 표기를 허용하지 않습니다. JSON 공백·인코딩이 달라지면 본문 해시도 달라집니다.
 
-Python standard-library signing example:
 ```python
 import hashlib, hmac, json, secrets, time
+
 body = json.dumps(batch, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 timestamp = str(int(time.time()))
 nonce = secrets.token_urlsafe(18)
@@ -90,43 +102,53 @@ headers = {
     "X-RV-Signature": hmac.new(device_secret.encode("ascii"),
         canonical.encode("utf-8"), hashlib.sha256).hexdigest(),
 }
-# HTTPS POST base_url + '/api/device/uploads', body=body, headers=headers.
+# body 바이트를 그대로 HTTPS POST로 전송합니다.
 ```
 
-## Batch/session creation
+## 배치와 세션 생성
 
-Signed `POST /api/device/uploads` body (<= 65,536 bytes):
+서명된 `POST /api/device/uploads`의 본문은 최대 65,536바이트입니다.
+
 ```json
 {
   "batch_id":"unique_batch_0123456789",
-  "segments":[
-    {
-      "route":"00000395--0d0eda17c5",
-      "segment":7,
-      "files":[
-        {"kind":"rlog.zst","size":123456,"sha256":"<64 lowercase hex>"},
-        {"kind":"qcamera.ts","size":234567,"sha256":"<64 lowercase hex>"}
-      ]
-    }
-  ]
+  "segments":[{
+    "route":"00000395--0d0eda17c5",
+    "segment":7,
+    "files":[
+      {"kind":"rlog.zst","size":123456,"sha256":"<소문자 16진수 64자리>"},
+      {"kind":"qcamera.ts","size":234567,"sha256":"<소문자 16진수 64자리>"}
+    ]
+  }]
 }
 ```
 
-- `batch_id`: 16–64 `[A-Za-z0-9_-]` characters, unique per device per batch. Save it with the manifest on the device.
-- 1–50 segments; each segment has one required `rlog.zst` and optional `qcamera.ts`, `fcamera.hevc` (high-quality front), and `ecamera.hevc` (wide). Missing optional files are simply omitted. Driver camera uploads are not accepted. No repeated route/segment or file kind. Video-only uploads are rejected; to attach video later send the matching rlog again with it (existing hash deduplication is reused).
-- `route`: either 8 hex characters, `--`, 10 hex characters, or legacy `YYYY-MM-DD--HH-MM-SS` digit shape. Legacy timestamps are identifiers only, not validated driving times. No paths, slashes or arbitrary names.
-- `segment`: integer 0–999999 (not string/bool).
-- `size`: positive integer of actual file bytes. `sha256`: mandatory SHA256 of the complete file. Additional fields at batch/segment/file level are rejected.
-- Device batches allow up to 200 files / 50 segments, **8 GiB total** and **2 GiB per video**. Each rlog must fit `max_upload_mb` (default 512 MiB). The browser upload total still uses `max_upload_mb`. All declared bytes participate in the same disk/quota reservations; these limits do not bypass available space, pin protection, or session timeouts. Split batches over 8 GiB client-side.
-- HEVC originals must contain an Annex B parameter-set header. The conversion worker validates codec, dimensions, frame count and each camera's encode timestamps. It streams HEVC into H.264 MP4 with bounded encoder/decoder threads. Video conversion is performed on Road Viewer, never on the driving device.
-- Playback metadata includes `videos` keyed by `front`, `qcamera`, and `wide`, each with its own `start` and `duration` on the log timeline. The legacy `video` field points to the preferred available stream (front → qcamera → wide). `GET /api/logs/<id>/video?source=<key>` uses the existing Ingress authorization and HTTP Range behavior. Wide playback suppresses the front-camera AR overlay because its camera calibration differs.
-- The server generates canonical flat names and UUID storage directories. Clients cannot select disk paths.
+- `batch_id`: 장치 내 배치별 고유 16~64자 `[A-Za-z0-9_-]`. manifest와 함께 보관합니다.
+- 1~50개 구간. 각 구간에는 `rlog.zst`가 필수이며 `qcamera.ts`, `fcamera.hevc`, `ecamera.hevc`는 선택입니다. 없는 파일은 manifest에서 제외합니다.
+- 같은 route/segment나 파일 종류를 중복으로 넣을 수 없습니다. 영상만 업로드할 수 없으며, 기존 로그에 영상을 추가할 때도 동일 rlog를 포함합니다.
+- `route`: 8자리 hex + `--` + 10자리 hex 또는 기존 `YYYY-MM-DD--HH-MM-SS` 형식입니다. 후자는 식별자 형태만 확인하며 실제 주행 시각을 검증하지 않습니다. 임의 경로나 이름은 거부합니다.
+- `segment`: 정수 0~999999. 문자열이나 bool은 거부합니다.
+- `size`: 실제 전체 파일 크기인 양의 정수. `sha256`: 필수 전체 파일 해시. 배치·구간·파일의 추가 필드는 거부합니다.
 
-201 response:
+| 제한 | 값 |
+|---|---|
+| 장치 배치 | 50구간 / 200파일 / 전체 8 GiB |
+| 장치 영상 파일 | 파일당 2 GiB |
+| rlog 파일 | `max_upload_mb` 이내, 기본 512 MiB |
+| 브라우저 업로드 | 배치 합계가 `max_upload_mb` 이내 |
+
+8 GiB를 넘는 배치는 클라이언트에서 나눕니다. 이 제한은 실제 디스크 여유·저장 한도·고정 보호·세션 만료를 우회하지 않습니다.
+
+HEVC는 Annex B parameter-set 헤더가 있어야 합니다. 변환 worker가 코덱·크기·프레임 수·카메라별 encode timestamp를 확인하고 제한된 thread로 H.264 MP4를 만듭니다. 주행 장치에서 트랜스코딩하지 않습니다.
+
+서버가 정규화한 파일명과 UUID 디렉터리를 생성하므로 클라이언트는 저장 경로를 선택할 수 없습니다.
+
+201 응답:
+
 ```json
 {
-  "id":"<32 hex upload id>",
-  "token":"<opaque random token>",
+  "id":"<업로드 ID 32자리 hex>",
+  "token":"<임의 세션 토큰>",
   "expires_at":1780000000.5,
   "idle_timeout_seconds":900,
   "chunk_size":262144,
@@ -134,121 +156,152 @@ Signed `POST /api/device/uploads` body (<= 65,536 bytes):
 }
 ```
 
-The session covers the **whole batch**. There are at most 32 live device sessions and 256 unexpired completion receipts globally. Absolute TTL is **7200 seconds** from first creation, never extended. Successful chunks refresh the 900-second idle deadline. Status polling does not extend it. A signed reattachment refreshes activity but not absolute expiry.
+세션은 배치 전체를 담당합니다. 전역 최대 32개 활성 장치 세션과 256개 미만료 완료 영수증을 허용합니다. 절대 유효기간은 처음 생성부터 **7200초**로 늘어나지 않습니다. 성공한 조각 전송은 **900초** 유휴 만료를 갱신하지만 상태 조회나 서명된 재연결·토큰 재발급은 갱신하지 않습니다.
 
-Repeat a signed creation with a **fresh nonce**, same batch_id and equivalent JSON metadata to recover after a lost response/restart: 200 with the same session and current offsets, but a newly issued token that invalidates the old token. Changed metadata with that batch_id returns 409 `batch_conflict`. Do not do this concurrently with chunk transfers. The server stores only a SHA256 digest of the random session token. Session tokens may only be sent in the Authorization header, never URL/query/body.
+응답 유실·서버 재시작 후 동일 batch_id와 동등한 manifest를 **새 nonce로 서명**해 다시 생성하면 200과 현재 수신 위치를 반환합니다. 새 토큰은 이전 토큰을 즉시 대체하므로 조각 전송 중 동시에 재연결하지 않습니다. manifest가 달라지면 409 `batch_conflict`입니다. 서버에는 토큰의 SHA256만 저장하며 토큰은 Authorization 헤더로만 보냅니다.
 
-If already completed and its receipt is still valid: 200 `{"state":"completed","result":{...finish result...}}`. Receipts expire at the original session's absolute expiry. After expiry there is no permanent batch-id ledger; creating it again may upload again, with existing file-content deduplication on registration.
+완료 영수증이 남아 있으면 200 `{"state":"completed","result":{...}}`를 반환합니다. 영수증은 원래 세션의 절대 만료 시각까지 보관합니다. 이후 같은 배치를 다시 전송할 수 있지만 등록 시 파일 해시 중복 검사를 적용합니다.
 
-## Chunks and resume
+## 조각 전송과 이어올리기
 
-All following requests require `Authorization: Bearer <token>` and HTTPS. No long-term HMAC or UI `X-RoadViewer-Request` header is needed.
+다음 요청은 HTTPS와 `Authorization: Bearer <token>`을 사용합니다. 장기 HMAC이나 UI의 `X-RoadViewer-Request` 헤더는 필요하지 않습니다.
 
-- `GET /api/device/uploads/<id>` → `{id,state:"uploading",expires_at,files:[{index,name,size,received}]}`. Indices are the order of segments/files in the manifest. It reports persisted offsets; it does not reserve more space.
-- `PUT /api/device/uploads/<id>/files/<index>?offset=<byte offset>` with raw binary body, `Content-Type: application/octet-stream`. Chunk length is 1–262144 bytes and cannot exceed declared file size. Upload sequentially per file; no overlapping concurrent writes. 200 `{"received":<offset after this chunk>}`.
-- If a response is lost, GET status then continue at `received`. Repeating an already received identical range is accepted. A gap or changed data at an old offset returns 409 `offset_conflict`; query status. Offsets are byte counts, not chunk numbers. A conflicting chunk cannot overwrite old bytes; cancel/restart for a changed file.
-- Partial data is retained across a network failure and an ordinary add-on restart within both deadlines. Startup removes browser/staging leftovers but preserves valid device manifests/chunks/reservations. Device credentials and replay checks survive restarts.
-
-TLS protects chunks in flight; final SHA256 verifies the entire received file against HMAC-authenticated metadata.
-
-## Completion and cancellation
-
-`POST /api/device/uploads/<id>/finish` (empty body): all files must reach declared sizes, then their checksums must match. Registration reuses the browser upload engine, grouping, duplicate detection, optional video attachment and conversion queue. 201:
-```json
-{"logs":["new recording metadata objects"],"updated":["metadata of logs receiving video"],"duplicates":[{"id":"...","name":"...","video_differs":false}]}
-```
-The strings above stand for objects; actual new/updated metadata contain `id`, `name`, `uploaded`, `status`, `files`, etc. Use the arrays to distinguish new, updated and duplicate entries. Upload completion means originals are registered, not that conversion is complete. An `updated` entry with `original_restored: true` means a missing original camera file was restored beside an existing MP4 after matching its cached original SHA256. The existing conversion state, MP4 and analysis are preserved; no new conversion is scheduled. A different original video or a missing cached digest is treated as a video mismatch and is not attached.
-
-A completed finish is recorded persistently and may be retried: 200 with the same result. GET on a completed session returns `{state:"completed",result:{...}}`. Checksumming/registration can take time; allow 180 seconds and use status/reattachment after an uncertain response. A process crash between committing files and persisting the receipt may leave no receipt/session; recreate and upload the batch with fresh authentication. Existing rlog/video digest checks avoid duplicate recording data.
-
-`DELETE /api/device/uploads/<id>` cancels an idle live session, deletes all its temporary chunks and releases reservation → 200 `{"deleted":"<id>"}`. An in-flight write/finish returns 409 `upload_busy`; retry after it ends. A completed session is immutable: DELETE returns the completed state and does not delete registered logs. Registered-log deletion is only available inside Ingress.
-
-Incomplete finish (409) keeps the session for remaining bytes. Checksum failure (422) terminates it; retransmit under a new session. A disk-full chunk terminates an inactive session. Other terminal registration failures release staging/reservation; a transient transport failure retains them until resumed or expired. The cleanup timer runs every 60 seconds. Expired sessions, chunks and reservations are deleted together. Active requests are not deleted by timer cleanup; they drain before deletion. The UI's explicit cleanup also preserves live device sessions (its existing force-cancel behavior for browser uploads remains).
-
-## Revoke and authentication state
-
-Ingress-only `GET /api/settings/device-network` returns `configured_port`, `active_port`, `restart_required`, `boot_id`, `restarting`, and `restart_error`. `POST` accepts exactly `{ "enabled": true, "port": 18443 }` or `{ "enabled": false, "port": null }`. Other port mappings and app options are preserved. The response never includes Supervisor tokens or raw options. `POST /api/settings/device-network/restart` queues an explicit restart with HTTP 202. The UI only treats a new `boot_id` as restart completion and checks for up to three minutes. TLS/validation failures are 400, changes during restart are 409, and Supervisor failures are 502. These endpoints are inaccessible from the external device listener.
-
-Ingress-only `GET /api/settings/devices` provides name, optional dongle_id, registered_at, last_seen (last HMAC authentication), revoked flag and device_id, never credentials. The response also includes `enabled`, `host_port` (null when disabled), and `configuration_error` for startup port discovery failures. `POST /api/settings/devices/<device_id>/revoke` permanently revokes that ID. New HMAC requests **and subsequent token requests** are rejected. Idle sessions are removed immediately; an in-flight operation may complete, and its leftover temporary session is removed by expiry cleanup. Existing recordings are not deleted. Re-pair for a new ID; a revoked device cannot reactivate itself. Ingress-only `DELETE /api/settings/devices/<device_id>` removes a revoked device record from the list and frees its registration slot (100 total). Active devices return 409 `device_not_revoked`; unknown IDs return 404 `device_not_found`. Removal persists across restarts and does not delete recordings or restore authentication. The UI shows 목록 제거 after revocation.
-
-## Storage limits, reservations and Pin
-
-The UI offers unlimited (default), 10/20/50/100 GB and custom; UI GB uses 1024³ bytes. `/data/roadviewer/.storage-settings.json` stores integer `max_bytes`, `policy` and segment UUID pins (`pinned_logs`). No database was added. Settings and pins persist and are backed up. UI exposes used bytes (all regular files below Road Viewer root), disk free bytes and remaining reserved bytes.
-
-Before accepting a browser or device batch, admission reserves **2 × total declared bytes + 64 KiB** for chunks plus the staging copy/metadata. Already received bytes are counted in used space, so only the remaining reservation is added. A **100 MiB disk safety margin** is required. A shared lock covers space check, optional deletion and reservation creation; two concurrent batches cannot reserve the same free bytes. Reservation files live in the upload folder and are released with completion/cancellation/terminal failure/expiry. Surviving device sessions retain reservation across restart; expired/browser reservations are cleared.
-
-`reject_new` rejects admission and preserves existing logs. `delete_oldest` groups the UUID segment folders by full original route ID, orders groups by earliest **upload time**, preflights enough deletable capacity, and deletes the unpinned segments of the oldest eligible group through the shared existing deletion helper, leaving pinned segments in place. Interrupted filesystem deletion is not a multi-directory transaction. Legacy logs without a recoverable route ID are individual units. Admission protects incoming/active-upload routes, any group with queued/processing segments and individually pinned segments. Shortened display names are never grouping keys. Pinning affects only the selected segment. Legacy `pinned_routes` migrate once to all currently stored segments in those routes; later uploads do not inherit pins. The library and replay view share the same per-segment pin state. Bulk removal/deletion protects pins by default; the user can enable **고정 항목도 삭제** for that popup session. Reopening the popup restores protection. The Ingress-only `DELETE /api/logs/<id>` and `DELETE /api/logs/<id>/prepared` accept `?skip_pinned=1`: while holding the mutation lock, pinned entries return HTTP 200 with `{"skipped":"pinned"}` without changing files. Omitting this flag permits explicit removal/deletion, including from individual log menus. These management operations are not device upload endpoints.
-
-Insufficient total reclaimable space returns an error without beginning automatic deletion. Reducing a limit or selecting delete_oldest does not immediately delete data; deletion is admission-driven. The limit is an **upload admission budget, not a kernel filesystem quota**: later decoded JSON/MP4 size, other applications using the filesystem and unexpected metadata growth can exceed an estimate. Subsequent uploads account for actual usage and are rejected or trigger the configured cleanup. Conversion output is not pre-sized by this protocol. Do not set a budget equal to all filesystem capacity.
-
-## Error handling
-
-Application errors are JSON: `{"error":"stable_code"}` with optional human `message`. Nginx may return a non-JSON 400/404/413/429/502/504 before the app; handle HTTP status even without JSON. No secrets should be written to client/server logs.
-
-| HTTP | Codes / client action |
+| 요청 | 의미 |
 |---|---|
-| 400 | `invalid_pairing_request`, `invalid_batch`, `invalid_segments`, `invalid_segment`, `duplicate_segment`, `invalid_file`, `duplicate_file`, `rlog_required`, `unexpected_query`, `invalid_offset`, `invalid_chunk`, `invalid_request`: fix request |
-| 401 | `invalid_pairing_code`, `invalid_authentication`, `invalid_signature`, `invalid_device`, `invalid_upload_token`, `stale_timestamp`: correct auth/time; do not loop on a revoked ID |
-| 404 | `not_found`, `session_not_found`: expired/cleaned/unknown resource; reauthenticate and recreate if appropriate |
-| 409 | `nonce_replayed`: retry only with a fresh nonce; `batch_conflict`: use original metadata or new batch_id; `offset_conflict`: GET offsets; `upload_busy`: wait; `incomplete_upload`: send remaining chunks; `session_completed`: read completion; `device_limit_reached`: administrator action |
-| 410 | `session_expired`: recreate session |
-| 413 | `batch_too_large`, `request_too_large`: split batch or use smaller requests |
-| 422 | `checksum_mismatch`: session discarded; recompute/retransmit |
-| 429 | `pairing_rate_limited`, `authentication_rate_limited`, `session_limit_reached`: back off |
-| 507 | `storage_limit_exceeded`, `insufficient_disk_space`, `no_deletable_logs`: no admission; operator must change budget/policy/pins or free space |
+| `GET /api/device/uploads/<id>` | `{id,state:"uploading",expires_at,files:[{index,name,size,received}]}` |
+| `PUT /api/device/uploads/<id>/files/<index>?offset=<바이트 위치>` | 1~262144바이트 조각, `application/octet-stream`; 200 `{"received":<누적 위치>}` |
+| `POST /api/device/uploads/<id>/finish` | 전체 수신·검증 후 등록 |
+| `DELETE /api/device/uploads/<id>` | 유휴 미완료 세션 취소 |
 
-Use bounded exponential backoff for transport/429/5xx errors. A retry of a signed request always needs a new nonce. Never disable TLS verification to work around authentication or certificate errors.
+파일 index는 manifest의 구간·파일 순서입니다. 파일별 순서대로 보내고 겹치는 동시 쓰기를 하지 않습니다. 선언 크기를 넘는 조각은 거부합니다. offset은 조각 번호가 아니라 바이트 수입니다.
 
-## Tests
+응답을 잃으면 GET으로 서버 위치를 확인합니다. 이미 받은 같은 바이트 범위는 재전송할 수 있지만, 빈 구간이나 기존 위치의 다른 내용은 409 `offset_conflict`입니다. 기존 바이트를 덮어쓸 수 없으므로 파일이 바뀌면 취소 후 새 세션을 사용합니다.
 
-- `python tests/test_device_network.py`: port saving, TLS validation failures, explicit restart, failure handling and management isolation.
-- `python tests/test_device_api.py`: pairing, HMAC/replay/revoke, batch validation, rlog/video, multi-segment resume, checksum failure, restart cleanup, reservation race, grouped eviction and pins.
-- `python tests/test_device_tls.py`: real Nginx/Gunicorn HTTPS with a temporary trusted test certificate, socket isolation including forged headers, pairing and signed admission. Requires nginx/openssl/gunicorn; the image CI runs it.
-- `node tests/storage_devices.cjs`: mobile settings, Pin, pairing and revoke UI with no credential browser persistence.
-- Existing upload recovery, duplicates, storage, conversion and browser tests remain applicable.
+기한 내 네트워크 장애와 앱 재시작에는 부분 파일·manifest·예약을 보존합니다. 브라우저 업로드의 시작 시 정리 동작과는 다릅니다. TLS가 전송을 보호하고, 마지막 전체 SHA256이 서명한 manifest와 수신 내용을 대조합니다.
 
-## openpilot 없이 테스트하기 (PC / WSL)
+## 완료와 취소
 
-다음 명령은 저장소 루트에서 WSL/Linux 환경으로 실행합니다. 장치 API 테스트는 임시 디렉터리와 가짜 로그 바이트를 사용합니다. Home Assistant의 실제 저장소나 등록 장치에는 접근하지 않고, openpilot·실제 주행 로그·인증서도 필요하지 않습니다. Python 3.11 이상을 사용하세요.
+finish는 빈 본문으로 요청합니다. 모든 파일이 선언 크기에 도달하고 검증·해시가 일치해야 기존 업로드 엔진으로 등록합니다. 201 응답:
+
+```json
+{"logs":[{"id":"...","name":"..."}],"updated":[{"id":"...","name":"..."}],"duplicates":[{"id":"...","name":"...","video_differs":false}]}
+```
+
+위 메타데이터는 예시이며 실제 객체에는 uploaded/status/files 등이 추가됩니다. 완료는 원본 등록을 뜻하며 변환 완료를 뜻하지 않습니다. 새 로그·기존 로그 영상 추가·중복은 각 배열로 구분합니다.
+
+`updated` 항목의 `original_restored: true`는 저장된 원본 해시가 일치해 MP4 옆에 누락된 원본만 복원했다는 뜻입니다. 기존 MP4·분석·변환 상태를 유지하고 재변환하지 않습니다. 다른 영상이거나 해시가 없으면 불일치로 처리합니다.
+
+완료 영수증을 저장하므로 finish를 다시 요청하면 200으로 동일 결과를 반환합니다. 완료 후 GET도 `{state:"completed",result:{...}}`입니다. 해시·등록에 시간이 걸릴 수 있으므로 180초를 허용하고 불확실한 응답에는 상태 조회·재연결을 사용합니다. 파일 반영과 영수증 저장 사이 프로세스가 종료되면 영수증이 없을 수 있습니다. 새 인증으로 재전송해도 기존 해시 비교가 중복 등록을 방지합니다.
+
+DELETE는 유휴 미완료 세션의 임시 파일·예약을 지우고 200 `{"deleted":"<id>"}`를 반환합니다. 쓰기·finish 중이면 409 `upload_busy`이므로 기다린 뒤 재시도합니다. 완료 세션은 불변이며 DELETE해도 등록 로그를 지우지 않고 완료 상태를 반환합니다. 등록 로그 삭제는 Ingress 관리 API에서만 가능합니다.
+
+- 수신 미완료 finish(409): 세션 유지, 나머지 전송.
+- 해시 불일치(422): 세션 종료, 새 세션으로 재전송.
+- 디스크 부족 조각: 안전하게 정리할 수 있는 세션을 종료.
+- 최종 등록 실패: 임시 파일·예약 해제.
+- 일시적 통신 실패: 재개 또는 만료까지 보존.
+- 60초마다 만료 세션·조각·예약을 함께 정리하며 실행 중 요청이 끝나기 전에는 지우지 않습니다.
+
+UI의 저장소 즉시 정리는 유효한 장치 세션을 보존합니다. 브라우저 미완료 업로드는 강제 정리할 수 있습니다.
+
+## 재생과 와이드 보정
+
+재생 메타데이터의 `videos`는 `front`, `qcamera`, `wide`별 로그 시간축 start/duration을 제공합니다. 기존 `video` 필드는 우선 사용 가능한 영상(front → qcamera → wide)을 가리킵니다.
+
+Ingress의 `GET /api/logs/<id>/video?source=<key>`는 기존 접근 권한과 HTTP Range를 유지합니다. 영상 선택을 바꿔도 로그 시각을 보존하며 실패 시 대체 영상을 시도합니다.
+
+와이드 겹쳐보기는 센서와 `liveCalibration.wideFromDeviceEuler`로 공유 3D 좌표를 투영합니다. 전방 투영을 대신 사용하지 않습니다. 보정 누락·미지원 센서는 안내를 표시하며 이전 변환 로그는 재분석해야 합니다. 카메라 겹쳐보기에는 우측 주행 상황의 전방 범위 제한을 적용하지 않습니다.
+
+## 연결 해제와 관리 API
+
+이 절의 엔드포인트는 모두 Ingress 전용입니다.
+
+- `GET /api/settings/device-network`: configured_port, active_port, restart_required, boot_id, restarting, restart_error.
+- 같은 경로의 POST: 정확히 `{"enabled":true,"port":18443}` 또는 `{"enabled":false,"port":null}`. 다른 포트·옵션은 유지합니다.
+- `POST /api/settings/device-network/restart`: 202, 앱 재시작을 예약합니다. UI는 새 boot_id를 최대 3분 확인합니다. TLS/입력 오류 400, 재시작 중 변경 409, Supervisor 오류 502.
+- `GET /api/settings/devices`: 이름, dongle_id, 등록·최근 HMAC 인증 시각, revoked, device_id와 enabled/host_port/configuration_error. 장기 키나 Supervisor 토큰은 반환하지 않습니다.
+- `POST /api/settings/devices/<device_id>/revoke`: 장치를 영구 연결 해제합니다. 새로운 HMAC과 기존 세션 토큰의 이후 요청도 거부합니다. 유휴 세션은 제거하고 진행 중 요청은 끝날 수 있습니다. 남은 임시 세션은 만료 정리합니다.
+- `DELETE /api/settings/devices/<device_id>`: 해제된 등록만 목록에서 지우고 100개 등록 한도에서 제외합니다. 활성 장치는 409 device_not_revoked, 없는 장치는 404 device_not_found.
+
+장치 연결 해제·목록 제거는 업로드한 로그를 삭제하지 않습니다. 복구하려면 새로 페어링해야 합니다. 마지막 인증 시각은 마지막 조각 전송 시각과 다릅니다.
+
+## 저장 한도·예약·구간 고정
+
+`.storage-settings.json`에는 max_bytes, policy와 구간 UUID별 pinned_logs를 저장합니다. DB는 사용하지 않습니다. 화면은 전체 파일 사용량·디스크 여유·남은 예약량을 표시하고 GB는 1024³ 바이트입니다. 기본값은 무제한 / reject_new입니다.
+
+조각 업로드는 **전체 선언 바이트 + 64 KiB**, 기존 multipart는 추가 복사본을 고려해 **2배 + 64 KiB**를 예약합니다. 이미 받은 바이트는 실제 사용량에 포함되므로 예약 잔여분만 더합니다. 물리적 디스크에는 기존 예약과 새 업로드 및 **100 MiB 여유**가 있어야 하며, 앞으로 삭제할 공간을 물리적 여유로 간주하지 않습니다.
+
+**예약 생성은 기존 로그를 삭제하지 않습니다.** delete_oldest는 논리적 한도 계산에서 회수 가능한 용량을 고려하지만, 실제 삭제는 전체 파일 수신·검증·해시 확인 후 등록 직전에만 수행합니다. 다른 미수신 예약 때문에 추가 삭제하지 않으며 중복만 있는 등록도 삭제를 일으키지 않습니다. 반복 예약·토큰 갱신으로 기존 로그를 지울 수 없고, 세션 수 및 유휴·절대 만료로 예약을 제한합니다.
+
+공유 등록/저장 잠금으로 동시 예약 계산을 보호합니다. 완료·취소·최종 실패·만료와 함께 예약을 해제합니다. 정상 장치 세션은 재시작 후 유지합니다.
+
+delete_oldest 후보는 전체 주행 ID로 묶고 가장 이른 **업로드 시각**순으로 고릅니다. 선택한 주행의 고정하지 않은 구간만 삭제합니다. 고정 구간, 업로드에 포함된 주행, 대기·처리 중인 주행, 기존 영상 추가 대상 등 보호 대상은 제외합니다. 복원할 수 없는 옛 주행 ID는 개별 단위이며 화면의 짧은 이름으로 묶지 않습니다.
+
+전체 후보로도 공간이 부족하면 삭제를 시작하지 않습니다. 다만 실제 파일시스템 삭제는 여러 디렉터리를 한 번에 되돌리는 트랜잭션이 아닙니다. 한도 변경만으로 삭제하지 않고 검증된 등록 시점에만 적용합니다. 변환 결과·외부 디스크 사용량이 증가할 수 있으므로 강제 파일시스템 quota가 아닙니다.
+
+고정은 구간별이며 나중에 추가한 구간에 전파되지 않습니다. 옛 pinned_routes는 현재 존재하는 구간으로 한 번 이전합니다. 일괄 삭제는 기본적으로 고정 항목을 제외하고 **고정 항목도 삭제**를 켠 세션에서만 포함합니다.
+
+Ingress의 `DELETE /api/logs/<id>`, `DELETE /api/logs/<id>/prepared`는 `?skip_pinned=1`일 때 잠금 안에서 고정을 확인해 200 `{"skipped":"pinned"}`를 반환할 수 있습니다. 생략하면 개별 메뉴처럼 명시적 삭제를 허용합니다. 장치 API에서는 이 관리 기능에 접근할 수 없습니다.
+
+## 오류와 재시도
+
+앱 오류는 `{"error":"stable_code"}`와 선택적 message입니다. Nginx의 400/404/413/429/502/504는 JSON이 아닐 수 있으므로 상태 코드를 먼저 확인합니다.
+
+| HTTP | 주요 코드와 처리 |
+|---|---|
+| 400 | invalid_pairing_request, invalid_batch, invalid_segments, invalid_segment, duplicate_segment, invalid_file, duplicate_file, rlog_required, unexpected_query, invalid_offset, invalid_chunk, invalid_request: 요청 수정 |
+| 401 | invalid_pairing_code, invalid_authentication, invalid_signature, invalid_device, invalid_upload_token, stale_timestamp: 인증·시각 확인 |
+| 404 | not_found, session_not_found: 만료·정리·잘못된 ID 확인 후 재생성 |
+| 409 | nonce_replayed: 새 nonce; batch_conflict: 원래 manifest 또는 새 batch_id; offset_conflict: 수신 위치 조회; upload_busy: 대기; incomplete_upload: 나머지 전송; session_completed: 완료 결과 조회; device_limit_reached: 관리자 확인 |
+| 410 | session_expired: 새 세션 |
+| 413 | batch_too_large, request_too_large: 배치·요청 크기 축소 |
+| 422 | checksum_mismatch: 새 세션으로 해시 재계산·재전송 |
+| 429 | pairing_rate_limited, authentication_rate_limited, session_limit_reached: 간격을 두고 재시도 |
+| 507 | storage_limit_exceeded, insufficient_disk_space, no_deletable_logs: 저장 설정·고정·디스크 여유 확인 |
+
+통신·429·5xx에는 상한 있는 지수 백오프를 사용합니다. 서명 요청을 다시 보낼 때는 항상 새 nonce입니다. 해제된 ID로 무한 재시도하거나 TLS 검증을 끄지 않습니다. 비밀값을 로그에 남기지 않습니다.
+
+## 자동 테스트
+
+저장소 루트의 WSL/Linux, Python 3.12에서:
 
 ```bash
 python3 -m venv /tmp/roadviewer-test-env
-/tmp/roadviewer-test-env/bin/python -m pip install Flask==3.1.2
+/tmp/roadviewer-test-env/bin/python -m pip install Flask==3.1.3
 /tmp/roadviewer-test-env/bin/python tests/test_device_api.py
+/tmp/roadviewer-test-env/bin/python tests/test_storage.py
+/tmp/roadviewer-test-env/bin/python tests/test_upload_recovery.py
 ```
 
-테스트 실행 결과에 `OK`가 나오면 페어링·만료·취소·HMAC·재전송 차단·단일/다중 구간·이어올리기·폐기·용량 예약 경쟁·Pin 및 주행 묶음 삭제 검증을 통과한 것입니다. 이 검사는 가짜 데이터를 사용하므로 실제 로그 해석과 영상 변환 품질까지 검사하지는 않습니다.
+임시 디렉터리와 가짜 파일을 사용하며 실제 Home Assistant 장치·로그에는 접근하지 않습니다. Flask 버전은 requirements.txt와 맞춥니다. 이 최소 설치는 실제 미디어 디코더 환경이 아닙니다.
 
-실제 HTTPS/Nginx/Gunicorn 경계까지 확인하려면 Docker가 동작하는 WSL/Linux에서:
+실제 Nginx/Gunicorn TLS 경계를 검증하려면:
 
 ```bash
-docker build -t roadviewer:0.5.2 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.5.2 /tests/test_device_tls.py
+docker build -t roadviewer:0.5.3 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.5.3 /tests/test_device_tls.py
 ```
 
-임시 테스트 인증서를 신뢰하도록 설정한 테스트 클라이언트로 HTTPS 페어링·서명된 세션 생성과 UI 접근 차단을 검사합니다. 서버와 클라이언트가 컨테이너 내부에서 통신하므로 호스트 포트 공개나 공유기 설정은 필요하지 않습니다. 이미지 빌드에는 인터넷 연결이 필요합니다. 이 검사는 실제 Home Assistant/UniFi의 DNS·NAT 설정을 확인하지 않습니다.
+컨테이너 안에서 임시 인증서로 통신하므로 포트 공개·공유기 변경은 필요하지 않습니다. 빌드는 네트워크가 필요하며 실제 DNS/NAT 검증을 대신하지 않습니다.
 
-실제 Home Assistant에 설치한 후에는 기존 로그로 다음 UI 항목을 확인할 수 있습니다.
-
-1. 저장공간 관리의 사용량·여유·예약량 표시와 설정 저장 후 재시작 유지.
-2. 같은 주행의 구간 하나에 Pin → 해당 구간만 고정 표시 → 재시작 후 유지 → 다른 구간은 자동 삭제 가능 → Unpin.
-3. 외부 장치 연결에서 코드 발급 → 5분 만료 또는 취소. 코드 사용 성공과 Revoke 검증은 위 자동 테스트에서 가상 장치가 수행합니다.
-4. 작은 저장 한도 + `reject_new`로 새 업로드 거부 확인. `delete_oldest` 검증은 삭제해도 되는 테스트 로그만 있는 환경에서 수행합니다. 삭제는 실제 완전 삭제입니다.
-5. HTTPS 포트 설정 후 외부 네트워크에서 `https://도메인:포트/`와 `/api/logs`가 404인지 확인합니다. 루트 404는 정상입니다. 이것만으로 장치 인증이나 전체 업로드 성공까지 확인된 것은 아닙니다.
+추가 검사: test_device_network.py는 포트·TLS·재시작·관리 격리, tests/storage_devices.cjs는 설정·고정·페어링 UI, tests/device_test_page.cjs는 Web Crypto 서명·이어올리기·비밀값 미저장을 검증합니다. 실제 설치에서는 설정·구간 고정의 재시작 유지와 외부 경로 격리를 확인하세요. delete_oldest 검사는 지워도 되는 테스트 로그로만 실행합니다.
 
 ## HTML 브라우저 테스트 페이지
 
-PC 브라우저에서 **`https://<도메인>:<외부포트>/api/device/test`**를 엽니다. 예: `https://example.com:18443/api/device/test`. 정적 테스트 HTML 하나를 장치 API와 같은 HTTPS origin에서 제공하므로 CORS 설정이나 로컬 웹 서버가 필요하지 않습니다. 파일을 직접 열거나 Ingress의 assets 경로로 여는 방식은 지원하지 않습니다. 외부 API를 켜고 재시작해 HTTPS 포트가 활성화되어 있어야 접근할 수 있습니다. 꺼진 상태에서는 해당 외부 포트로 접속할 수 없으며, Ingress에서는 이 페이지를 제공하지 않습니다.
+외부 HTTPS를 켜고 재시작한 뒤 `https://<도메인>:<외부포트>/api/device/test`로 접속합니다. 같은 origin에서 제공하므로 CORS나 로컬 서버가 필요하지 않습니다. 외부 API가 꺼지면 사용할 수 없고, 로컬 HTML 직접 열기나 Ingress 접근은 지원하지 않습니다.
 
-1. Home Assistant UI의 외부 장치 연결에서 **새 장치 연결**을 눌러 코드를 발급합니다.
-2. 테스트 페이지에서 장치 이름과 코드를 입력해 **장치 연결**을 누릅니다.
-3. **가상 파일 준비 · 2개 구간**을 누르거나 기존 이름의 실제 rlog.zst/qcamera.ts 파일들을 선택합니다. 이 페이지는 브라우저 SHA256 계산에 메모리를 사용하므로 파일당 64 MiB까지 허용합니다. API의 기존 배치 용량 제한도 적용됩니다.
-4. **세션 생성 / 복구 → 업로드 / 이어올리기**를 누릅니다. 기본적으로 첫 조각 뒤 한 번 멈춥니다. 서버 상태를 확인하고 다시 업로드를 누르면 저장된 위치부터 재개합니다.
-5. 모든 파일을 전송했으면 **완료 처리**를 누르고 Home Assistant 목록에서 확인합니다. 등록 전 **세션 취소**는 임시 파일·예약량을 해제합니다.
-6. **잘못된 서명 검사**는 401, **동일 요청 재전송 검사**는 409 차단을 확인합니다. 재전송 검사는 먼저 정상 세션을 생성/복구하므로 예약량이 생길 수 있습니다.
+1. Ingress에서 **새 장치 연결**로 코드를 발급합니다.
+2. 테스트 페이지에 이름과 코드를 입력해 연결합니다.
+3. 가상 2개 구간 파일 또는 실제 rlog.zst/qcamera.ts를 선택합니다. 브라우저 메모리 해시 계산 때문에 파일당 **64 MiB** 제한입니다.
+4. **세션 생성 / 복구 → 업로드 / 이어올리기**를 실행합니다. 기본 테스트는 첫 조각 뒤 멈추며 다시 누르면 서버 수신 위치부터 재개합니다.
+5. 전체 전송 뒤 **완료 처리**, 등록 전 중단하려면 **세션 취소**를 누릅니다.
+6. 잘못된 서명은 401, nonce 재전송은 409를 확인합니다. 재전송 검사는 먼저 실제 세션을 만들므로 예약량이 생길 수 있습니다.
 
-이것은 모의 화면이 아니라 실제 API 클라이언트입니다. 장치가 등록되고 실제 파일이 저장되며, 저장 한도와 자동 삭제 정책도 그대로 적용됩니다. 가상 파일은 전송 검증만을 위한 데이터여서 변환은 실패합니다. 테스트 로그는 Ingress에서 완전 삭제하고 테스트 장치는 Revoke할 수 있습니다.
+실제 API 클라이언트이므로 장치·파일이 등록되고 저장 정책도 적용됩니다. 가상 파일은 변환에 실패합니다. 테스트 데이터는 Ingress에서 삭제하고 테스트 장치는 연결 해제합니다.
 
-장기 키는 추출 불가능한 Web Crypto HMAC 키로 페이지 메모리에만 두며 localStorage/sessionStorage·화면·테스트 기록에는 저장하지 않습니다. 토큰도 메모리에만 유지합니다. 새로고침하면 다시 페어링해야 합니다. 서버 재시작 후 이어올리기는 페이지를 열어 둔 채 **세션 생성 / 복구**로 확인하세요. 페이지는 현재 origin에만 요청하고 외부 도메인으로 리다이렉트하지 않습니다.
+키는 추출 불가능한 Web Crypto HMAC 키로 페이지 메모리에만 있고 토큰도 메모리에만 유지합니다. localStorage/sessionStorage·화면·기록에 저장하지 않습니다. 새로고침하면 다시 페어링해야 하며 서버 재시작 후 재개는 페이지를 유지한 채 세션 재연결로 확인합니다.
 
-`node tests/device_test_page.cjs`는 브라우저의 실제 Web Crypto 서명을 Node의 HMAC과 대조하고 가상/실제 파일 선택, 체크섬, 일시정지·재개·완료·취소·nonce 차단·비밀값 미저장을 검증합니다.
+## 관련 문서
+
+- [사용 설명서 한국어](../roadviewer/DOCS.md) · [English user guide](../roadviewer/DOCS.en.md)
+- [영문 API 문서](device-api.en.md)
