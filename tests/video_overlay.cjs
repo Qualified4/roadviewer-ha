@@ -65,7 +65,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(!(await pixels()),'CCNC hidden by default');
   await settingAction('#ccncTargets','check');assert(await pixels(),'CCNC draws in video overlay');
   const renderedLabels=()=>page.evaluate(()=>{const labels=[],original=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(text,...args){labels.push({canvas:this.canvas.id,text:String(text),color:this.fillStyle});return original.call(this,text,...args)};try{render()}finally{CanvasRenderingContext2D.prototype.fillText=original}return labels});
-  assert(await page.locator('#boxBsdLabels').isChecked(),'box/BSD labels enabled by default');
+  assert(await page.locator('#boxLabels').isChecked(),'box labels enabled by default');
   await page.locator('#distanceLabels').check();
   for(const slot of ['LF','FF','RF']){
    await page.evaluate(slot=>{data.frames[0].ccncTargets[0].slot=slot;data.frames[0].ccncTargets[0].detect=slot==='RF'?4:3},slot);
@@ -73,9 +73,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert.deepEqual(labels.map(v=>v.canvas).sort(),['road','videoOverlay']);
    assert(labels.every(v=>v.color===(slot==='FF'?'#8deeff':'#4aaaff')),'slot determines color independently of detect');
   }
-  await settingAction('#boxBsdLabels','uncheck');
+  await settingAction('#boxLabels','uncheck');
   assert(!(await renderedLabels()).some(v=>v.text.startsWith('RF ·')),'both views hide box labels');assert(await pixels(),'box remains visible');
-  await settingAction('#boxBsdLabels','check');
+  await settingAction('#boxLabels','check');
   await page.evaluate(()=>{data.frames[0].ccncTargets[0].slot='FF';data.frames[0].ccncTargets[0].detect=4});
   await page.locator('#hideLabels').check();
   const overlayImage=()=>page.locator('#videoOverlay').evaluate(c=>c.toDataURL());
@@ -133,13 +133,13 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.evaluate(()=>{data.frames[0].overlay=null;render()});
   assert((await page.locator('#overlayStatus').textContent()).includes('보정'));
   await page.locator('#modelPathWidth').evaluate(e=>{e.value=200;e.dispatchEvent(new Event('input'))});
-  await settingAction('#boxBsdLabels','uncheck');
+  await settingAction('#boxLabels','uncheck');
   await settingAction('#bsdWalls','uncheck');await page.locator('#bsdHeight').evaluate(e=>{e.value=240;e.dispatchEvent(new Event('input'))});
   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert(!(await page.locator('#bsdWalls').isChecked()));assert.equal(await page.locator('#bsdHeight').inputValue(),'240');
   await settingAction('#bsdWalls','check');await page.locator('#bsdHeight').evaluate(e=>{e.value=120;e.dispatchEvent(new Event('input'))});
 
-  assert(!(await page.locator('#boxBsdLabels').isChecked()),'box/BSD label preference survives reload');await settingAction('#boxBsdLabels','check');
+  assert(!(await page.locator('#boxLabels').isChecked()),'box label preference survives reload');await settingAction('#boxLabels','check');
   assert.equal(await page.locator('#modelPathWidth').inputValue(),'200','path width survives reload');
   assert.equal(await page.locator('#ccncBoxHeight').inputValue(),'200','box height survives reload');
   assert.equal(await page.locator('#ccncOpacity').inputValue(),'45','box opacity survives reload');
@@ -169,6 +169,13 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.deepEqual(shared.ribbon,[[[0,.9],[10,.9]],[[0,-.9],[10,-.9]]]);
   await page.evaluate(()=>{const f=data.frames[0];f.overlay.path=[];f.overlay.targetLine=[[.3,.7],[.7,.7]];f.ccncRoad={target:1,distance:25,highlight:0,left:0,right:0};render()});
   assert(await pixels(),'target distance line draws');
+  await page.evaluate(()=>{data.frames[0].lanes=[[],[[0,-2],[50,-2]],[[0,2],[50,2]]];render()});
+  const targetLabels=()=>renderedLabels().then(rows=>rows.filter(row=>row.text.startsWith('TARGET')));
+  assert.equal((await targetLabels()).length,2,'TARGET labels appear in camera and road views');
+  await settingAction('#targetLabels','uncheck');assert.deepEqual(await targetLabels(),[],'TARGET toggle hides both labels');assert(await pixels(),'TARGET line remains visible');
+  assert(await page.locator('#boxLabels').isChecked());assert(await page.locator('#bsdLabels').isChecked());
+  await settingAction('#targetLabels','check');assert.equal((await targetLabels()).length,2);
+
   const targetStats=()=>page.evaluate(()=>{let fills=0;const original=CanvasRenderingContext2D.prototype.fill;CanvasRenderingContext2D.prototype.fill=function(...args){if(this.canvas.id==='videoOverlay')fills++;return original.apply(this,args)};try{render()}finally{CanvasRenderingContext2D.prototype.fill=original}return fills});
   const brakeTest=await page.evaluate(()=>{
    const make=(a,t=0)=>({valid:true,t,roadSignals:{acceleration:a}});
@@ -241,10 +248,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#bsdHeight').evaluate(e=>{e.value=120;e.dispatchEvent(new Event('input'))});await settingAction('#ccncRoad','check');
 
   assert((await renderedLabels()).some(v=>v.text==='좌측 사각지대 감지'),'BSD label appears when enabled');
-  await settingAction('#boxBsdLabels','uncheck');
+  await settingAction('#boxLabels','uncheck');assert((await renderedLabels()).some(v=>v.text.includes('사각지대 감지')),'box toggle leaves BSD label visible');
+  await settingAction('#bsdLabels','uncheck');
   assert(!(await renderedLabels()).some(v=>v.text.includes('사각지대 감지')),'BSD label hides');assert(await pixels(),'BSD wall remains visible');
-  await settingAction('#boxBsdLabels','check');
+  await settingAction('#boxLabels','check');
 
+  assert(!(await renderedLabels()).some(v=>v.text.includes('사각지대 감지')),'box toggle cannot restore hidden BSD labels');await settingAction('#bsdLabels','check');
   const wallGlows=await page.evaluate(()=>{const found={road:[],videoOverlay:[]},original=CanvasRenderingContext2D.prototype.stroke;CanvasRenderingContext2D.prototype.stroke=function(...args){found[this.canvas.id]?.push(this.shadowBlur);return original.apply(this,args)};try{render()}finally{CanvasRenderingContext2D.prototype.stroke=original}return found});
   assert(wallGlows.road.every(v=>v===0),'all top-down strokes, including BSD and distance line, have no glow');assert(wallGlows.videoOverlay.some(v=>v>0),'video retains glow');
   await page.emulateMedia({reducedMotion:'no-preference'});

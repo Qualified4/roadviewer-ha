@@ -121,7 +121,7 @@
       context.beginPath();[a,b,c,d].forEach((p,k)=>k?context.lineTo(...p):context.moveTo(...p));context.closePath();context.fill();
      }
     }
-    context.restore();const a=xy(target[0]),b=xy(target[1]);paintTargetLine(context,a,b,color,true);hudLabel(context,`TARGET · ${road.distance.toFixed(1)} m`,(a[0]+b[0])/2,Math.min(a[1],b[1])-18,color,left+4,left+vw-4);
+    context.restore();const a=xy(target[0]),b=xy(target[1]);paintTargetLine(context,a,b,color,true);if(on('targetLabels'))hudLabel(context,`TARGET · ${road.distance.toFixed(1)} m`,(a[0]+b[0])/2,Math.min(a[1],b[1])-18,color,left+4,left+vw-4);
    }
   }
   if(frame.valid&&on('bsdWalls')&&bsdHeight>0&&frame.overlay.heightDirection){
@@ -134,7 +134,7 @@
      bottom.push(valid?xy([p[0]/p[2],p[1]/p[2]]):null);upper.push(valid?xy([q[0]/q[2],q[1]/q[2]]):null);
     });paintBlindspotWall(context,bottom,upper,amount,t,true);
     const candidates=upper.filter(p=>p&&p[0]>left+12&&p[0]<left+vw-12&&p[1]>top+40&&p[1]<top+vh-12);
-    if(on('boxBsdLabels')&&candidates.length){
+    if(on('bsdLabels')&&candidates.length){
      const wanted=left+vw*(i?.8:.2),anchor=candidates.reduce((a,b)=>Math.abs(a[0]-wanted)<Math.abs(b[0]-wanted)?a:b);
      context.save();context.globalAlpha=amount;context.strokeStyle='#ffdd76';context.fillStyle='#ffdd76';context.lineWidth=1;
      context.beginPath();context.moveTo(...anchor);context.lineTo(anchor[0],anchor[1]-24);context.stroke();
@@ -171,7 +171,7 @@
    for(const i of visibleCorners){context.beginPath();context.arc(...corners[i],1.5,0,Math.PI*2);context.fill()}
    context.shadowBlur=0;context.globalAlpha=opacity;
    const text=label(target),x=(corners[4][0]+corners[5][0])/2,y=Math.min(...corners.slice(4).map(p=>p[1]))-8;
-   if(on('boxBsdLabels')&&text)hudLabel(context,`${target.slot} · ${text}`,x,y-6,color,left+4,left+vw-4);
+   if(on('boxLabels')&&text)hudLabel(context,`${target.slot} · ${text}`,x,y-6,color,left+4,left+vw-4);
    context.restore();
   }
   context.font='11px system-ui';context.textAlign='center';
