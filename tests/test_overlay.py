@@ -5,6 +5,21 @@ from overlay_reference import OverlayProjector
 from overlay import project_point,camera_config,projection_coordinates,restore_ccnc_targets
 
 class StoredGeometryTests(unittest.TestCase):
+ def test_wide_calibration_shared_metadata_validity(self):
+  from overlay import OverlayProjector as SourceProjector
+  second=1_000_000_000
+  cal={'calStatus':'calibrated','rpyCalib':[.1,.2,.3],'wideFromDeviceEuler':[.01,-.02,.03]}
+  streams={'liveCalibration':[(0,True,cal)],'deviceState':[(0,True,{'deviceType':'mici'})],
+           'roadCameraState':[(0,True,{'sensor':'os04c10'})],'wideRoadCameraState':[(second,True,{'sensor':'ox03c10'})]}
+  p=SourceProjector(streams);info=p.camera_info(0)
+  self.assertEqual(info['wideRpy'],cal['wideFromDeviceEuler']);self.assertEqual(info['wideSensor'],'ox03c10')
+  self.assertEqual(info['sensor'],'os04c10');self.assertIsNone(p.camera_info(11*second)['wideRpy'])
+  for angles in ([],[0,0],[0,float('nan'),0]):
+   q=SourceProjector({**streams,'liveCalibration':[(0,True,{**cal,'wideFromDeviceEuler':angles})]})
+   self.assertIsNone(q.camera_info(0)['wideRpy'])
+  missing=SourceProjector({**streams,'wideRoadCameraState':[]}).camera_info(0)
+  self.assertEqual(missing['wideSensor'],'unknown')
+
  def test_only_source_geometry_is_stored(self):
   from overlay import OverlayProjector as SourceProjector
   streams={'liveCalibration':[(0,True,{'calStatus':'calibrated','rpyCalib':[0,0,0],'height':[1.2]})],'deviceState':[(0,True,{'deviceType':'tici'})]}

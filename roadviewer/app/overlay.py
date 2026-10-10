@@ -68,7 +68,7 @@ def project_point(point,rpy,config):
 class OverlayProjector:
  def __init__(self,streams):
   self.device_id=next((row.get('dongleId') for _,valid,row in streams.get('initData',[]) if valid and row.get('dongleId')),None)
-  self.rows={k:sorted(streams.get(k,[]),key=lambda row:row[0]) for k in ('liveCalibration','deviceState','roadCameraState')}
+  self.rows={k:sorted(streams.get(k,[]),key=lambda row:row[0]) for k in ('liveCalibration','deviceState','roadCameraState','wideRoadCameraState')}
   self.times={k:[r[0] for r in rows] for k,rows in self.rows.items()}
  def at(self,kind,stamp,max_age=None):
   rows=self.rows[kind];index=bisect.bisect_right(self.times[kind],stamp)-1
@@ -85,10 +85,14 @@ class OverlayProjector:
   sensor=(self.at('roadCameraState',stamp) or {}).get('sensor','unknown')
   rpy=cal.get('rpyCalib',[])
   if len(rpy)!=3 or not all(math.isfinite(v) for v in rpy):rpy=None
+  wide_rpy=cal.get('wideFromDeviceEuler',[])
+  if len(wide_rpy)!=3 or not all(math.isfinite(v) for v in wide_rpy):wide_rpy=None
+  wide_sensor=(self.at('wideRoadCameraState',stamp) or {}).get('sensor','unknown')
   heights=cal.get('height',[])
   measured=bool(heights and math.isfinite(heights[0]) and .3<heights[0]<3)
   return {'device':device,'deviceId':self.device_id,'sensor':sensor,'calibrationStatus':cal.get('calStatus','unknown'),
-          'rpy':rpy,'height':heights[0] if measured else 1.22,'heightDefault':not measured}
+          'rpy':rpy,'height':heights[0] if measured else 1.22,'heightDefault':not measured,
+          'wideRpy':wide_rpy,'wideSensor':wide_sensor}
  def project(self,stamp,model,frame):
   info=frame.get('cameraInfo') or self.camera_info(stamp)
   if info['calibrationStatus'] not in ('calibrated','recalibrating') or info['rpy'] is None:return None

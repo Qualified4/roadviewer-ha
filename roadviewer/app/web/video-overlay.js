@@ -71,8 +71,8 @@
   layer.hidden=(!enabled&&!fade)||video.hidden;status.textContent='';
   if(!enabled&&!fade)return;
   if(video.hidden){status.textContent='영상이 있는 구간에서 표시됩니다.';return}
-  if(videoSource==='wide'){layer.hidden=true;status.textContent='와이드 영상에서는 전방 카메라용 겹쳐 보기를 표시하지 않습니다.';return}
   if(!available){status.textContent='이 구간에는 로그 데이터가 없습니다.';return}
+  if(videoSource==='wide'&&!frame.overlay?.wide){layer.hidden=true;status.textContent='와이드 카메라 보정·센서 정보가 없습니다. 이전 변환 데이터는 로그 재분석이 필요합니다.';return}
   if(!frame.overlay){status.textContent='카메라 보정·센서 정보가 없어 겹쳐 표시할 수 없습니다.';return}
   if(!video.videoWidth||!video.videoHeight)return;
   const ratio=Math.min(w/video.videoWidth,h/video.videoHeight),vw=video.videoWidth*ratio,vh=video.videoHeight*ratio,left=(w-vw)/2,top=(h-vh)/2;
@@ -95,16 +95,16 @@
      }));paintBand(context,...sides,'#c4a5ff',.1,.6);
     }else line(frame.overlay.path,'#c4a5ff');
    }
-   function roadBands(bands,lines,confidence,color){
+   function roadBands(bands,lines,confidence,color,isLane=true){
     (lines||[]).forEach((points,i)=>{
-     const style=laneAppearance(confidence(i));if(!style.width)return;
+     const style=laneAppearance(confidence(i),isLane);if(!style.width)return;
      const sides=bands?.[i];
      if(sides?.length===2)paintBand(context,...sides.map(side=>side.map(p=>p?xy(p):null)),color,style.alpha,style.edge,true);
      else line(points,color,false,style.edge,1);
     });
    }
    if(on('lanes'))roadBands(frame.overlay.laneBands,frame.overlay.lanes,i=>frame.lp[i],'#57d9b0');
-   if(on('edges'))roadBands(frame.overlay.edgeBands,frame.overlay.edges,i=>edgeConfidence(frame.es[i]),'#ffa665');
+   if(on('edges'))roadBands(frame.overlay.edgeBands,frame.overlay.edges,i=>edgeConfidence(frame.es[i]),'#ffa665',false);
    const sections=frame.overlay.targetSections,trail=sections?.map(section=>targetSectionPoints(section))||[],target=sections?trail[0]:horizontalTargetLine(frame.overlay.targetLine);
    if([1,3].includes(road?.target)&&road.distance>0&&road.distance<204.6&&road.distance<=Number(document.getElementById('range').value)&&target?.length===2&&target.every(Boolean)){
     const color=road.target===3?'#edf7ff':'#7be5ff',length=8*targetBrakeLevel(data.frames,idx);

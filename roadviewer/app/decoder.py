@@ -70,7 +70,7 @@ SPECS={
  'selfdriveState':spec('alertHudVisual','alertSize'),
  'liveParameters':spec('roll'),
  'carParams':spec('maxLateralAccel','brand'),
- 'liveCalibration':spec('calStatus','rpyCalib','height'),
+ 'liveCalibration':spec('calStatus','rpyCalib','height','wideFromDeviceEuler'),
  'modelV2':spec('frameId','timestampEof',*(f'{line}.{axis}' for line in ('position','laneLines','roadEdges') for axis in 'xyz'),
   'laneLineProbs','roadEdgeStds',*('leadsV3.'+k for k in ('x','y','v','prob'))),
  'radarState':spec('mdMonoTime',*(f'{lead}.{k}' for lead in ('leadOne','leadsCenter','leadsLeft','leadsRight') for k in ('status','dRel','yRel','vRel','radar','radarTrackId','modelProb'))),
@@ -145,7 +145,7 @@ def prepare(value,route=None):
   if kind in ('carState','carControl','controlsState','carOutput','selfdriveState','liveParameters','carParams','liveCalibration'):streams[kind].append((e.logMonoTime,e.valid,pick(getattr(e,kind),SPECS[kind])))
   if kind=='initData':streams[kind].append((e.logMonoTime,e.valid,{'dongleId':str(e.initData.dongleId)}))
   if kind=='deviceState':streams[kind].append((e.logMonoTime,e.valid,{'deviceType':str(e.deviceState.deviceType)}))
-  if kind=='roadCameraState':streams[kind].append((e.logMonoTime,e.valid,{'sensor':str(e.roadCameraState.sensor)}))
+  if kind in ('roadCameraState','wideRoadCameraState'):streams[kind].append((e.logMonoTime,e.valid,{'sensor':str(getattr(e,kind).sensor)}))
   if kind=='modelV2':
    models.append((e.logMonoTime,e.valid,pick(e.modelV2,SPECS['modelV2'])));progress.update('log_read',frames=len(models))
   elif kind=='sendcan':
