@@ -200,7 +200,7 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
  data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;t=0;const source=setupVideoSources();if(source){selectVideo(source)}else{videoSource=null;setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)videoFailure('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
-for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncRoad','boxLabels','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
+for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncRoad','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 document.onkeydown=e=>{if(['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
 function renderSteering(f){
@@ -355,12 +355,12 @@ function paintTargetLine(ctx,a,b,color,glow=false){
  ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke();ctx.restore();
 }
 function ccncTargetColor(target){return target?.slot==='FF'?'#8deeff':'#4aaaff'}
-function hudLabel(ctx,text,x,y,color,left=4,right=ctx.canvas.clientWidth||ctx.canvas.width){
+function hudLabel(ctx,text,x,y,color,left=4,right=ctx.canvas.clientWidth||ctx.canvas.width,background=true){
  ctx.save();const opacity=ctx.globalAlpha;ctx.font='600 11px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.shadowBlur=0;
  const width=ctx.measureText(text).width+18,height=23;
  x=Math.max(left+width/2,Math.min(right-width/2,x));y=Math.max(height/2+4,y);
- ctx.beginPath();ctx.roundRect(x-width/2,y-height/2,width,height,5);ctx.globalAlpha=.9*opacity;ctx.fillStyle='#071b2d';ctx.fill();
- ctx.strokeStyle=color;ctx.lineWidth=.7;ctx.globalAlpha=.65*opacity;ctx.stroke();ctx.fillStyle=color;ctx.globalAlpha=opacity;ctx.fillText(text,x,y);ctx.restore();
+ if(background){ctx.beginPath();ctx.roundRect(x-width/2,y-height/2,width,height,5);ctx.globalAlpha=.7*opacity;ctx.fillStyle='#071b2d';ctx.fill();
+ ctx.strokeStyle=color;ctx.lineWidth=.7;ctx.globalAlpha=.65*opacity;ctx.stroke()}ctx.fillStyle=color;ctx.globalAlpha=opacity;ctx.fillText(text,x,y);ctx.restore();
 }
 // Smooth, repeatable irregular movement along the road; never randomize each frame.
 function blindspotStreakPosition(index,time,count=10){
@@ -497,7 +497,11 @@ function render(lazy){
   if(target.x<0||target.x>range)continue;
   const x=X(target.y),y=Y(target.x),color=ccncTargetColor(target);
   ctx.strokeStyle=color;ctx.lineWidth=2;ctx.strokeRect(x-8,y-11,16,22);
-  if(checked('boxLabels'))annotate(`${target.slot} · ${targetValue(target,target.yRel)}`,x,y,color,target.slot==='LF'?-1:1);
+  if(checked('boxLabels')){
+   const text=`${target.slot} · ${targetValue(target,target.yRel)}`;
+   if(checked('boxLabelsBelow'))hudLabel(ctx,text,x,y+24,color,4,ctx.canvas.clientWidth||ctx.canvas.width,false);
+   else annotate(text,x,y,color,target.slot==='LF'?-1:1);
+  }
  }
  $('ccncStatus').textContent=checked('ccncTargets')&&(!frameAvailable(f)||f.ccncTargets==null)?'이 시점의 CCNC 송신 데이터가 없습니다.':'';
  const rawVisible=frameAvailable(f)&&f.liveTracksValid;

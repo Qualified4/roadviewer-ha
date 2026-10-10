@@ -17,12 +17,12 @@
  try{const saved=localStorage.getItem('roadviewer-ccnc-box-height');if(saved!==null&&Number.isFinite(Number(saved)))boxHeight=Math.max(0,Math.min(3,Number(saved)))}catch{}
  const syncBoxHeight=()=>{boxHeightSlider.value=String(Math.round(boxHeight*100));boxHeightValue.textContent=boxHeight.toFixed(2)+' m'};
  syncBoxHeight();boxHeightSlider.oninput=()=>{boxHeight=Number(boxHeightSlider.value)/100;syncBoxHeight();try{localStorage.setItem('roadviewer-ccnc-box-height',String(boxHeight))}catch{}render()};
- let enabled=false,raised=true,heightCm=60;
+ let enabled=true,raised=true,heightCm=60;
  try{const saved=localStorage.getItem('roadviewer-overlay-height-cm');if(saved!==null&&Number.isFinite(Number(saved)))heightCm=Math.max(0,Math.min(200,Math.round(Number(saved))))}catch{}
  const heightButton=document.getElementById('overlayHeight');
  try{raised=localStorage.getItem('roadviewer-overlay-height')!=='false'}catch{}
  heightButton.setAttribute('aria-pressed',String(raised));
- try{enabled=localStorage.getItem('roadviewer-video-overlay')==='true'}catch{}
+ try{enabled=localStorage.getItem('roadviewer-video-overlay')!=='false'}catch{}
  button.setAttribute('aria-pressed',String(enabled));
  // Fade stays on the compositor; height interpolation shares the existing replay tick.
  let fade=null,heightMotion=null,displayHeight=raised?heightCm:0;
@@ -171,8 +171,10 @@
    const visibleCorners=new Set([...edges.values()].filter(e=>e.front||boxOpacity<1).flatMap(e=>[e.a,e.b]));
    for(const i of visibleCorners){context.beginPath();context.arc(...corners[i],1.5,0,Math.PI*2);context.fill()}
    context.shadowBlur=0;context.globalAlpha=opacity;
-   const text=label(target),x=(corners[4][0]+corners[5][0])/2,y=Math.min(...corners.slice(4).map(p=>p[1]))-8;
-   if(on('boxLabels')&&text)hudLabel(context,`${target.slot} · ${text}`,x,y-6,color,left+4,left+vw-4);
+   const text=label(target),below=on('boxLabelsBelow');
+   const x=below?(corners[0][0]+corners[1][0])/2:(corners[4][0]+corners[5][0])/2;
+   const y=below?Math.max(...corners.slice(0,4).map(p=>p[1]))+14:Math.min(...corners.slice(4).map(p=>p[1]))-14;
+   if(on('boxLabels')&&text)hudLabel(context,`${target.slot} · ${text}`,x,y,color,left+4,left+vw-4,!below);
    context.restore();
   }
   context.font='11px system-ui';context.textAlign='center';
