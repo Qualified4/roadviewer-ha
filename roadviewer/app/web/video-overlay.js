@@ -42,10 +42,10 @@
   if(!heightMotion)displayHeight=to;
   render();
  }
- let lastRoadMotion=0;
+ let lastRoadMotion=0,boxAnimating=false;
  window.renderVideoOverlayMotion=()=>{
   if(!data)return;const frame=data.frames[idx],signals=frame.roadSignals??frame.ccncRoad;
-  const animated=enabled&&playing&&motionAllowed()&&((on('ccncRoad')&&(signals?.blinkerLeft||signals?.blinkerRight))||(on('bsdWalls')&&bsdHeight>0&&blindspotLevels(data.frames,idx,frame.t).some(v=>v>0)));
+  const animated=enabled&&playing&&motionAllowed()&&((on('ccncTargets')&&boxAnimating)||(on('ccncRoad')&&(signals?.blinkerLeft||signals?.blinkerRight))||(on('bsdWalls')&&bsdHeight>0&&blindspotLevels(data.frames,idx,frame.t).some(v=>v>0)));
   if(heightMotion||animated&&performance.now()-lastRoadMotion>=1000/30){lastRoadMotion=performance.now();window.renderVideoOverlay(frame,frameAvailable(frame))}
  };
  matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',()=>{
@@ -64,7 +64,7 @@
   return target.x.toFixed(1)+'m';
  }
  window.renderVideoOverlay=(frame,available)=>{
-  const height=currentHeight();
+  const height=currentHeight();boxAnimating=false;
   const w=layer.parentElement.clientWidth,h=layer.parentElement.clientHeight,dpr=devicePixelRatio||1;
   if(layer.width!==Math.round(w*dpr)||layer.height!==Math.round(h*dpr)){layer.width=Math.round(w*dpr);layer.height=Math.round(h*dpr)}
   context.setTransform(dpr,0,0,dpr,0,0);context.clearRect(0,0,w,h);
@@ -143,42 +143,46 @@
    });
   }
   drawBlinkers(context,on('ccncRoad')?(frame.roadSignals??road):null,t,left+12,left+vw-12,top+vh*.72,blinkerLaneAnchors(frame.valid?frame.overlay.lanes:null).map(xy),true);
-  function drawBox(marker,color,target){
+  function drawBox(marker,color,target,growth=1,opacity=1){
+   const animatedHeight=boxHeight*growth;
    if(marker.box?.length!==8)return;
-   const projected=marker.box.map((p,i)=>i<4?p:p.map((v,j)=>marker.box[i-4][j]+(v-marker.box[i-4][j])*boxHeight/1.5));
+   const projected=marker.box.map((p,i)=>i<4?p:p.map((v,j)=>marker.box[i-4][j]+(v-marker.box[i-4][j])*animatedHeight/1.5));
    if(!projected.every(p=>p?.length===3&&p.every(Number.isFinite)&&p[2]>.1))return;
    const corners=projected.map(p=>xy([p[0]/p[2],p[1]/p[2]]));
-   const faces=(boxHeight===0?[[0,1,3,2]]:[[0,1,5,4],[4,5,7,6],[1,3,7,5],[2,0,4,6],[3,2,6,7],[0,2,3,1]]).map(face=>{
+   const faces=(animatedHeight===0?[[0,1,3,2]]:[[0,1,5,4],[4,5,7,6],[1,3,7,5],[2,0,4,6],[3,2,6,7],[0,2,3,1]]).map(face=>{
     const points=face.map(i=>corners[i]),area=points.reduce((sum,p,i)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1]},0);
-    return {face,points,front:boxHeight===0||area<0,depth:face.reduce((sum,i)=>sum+projected[i][2],0)/face.length};
+    return {face,points,front:animatedHeight===0||area<0,depth:face.reduce((sum,i)=>sum+projected[i][2],0)/face.length};
    }).sort((a,b)=>b.depth-a.depth);
    context.save();context.fillStyle=color;context.strokeStyle=color;context.lineWidth=1;
    for(const {points} of faces){
     const ys=points.map(p=>p[1]),gradient=context.createLinearGradient(0,Math.min(...ys),0,Math.max(...ys)+1);
     gradient.addColorStop(0,color);gradient.addColorStop(1,'#246a9f');context.fillStyle=gradient;
     context.beginPath();points.forEach(([x,y],i)=>i?context.lineTo(x,y):context.moveTo(x,y));context.closePath();
-    context.globalAlpha=boxHeight===0?boxOpacity:1-Math.sqrt(1-boxOpacity);context.fill();
+    context.globalAlpha=opacity*(animatedHeight===0?boxOpacity:1-Math.sqrt(1-boxOpacity));context.fill();
    }
    const edges=new Map();
    for(const {face,front} of faces)face.forEach((a,i)=>{const b=face[(i+1)%face.length],key=[a,b].sort((a,b)=>a-b).join(':');edges.set(key,{a,b,front:front||edges.get(key)?.front})});
    for(const {a,b,front} of edges.values()){
-    context.shadowColor=color;context.shadowBlur=front?5:2;context.globalAlpha=front?.95:.4*(1-boxOpacity);context.beginPath();context.moveTo(...corners[a]);context.lineTo(...corners[b]);context.stroke();
+    context.shadowColor=color;context.shadowBlur=front?5:2;context.globalAlpha=opacity*(front?.95:.4*(1-boxOpacity));context.beginPath();context.moveTo(...corners[a]);context.lineTo(...corners[b]);context.stroke();
    }
-   context.fillStyle=color;context.globalAlpha=.9;
+   context.fillStyle=color;context.globalAlpha=.9*opacity;
    const visibleCorners=new Set([...edges.values()].filter(e=>e.front||boxOpacity<1).flatMap(e=>[e.a,e.b]));
    for(const i of visibleCorners){context.beginPath();context.arc(...corners[i],1.5,0,Math.PI*2);context.fill()}
-   context.shadowBlur=0;context.globalAlpha=1;
+   context.shadowBlur=0;context.globalAlpha=opacity;
    const text=label(target),x=(corners[4][0]+corners[5][0])/2,y=Math.min(...corners.slice(4).map(p=>p[1]))-8;
    if(on('boxBsdLabels')&&text)hudLabel(context,`${target.slot} · ${text}`,x,y-6,color,left+4,left+vw-4);
    context.restore();
   }
   context.font='11px system-ui';context.textAlign='center';
-  for(const marker of [...frame.overlay.markers].sort((a,b)=>a.kind==='ccnc'&&b.kind==='ccnc'?(frame.ccncTargets[b.index].x-frame.ccncTargets[a.index].x):a.kind==='ccnc'?-1:b.kind==='ccnc'?1:0)){
+  if(on('ccncTargets')){
+   const boxes=ccncBoxTransitions(data.frames,idx,t).filter(entry=>entry.target.x<=Number(document.getElementById('range').value)).sort((a,b)=>b.target.x-a.target.x);
+   boxAnimating=boxes.some(entry=>entry.animated);
+   for(const entry of boxes)drawBox(entry.marker,ccncTargetColor(entry.target),entry.target,entry.height,entry.alpha);
+  }
+  for(const marker of frame.overlay.markers){
+   if(marker.kind==='ccnc')continue;
    let target,color='#81b5ff',shape='circle';
-   if(marker.kind==='ccnc'){
-    if(!on('ccncTargets'))continue;
-    target=frame.ccncTargets?.[marker.index];color=ccncTargetColor(target);shape='box';
-   }else if(marker.kind==='raw'){
+   if(marker.kind==='raw'){
     if(!on('liveTracks')||!frame.liveTracksValid)continue;
     target=frame.liveTracks[marker.index];
     if(on('hideScc')&&String(target?.source).toLowerCase()==='scc')continue;
@@ -195,7 +199,6 @@
     }
    }
    if(!target||target.x>Number(document.getElementById('range').value))continue;
-   if(marker.kind==='ccnc'){drawBox(marker,color,target);continue}
    let point=marker.point;
    if(height>0){
     if(!marker.projection||!frame.overlay.heightDirection)continue;
