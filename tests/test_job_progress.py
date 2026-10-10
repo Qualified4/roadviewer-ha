@@ -23,7 +23,7 @@ class JobProgressTests(unittest.TestCase):
    p=Path(root)/('a'*32);p.mkdir()
    server.save_meta(p,dict(id=p.name,name='test',uploaded=0,status='queued'))
    script=Path(root)/'decoder.py'
-   script.write_text("import os,json,time,sys\nfrom pathlib import Path\nf=os.fdopen(int(os.environ['RV_PROGRESS_FD']),'w',buffering=1)\nf.write(json.dumps({'stage':'log_analysis','frames':123})+'\\n')\np=Path(sys.argv[1]).parent\nwhile not (p/'continue').exists():time.sleep(.01)\n"+("(p/'prepared').mkdir()\n(p/'prepared/partial.mp4').write_bytes(b'partial')\nsys.exit(1)\n" if fail else "(p/'prepared').mkdir()\n(p/'prepared/data.json').write_text(json.dumps({'duration':1,'warnings':[],'frames':[{}]}))\n(p/'prepared/summary.json').write_text(json.dumps({'duration':1,'warnings':[],'model_frames':1}))\n"))
+   script.write_text("import os,json,time,sys\nfrom pathlib import Path\nf=os.fdopen(int(os.environ['RV_PROGRESS_FD']),'w',buffering=1)\nf.write(json.dumps({'stage':'log_analysis','frames':123,'total_frames':246})+'\\n')\np=Path(sys.argv[1]).parent\nwhile not (p/'continue').exists():time.sleep(.01)\n"+("(p/'prepared').mkdir()\n(p/'prepared/partial.mp4').write_bytes(b'partial')\nsys.exit(1)\n" if fail else "(p/'prepared').mkdir()\n(p/'prepared/data.json').write_text(json.dumps({'duration':1,'warnings':[],'frames':[{}]}))\n(p/'prepared/summary.json').write_text(json.dumps({'duration':1,'warnings':[],'model_frames':1}))\n"))
    with patch.object(server,'BASE',Path(root)):
     thread=threading.Thread(target=server.run_job,args=(p.name,));thread.start()
     try:
@@ -31,7 +31,9 @@ class JobProgressTests(unittest.TestCase):
      while server.job_progress.get(p.name,{}).get('frames')!=123 and time.monotonic()<deadline:time.sleep(.01)
      response=server.app.test_client().get('/api/logs',environ_overrides={'REMOTE_ADDR':'172.30.32.2'})
      item=response.json['logs'][0]
-     self.assertEqual(item['progress'],{'stage':'log_analysis','frames':123})
+     self.assertEqual(item['progress'],{'stage':'log_analysis','frames':123,'total_frames':246})
+     live=server.app.test_client().get('/api/progress',environ_overrides={'REMOTE_ADDR':'172.30.32.2'})
+     self.assertEqual(live.json['progress'][p.name],item['progress'])
      self.assertNotIn('progress',server.read_meta(p))
     finally:
      (p/'continue').touch();thread.join(timeout=5)

@@ -14,13 +14,14 @@ class Reporter:
   self.stage=None
   self.last=0
 
- def update(self, stage, frames=None, percent=None, force=False):
+ def update(self, stage, frames=None, percent=None, force=False, total_frames=None):
   if self.stream is None:return
   now=self.clock()
   if stage==self.stage and not force and now-self.last<1:return
   self.stage=stage;self.last=now
   event={'stage':stage}
   if frames is not None:event['frames']=max(0,int(frames))
+  if total_frames is not None:event['total_frames']=max(0,int(total_frames))
   if percent is not None:event['percent']=max(0,min(100,int(percent)))
   try:
    self.stream.write(json.dumps(event)+'\n');self.stream.flush()

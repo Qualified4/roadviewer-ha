@@ -2,8 +2,8 @@
 let uploadController=null,networkRestarting=false;
 let concurrencySaving=false,concurrencyRevision=0,savedConcurrency=1,savedAutoConvert=true,savedKeepOriginalVideo=true;
 const names={unconverted:'미변환',queued:'대기 중',processing:'처리 중',ready:'재생 가능',error:'변환 실패'};
-// Stage milestones: read 25%, analysis 50%, video 75–100%; saving hides the bar.
-const STAGE_PROGRESS={log_read:[.25,.25],log_analysis:[.5,.5],video_read:[.5,.5],video_convert:[.75,1],video_verify:[1,1]};
+// Stage milestones: read 25%, analysis 50–75% by frame count, video 75–100%; saving hides the bar.
+const STAGE_PROGRESS={log_read:[.25,.25],log_analysis:[.5,.75],video_read:[.75,.75],video_convert:[.75,1],video_verify:[1,1]};
 function showState(state,m){
  const text=processingText(m);let bar=state.querySelector('.state-progress');
  if(m.status!=='processing'){state.textContent=text;return}
@@ -11,7 +11,8 @@ function showState(state,m){
  if(!bar){bar=document.createElement('span');bar.className='state-progress';bar.setAttribute('aria-hidden','true');bar.append(document.createElement('span'));state.replaceChildren(document.createTextNode(text),bar)}
  else state.firstChild.nodeValue=text;
  bar.hidden=m.progress?.stage==='saving';
- const p=m.progress||{},[from,to]=STAGE_PROGRESS[p.stage]||[0,0],part=Number.isFinite(p.percent)?Math.max(0,Math.min(100,p.percent))/100:0;
+ const p=m.progress||{},[from,to]=STAGE_PROGRESS[p.stage]||[0,0];
+ const ratio=p.stage==='log_analysis'?(Number.isFinite(p.frames)&&Number.isFinite(p.total_frames)&&p.total_frames>0?p.frames/p.total_frames:0):(Number.isFinite(p.percent)?p.percent/100:0),part=Math.max(0,Math.min(1,ratio));
  bar.firstChild.style.setProperty('--progress',String(from+(to-from)*part));
 }
 function processingText(m){

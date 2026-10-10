@@ -168,7 +168,7 @@ def prepare(value,route=None):
  models.sort(key=lambda row:time_of(row[0],row[2]))
  frames=[]
  def points(line):return [[round(float(x),3),round(float(y),3)] for x,y in zip(line['x'],line['y']) if math.isfinite(x) and math.isfinite(y)]
- progress.update('log_analysis',frames=0)
+ progress.update('log_analysis',frames=0,total_frames=len(models))
  for stamp,valid,m in models:
   ego_speed=speed_at(car_states,car_times,time_of(stamp,m)*1e9)
   selected=None;radar_targets=[];raw_targets=[];live_valid=False;live_delta=None
@@ -198,8 +198,8 @@ def prepare(value,route=None):
   frames[-1]['roadSignals']=ccnc_at(road_signals,signal_times,time_of(stamp,m)*1e9)
   frames[-1]['cameraInfo']=overlay.camera_info(time_of(stamp,m)*1e9)
   frames[-1]['overlay']=overlay.project(time_of(stamp,m)*1e9,m,frames[-1])
-  progress.update('log_analysis',frames=len(frames))
- progress.update('log_analysis',frames=len(frames),force=True)
+  progress.update('log_analysis',frames=len(frames),total_frames=len(models))
+ progress.update('log_analysis',frames=len(frames),total_frames=len(models),force=True)
  frames.sort(key=lambda f:f['t'])
  video_info=None;warnings=[]
  if video.exists() and cameras:

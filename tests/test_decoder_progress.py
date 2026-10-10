@@ -80,7 +80,10 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertEqual(saved['cameraInfos'][0]['calibrationStatus'],'unknown')
    self.assertTrue(saved['cameraInfos'][0]['heightDefault'])
    events=[json.loads(line) for line in output.getvalue().splitlines()]
-   self.assertEqual([e for e in events if e['stage']=='log_analysis'][-1]['frames'],20)
+   analysis=[e for e in events if e['stage']=='log_analysis']
+   self.assertEqual(analysis[0]['frames'],0)
+   self.assertEqual(analysis[-1]['frames'],20)
+   self.assertTrue(all(e['total_frames']==20 for e in analysis))
    self.assertEqual([e for e in events if e['stage']=='video_convert'][-1]['percent'],100)
    self.assertTrue(any(e['stage']=='video_verify' for e in events))
    self.assertEqual(events[-1]['stage'],'saving')
