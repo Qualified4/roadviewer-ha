@@ -38,14 +38,47 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#overlayHeightReset').click();assert.equal(await page.locator('#overlayHeightRange').inputValue(),'60');
   await setHeight(75);await page.keyboard.press('Escape');await page.locator('#overlayHeightDialog').waitFor({state:'hidden'});
   assert(await page.locator('#overlayHeightSettings').evaluate(e=>e===document.activeElement));
+  // CCNC display commands have their own toggle; unknown TrackID/speed are never invented.
+  assert.equal(await page.locator('#ccncTargets').isChecked(),false);
+  await page.evaluate(()=>{data.frames[0].leads=[];data.frames[0].ccncTargets=[{slot:'FF',detect:4,x:20,y:0,yRel:0}];data.frames[0].overlay.markers=[{kind:'ccnc',index:0,point:[.5,.8],projection:[.5,.8,1],box:[[.4,.8,1],[.6,.8,1],[.43,.7,1],[.57,.7,1],[.4,.5,1],[.6,.5,1],[.43,.45,1],[.57,.45,1]]}];render()});
+  assert(!(await pixels()),'CCNC hidden by default');
+  await page.locator('#ccncTargets').check();assert(await pixels(),'CCNC draws in video overlay');
+  const overlayImage=()=>page.locator('#videoOverlay').evaluate(c=>c.toDataURL());
+  const beforeHeight=await overlayImage();
+  await page.locator('#overlayHeight').click();assert.equal(await overlayImage(),beforeHeight,'3D box ignores height toggle');
+  await page.locator('#overlayHeight').click();
+  const setOpacity=async value=>page.locator('#ccncOpacity').evaluate((e,v)=>{e.value=v;e.dispatchEvent(new Event('input'))},value);
+  await setOpacity(0);const wireframe=await overlayImage();assert(await pixels(),'zero fill keeps outlines');
+  await setOpacity(100);assert.notEqual(await overlayImage(),wireframe,'opacity changes filled faces');
+  await setOpacity(45);assert.equal(await page.locator('#ccncOpacityValue').textContent(),'45%');
+  await page.evaluate(()=>{data.frames[0].overlay.markers[0].box[0][2]=-.1;render()});assert(!(await pixels()),'box crossing camera near plane is omitted');
+  await page.evaluate(()=>{data.frames[0].overlay.markers[0].box[0][2]=1;render()});
+
+  await page.locator('#ccncTargets').uncheck();assert(!(await pixels()));
+  await page.locator('#ccncTargets').check();
   await page.locator('#overlayHeight').click();
   await page.evaluate(()=>{data.frames[0].overlay=null;render()});
   assert((await page.locator('#overlayStatus').textContent()).includes('보정'));
   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  assert.equal(await page.locator('#ccncOpacity').inputValue(),'45','box opacity survives reload');
+  assert.equal(await page.locator('#ccncTargets').isChecked(),true,'CCNC preference survives reload');
   assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true');
   assert.equal(await page.locator('#overlayHeight').getAttribute('aria-pressed'),'false');
   assert.equal(await page.locator('#overlayHeightRange').inputValue(),'75','height setting survives reload independently of toggle');
   await page.waitForFunction(()=>document.getElementById('video').videoWidth>0);
+  const laneStyles=await page.evaluate(()=>{
+   const result=[],original=CanvasRenderingContext2D.prototype.stroke;
+   CanvasRenderingContext2D.prototype.stroke=function(){if(this.strokeStyle==='#57d9b0')result.push({canvas:this.canvas.id,width:this.lineWidth,alpha:this.globalAlpha,dash:this.getLineDash()});return original.call(this)};
+   const f=data.frames[0];f.lanes=[[[10,-1],[30,-1]],[[10,1],[30,1]]];f.lp=[.2,.8];f.overlay.lanes=[[[.3,.8],[.4,.5]],[[.7,.8],[.6,.5]]];
+   try{render()}finally{CanvasRenderingContext2D.prototype.stroke=original}
+   f.lanes=[];f.lp=[];f.overlay.lanes=[];render();return result;
+  });
+  for(const canvas of ['road','videoOverlay']){
+   const lines=laneStyles.filter(s=>s.canvas===canvas);assert.equal(lines.length,2);
+   assert(lines[0].width<lines[1].width&&lines[0].alpha<lines[1].alpha,'confidence controls thickness and alpha');
+   assert(lines.every(s=>s.dash.length===0),'probability does not make lanes dashed');
+  }
+
   await page.evaluate(()=>{document.getElementById('modelPath').checked=true;render()});
   for(const viewport of [390,2200]){
    await page.setViewportSize({width:viewport,height:1000});

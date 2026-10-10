@@ -19,7 +19,7 @@ class OverlayTests(unittest.TestCase):
  def test_calibration_and_road_height(self):
   streams={'liveCalibration':[(100,True,{'calStatus':'calibrated','rpyCalib':[0,0,0],'height':[1.2]})],'deviceState':[(100,True,{'deviceType':'tici'})],'roadCameraState':[(100,True,{'sensor':'ar0231'})]}
   model={'position':{'x':[10,20],'y':[0,0],'z':[0,0]},'laneLines':[{'x':[10,20],'y':[1,1],'z':[1.2,1.2]}]}
-  frame={'leads':[{'x':10,'y':0}], 'radarTargets':[{'x':10,'y':-1}]}
+  frame={'leads':[{'x':10,'y':0}], 'radarTargets':[{'x':10,'y':-1}], 'ccncTargets':[{'slot':'RF','x':10,'y':2}]}
   p=OverlayProjector(streams)
   self.assertEqual(p.project(99,model,frame),p.project(100,model,frame))
   self.assertIsNone(p.project(11_000_000_100,model,frame))
@@ -36,6 +36,13 @@ class OverlayTests(unittest.TestCase):
     self.assertEqual([round(projected[i]/projected[2],6) for i in (0,1)],project_point((5,1,1.2-height),rpy,config))
   self.assertEqual(out['lanes'][0][0][1],out['path'][0][1])
   self.assertLess(out['markers'][1]['point'][0],.5)
+  self.assertEqual(out['markers'][2]['kind'],'ccnc')
+  marker=out['markers'][2];box=marker['box'];self.assertEqual(len(box),8)
+  for i in range(3):self.assertAlmostEqual((box[0][i]+box[1][i])/2,marker['projection'][i])
+  config=camera_config('tici','ar0231')
+  for index,point in enumerate([(10,1.1,1.2),(10,2.9,1.2),(14.5,1.1,1.2),(14.5,2.9,1.2),(10,1.1,-.3),(10,2.9,-.3),(14.5,1.1,-.3),(14.5,2.9,-.3)]):
+   for actual,expected in zip(box[index],projection_coordinates(point,[0,0,0],config)):self.assertAlmostEqual(actual,expected)
+  self.assertGreater(out['markers'][2]['point'][0],.5)
   self.assertIsNone(OverlayProjector({}).project(100,model,frame))
 
  def test_startup_metadata_arrives_after_first_model(self):

@@ -7,6 +7,24 @@ import av,zstandard,decoder
 from progress import Reporter
 
 class DecoderProgressTests(unittest.TestCase):
+ def test_ccnc_decode_and_freshness(self):
+  bits=(3<<112)|(250<<117)|(35<<128)|(4<<64)|(123<<69)|(123<<80)|(5<<136)|(350<<141)|(42<<152)
+  payload=bits.to_bytes(32,'little');targets=decoder.ccnc_targets(payload)
+  self.assertEqual([t['slot'] for t in targets],['LF','FF','RF'])
+  self.assertEqual([t['x'] for t in targets],[25,12.3,35])
+  self.assertEqual([t['yRel'] for t in targets],[3.5,-.5,-4.2])
+  self.assertEqual([t['y'] for t in targets],[-3.5,.5,4.2])
+  self.assertEqual(decoder.ccnc_targets(bytes(32)),[])
+  self.assertEqual(decoder.ccnc_targets(bytes(16)),[])
+  self.assertEqual(decoder.ccnc_targets(((3<<64)|(2046<<69)).to_bytes(32,'little')),[])
+  rows=[(100_000_000,True,targets),(300_000_000,False,targets),(400_000_000,True,[])]
+  times=[r[0] for r in rows]
+  self.assertIsNone(decoder.ccnc_at(rows,times,99_000_000))
+  self.assertEqual(decoder.ccnc_at(rows,times,100_000_000),targets)
+  self.assertIsNone(decoder.ccnc_at(rows,times,250_000_000))
+  self.assertIsNone(decoder.ccnc_at(rows,times,300_000_000))
+  self.assertEqual(decoder.ccnc_at(rows,times,400_000_000),[])
+
  def test_real_video_and_log_progress(self):
   with tempfile.TemporaryDirectory() as root:
    root=Path(root);video=root/'qcamera.ts'
@@ -28,6 +46,10 @@ class DecoderProgressTests(unittest.TestCase):
     e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10+i*.01)*1e9);e.valid=True;e.init('carState');e.carState.vEgo=20;e.carState.engineRpm=1800;e.carState.gas=.25;e.carState.steeringPressed=i==31;messages.append(e.to_bytes())
    for name,values in [('carControl',{'latActive':True,'longActive':True,'actuators':{'steeringAngleDeg':7,'accel':-1.5,'aTarget':-1.2,'jerk':-.3,'longControlState':'stopping'}}),('carOutput',{'actuatorsOutput':{'gas':.25,'brake':.5,'accel':-1}}),('controlsState',{'lateralControlState':{'torqueState':{'active':True,'actualLateralAccel':.8,'desiredLateralAccel':1.2}}})]:
     e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10)*1e9);e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
+   stamp=round((pts[0]+10)*1e9)
+   e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('carParams');e.carParams.brand='hyundai';messages.append(e.to_bytes())
+   e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True
+   e.init('sendcan',1);e.sendcan[0].address=0x162;e.sendcan[0].src=0;e.sendcan[0].dat=((4<<64)|(200<<69)).to_bytes(32,'little');messages.append(e.to_bytes())
    src=root/'rlog.zst';src.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
    output=io.StringIO();counter=iter(range(10000));reporter=Reporter(output,clock=lambda:next(counter))
    with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src,'Route / segment')
@@ -35,6 +57,9 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertFalse((dest/'data.json').exists())
    # Camera information is stored once and referenced by index from each frame.
    self.assertEqual(saved['cameraInfos'][data['frames'][0]['cameraInfo']]['deviceId'],'test-device-id')
+   self.assertEqual(saved['frames'][0]['ccncTargets'][0]['slot'],'FF')
+   self.assertEqual(saved['frames'][0]['ccncTargets'][0]['x'],20)
+   self.assertIsNone(saved['frames'][-1]['ccncTargets'])
    self.assertEqual(saved['route'],'Route / segment');self.assertNotIn('path',saved)
    self.assertEqual(json.loads((dest/'summary.json').read_text())['model_frames'],20)
    self.assertEqual(saved['cameraInfos'][0]['calibrationStatus'],'unknown')
