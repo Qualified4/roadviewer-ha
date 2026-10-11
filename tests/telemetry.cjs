@@ -19,7 +19,11 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
    if(p.endsWith('/telemetry')){reads++;return route.fulfill(fail?{status:404,json:{error:'차량 정보가 없습니다. 재생성해 주세요.'}}:{json:telemetry})}
    if(p.endsWith('/data'))return route.fulfill({json:data});
-   if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),contentType:'video/mp4'});
+   if(p.endsWith('/video')){
+    const body=fs.readFileSync(process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4'),range=/^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range||'');
+    if(range){const start=Number(range[1]),end=range[2]?Math.min(Number(range[2]),body.length-1):body.length-1;return route.fulfill({status:206,body:body.subarray(start,end+1),contentType:'video/mp4',headers:{'Accept-Ranges':'bytes','Content-Range':`bytes ${start}-${end}/${body.length}`}})}
+    return route.fulfill({body,contentType:'video/mp4',headers:{'Accept-Ranges':'bytes'}});
+   }
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.html')?'text/html':name.endsWith('.png')?'image/png':'image/svg+xml'});
   });

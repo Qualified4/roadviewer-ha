@@ -2,7 +2,7 @@
 
 [한국어](device-api.md) · English
 
-Implementation reference: **Road Viewer 0.5.4**.
+Implementation reference: **Road Viewer 0.5.5**.
 
 This repository provides the Road Viewer server and web UI. Compatible device uploaders are maintained separately. Existing browser uploads and Home Assistant Ingress remain supported. One Gunicorn worker with multiple threads is required; do not add workers/replicas sharing this data directory.
 
@@ -230,8 +230,8 @@ An OK result verifies the tested API/storage paths, not real video or log-decodi
 For the real TLS/Nginx/Gunicorn boundary, use Docker:
 
 ```bash
-docker build -t roadviewer:0.5.4 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.5.4 /tests/test_device_tls.py
+docker build -t roadviewer:0.5.5 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.5.5 /tests/test_device_tls.py
 ```
 
 The client trusts a temporary test certificate. Server and client communicate inside the container, so host port publication and router changes are unnecessary. Building needs network access; this does not validate your real DNS/NAT setup.

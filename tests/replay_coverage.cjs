@@ -62,8 +62,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert.deepEqual(await seekTo(.5),{playing:false,t:.5},scenario.name+' paused again');
    await page.waitForTimeout(150);
    assert.equal(await page.evaluate(()=>t),.5);
+   await page.evaluate(()=>{pause();setTime(data.duration-.0005)});
+   await page.waitForFunction(()=>!v.seeking&&(v.readyState>=3||!videoAvailable()||finalVideoFrame()));
    const boundary=await page.evaluate(()=>{
-    pause();setTime(data.duration-.0005);playing=true;last=performance.now();
+    playing=true;last=performance.now();
     const schedule=window.requestAnimationFrame;window.requestAnimationFrame=()=>0;
     try{tick(last)}finally{window.requestAnimationFrame=schedule}
     return {time:t,playing,seek:document.getElementById('seek').value};
@@ -109,6 +111,69 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    }
    // Seeking back into video restores the image after the video-free tail.
    if(videoStart!==null){await page.evaluate(start=>setTime(start+.2),videoStart);assert(await page.locator('#video').isVisible())}
+   if(scenario.name==='matching end'){
+    // A cached frame may finish seeking while the pointer is still held.
+    await page.evaluate(()=>{pause();$('speed').value='1';v.playbackRate=1;setTime(.5)});
+    await page.waitForFunction(()=>!v.seeking&&v.readyState>=3);
+    await page.evaluate(()=>toggle());
+    const bar=await page.locator('#seek').boundingBox();
+    await page.mouse.move(bar.x+bar.width*.25,bar.y+bar.height/2);await page.mouse.down();
+    await page.mouse.move(bar.x+bar.width*.6,bar.y+bar.height/2,{steps:5});
+    await page.waitForFunction(()=>!v.seeking&&pendingVideoSeek===null);
+    const held=await page.evaluate(()=>t);await page.waitForTimeout(100);
+    assert.equal(await page.evaluate(()=>t),held,'holding the pointer freezes automatic time');
+    assert(await page.evaluate(()=>v.paused),'cached video must stay paused until pointer release');
+    await page.mouse.up();await page.waitForFunction(time=>playing&&t>time+.02,held);await page.evaluate(()=>pause());
+    // Slow decoder: currentTime changes immediately, but the displayed frame waits for seeked.
+    const result=await page.evaluate(()=>{
+     pause();$('speed').value='1';const raf=window.requestAnimationFrame;window.requestAnimationFrame=()=>0;
+     let mediaTime=0,decoded=0,seeking=false,ready=4,paused=true,writes=[];
+     Object.defineProperties(v,{
+      currentTime:{configurable:true,get:()=>mediaTime,set:value=>{mediaTime=value;seeking=true;ready=1;writes.push(value)}},
+      seeking:{configurable:true,get:()=>seeking},readyState:{configurable:true,get:()=>ready},paused:{configurable:true,get:()=>paused},
+      play:{configurable:true,value:()=>{paused=false;return Promise.resolve()}},pause:{configurable:true,value:()=>{paused=true}}
+     });
+     const input=time=>{const bar=$('seek');bar.value=time;bar.dispatchEvent(new Event('input'))};
+     const frame=ms=>tick(last+ms),finish=()=>{decoded=mediaTime;seeking=false;ready=4;v.dispatchEvent(new Event('seeked'));v.dispatchEvent(new Event('canplay'))};
+     const samples=[];
+     try{
+      for(const intent of [false,true]){
+       pendingVideoSeek=null;mediaTime=0;decoded=0;seeking=false;ready=4;writes=[];playing=intent;paused=!intent;t=0;
+       $('seek').dispatchEvent(new PointerEvent('pointerdown',{pointerId:7,button:0}));
+       input(.5);frame(800);input(1.2);frame(800);input(.8);frame(800);
+       samples.push({stage:'drag',intent,t,playing,writes:[...writes],decoded});
+       window.dispatchEvent(new PointerEvent('pointerup',{pointerId:7}));frame(800);
+       samples.push({stage:'released',intent,t,playing,writes:[...writes]});
+       finish();frame(800);samples.push({stage:'latest',intent,t,writes:[...writes],decoded});
+       finish();samples.push({stage:'ready',intent,t,playing,decoded});
+       frame(20);samples.push({stage:'resumed',intent,t,playing});
+       $('seek').dispatchEvent(new PointerEvent('pointerdown',{pointerId:8,button:0}));
+       window.dispatchEvent(new PointerEvent('pointercancel',{pointerId:8}));
+       samples.push({stage:'cancel',intent,playing,pointer:seekPointer});
+      }
+      // Buffering must not advance the log, but real video-free intervals must still play.
+      pendingVideoSeek=null;seeking=false;ready=2;playing=true;t=1;frame(1500);samples.push({stage:'buffering',t});
+      ready=4;v.dispatchEvent(new Event('canplay'));mediaTime=t;frame(20);samples.push({stage:'buffered',t});
+      const original=data.video;data.video={...original,start:1};t=.2;ready=1;seeking=true;frame(100);samples.push({stage:'no-video',t});data.video=original;
+      return samples;
+     }finally{
+      for(const key of ['currentTime','seeking','readyState','paused','play','pause'])delete v[key];
+      window.requestAnimationFrame=raf;pendingVideoSeek=null;seekPointer=null;pause();
+     }
+    });
+    for(const intent of [false,true]){
+     const get=stage=>result.find(x=>x.stage===stage&&x.intent===intent);
+     assert.deepEqual(get('drag'),{stage:'drag',intent,t:.8,playing:intent,writes:[.5],decoded:0});
+     assert.deepEqual(get('released').writes,[.5]);assert.equal(get('released').t,.8);
+     assert.deepEqual(get('latest').writes,[.5,.8]);assert.equal(get('latest').t,.8);assert.equal(get('latest').decoded,.5);
+     assert.equal(get('cancel').pointer,null);assert.equal(get('cancel').playing,intent);
+     assert.equal(get('ready').decoded,.8);assert.equal(get('ready').playing,intent);
+     assert(Math.abs(get('resumed').t-(intent?.82:.8))<1e-6,'resume without counting time spent waiting');
+    }
+    assert.equal(result.find(x=>x.stage==='buffering').t,1);
+    assert(Math.abs(result.find(x=>x.stage==='buffered').t-1.02)<1e-6);
+    assert(Math.abs(result.find(x=>x.stage==='no-video').t-.3)<1e-6);
+   }
    assert.deepEqual(errors,[]);await page.close();
   }
   console.log('PASS: longer video/log, offset starts, no-video gaps, playback state preserved on seek, full playback and seek at 4x, missing log readouts hidden');

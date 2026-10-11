@@ -2,7 +2,7 @@
 
 한국어 · [English](README.en.md)
 
-현재 기능 안내: **0.5.4**
+현재 기능 안내: **0.5.5**
 
 openpilot 로그와 전방·와이드 카메라 영상을 Home Assistant 안에서 함께 재생하고 분석하는 앱입니다.
 
