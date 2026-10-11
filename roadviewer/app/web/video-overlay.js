@@ -177,7 +177,7 @@
    if(on('boxLabels')&&text)hudLabel(context,`${target.slot} · ${text}`,x,y,color,left+4,left+vw-4,!below);
    context.restore();
   }
-  context.font='11px system-ui';context.textAlign='center';
+  context.font='11px "Pretendard Variable", system-ui';context.textAlign='center';
   if(on('ccncTargets')){
    const boxes=ccncBoxTransitions(data.frames,idx,t).sort((a,b)=>b.target.x-a.target.x);
    boxAnimating=boxes.some(entry=>entry.animated);

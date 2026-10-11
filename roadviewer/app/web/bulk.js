@@ -9,6 +9,7 @@
   for(const row of rows)row.input.disabled=running;
   const pinned=selected.filter(row=>row.log.pinned).length;
   $('bulkCount').textContent=`${selected.length} / ${rows.length}개 선택${pinned?` · 고정 ${pinned}개`:''}`;
+  $('bulkTags').disabled=loading||running||!selected.length;
   convert.disabled=remove.disabled=del.disabled=loading||running||!selected.length;
   remove.disabled=del.disabled=remove.disabled||(!includePinned.checked&&pinned===selected.length);
   includePinned.disabled=loading||running;
@@ -26,6 +27,7 @@
  }
  function updateRow(row){
   row.badge.hidden=!row.log.pinned;
+  row.label.querySelector('.recording-tags')?.remove();row.label.lastElementChild.append(recordingTagBadges(row.log.tags));
   row.detail.replaceChildren(...[names[row.log.status]||row.log.status,`보관 ${storageSize(row.log.bytes)}`,`변환 ${storageSize(row.log.prepared_bytes)}`].map(text=>{const span=document.createElement('span');span.textContent=text;return span}));
  }
  $('bulkOpen').onclick=async()=>{
@@ -36,7 +38,7 @@
   try{
    const data=await api('api/logs',{cache:'no-store'});
    if(!dialog.open||revision!==loadRevision)return;
-   rows=data.logs.map(addRow);
+   updateTagCatalog(data.logs);rows=data.logs.map(addRow);
    $('bulkStatus').textContent=rows.length?'작업할 로그를 선택하세요.':'저장된 로그가 없습니다.';
   }catch(e){if(dialog.open&&revision===loadRevision)$('bulkStatus').textContent=e.message}
   finally{if(revision===loadRevision){loading=false;sync()}}
@@ -66,10 +68,11 @@
     try{
      const result=await api(`api/logs/${row.log.id}${converting?'/convert':complete?'':'/prepared'}${converting||!protectPinned?'':'?skip_pinned=1'}`,{method:converting?'POST':'DELETE'});
      if(result.skipped==='pinned'){skipped++;row.log.pinned=true;row.input.checked=false;updateRow(row);sync();continue}
-     if(converting&&result.status!=='queued')skipped++;else succeeded++;row.input.checked=false;logRows.delete(row.log.id);
-     if(complete){row.label.remove();rows=rows.filter(item=>item!==row)}
+     if(converting&&result.status!=='queued')skipped++;else succeeded++;row.input.checked=false;
+     if(complete){row.label.remove();rows=rows.filter(item=>item!==row);logRows.delete(row.log.id)}
      else if(converting){row.log={...row.log,status:result.status};updateRow(row)}
-     else{row.log={...row.log,status:'unconverted',prepared_bytes:0};updateRow(row)}
+     else{row.log={...row.log,status:'unconverted',prepared_bytes:0,auto_excluded:true};updateRow(row)}
+     if(!complete)recordingChanged(row.log);
     }catch(e){failures.push(`${row.log.name}: ${e.message}`)}
     sync();
    }
@@ -80,5 +83,6 @@
    }
   }finally{running=false;sync();void refresh()}
  }
+ $('bulkTags').onclick=()=>editRecordingTags(rows.filter(row=>row.input.checked).map(row=>row.log),changes=>{for(const change of changes){const row=rows.find(row=>row.log.id===change.id);if(row){row.log.tags=change.tags;updateRow(row)}}void refresh()},true);
  convert.onclick=()=>perform('convert');remove.onclick=()=>perform('remove');del.onclick=()=>perform('delete');
 })();

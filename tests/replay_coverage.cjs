@@ -13,6 +13,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    {name:'tiny tail',logStart:0,logEnd:2.05,videoStart:0,duration:2.05,probe:1.4},
    {name:'video longer',logStart:0,logEnd:1,videoStart:0,duration:2,probe:1.4},
    {name:'log longer',logStart:0,logEnd:3,videoStart:0,duration:3,probe:2.4},
+   {name:'video start rounding',logStart:0,logEnd:2.05,videoStart:.05,duration:2.05,probe:0,keepVideoStart:true},
+   {name:'video start tolerance limit',logStart:0,logEnd:2.1,videoStart:.1,duration:2.1,probe:0,keepVideoStart:true},
+   {name:'real video start gap',logStart:0,logEnd:2.15,videoStart:.10001,duration:2.15,probe:0},
    {name:'late video',logStart:0,logEnd:4,videoStart:1,duration:4,probe:.4},
    {name:'early video',logStart:1,logEnd:1.5,videoStart:0,duration:2,probe:.4},
    {name:'log only',logStart:0,logEnd:2,videoStart:null,duration:2,probe:.4}
@@ -37,8 +40,21 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':name.endsWith('.svg')?'image/svg+xml':'text/html'});
    });
    await page.goto('https://rv.test/view/test/');await page.waitForFunction(()=>!document.getElementById('play').disabled);
+   if(scenario.keepVideoStart){
+    assert(await page.locator('#video').isVisible(),scenario.name+' initial frame');
+    assert(await page.locator('#noVideo').isHidden());
+    await page.waitForFunction(()=>!v.seeking&&v.readyState>=2);
+    assert.deepEqual(await page.evaluate(()=>({time:v.currentTime,paused:v.paused,t})),{time:0,paused:true,t:0});
+    const first=await page.evaluate(()=>{
+     const raf=window.requestAnimationFrame;window.requestAnimationFrame=()=>0;
+     try{toggle();tick(last+data.video.start*500);return {t,paused:v.paused,time:v.currentTime,playing}}
+     finally{pause();window.requestAnimationFrame=raf}
+    });
+    assert.equal(first.t,videoStart/2,'the log clock must advance while holding the first video frame');
+    assert.equal(first.paused,true);assert.equal(first.time,0);assert.equal(first.playing,true);
+   }
    await page.evaluate(probe=>setTime(probe),probe);
-   const inVideo=videoStart!==null&&probe>=videoStart&&(probe<videoStart+2||scenario.keepVideoEnd===true);
+   const inVideo=videoStart!==null&&(probe>=videoStart||scenario.keepVideoStart===true)&&(probe<videoStart+2||scenario.keepVideoEnd===true);
    assert.equal(await page.locator('#video').isVisible(),inVideo,scenario.name);
    assert.equal(await page.locator('#noVideo').isVisible(),!inVideo,scenario.name);
    if(!scenario.keepModelEnd&&(probe<logStart-.100001||probe>logEnd+.100001)){assert.equal(await page.locator('#left').textContent(),'—');assert.equal(await page.locator('#egoSpeed').textContent(),'—')}
@@ -107,7 +123,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    }
    if(videoStart>0){
     await seekTo(0);
-    assert.equal(await page.locator('#noVideo').textContent(),'아직 영상이 시작되지 않은 구간입니다.');
+    if(scenario.keepVideoStart){
+     await page.waitForFunction(()=>!v.seeking&&pendingVideoSeek===null);
+     assert(await page.locator('#video').isVisible());assert(await page.locator('#noVideo').isHidden());
+     assert.deepEqual(await page.evaluate(()=>({time:v.currentTime,paused:v.paused})),{time:0,paused:true},'seek back must restore the first frame');
+    }else{
+     assert(await page.locator('#video').isHidden());
+     assert.equal(await page.locator('#noVideo').textContent(),'아직 영상이 시작되지 않은 구간입니다.');
+     await seekTo(videoStart-.01);assert(await page.locator('#video').isHidden(),'a real gap must not be shortened near its endpoint');
+    }
    }
    // Seeking back into video restores the image after the video-free tail.
    if(videoStart!==null){await page.evaluate(start=>setTime(start+.2),videoStart);assert(await page.locator('#video').isVisible())}

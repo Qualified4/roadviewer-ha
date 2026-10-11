@@ -75,6 +75,7 @@ jobs:
       - run: node tests/concurrency.cjs
       - run: node tests/conversion_controls.cjs
       - run: node tests/bulk_actions.cjs
+      - run: node tests/tags.cjs
       - run: node tests/recording_names.cjs
       - run: node tests/storage_devices.cjs
       - run: node tests/pairing_refresh.cjs
@@ -106,6 +107,7 @@ jobs:
       - run: python tests/test_device_network.py
       - run: python tests/test_requeue.py
       - run: python tests/test_storage.py
+      - run: python tests/test_tags.py
       - run: python tests/test_conversion_controls.py
       - run: python tests/test_timeline.py
       - run: python tests/test_progress.py
