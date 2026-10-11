@@ -265,6 +265,26 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.deepEqual(await page.evaluate(()=>blindspotLevels([{t:0,valid:true,roadSignals:{blindspotLeft:true}}],0,0)),[1,0]);
   await page.evaluate(()=>{const f=data.frames[0];f.ccncRoad.blinkerLeft=false;f.roadSignals={blindspotLeft:true};f.overlay.lanes=[[],[[.2,.9],[.4,.55]],[[.8,.9],[.6,.55]],[]];f.overlay.blindspotPaths=[[[1,4.5,5],[16,22,40]],[[4,4.5,5],[24,22,40]]];f.overlay.heightDirection=[0,-1,0];render()});
   assert(await pixels(),'blindspot renders without a CCNC command or radar detection');
+  const labelMotion=await page.evaluate(()=>{
+   const f=data.frames[0],saved=f.overlay.blindspotPaths,original=hudLabel,positions=[];
+   hudLabel=(ctx,text,x,y,...rest)=>{if(ctx.canvas.id==='videoOverlay'&&text==='좌측 사각지대 감지')positions.push([x,y]);return original(ctx,text,x,y,...rest)};
+   try{
+    // Adjacent samples cross the old nearest-vertex threshold during a small pan.
+    for(const shift of [-.002,0,.002]){
+     f.overlay.blindspotPaths=[[[.1+shift,.75+1.2,1],[.3+shift,.65+1.2,1]],[]];render();
+    }
+    // Both vertices are offscreen, but their connecting edge is visible.
+    f.overlay.blindspotPaths=[[[-.2,.75+1.2,1],[1.2,.65+1.2,1]],[]];render();
+    f.overlay.blindspotPaths=[[[-.2,.75+1.2,1],null,[1.2,.65+1.2,1]],[]];render();
+   }finally{f.overlay.blindspotPaths=saved;hudLabel=original;render()}
+   return positions;
+  });
+  assert.equal(labelMotion.length,4,'visible edges retain labels; missing geometry is not bridged');
+  for(let i=1;i<3;i++){
+   assert(Math.abs(labelMotion[i][0]-labelMotion[i-1][0])<.01,'label x stays anchored between samples');
+   assert(Math.abs(labelMotion[i][1]-labelMotion[i-1][1])<2,'label y follows the edge without vertex jumps');
+  }
+
   const wallDefault=await overlayImage();
   await settingAction('#bsdWalls','uncheck');assert(!(await pixels()),'BSD can be disabled independently');
   await settingAction('#ccncRoad','uncheck');await settingAction('#bsdWalls','check');assert(await pixels(),'BSD works even with CCNC road display disabled');

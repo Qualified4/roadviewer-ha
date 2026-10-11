@@ -30,6 +30,8 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   const open=async id=>{await row(id).getByRole('button',{name:'태그 편집',exact:true}).click();await dialog.waitFor()};
   const add=async(name,color)=>{await dialog.locator('#tagNameInput').fill(name);if(color)await dialog.getByRole('button',{name:color,exact:true}).click();await dialog.locator('.tag-add').click()};
   const save=async()=>{await dialog.locator('.tag-save').click();await dialog.waitFor({state:'detached'})};
+  await open(ids[0]);await page.keyboard.press('Escape');await dialog.waitFor({state:'detached'});assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
+  await open(ids[0]);await page.mouse.click(1,1);await dialog.waitFor({state:'detached'});assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
   await open(ids[0]);await add('  야간   주행  ','파랑');await add('검토 필요','보라');await add('<img src=x onerror=alert(1)>','분홍');
   assert.equal(await dialog.locator('.tag-draft-chip').count(),3);assert.equal(await dialog.locator('.tag-draft img').count(),0,'names are text, never HTML');
   for(const [width,height] of [[320,568],[768,844],[1440,900],[844,390]]){
