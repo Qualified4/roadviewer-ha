@@ -63,7 +63,9 @@ function editRecordingTags(logs,onSaved,bulk=false){
  }
  find('form').onsubmit=event=>{event.preventDefault();addDraft()};input.oninput=suggest;
  for(const radio of dialog.querySelectorAll('[name=tagAction]'))radio.onchange=()=>{palette.hidden=radio.value==='remove'&&radio.checked;save.textContent=dialog.querySelector('[name=tagAction]:checked').value==='remove'?'태그 제거':'태그 추가'};
- close.onclick=()=>dialog.close();dialog.addEventListener('cancel',event=>{if(saving)event.preventDefault()});
+ const dismiss=()=>{if(!saving)dialog.close()};close.onclick=dismiss;
+ dialog.addEventListener('cancel',event=>{event.preventDefault();dismiss()});
+ dialog.onclick=event=>{if(event.target!==dialog)return;const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dismiss()};
  dialog.addEventListener('close',()=>{document.body.style.overflow=overflow;dialog.remove();if(opener?.isConnected)opener.focus({preventScroll:true})});
  save.onclick=async()=>{
   if(saving||(input.value.trim()&&!addDraft()))return;

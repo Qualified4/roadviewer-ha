@@ -133,9 +133,24 @@
      const valid=p&&p.every(Number.isFinite)&&p[2]>.1&&q.every(Number.isFinite)&&q[2]>.1;
      bottom.push(valid?xy([p[0]/p[2],p[1]/p[2]]):null);upper.push(valid?xy([q[0]/q[2],q[1]/q[2]]):null);
     });paintBlindspotWall(context,bottom,upper,amount,t,true);
-    const candidates=upper.filter(p=>p&&p[0]>left+12&&p[0]<left+vw-12&&p[1]>top+40&&p[1]<top+vh-12);
-    if(on('bsdLabels')&&candidates.length){
-     const wanted=left+vw*(i?.8:.2),anchor=candidates.reduce((a,b)=>Math.abs(a[0]-wanted)<Math.abs(b[0]-wanted)?a:b);
+    const wanted=left+vw*(i?.8:.2);let anchor=null;
+    // Clip continuous upper edges, then interpolate at the desired screen x.
+    // Picking a vertex makes the label jump whenever the nearest sample changes.
+    if(on('bsdLabels'))for(let j=1;j<upper.length;j++){
+     const a=upper[j-1],b=upper[j];if(!a||!b)continue;
+     let lo=0,hi=1;
+     for(const [axis,min,max] of [[0,left+12,left+vw-12],[1,top+40,top+vh-12]]){
+      const delta=b[axis]-a[axis];
+      if(delta===0){if(a[axis]<min||a[axis]>max)hi=-1;continue}
+      const t0=(min-a[axis])/delta,t1=(max-a[axis])/delta;
+      lo=Math.max(lo,Math.min(t0,t1));hi=Math.min(hi,Math.max(t0,t1));
+     }
+     if(lo>hi)continue;
+     const ratio=Math.max(lo,Math.min(hi,b[0]===a[0]?lo:(wanted-a[0])/(b[0]-a[0])));
+     const point=a.map((v,k)=>v+(b[k]-v)*ratio);
+     if(!anchor||Math.abs(point[0]-wanted)<Math.abs(anchor[0]-wanted))anchor=point;
+    }
+    if(anchor){
      context.save();context.globalAlpha=amount;context.strokeStyle='#ffdd76';context.fillStyle='#ffdd76';context.lineWidth=1;
      const labelX=Math.max(left+85,Math.min(left+vw-85,anchor[0]+(i?-65:65)));
      context.beginPath();context.moveTo(...anchor);context.lineTo(anchor[0]+(i?-24:24),anchor[1]-24);context.lineTo(labelX,anchor[1]-24);context.stroke();

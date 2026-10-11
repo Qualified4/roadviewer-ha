@@ -30,6 +30,8 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   const open=async()=>{await page.locator('#bookmarkOpen').click();await page.locator('.bookmark-title:enabled').waitFor()},modal=page.locator('.bookmark-dialog');
   const seek=async time=>page.locator('#seek').evaluate((e,time)=>{e.value=time;e.dispatchEvent(new Event('input',{bubbles:true}))},time);
   const save=async()=>{await modal.locator('.bookmark-save').click();await modal.locator('.bookmark-result').getByText('북마크를 저장했습니다.',{exact:true}).waitFor()};
+  await open();await page.keyboard.press('Escape');await modal.waitFor({state:'hidden'});await page.waitForFunction(()=>document.body.style.overflow==='');
+  await open();await page.mouse.click(1,1);await modal.waitFor({state:'hidden'});await page.waitForFunction(()=>document.body.style.overflow==='');
   await seek(2.5);await open();assert.equal(await modal.locator('.bookmark-time').textContent(),'0:02.50');
   await modal.locator('.bookmark-title').fill('앞차 확인');await modal.locator('.bookmark-note').fill('<img src=x>\n상세 메모');await save();
   assert.equal(read(ids[0]).bookmarks[0].time,2.5);assert.equal(await modal.locator('.bookmark-list img').count(),0);
