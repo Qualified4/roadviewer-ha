@@ -10,6 +10,7 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
    const logs=[{id:'one',name:'00000356--148eb5e823 / 구간 13',status:'ready'},{id:'two',name:'00000356--148eb5e823 / 구간 12',status:'ready'},{id:'pending',name:'00000356--148eb5e823 / 구간 14',status:'processing'}];
    await page.route('https://rv.test/**',route=>{
     const p=new URL(route.request().url()).pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
     if(p==='/api/logs')return route.fulfill({json:{logs}});
     if(p.endsWith('/data'))return route.fulfill({json:{route:'test',key:'test',duration:2,warnings:[],video:null,frames:[{t:0,id:0,valid:false,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}]}});
     const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');

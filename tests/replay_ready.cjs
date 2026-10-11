@@ -10,6 +10,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const data={route:'one',key:'new-video-version',duration:2,warnings:[],video:{start:0,duration:2},frames:Array.from({length:21},(_,i)=>({t:i/10,id:i,valid:false,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}))};
   await page.route(base+'/**',async route=>{
    const url=new URL(route.request().url()),p=url.pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/progress'){progressReads++;return route.fulfill({json:{progress:Object.fromEntries(logs.filter(m=>m.status==='processing'&&m.progress).map(m=>[m.id,m.progress]))}})}
    if(p==='/api/logs')return route.fulfill({json:{logs,max_upload_mb:512,storage_used_bytes:1}});
    if(p.endsWith('/data')){reads++;if(dataFailure)return route.fulfill({status:500,json:{error:'failed'}});return route.fulfill(ready?{json:data}:{status:409,json:{status:'processing'}})}

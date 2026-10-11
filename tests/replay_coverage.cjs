@@ -26,6 +26,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(scenario.missingTail)data.frames=data.frames.filter(f=>f.t<1.65||f.t>=1.85);
    await page.route('https://rv.test/**',route=>{
     const p=new URL(route.request().url()).pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
     if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
     if(p.endsWith('/data'))return route.fulfill({json:data});
     if(p.endsWith('/video')){

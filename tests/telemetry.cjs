@@ -16,6 +16,7 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
   const data={route:'Telemetry test',key:'telemetry-v1',duration:2,logStart:0,logEnd:2,warnings:[],video:{start:0,duration:2},frames:Array.from({length:41},(_,i)=>({t:i/20,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}))};
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
    if(p.endsWith('/telemetry')){reads++;return route.fulfill(fail?{status:404,json:{error:'차량 정보가 없습니다. 재생성해 주세요.'}}:{json:telemetry})}
    if(p.endsWith('/data'))return route.fulfill({json:data});

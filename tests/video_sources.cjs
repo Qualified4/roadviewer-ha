@@ -8,6 +8,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   let failFront=false,legacy=false;const requested=[];
   await page.route('https://rv.test/**',route=>{
    const url=new URL(route.request().url()),p=url.pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
    if(p.endsWith('/data'))return route.fulfill({json:legacy?{...data,videos:undefined,video:videos.qcamera,defaultVideo:undefined}:data});
    if(p.endsWith('/video')){

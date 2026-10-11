@@ -6,6 +6,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const data={route:'play request test',key:'play-request',duration:2.15,warnings:[],video:{start:0,duration:2,frames:20},frames:Array.from({length:44},(_,i)=>({t:i/20,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[]}))};
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
    if(p.endsWith('/data'))return route.fulfill({json:data});
    if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),contentType:'video/mp4'});

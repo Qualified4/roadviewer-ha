@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.6.0**.
+This guide describes **0.7.0**.
 
 [한국어](DOCS.md) · English
 
@@ -111,13 +111,21 @@ During a bulk operation selection and closing are locked. Results show completed
 
 ## Segment tags
 
-Use the tag icon beside a recording name in the library or replay screen. A segment supports up to 20 tags, each up to 32 characters, with six colors and suggestions from existing tags. Click a selected tag to edit its name or color. Whitespace is normalized and names differing only by letter case are deduplicated.
+Use the tag icon beside a recording name in the library or replay screen. A segment supports up to 100 tags, each up to 32 characters, with 12 colors and suggestions from existing tags. Click a selected tag to edit its name or color. Whitespace is normalized and names differing only by letter case are deduplicated.
 
 Use **태그 필터** (Tag filter) to show a particular tag or **태그 없음** (Untagged). For bulk editing, open **로그 선택**, select segments, then choose **태그 편집** and Add or Remove. Only the selected tags change; unrelated tags and pins remain intact. Partial failures retain successful changes, and retry targets only the failed segments.
 
 Tags are stored in server-side segment metadata and survive conversion, reconversion and prepared-data removal. Complete deletion removes them with the recording. These are segment tags, not camera-specific tags or timeline bookmarks.
 
 The web UI bundles Pretendard Variable 1.3.9 for Korean text without contacting an external CDN. The initial font transfer is approximately 1.96 MiB; subsequent loads use the browser cache. Its SIL Open Font License is included with the [official release](https://github.com/orioncactus/pretendard/releases/tag/v1.3.9).
+
+## Scene bookmarks
+
+Choose **북마크** (Bookmarks) beside the seek bar to capture the current log time. Enter a title (up to 80 characters) and an optional note (up to 1,000 characters). The captured time stays fixed during playback; **현재 시각으로** updates it to the current playhead. Each segment supports up to 100 bookmarks.
+
+Click a gold seek-bar marker or an entry in the chronological list to seek video, road view and graphs together, preserving playing or paused state. Entries can be edited or deleted from the dialog.
+
+Bookmarks use log time rather than camera time and are stored in segment metadata. They survive camera switching, reconversion and prepared-data removal; complete recording deletion removes them. No reanalysis is required.
 
 ## Video playback and layout
 

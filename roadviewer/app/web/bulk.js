@@ -27,7 +27,7 @@
  }
  function updateRow(row){
   row.badge.hidden=!row.log.pinned;
-  row.label.querySelector('.recording-tags')?.remove();row.label.lastElementChild.append(recordingTagBadges(row.log.tags));
+  row.label.querySelector('.recording-tags')?.remove();row.badge.after(recordingTagBadges(row.log.tags));
   row.detail.replaceChildren(...[names[row.log.status]||row.log.status,`보관 ${storageSize(row.log.bytes)}`,`변환 ${storageSize(row.log.prepared_bytes)}`].map(text=>{const span=document.createElement('span');span.textContent=text;return span}));
  }
  $('bulkOpen').onclick=async()=>{
