@@ -12,6 +12,7 @@ function nearest(time){const f=data.frames;let a=0,b=f.length-1;while(a<b){const
 function pause(){playing=false;pauseVideo();$('play').textContent='재생'}
 let videoPlayPending=false,videoPauseRevision=0,videoSource=null,resumeAfterVideo=false;
 const failedVideos=new Set();
+let pendingVideoSeek=null,seekPointer=null;
 function pauseVideo(){videoPauseRevision++;v.pause()}
 const LOG_EDGE_TOLERANCE=.1;
 function recordingEndTolerance(cadence){
@@ -54,14 +55,20 @@ function syncVideo(seek=false){
  const visible=videoAvailable(),wasHidden=v.hidden,hold=finalVideoFrame();
  v.hidden=!visible;$('noVideo').hidden=visible;
  $('noVideo').textContent=!data?.video?'이 로그에 동기화 가능한 영상이 없습니다.':t<data.video.start?'아직 영상이 시작되지 않은 구간입니다.':playing?'영상이 종료되었습니다. 로그 재생을 계속합니다.':'영상이 종료된 구간입니다.';
- if(!visible){pauseVideo();return}
+ if(!visible){pendingVideoSeek=null;pauseVideo();return}
  const duration=Number.isFinite(v.duration)?v.duration:data.video.duration;
  const target=Math.max(0,Math.min(hold?duration:t-data.video.start,duration-.001));
- if(v.readyState>=1&&(seek||wasHidden||hold&&Math.abs(v.currentTime-target)>.0005||Math.abs(v.currentTime-target)>.35))v.currentTime=target;
+ // Keep only the latest requested position until the current asynchronous seek finishes.
+ if(seek||wasHidden)pendingVideoSeek=target;
+ if(v.readyState>=1&&!v.seeking){
+  const requested=pendingVideoSeek;pendingVideoSeek=null;
+  const next=requested??target,threshold=(requested!==null||hold)? .0005:.35;
+  if(Math.abs(v.currentTime-next)>threshold)v.currentTime=next;
+ }
  if(hold){pauseVideo();return}
- if(playing&&v.paused&&!videoPlayPending){
+ if(playing&&seekPointer===null&&v.paused&&!videoPlayPending){
   videoPlayPending=true;const pauseRevision=videoPauseRevision;
-  v.play().catch(e=>{if(pauseRevision===videoPauseRevision&&playing&&videoAvailable()&&!finalVideoFrame()){videoFailure('영상을 재생할 수 없습니다. '+e.message)}}).finally(()=>{videoPlayPending=false;if(!playing||!videoAvailable()||finalVideoFrame())pauseVideo()});
+  v.play().catch(e=>{if(pauseRevision===videoPauseRevision&&playing&&videoAvailable()&&!finalVideoFrame()){videoFailure('영상을 재생할 수 없습니다. '+e.message)}}).finally(()=>{videoPlayPending=false;if(!playing||seekPointer!==null||!videoAvailable()||finalVideoFrame())pauseVideo()});
  }
 }
 function updateVideoBuffer(){
@@ -81,13 +88,21 @@ for(const event of ['progress','loadedmetadata','loadeddata','durationchange','e
 function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render(lazy)}
 function step(n){if(loading)return;pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
 function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
-function tick(now){now=Math.max(now,last);if(playing&&data){const next=t+(now-last)/1000*Number($('speed').value);setTime(next>=data.duration-.001?data.duration:next,false,true);if(t>=data.duration)pause()}else window.renderVideoOverlayMotion?.();last=now;requestAnimationFrame(tick)}
+function tick(now){
+ now=Math.max(now,last);
+ if(playing&&data){
+  const waiting=seekPointer!==null||videoAvailable()&&!finalVideoFrame()&&(v.seeking||pendingVideoSeek!==null||v.readyState<3);
+  if(waiting)syncVideo();
+  else{const next=t+(now-last)/1000*Number($('speed').value);setTime(next>=data.duration-.001?data.duration:next,false,true);if(t>=data.duration)pause()}
+ }else window.renderVideoOverlayMotion?.();
+ last=now;requestAnimationFrame(tick);
+}
 function setPlaybackState(ready,message){
  loading=!ready;$('play').disabled=!ready;
  $('playbackControls').hidden=!ready;$('playbackMessage').hidden=ready;
  $('playbackMessage').textContent=ready?'':message;$('status').textContent=message;
 }
-function playbackError(message){videoReadyPending=false;pause();setPlaybackState(false,message);$('status').textContent='재생 불가';showError(message)}
+function playbackError(message){pendingVideoSeek=null;seekPointer=null;videoReadyPending=false;pause();setPlaybackState(false,message);$('status').textContent='재생 불가';showError(message)}
 function showError(message){$('errorText').textContent=message;$('error').hidden=!message;if(message)document.body.classList.remove('replay-loading')}
 $('errorRefresh').onclick=()=>location.reload();
 // Replay files are stored as gzip. The browser inflates them itself, so no proxy needs to pass Content-Encoding.
@@ -184,6 +199,7 @@ function setupVideoSources(){
 }
 function selectVideo(source){
  const info=(data.videos||{qcamera:data.video})[source];if(!info)return;
+ pendingVideoSeek=null;seekPointer=null;
  resumeAfterVideo=playing||resumeAfterVideo;pause();videoPlayPending=false;videoSource=source;data.video=info;
  $('videoSource').value=source;$('videoSource').dispatchEvent(new Event('rv:sync'));
  $('cameraTitle').textContent=source==='wide'?'와이드 카메라':'전방 카메라';
@@ -215,7 +231,13 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
  data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;t=0;const source=setupVideoSources();if(source){selectVideo(source)}else{videoSource=null;setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
-v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)videoFailure('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
+$('seek').addEventListener('pointerdown',e=>{if(loading||e.button!==0)return;seekPointer=e.pointerId;pauseVideo()});
+function finishSeekDrag(){if(seekPointer===null)return;seekPointer=null;setTime(Number($('seek').value));last=performance.now()}
+for(const event of ['pointerup','pointercancel'])window.addEventListener(event,e=>{if(e.pointerId===seekPointer)finishSeekDrag()});
+window.addEventListener('blur',finishSeekDrag);
+v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
+v.addEventListener('canplay',()=>{last=performance.now()});
+v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)videoFailure('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
 for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncRoad','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 document.onkeydown=e=>{if(['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};

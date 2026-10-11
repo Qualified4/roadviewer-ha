@@ -27,8 +27,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const box=await page.locator('#videoSourceChoice').boundingBox();assert(box.x>=0&&box.x+box.width<=width);
   }
   // A queued animation frame can predate performance.now() recorded when playback resumes.
+  await page.evaluate(()=>{pause();setTime(.75)});
+  await page.waitForFunction(()=>!v.seeking&&v.readyState>=3);
   const clockSteps=await page.evaluate(()=>{
-   pause();setTime(.75);const schedule=window.requestAnimationFrame;window.requestAnimationFrame=()=>0;
+   const schedule=window.requestAnimationFrame;window.requestAnimationFrame=()=>0;
    try{toggle();const start=last;tick(start-16);const first=t;tick(start+20);return [first,t]}
    finally{pause();window.requestAnimationFrame=schedule}
   });
