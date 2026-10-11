@@ -63,6 +63,18 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   // Removing playback data must not remove the user's tags.
   page.on('dialog',d=>d.accept());await row(ids[0]).locator('.recording-more>summary').click();await row(ids[0]).getByRole('button',{name:'제거',exact:true}).click();await row(ids[0]).getByRole('button',{name:'변환',exact:true}).waitFor();
   assert(read(ids[0]).tags.some(t=>t.name==='급제동'));await page.reload();await row(ids[0]).getByText('급제동',{exact:true}).waitFor();assert.deepEqual(errors,[]);
+  // Existing-tag suggestions must not silently stop at twelve items.
+  const catalog=Array.from({length:30},(_,i)=>({name:'기존 태그 '+String(i).padStart(2,'0'),color:'cyan'}));
+  const seeded=await page.request.post(base+'api/logs/'+ids[0]+'/tags',{headers:{'X-RoadViewer-Request':'1'},data:{tags:catalog}});assert(seeded.ok());
+  await page.reload();await row(ids[1]).waitFor();await open(ids[1]);
+  assert.equal(await dialog.locator('.tag-suggestions button').count(),30);
+  for(const [width,height] of [[320,568],[1440,900]]){
+   await page.setViewportSize({width,height});
+   const last=dialog.locator('.tag-suggestions button').last();await last.scrollIntoViewIfNeeded();assert(await last.isVisible());
+   assert(await dialog.locator('.tag-save').isVisible());assert(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth));
+  }
+  await dialog.locator('.tag-suggestions').getByRole('button',{name:'기존 태그 29',exact:true}).click();await save();
+  assert(read(ids[1]).tags.some(tag=>tag.name==='기존 태그 29'),'last existing tag remains selectable');
   console.log('PASS: tag editing, colors, text safety, persistence, filters, replay/Ingress, bulk add/remove/retry, responsive dialog and prepared-data removal');
  }finally{await browser?.close();if(python.exitCode===null){python.kill();await once(python,'exit')}fs.rmSync(dir,{recursive:true,force:true})}
 })().catch(error=>{console.error(error);process.exitCode=1});

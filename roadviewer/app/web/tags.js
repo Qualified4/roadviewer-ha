@@ -39,7 +39,7 @@ function editRecordingTags(logs,onSaved,bulk=false){
  function syncColors(){for(const button of palette.children)button.setAttribute('aria-pressed',String(button.dataset.color===color))}
  function updateSave(){save.disabled=saving||(bulk&&!draft.length&&!input.value.trim())}
  function suggest(){
-  suggestions.replaceChildren();const query=tagKey(input.value),matches=recordingTagCatalog.filter(tag=>(!query||tagKey(tag.name).includes(query))&&!draft.some(d=>tagKey(d.name)===tagKey(tag.name))).slice(0,12);
+  suggestions.replaceChildren();const query=tagKey(input.value),matches=recordingTagCatalog.filter(tag=>(!query||tagKey(tag.name).includes(query))&&!draft.some(d=>tagKey(d.name)===tagKey(tag.name)));
   if(matches.length){const label=document.createElement('p');label.textContent=query?'일치하는 태그':'기존 태그';suggestions.append(label)}
   for(const tag of matches){const button=document.createElement('button');button.type='button';button.textContent=tag.name;button.dataset.color=tag.color;button.className='recording-tag';button.onclick=()=>{input.value=tag.name;color=tag.color;syncColors();addDraft()};suggestions.append(button)}
   updateSave();
