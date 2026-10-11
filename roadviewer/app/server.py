@@ -1,5 +1,5 @@
 from pathlib import Path,PurePosixPath
-import gzip,hashlib
+import gzip,hashlib,unicodedata
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
 from collections import Counter
 from progress import ProgressChannel
@@ -179,8 +179,8 @@ def not_found(e):
  if request.path.startswith('/api/device/'):return jsonify(error='session_not_found' if '/uploads/' in request.path else 'not_found'),404
  return jsonify(error='로그 또는 파일을 찾을 수 없습니다.'),404
 PAGE_SCRIPTS={
- 'library':['disclosure','recording-name','library','choices','bulk','storage-devices'],
- 'replay':['recording-name','app','choices','video-overlay','camera-info','telemetry'],
+ 'library':['disclosure','recording-name','tags','library','choices','bulk','storage-devices'],
+ 'replay':['recording-name','tags','app','choices','video-overlay','camera-info','telemetry'],
 }
 
 def page_response(kind):
@@ -552,6 +552,37 @@ def delete_recording(id):
   except subprocess.TimeoutExpired:proc.kill();proc.wait()
  pool.discard(id)
  shutil.rmtree(p)
+
+# Tags belong to the recording, never to disposable prepared data.
+TAG_COLORS={'mint','blue','violet','amber','rose','slate'}
+
+@app.route('/api/logs/<id>/tags',methods=['POST'])
+def recording_tags(id):
+ request.max_content_length=16384
+ body=request.get_json(silent=True)
+ if not isinstance(body,dict) or set(body)-{'action','tags'} or body.get('action','set') not in ('set','add','remove'):
+  return jsonify(error='태그 요청이 올바르지 않습니다.'),400
+ values=body.get('tags')
+ if not isinstance(values,list) or len(values)>20:return jsonify(error='태그는 구간당 최대 20개입니다.'),400
+ tags={}
+ for value in values:
+  if not isinstance(value,dict) or set(value)-{'name','color'} or not isinstance(value.get('name'),str):return jsonify(error='태그 이름이 올바르지 않습니다.'),400
+  name=' '.join(unicodedata.normalize('NFC',value['name']).split());color=value.get('color','mint')
+  if not name or len(name)>32 or any(unicodedata.category(c).startswith('C') for c in name):return jsonify(error='태그 이름은 1~32자의 표시 가능한 문자로 입력해 주세요.'),400
+  if not isinstance(color,str) or color not in TAG_COLORS:return jsonify(error='태그 색상이 올바르지 않습니다.'),400
+  tags[name.lower()]={'name':name,'color':color}
+ with lock:
+  p=folder(id);m=read_meta(p);action=body.get('action','set')
+  current={tag['name'].lower():tag for tag in m.get('tags',[])}
+  if action=='add':
+   # Adding a tag does not recolor a tag already assigned by another editor.
+   for key,value in tags.items():current.setdefault(key,value)
+  elif action=='remove':
+   for key in tags:current.pop(key,None)
+  else:current=tags
+  if len(current)>20:return jsonify(error='태그는 구간당 최대 20개입니다.'),400
+  m['tags']=list(current.values());save_meta(p,m)
+ return jsonify(tags=m['tags'])
 
 @app.route('/api/logs/<id>/convert',methods=['POST'])
 def convert(id):

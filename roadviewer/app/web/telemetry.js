@@ -131,7 +131,7 @@
   for(const s of sets)for(let i=s.begin;i<s.end;i++)if(valid(s.values[i])&&s.times[i]<=range[1]&&s.times[i]+gap>=range[0]){hasData=true;if(!graph.binary){low=Math.min(low,s.values[i]);high=Math.max(high,s.values[i])}}
   if(graph.bounds)[low,high]=graph.bounds;else{const pad=Math.max((high-low)*.08,graph.precision?10**(-graph.precision):.1);low-=pad;high+=pad}
   const Y=value=>bottom-(value-low)/(high-low)*(bottom-top);
-  c.font='10px system-ui';c.lineWidth=1;c.strokeStyle='#29394a';c.fillStyle='#94a5b8';
+  c.font='10px "Pretendard Variable", system-ui';c.lineWidth=1;c.strokeStyle='#29394a';c.fillStyle='#94a5b8';
   for(let i=0;i<=4;i++){const x=left+(right-left)*i/4;c.beginPath();c.moveTo(x,top);c.lineTo(x,bottom);c.stroke();c.textAlign=i===0?'left':i===4?'right':'center';c.fillText((range[0]+(range[1]-range[0])*i/4).toFixed(1)+'s',x,104)}
   if(!graph.binary)for(let i=0;i<=2;i++){const value=low+(high-low)*i/2,y=Y(value);c.beginPath();c.moveTo(left,y);c.lineTo(right,y);c.stroke();c.textAlign='right';c.fillText(graph.precision?value.toFixed(graph.precision):Math.abs(value)>=100?value.toFixed(0):value.toFixed(1),left-5,y+3)}
   c.save();c.beginPath();c.rect(left,top,right-left,bottom-top);c.clip();
@@ -247,4 +247,5 @@
  $('graphDialogClose').onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close()});dialog.addEventListener('close',()=>{if(!dialog.open)finishClose()});
  dialog.onclick=e=>{if(e.target!==dialog)return;const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()};
  window.renderTelemetry=update;rebuild();selectTab(tab,false);
+ document.fonts.ready.then(()=>{for(const card of cards.values())card.cache=null;if(scroll.isConnected)update()});
 })();

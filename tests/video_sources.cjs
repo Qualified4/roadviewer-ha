@@ -22,6 +22,13 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   });
   await page.goto('https://rv.test/view/test/');await page.waitForFunction(()=>!loading);
   assert.equal(await page.evaluate(()=>videoSource),'front');assert(requested.includes('front'));
+  // Each camera uses its own start offset: preview small offsets, preserve real missing intervals.
+  for(const [source,visible] of [['qcamera',true],['wide',false],['front',true]]){
+   await page.evaluate(source=>selectVideo(source),source);await page.waitForFunction(()=>!loading&&!v.seeking);
+   assert.equal(await page.locator('#video').isVisible(),visible,source+' initial visibility');
+   assert.equal(await page.locator('#noVideo').isVisible(),!visible);
+   assert.deepEqual(await page.evaluate(()=>({t,playing,time:v.currentTime,paused:v.paused})),{t:0,playing:false,time:0,paused:true});
+  }
   for(const width of [320,768,1280]){
    await page.setViewportSize({width,height:900});
    const box=await page.locator('#videoSourceChoice').boundingBox();assert(box.x>=0&&box.x+box.width<=width);

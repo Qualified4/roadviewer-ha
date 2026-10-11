@@ -1,5 +1,5 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>html,body{background:#0c1118;color-scheme:dark}</style><meta name="viewport" content="width=device-width,initial-scale=1"><title>Road Viewer · Home Assistant</title><link rel="stylesheet" href="assets/style.css?v=0.5.5"><link rel="stylesheet" href="assets/library.css?v=0.5.5"><link rel="stylesheet" href="assets/motion.css?v=0.5.5"><link rel="icon" type="image/svg+xml" href="assets/icon.svg?v=0.5.5"></head><body class="library-page"><main>
-<header><div class="app-brand"><img class="app-icon" src="assets/icon.svg?v=0.5.5" alt=""><div><div class="eyebrow">HOME ASSISTANT <span class="app-version">v0.5.5</span></div><h1>Road Viewer</h1></div></div><span id="summary" title="Road Viewer 원본·변환·업로드 임시 파일의 총 파일 용량">목록 불러오는 중…</span></header>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>html,body{background:#0c1118;color-scheme:dark}</style><meta name="viewport" content="width=device-width,initial-scale=1"><title>Road Viewer · Home Assistant</title><link rel="stylesheet" href="assets/style.css?v=0.6.0"><link rel="stylesheet" href="assets/library.css?v=0.6.0"><link rel="stylesheet" href="assets/motion.css?v=0.6.0"><link rel="icon" type="image/svg+xml" href="assets/icon.svg?v=0.6.0"></head><body class="library-page"><main>
+<header><div class="app-brand"><img class="app-icon" src="assets/icon.svg?v=0.6.0" alt=""><div><div class="eyebrow">HOME ASSISTANT <span class="app-version">v0.6.0</span></div><h1>Road Viewer</h1></div></div><span id="summary" title="Road Viewer 원본·변환·업로드 임시 파일의 총 파일 용량">목록 불러오는 중…</span></header>
 
 <details class="upload" open>
 <summary class="section-summary"><span class="section-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m-4 4 4-4 4 4M4 15v5h16v-5"/></svg></span><div class="section-title"><h2>로그 업로드</h2><p>로그와 영상을 추가하고 주행을 확인하세요.</p></div><span class="section-disclosure" aria-hidden="true"><span class="when-closed">펼치기</span><span class="when-open">접기</span></span></summary>
@@ -63,7 +63,7 @@
 </div></details>
 <div class="bulk-entry"><div><h3>여러 로그를 한 번에 관리</h3><p>로그를 선택해 변환하거나, 변환 데이터 제거 · 완전 삭제를 진행하세요.</p></div><button id="bulkOpen" type="button" aria-haspopup="dialog" aria-controls="bulkDialog">로그 선택</button></div>
 </details>
-<section class="library"><div class="library-head"><h2>저장된 로그</h2><div class="library-tools"><button id="refresh">새로고침</button></div></div><div id="empty" hidden>아직 저장된 로그가 없습니다. 위에서 첫 로그를 업로드하세요.</div><div id="list"></div></section>
+<section class="library"><div class="library-head"><h2>저장된 로그</h2><div class="library-tools"><label class="tag-filter-label">태그 <select id="tagFilter" aria-label="태그 필터"><option value="">전체 태그</option><option value="untagged">태그 없음</option></select></label><button id="refresh">새로고침</button></div></div><div id="empty" hidden>아직 저장된 로그가 없습니다. 위에서 첫 로그를 업로드하세요.</div><p id="tagFilterStatus" class="tag-filter-status" role="status" hidden></p><div id="list"></div></section>
 <footer>Home Assistant 연결을 통해 접근합니다. 업로드한 원본과 변환 데이터는 앱 저장소에 보관됩니다.</footer></main>
 <dialog id="bulkDialog" class="bulk-dialog" aria-labelledby="bulkTitle" aria-describedby="bulkDescription">
 <div class="bulk-header"><h2 id="bulkTitle">로그 일괄 관리</h2><button id="bulkClose" type="button">닫기</button></div>
@@ -74,7 +74,7 @@
 </div>
 <div class="bulk-select"><label><input id="bulkAll" type="checkbox" disabled> 전체 선택</label><span id="bulkCount">0개 선택</span></div>
 <div id="bulkList" class="bulk-list" aria-label="일괄 관리할 로그"></div>
-<div class="bulk-footer"><p id="bulkStatus" role="status">목록을 불러오는 중입니다.</p><div id="bulkFailures" role="alert" hidden></div><div class="bulk-buttons"><button id="bulkConvert" type="button" class="primary" disabled>변환</button><button id="bulkRemove" type="button" disabled>변환 데이터 제거</button><button id="bulkDelete" class="delete" type="button" disabled>완전 삭제</button></div></div>
+<div class="bulk-footer"><p id="bulkStatus" role="status">목록을 불러오는 중입니다.</p><div id="bulkFailures" role="alert" hidden></div><div class="bulk-buttons"><button id="bulkTags" type="button" disabled>태그 편집</button><button id="bulkConvert" type="button" class="primary" disabled>변환</button><button id="bulkRemove" type="button" disabled>변환 데이터 제거</button><button id="bulkDelete" class="delete" type="button" disabled>완전 삭제</button></div></div>
 </dialog>
 <dialog id="pairDialog" class="pair-dialog" data-state="waiting" aria-labelledby="pairTitle" aria-describedby="pairDescription">
 <div class="pair-header"><span class="pair-eyebrow">ROAD VIEWER / DEVICE LINK</span><span class="pair-secure">HTTPS</span></div>
@@ -86,4 +86,4 @@
 </div>
 <div class="pair-footer"><button id="pairRenew" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2 6M20 4v7h-7"/></svg><span>새 코드 발급</span></button><button id="pairClose" type="button">취소</button></div>
 </dialog>
-<script src="assets/disclosure.js?v=0.5.5"></script><script src="assets/element-motion.js?v=0.5.5"></script><script src="assets/recording-name.js?v=0.5.5"></script><script src="assets/library.js?v=0.5.5"></script><script src="assets/choices.js?v=0.5.5"></script><script src="assets/bulk.js?v=0.5.5"></script><script src="assets/storage-devices.js?v=0.5.5"></script></body></html>
+<script src="assets/disclosure.js?v=0.6.0"></script><script src="assets/element-motion.js?v=0.6.0"></script><script src="assets/recording-name.js?v=0.6.0"></script><script src="assets/tags.js?v=0.6.0"></script><script src="assets/library.js?v=0.6.0"></script><script src="assets/choices.js?v=0.6.0"></script><script src="assets/bulk.js?v=0.6.0"></script><script src="assets/storage-devices.js?v=0.6.0"></script></body></html>

@@ -1,4 +1,4 @@
-'use strict';const $=id=>document.getElementById(id);let selected=[],busy=false,cleaning=false,refreshing=false,progressRefreshing=false,listRevision=0;const logRows=new Map();
+'use strict';const $=id=>document.getElementById(id);let selected=[],busy=false,cleaning=false,refreshing=false,progressRefreshing=false,listRevision=0,listRequest=null;const logRows=new Map();
 let uploadController=null,networkRestarting=false;
 let concurrencySaving=false,concurrencyRevision=0,savedConcurrency=1,savedAutoConvert=true,savedKeepOriginalVideo=true;
 const names={unconverted:'미변환',queued:'대기 중',processing:'처리 중',ready:'재생 가능',error:'변환 실패'};
@@ -113,7 +113,7 @@ function recordingActions(m){
   if(removing&&!confirm(`${m.name}
 대기 중이면 변환을 취소하고, 변환된 분석·그래프와 재생용 임시 영상을 제거할까요? 원본 로그·TS 및 TS 없이 보관하는 MP4는 유지되며 자동으로 다시 변환되지 않습니다.`))return;
   conversion.disabled=true;
-  try{await api(`api/logs/${m.id}/${removing?'prepared':'convert'}`,{method:removing?'DELETE':'POST'});logRows.delete(m.id);await refresh()}
+  try{const result=await api(`api/logs/${m.id}/${removing?'prepared':'convert'}`,{method:removing?'DELETE':'POST'});if(removing&&result.status!=='unconverted')throw Error('변환 데이터 제거가 완료되지 않았습니다. 새로고침 후 상태를 확인해 주세요.');recordingChanged({...m,status:result.status,auto_excluded:removing});await refresh()}
   catch(e){error(e.message);conversion.disabled=false}
  };
  if(m.status==='queued'){const queued=document.createElement('button');queued.type='button';queued.textContent=names.queued;queued.disabled=true;queued.className='recording-pending';actions.append(queued)}
@@ -135,6 +135,14 @@ function recordingActions(m){
  };
  const separator=document.createElement('hr');menu.append(separator,del);actions.append(more);return actions;
 }
+// Apply acknowledged changes even when the next list request is slow or fails.
+function recordingChanged(m){
+ listRequest?.abort();listRevision++;refreshing=false;
+ const cached=logRows.get(m.id);if(!cached)return;
+ cached.signature=null;cached.status=m.status;
+ cached.state.className=m.status==='processing'?'state state-processing':'state';showState(cached.state,m);
+ cached.row.lastElementChild.replaceWith(recordingActions(m));
+}
 document.addEventListener('click',e=>document.querySelectorAll('.recording-more[open]').forEach(more=>{if(!more.contains(e.target))more.open=false}));
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.recording-more[open]').forEach(more=>{more.open=false;more.querySelector('summary').focus()})});
 
@@ -145,9 +153,14 @@ document.addEventListener('click',e=>{
 });
 window.addEventListener('pageshow',()=>document.querySelectorAll('.recording-name-text').forEach(name=>name.style.viewTransitionName=''));
 // Keep the row/title/state connected when metadata changes so CSS animations retain their live timeline.
-async function refresh(){if(refreshing||busy||networkRestarting||document.hidden)return;refreshing=true;listRevision++;const settingsRevision=concurrencyRevision;try{const r=await fetch('api/logs',{cache:'no-store'});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=[1,2,3,4].includes(data.concurrency)?data.concurrency:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'));savedAutoConvert=data.auto_convert!==false;savedKeepOriginalVideo=data.keep_original_video!==false;syncAutoConvert()}$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id);if(cached?.signature===signature){showState(cached.state,m);return cached.row;}const row=cached?.row||document.createElement('div');row.className=cached?'log-row is-update':'log-row';row.dataset.id=m.id;const info=cached?row.firstElementChild:document.createElement('div'),title=cached?info.firstElementChild:document.createElement('div'),meta=document.createElement('div'),state=cached?.state||document.createElement('span');for(const child of [...title.children])if(child!==state)child.remove();title.className='log-name';const name=document.createElement('span');renderRecordingName(name,m.name,m.files);title.insertBefore(name,state.parentNode===title?state:null);if(m.pinned){const badge=document.createElement('span');badge.className='pin-badge';badge.textContent='고정';badge.title='이 구간을 자동 삭제에서 보호합니다.';title.insertBefore(badge,state.parentNode===title?state:null)}state.className=(m.status==='processing'?'state state-processing':'state')+(cached?' is-update':'');showState(state,m);if(!cached)title.append(state);meta.className='log-meta';meta.textContent=`${new Date(m.uploaded*1000).toLocaleString()} · 보관 파일 ${storageSize(m.bytes)} · 변환 ${storageSize(m.prepared_bytes)} · ${m.video?'영상 있음':'영상 없음'}${m.duration!=null?' · '+m.duration.toFixed(1)+'초':''}`;if(!cached)info.append(title);for(const child of [...info.children])if(child!==title)child.remove();info.append(meta);if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}const actions=recordingActions(m);if(cached)row.lastElementChild.replaceWith(actions);else row.append(info,actions);logRows.set(m.id,{signature,row,state,status:m.status});return row});const list=$('list'),apply=()=>{rows.forEach((row,i)=>{if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});while(list.children.length>rows.length)list.lastElementChild.remove()};
+async function refresh({poll=false}={}){
+ if(busy||networkRestarting||document.hidden||(poll&&refreshing))return;
+ // A user action supersedes any list snapshot taken before that action completed.
+ listRequest?.abort();const request=listRequest=new AbortController(),revision=++listRevision;
+ refreshing=true;const settingsRevision=concurrencyRevision;
+ try{const r=await fetch('api/logs',{cache:'no-store',signal:request.signal});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(revision!==listRevision)return;if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=[1,2,3,4].includes(data.concurrency)?data.concurrency:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'));savedAutoConvert=data.auto_convert!==false;savedKeepOriginalVideo=data.keep_original_video!==false;syncAutoConvert()}updateTagCatalog(data.logs);syncTagFilter();$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id);if(cached?.signature===signature){showState(cached.state,m);return cached.row;}const row=cached?.row||document.createElement('div');row.className=cached?'log-row is-update':'log-row';row.dataset.id=m.id;const info=cached?row.firstElementChild:document.createElement('div'),title=cached?info.firstElementChild:document.createElement('div'),meta=document.createElement('div'),state=cached?.state||document.createElement('span');for(const child of [...title.children])if(child!==state)child.remove();title.className='log-name';const name=document.createElement('span');renderRecordingName(name,m.name,m.files);title.insertBefore(name,state.parentNode===title?state:null);title.insertBefore(recordingTagButton(m,()=>refresh()),state.parentNode===title?state:null);if(m.pinned){const badge=document.createElement('span');badge.className='pin-badge';badge.textContent='고정';badge.title='이 구간을 자동 삭제에서 보호합니다.';title.insertBefore(badge,state.parentNode===title?state:null)}state.className=(m.status==='processing'?'state state-processing':'state')+(cached?' is-update':'');showState(state,m);if(!cached)title.append(state);meta.className='log-meta';meta.textContent=`${new Date(m.uploaded*1000).toLocaleString()} · 보관 파일 ${storageSize(m.bytes)} · 변환 ${storageSize(m.prepared_bytes)} · ${m.video?'영상 있음':'영상 없음'}${m.duration!=null?' · '+m.duration.toFixed(1)+'초':''}`;if(!cached)info.append(title);for(const child of [...info.children])if(child!==title)child.remove();info.append(meta,recordingTagBadges(m.tags));if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}const actions=recordingActions(m);if(cached)row.lastElementChild.replaceWith(actions);else row.append(info,actions);logRows.set(m.id,{signature,row,state,status:m.status,tags:m.tags||[]});return row});const list=$('list'),apply=()=>{rows.forEach((row,i)=>{if(list.children[i]!==row)list.insertBefore(row,list.children[i]||null)});while(list.children.length>rows.length)list.lastElementChild.remove()};
  const motion=window.RoadViewerMotion,before=new Map([...list.children].map(row=>[row.dataset.id,motion.capture(row)]));
- apply();if(motion.allowed())rows.forEach(row=>motion.play(row,before.get(row.dataset.id)));const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){error(e.message)}finally{refreshing=false}}
+ apply();applyTagFilter();if(motion.allowed())rows.forEach(row=>motion.play(row,before.get(row.dataset.id)));const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){if(!request.signal.aborted)error(e.message)}finally{if(revision===listRevision)refreshing=false}}
 async function refreshProgress(){
  if(document.hidden||busy||networkRestarting||progressRefreshing||refreshing||![...logRows.values()].some(row=>row.status==='processing'||row.status==='queued'))return;
  progressRefreshing=true;const revision=listRevision;
@@ -163,6 +176,24 @@ async function refreshProgress(){
   }
  }catch{}finally{progressRefreshing=false}
 }
+function syncTagFilter(){
+ const select=$('tagFilter'),value=select.value,signature=JSON.stringify(recordingTagCatalog.map(tag=>tag.name));
+ if(select.dataset.tags===signature)return;
+ select.dataset.tags=signature;
+ select.replaceChildren(new Option('전체 태그',''),new Option('태그 없음','untagged'),...recordingTagCatalog.map(tag=>new Option(tag.name,'tag:'+tag.name.toLowerCase())));
+ if([...select.options].some(option=>option.value===value))select.value=value;
+ else if(value.startsWith('tag:')){select.add(new Option(value.slice(4)+' (0)',''+value));select.value=value}
+ select.dispatchEvent(new Event('rv:sync'));
+}
+function applyTagFilter(){
+ const value=$('tagFilter').value;let shown=0;
+ for(const cached of logRows.values()){
+  const tags=cached.tags||[],matches=!value||(value==='untagged'?!tags.length:tags.some(tag=>'tag:'+tag.name.toLowerCase()===value));
+  cached.row.hidden=!matches;if(matches&&cached.row.isConnected)shown++;
+ }
+ $('tagFilterStatus').hidden=!value;$('tagFilterStatus').textContent=shown?`${shown}개 로그 표시 중`:'선택한 태그에 해당하는 로그가 없습니다.';
+}
+$('tagFilter').onchange=applyTagFilter;
 $('refresh').onclick=refresh;
 function abortable(promise,signal){
  if(!signal)return promise;
@@ -284,7 +315,7 @@ $('upload').onclick=async()=>{
   uploadController=null;busy=false;document.body.classList.remove('uploading');void refresh();pickerIds.forEach(id=>$(id).disabled=false);selectionChanged();$('progress').hidden=true;
  }
 };
-const pageReady=refresh();setInterval(refresh,3000);setInterval(refreshProgress,1000);
+const pageReady=refresh();setInterval(()=>refresh({poll:true}),3000);setInterval(refreshProgress,1000);
 // A hidden tab stops polling (each list request scans storage); catch up as soon as it is shown again.
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
 

@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.5.5**.
+This guide describes **0.6.0**.
 
 [한국어](DOCS.md) · English
 
@@ -108,6 +108,16 @@ Manually removed recordings are excluded from automatic conversion until Convert
 Use **로그 선택** at the bottom of settings for bulk actions. Select-all and action controls remain visible while scrolling. **고정 항목도 삭제** is off whenever the dialog opens: pinned segments are protected from bulk removal/deletion unless explicitly included. This does not affect bulk conversion. Individual dropdown actions can explicitly delete pinned recordings.
 
 During a bulk operation selection and closing are locked. Results show completed, skipped and incomplete counts; failed items remain selected.
+
+## Segment tags
+
+Use the tag icon beside a recording name in the library or replay screen. A segment supports up to 20 tags, each up to 32 characters, with six colors and suggestions from existing tags. Click a selected tag to edit its name or color. Whitespace is normalized and names differing only by letter case are deduplicated.
+
+Use **태그 필터** (Tag filter) to show a particular tag or **태그 없음** (Untagged). For bulk editing, open **로그 선택**, select segments, then choose **태그 편집** and Add or Remove. Only the selected tags change; unrelated tags and pins remain intact. Partial failures retain successful changes, and retry targets only the failed segments.
+
+Tags are stored in server-side segment metadata and survive conversion, reconversion and prepared-data removal. Complete deletion removes them with the recording. These are segment tags, not camera-specific tags or timeline bookmarks.
+
+The web UI bundles Pretendard Variable 1.3.9 for Korean text without contacting an external CDN. The initial font transfer is approximately 1.96 MiB; subsequent loads use the browser cache. Its SIL Open Font License is included with the [official release](https://github.com/orioncactus/pretendard/releases/tag/v1.3.9).
 
 ## Video playback and layout
 
