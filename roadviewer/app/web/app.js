@@ -63,12 +63,12 @@ function syncVideo(seek=false){
  if(seek||wasHidden)pendingVideoSeek=target;
  if(v.readyState>=1&&!v.seeking){
   const requested=pendingVideoSeek;pendingVideoSeek=null;
-  const next=requested??target,threshold=(requested!==null||hold)? .0005:.35;
+  const next=requested??target,threshold=hold ? .002 : requested!==null ? .0005 : .35;
   if(Math.abs(v.currentTime-next)>threshold)v.currentTime=next;
  }
- // Show frame zero for a small initial clock offset without starting the camera early.
- if(hold||firstVideoFrame()){pauseVideo();return}
- if(playing&&seekPointer===null&&v.paused&&!videoPlayPending){
+ // Hold boundary frames; play() on ended media would rewind it to frame zero.
+ if(hold||firstVideoFrame()||t>=data.duration){pauseVideo();return}
+ if(playing&&seekPointer===null&&v.paused&&!videoPlayPending&&!v.seeking&&pendingVideoSeek===null&&!v.ended&&v.readyState>=3){
   videoPlayPending=true;const pauseRevision=videoPauseRevision;
   v.play().catch(e=>{if(pauseRevision===videoPauseRevision&&playing&&videoAvailable()&&!finalVideoFrame()){videoFailure('영상을 재생할 수 없습니다. '+e.message)}}).finally(()=>{videoPlayPending=false;if(!playing||seekPointer!==null||!videoAvailable()||firstVideoFrame()||finalVideoFrame())pauseVideo()});
  }
@@ -87,13 +87,13 @@ function updateVideoBuffer(){
  }
 }
 for(const event of ['progress','loadedmetadata','loadeddata','durationchange','emptied','seeked'])v.addEventListener(event,updateVideoBuffer);
-function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;syncVideo(seekVideo);render(lazy);window.renderBookmarks?.()}
+function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;if(t>=data.duration&&seekPointer===null&&playing)pause();syncVideo(seekVideo);render(lazy);window.renderBookmarks?.()}
 function step(n){if(loading)return;pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
 function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
 function tick(now){
  now=Math.max(now,last);
  if(playing&&data){
-  const waiting=seekPointer!==null||videoAvailable()&&!firstVideoFrame()&&!finalVideoFrame()&&(v.seeking||pendingVideoSeek!==null||v.readyState<3);
+  const waiting=seekPointer!==null||videoAvailable()&&!firstVideoFrame()&&!finalVideoFrame()&&(v.seeking||pendingVideoSeek!==null||v.readyState<3&&!v.ended);
   if(waiting)syncVideo();
   else{const next=t+(now-last)/1000*Number($('speed').value);setTime(next>=data.duration-.001?data.duration:next,false,true);if(t>=data.duration)pause()}
  }else window.renderVideoOverlayMotion?.();

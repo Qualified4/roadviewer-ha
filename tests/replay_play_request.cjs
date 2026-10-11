@@ -15,8 +15,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   });
   await page.goto('https://rv.test/view/test/');await page.waitForFunction(()=>!document.getElementById('play').disabled);
   for(const scenario of ['end-hold','pause','pause-resume','resolved-after-pause','NotAllowedError','NotSupportedError','AbortError']){
+   await page.evaluate(()=>{pause();showError('');setPlaybackState(true,'재생 준비 완료');setTime(0)});
+   await page.waitForFunction(()=>!v.seeking&&pendingVideoSeek===null&&v.readyState>=3);
    const result=await page.evaluate(async scenario=>{
-    pause();showError('');setPlaybackState(true,'재생 준비 완료');setTime(1);const originalPlay=v.play;let rejectPlay,resolvePlay;
+    const originalPlay=v.play;let rejectPlay,resolvePlay;
     v.play=()=>new Promise((resolve,reject)=>{resolvePlay=resolve;rejectPlay=reject});
     playing=true;syncVideo();const pending=videoPlayPending;
     if(scenario==='end-hold')setTime(2);

@@ -70,6 +70,7 @@ jobs:
       - run: node tests/replay_ready.cjs
       - run: node tests/replay_coverage.cjs
       - run: node tests/replay_play_request.cjs
+      - run: node tests/replay_end_seek.cjs
       - run: node tests/choices.cjs
       - run: node tests/display_preferences.cjs
       - run: node tests/concurrency.cjs
