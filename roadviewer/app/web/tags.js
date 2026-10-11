@@ -1,6 +1,6 @@
 'use strict';
 const RECORDING_TAG_ICON='<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h8l10 10-8 8L3 11z"/><circle cx="7.5" cy="7.5" r="1"/></svg>';
-const TAG_PALETTE={mint:'민트',blue:'파랑',violet:'보라',amber:'주황',rose:'분홍',slate:'회색'};
+const TAG_PALETTE={mint:'민트',blue:'파랑',violet:'보라',amber:'주황',rose:'분홍',slate:'회색',red:'빨강',coral:'산호',lime:'라임',yellow:'노랑',cyan:'하늘',indigo:'남색'};
 let recordingTagCatalog=[];
 const tagKey=name=>name.normalize('NFC').trim().replace(/\s+/gu,' ').toLowerCase();
 function updateTagCatalog(logs){
@@ -8,7 +8,7 @@ function updateTagCatalog(logs){
  recordingTagCatalog=[...tags.values()].sort((a,b)=>a.name.localeCompare(b.name,'ko'));
 }
 function recordingTagBadges(tags=[],limit=4){
- const group=document.createElement('div');group.className='recording-tags';group.hidden=!tags.length;
+ const group=document.createElement('span');group.className='recording-tags';group.hidden=!tags.length;
  for(const tag of tags.slice(0,limit)){
   const badge=document.createElement('span');badge.className='recording-tag';badge.dataset.color=Object.hasOwn(TAG_PALETTE,tag.color)?tag.color:'mint';badge.textContent=tag.name;badge.title=tag.name;group.append(badge);
  }
@@ -26,7 +26,7 @@ function editRecordingTags(logs,onSaved,bulk=false){
  <p class="tag-dialog-description"></p><form class="tag-form"><fieldset class="tag-fields"><legend class="tag-sr-only">태그 편집</legend>
  <div class="tag-mode" ${bulk?'':'hidden'}><label><input type="radio" name="tagAction" value="add" checked> 태그 추가</label><label><input type="radio" name="tagAction" value="remove"> 태그 제거</label></div>
  <label class="tag-input-label" for="tagNameInput">태그 이름</label><div class="tag-input-row"><input id="tagNameInput" type="text" placeholder="예: 급제동, 인식 오류, 야간" autocomplete="off" aria-describedby="tagHelp"><button class="tag-add" type="submit">추가</button></div>
- <div class="tag-colors" role="group" aria-label="태그 색상"></div><p id="tagHelp">이름은 최대 32자, 구간당 최대 20개입니다. 배지를 누르면 이름과 색상을 바꿀 수 있습니다.</p>
+ <div class="tag-colors" role="group" aria-label="태그 색상"></div><p id="tagHelp">이름은 최대 32자, 구간당 최대 100개입니다. 배지를 누르면 이름과 색상을 바꿀 수 있습니다.</p>
  <div class="tag-draft" aria-label="선택한 태그"></div><div class="tag-suggestions" aria-label="기존 태그 추천"></div>
  </fieldset></form><div class="tag-dialog-footer"><p class="tag-result" role="status"></p><button type="button" class="primary tag-save">저장</button></div>`;
  const find=selector=>dialog.querySelector(selector),input=find('input[type=text]'),fields=find('fieldset'),draftArea=find('.tag-draft'),suggestions=find('.tag-suggestions'),result=find('.tag-result'),save=find('.tag-save'),close=find('.tag-close');
@@ -58,7 +58,7 @@ function editRecordingTags(logs,onSaved,bulk=false){
   const name=input.value.normalize('NFC').trim().replace(/\s+/gu,' '),key=tagKey(name);
   if(!name||Array.from(name).length>32||/\p{C}/u.test(name)){result.textContent='태그 이름은 1~32자의 표시 가능한 문자로 입력해 주세요.';return false}
   const next=draft.filter(tag=>tagKey(tag.name)!==key&&tagKey(tag.name)!==editing);
-  if(next.length>=20){result.textContent='태그는 최대 20개까지 선택할 수 있습니다.';return false}
+  if(next.length>=100){result.textContent='태그는 최대 100개까지 선택할 수 있습니다.';return false}
   draft=[...next,{name,color}];input.value='';editing=null;find('.tag-add').textContent='추가';result.textContent='';renderDraft();input.focus();return true;
  }
  find('form').onsubmit=event=>{event.preventDefault();addDraft()};input.oninput=suggest;

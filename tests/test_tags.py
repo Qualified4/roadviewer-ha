@@ -19,21 +19,21 @@ class TagTests(unittest.TestCase):
   r=self.post({'tags':[{'name':'  야간   주행  ','color':'blue'},{'name':'TEST'},{'name':'test','color':'rose'}]})
   self.assertEqual(r.status_code,200);self.assertEqual(r.json['tags'],[{'name':'야간 주행','color':'blue'},{'name':'test','color':'rose'}])
   before=server.read_meta(self.path)
-  for body in ({'tags':'x'},{'tags':[None]},{'tags':[{'name':''}]},{'tags':[{'name':'x'*33}]},{'tags':[{'name':'a\x00b'}]},{'tags':[{'name':'x','color':'red'}]},{'tags':[{'name':'x','color':[]}]},{'tags':[{'name':'x','unexpected':1}]},{'tags':[],'status':'ready'},{'tags':[],'action':[]},{'tags':[{'name':str(i)} for i in range(21)]}):
+  for body in ({'tags':'x'},{'tags':[None]},{'tags':[{'name':''}]},{'tags':[{'name':'x'*33}]},{'tags':[{'name':'a\x00b'}]},{'tags':[{'name':'x','color':'unknown'}]},{'tags':[{'name':'x','color':[]}]},{'tags':[{'name':'x','unexpected':1}]},{'tags':[],'status':'ready'},{'tags':[],'action':[]},{'tags':[{'name':str(i)} for i in range(101)]}):
    with self.subTest(body=body):self.assertEqual(self.post(body).status_code,400)
   self.assertEqual(server.read_meta(self.path),before)
   self.assertEqual(self.post({'tags':[]},headers=False).status_code,403)
   self.assertEqual(self.post({'tags':[]},id='b'*32).status_code,404)
-  self.assertEqual(self.post({'tags':[{'name':'x'*17000}]}).status_code,413)
+  self.assertEqual(self.post({'tags':[{'name':'x'*66000}]}).status_code,413)
  def test_add_remove_preserves_unrelated_tags_and_metadata(self):
   self.post({'tags':[{'name':'야간','color':'blue'}]})
   self.post({'action':'add','tags':[{'name':'급제동','color':'amber'},{'name':'야간','color':'rose'}]})
   tags=server.read_meta(self.path)['tags'];self.assertEqual(tags,[{'name':'야간','color':'blue'},{'name':'급제동','color':'amber'}])
   self.post({'action':'remove','tags':[{'name':'급제동'}]})
   self.assertEqual(server.read_meta(self.path)['tags'],tags[:1]);self.assertEqual(server.read_meta(self.path)['conversion_revision'],1)
-  full=[{'name':str(i)} for i in range(20)];self.post({'tags':full})
+  full=[{'name':str(i)} for i in range(100)];self.post({'tags':full})
   self.assertEqual(self.post({'action':'add','tags':[{'name':'extra'}]}).status_code,400)
-  self.assertEqual(len(server.read_meta(self.path)['tags']),20)
+  self.assertEqual(len(server.read_meta(self.path)['tags']),100)
   self.assertEqual(self.post({'tags':[]}).json['tags'],[])
  def test_tags_survive_removal_requeue_and_list(self):
   tags=[{'name':'검토 필요','color':'violet'}];self.post({'tags':tags})
@@ -46,6 +46,11 @@ class TagTests(unittest.TestCase):
   self.assertEqual(server.read_meta(self.path)['tags'],tags)
   with patch.object(server,'cleanup_uploads'):
    self.assertEqual(c.get('/api/logs',environ_overrides=peer).json['logs'][0]['tags'],tags)
+ def test_all_colors_and_full_length_korean_tags(self):
+  colors=sorted(server.TAG_COLORS);self.assertEqual(len(colors),12)
+  tags=[{'name':str(i).zfill(2)+'가'*30,'color':colors[i%12]} for i in range(100)]
+  response=self.post({'tags':tags})
+  self.assertEqual(response.status_code,200);self.assertEqual(response.json['tags'],tags)
  def test_concurrent_additions_do_not_overwrite_each_other(self):
   with ThreadPoolExecutor(max_workers=4) as pool:
    results=list(pool.map(lambda i:self.post({'action':'add','tags':[{'name':str(i)}]}).status_code,range(12)))

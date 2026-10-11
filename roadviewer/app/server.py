@@ -1,5 +1,5 @@
 from pathlib import Path,PurePosixPath
-import gzip,hashlib,unicodedata
+import gzip,hashlib,unicodedata,math
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
 from collections import Counter
 from progress import ProgressChannel
@@ -180,7 +180,7 @@ def not_found(e):
  return jsonify(error='로그 또는 파일을 찾을 수 없습니다.'),404
 PAGE_SCRIPTS={
  'library':['disclosure','recording-name','tags','library','choices','bulk','storage-devices'],
- 'replay':['recording-name','tags','app','choices','video-overlay','camera-info','telemetry'],
+ 'replay':['recording-name','tags','app','choices','video-overlay','camera-info','telemetry','bookmarks'],
 }
 
 def page_response(kind):
@@ -237,7 +237,7 @@ def processing_progress():
 def logs():
  cleanup_uploads()
  def item(p):
-  m=read_meta(p)
+  m=read_meta(p);m.pop('bookmarks',None)
   return dict(m,pinned=storage_policy.pinned(m),bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared'))
  with lock:items=[item(p) for p in recording_paths()]
  return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
@@ -554,16 +554,47 @@ def delete_recording(id):
  shutil.rmtree(p)
 
 # Tags belong to the recording, never to disposable prepared data.
-TAG_COLORS={'mint','blue','violet','amber','rose','slate'}
+TAG_COLORS={'mint','blue','violet','amber','rose','slate','red','coral','lime','yellow','cyan','indigo'}
+
+@app.route('/api/logs/<id>/bookmarks',methods=['GET','POST'])
+@app.route('/api/logs/<id>/bookmarks/<bookmark_id>',methods=['PUT','DELETE'])
+def recording_bookmarks(id,bookmark_id=None):
+ request.max_content_length=8192
+ body=None
+ if request.method in ('POST','PUT'):
+  body=request.get_json(silent=True)
+  if not isinstance(body,dict) or set(body)!={'time','title','note'}:return jsonify(error='북마크 요청이 올바르지 않습니다.'),400
+  when=body['time']
+  if isinstance(when,bool) or not isinstance(when,(int,float)) or not 0<=when<=86400 or not math.isfinite(when):return jsonify(error='북마크 시간이 올바르지 않습니다.'),400
+  for key,limit in (('title',80),('note',1000)):
+   if not isinstance(body[key],str):return jsonify(error='제목과 메모는 문자열이어야 합니다.'),400
+   body[key]=unicodedata.normalize('NFC',body[key]).strip()
+   if len(body[key])>limit or any(unicodedata.category(c).startswith('C') and c not in '\n\t' for c in body[key]):return jsonify(error='제목은 80자, 메모는 1000자 이내로 입력해 주세요.'),400
+  body['title']=' '.join(body['title'].split())
+  if not body['title']:return jsonify(error='북마크 제목을 입력해 주세요.'),400
+ with lock:
+  p=folder(id);m=read_meta(p);items=m.get('bookmarks',[])
+  if request.method=='GET':return jsonify(bookmarks=items)
+  existing=next((b for b in items if b['id']==bookmark_id),None)
+  if bookmark_id and existing is None:abort(404)
+  if body is not None:
+   duration=m.get('duration')
+   if isinstance(duration,(int,float)) and math.isfinite(duration) and body['time']>duration:return jsonify(error='구간 길이를 벗어난 북마크입니다.'),400
+   if request.method=='POST' and len(items)>=100:return jsonify(error='북마크는 구간당 최대 100개입니다.'),400
+   item=dict(id=bookmark_id or uuid.uuid4().hex,**body)
+   items=[b for b in items if b['id']!=bookmark_id]+[item]
+  else:items=[b for b in items if b['id']!=bookmark_id]
+  m['bookmarks']=sorted(items,key=lambda b:(b['time'],b['id']));save_meta(p,m)
+ return jsonify(bookmarks=m['bookmarks']),201 if request.method=='POST' else 200
 
 @app.route('/api/logs/<id>/tags',methods=['POST'])
 def recording_tags(id):
- request.max_content_length=16384
+ request.max_content_length=65536
  body=request.get_json(silent=True)
  if not isinstance(body,dict) or set(body)-{'action','tags'} or body.get('action','set') not in ('set','add','remove'):
   return jsonify(error='태그 요청이 올바르지 않습니다.'),400
  values=body.get('tags')
- if not isinstance(values,list) or len(values)>20:return jsonify(error='태그는 구간당 최대 20개입니다.'),400
+ if not isinstance(values,list) or len(values)>100:return jsonify(error='태그는 구간당 최대 100개입니다.'),400
  tags={}
  for value in values:
   if not isinstance(value,dict) or set(value)-{'name','color'} or not isinstance(value.get('name'),str):return jsonify(error='태그 이름이 올바르지 않습니다.'),400
@@ -580,7 +611,7 @@ def recording_tags(id):
   elif action=='remove':
    for key in tags:current.pop(key,None)
   else:current=tags
-  if len(current)>20:return jsonify(error='태그는 구간당 최대 20개입니다.'),400
+  if len(current)>100:return jsonify(error='태그는 구간당 최대 100개입니다.'),400
   m['tags']=list(current.values());save_meta(p,m)
  return jsonify(tags=m['tags'])
 

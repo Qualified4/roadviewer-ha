@@ -16,6 +16,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   ].map(row=>({...row,status:'ready',uploaded:1,bytes:1,prepared_bytes:1,video:false}));
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs,concurrency:1,max_upload_mb:512,storage_used_bytes:6}});
    if(p==='/api/progress')return route.fulfill({json:{progress:{}}});
    if(p.endsWith('/data'))return route.fulfill({json:{route:logs[0].name,duration:1,frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[]}],warnings:[],video:null}});

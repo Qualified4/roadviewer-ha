@@ -5,6 +5,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
    if(p.endsWith('/data'))return route.fulfill({json:{route:'test',key:'path',duration:2,warnings:[],video:null,frames:[{t:0,id:0,valid:true,position:[[0,0],[10,1],[20,-2]],lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}]}});
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');

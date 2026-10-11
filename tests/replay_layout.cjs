@@ -9,6 +9,7 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
   let pinned=false,pinFailure=false,pinRequests=0;
   const serve=route=>{
    const p=new URL(route.request().url()).pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs:[{id:'one',name:'00000395--0d0eda17c5 / 구간 7',status:'ready',pinned},{id:'two',name:'00000395--0d0eda17c5 / 구간 8',status:'ready',pinned:false}]}});
    if(p==='/api/logs/one/pin'){
     pinRequests++;assert.equal(route.request().method(),'POST');assert.equal(route.request().headers()['x-roadviewer-request'],'1');

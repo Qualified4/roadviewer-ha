@@ -15,6 +15,7 @@ const compact={route:'gzip',key:'gzip-key',duration:1,logStart:0,logEnd:.95,warn
    if(!supported)await page.addInitScript(()=>{delete window.DecompressionStream});
    await page.route('https://rv.test/**',route=>{
     const url=new URL(route.request().url()),p=url.pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
     if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
     if(p.endsWith('/data')){
      requests.push(url.search);

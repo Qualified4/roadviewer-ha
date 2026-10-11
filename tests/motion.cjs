@@ -16,6 +16,7 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    let logs=[{id:'one',name:'00000395--0d0eda17c5 / 구간 7',files:{'rlog.zst':'00000395--0d0eda17c5--7--rlog.zst'},status:'processing',progress:{stage:'video_verify',percent:50},uploaded:2,bytes:1,prepared_bytes:0,video:true}];
    await page.route('https://rv.test/**',route=>{
     const p=new URL(route.request().url()).pathname;
+   if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
     if(p==='/api/logs')return route.fulfill({json:{logs,concurrency:1,auto_convert:true,keep_original_video:true,max_upload_mb:512,storage_used_bytes:1}});
     if(p.endsWith('/data'))return route.fulfill({json:replay});
     if(p.startsWith('/api/'))return route.fulfill({json:{progress:{}}});
