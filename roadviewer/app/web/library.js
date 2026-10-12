@@ -118,10 +118,7 @@ function recordingActions(m){
  };
  if(m.status==='queued'){const queued=document.createElement('button');queued.type='button';queued.textContent=names.queued;queued.disabled=true;queued.className='recording-pending';actions.append(queued)}
  (removing?menu:actions).append(conversion);
- for(const [kind,label] of [['rlog.zst','로그 다운로드'],[m.video_download||'qcamera.ts','영상 다운로드']]){
-  if(kind!=='rlog.zst'&&!m.video)continue;
-  const link=document.createElement('a');link.className='download-original';link.href=kind==='rlog.zst'?`api/logs/${m.id}/original/rlog.zst`:`api/logs/${m.id}/download/video`;link.textContent=label;link.setAttribute('download','');menu.append(link);
- }
+ for(const item of recordingDownloads(m,''))menu.append(downloadLink(item));
  const pin=document.createElement('button');pin.type='button';pin.className='pin-recording';
  pin.title=m.pinned?'구간 고정 해제':'구간 고정';pin.setAttribute('aria-label',pin.title);pin.setAttribute('aria-pressed',String(!!m.pinned));
  pin.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="pin-head" d="M8 3h8l-1 7 4 4v2H5v-2l4-4z"/><path d="M12 16v6"/></svg>';

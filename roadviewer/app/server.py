@@ -31,6 +31,13 @@ def original_bytes(p,kinds=STORED_KINDS):return sum((p/k).stat().st_size for k i
 def has_video(p):return any((p/k).is_file() for k in (*ORIGINALS,*DERIVED.values()))
 def video_download_kind(p):
  return next((kind for source in ('front','qcamera','wide') for kind in SOURCES[source][:2] if (p/kind).is_file()),None)
+def video_downloads(p):
+ # One entry per stored camera (front f, wide e, low-res q): its original, or the MP4 kept instead of it.
+ rows=[]
+ for source in ('front','wide','qcamera'):
+  kind=next((kind for kind in SOURCES[source][:2] if (p/kind).is_file()),None)
+  if kind:rows.append({'source':source,'kind':kind,'bytes':(p/kind).stat().st_size})
+ return rows
 
 def run_job(id):
  p=ROOT/id
@@ -238,7 +245,7 @@ def logs():
  cleanup_uploads()
  def item(p):
   m=read_meta(p);m.pop('bookmarks',None)
-  return dict(m,pinned=storage_policy.pinned(m),bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared'))
+  return dict(m,pinned=storage_policy.pinned(m),bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),video_downloads=video_downloads(p),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared'))
  with lock:items=[item(p) for p in recording_paths()]
  return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 @app.route('/api/upload',methods=['POST'])

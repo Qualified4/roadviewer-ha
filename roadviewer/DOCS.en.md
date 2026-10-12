@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.7.3**.
+This guide describes **0.8.0**.
 
 [한국어](DOCS.md) · English
 
@@ -71,7 +71,7 @@ If Android's native file picker cannot return multiple files, add one at a time.
 
 The header reports Road Viewer file usage, including originals, prepared data and temporary uploads—not whole-disk utilization. Each recording separately reports retained files and removable prepared data. **영상 있음** indicates that any supported original or MP4 exists, not that conversion is complete. A log-only recording can also become playable.
 
-**로그 다운로드** downloads the ZST log. **영상 다운로드** chooses high-quality front → qcamera → wide, then prefers that camera's original over its MP4. It is not necessarily the camera currently selected in the player.
+**로그 다운로드** downloads the ZST log. **영상 다운로드** downloads a single available video directly. With multiple cameras, separate front, wide and low-resolution entries show the format and size. Each entry prefers its original over MP4, independently of the camera playing. The replay header also provides these downloads next to the pin button. On short screens, the menu opens toward the available space and scrolls internally.
 
 ### Conversion and storage settings
 
