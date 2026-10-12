@@ -240,6 +240,13 @@ def processing_progress():
  with lock:progress={id:dict(event) for id,event in job_progress.items()}
  return jsonify(progress=progress)
 
+def recording_order(m):
+ # Route counters are hexadecimal; segment numbers are decimal. Keep each route together.
+ match=re.fullmatch(r'([0-9a-fA-F]+)--([0-9a-fA-F]+)(?:\s*/\s*구간\s*|--)(\d+)',m.get('name',''))
+ if match:return (1,int(match[1],16),match[2].lower(),int(match[3]),m['id'])
+ # Unrecognised/custom names remain accessible after numbered routes.
+ return (0,m.get('uploaded',0),'',0,m['id'])
+
 @app.route('/api/logs')
 def logs():
  cleanup_uploads()
@@ -247,7 +254,7 @@ def logs():
   m=read_meta(p);m.pop('bookmarks',None)
   return dict(m,pinned=storage_policy.pinned(m),bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),video_downloads=video_downloads(p),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared'))
  with lock:items=[item(p) for p in recording_paths()]
- return jsonify(logs=sorted(items,key=lambda m:(m['uploaded'],m['id']),reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
+ return jsonify(logs=sorted(items,key=recording_order,reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 @app.route('/api/upload',methods=['POST'])
 def upload():
  # Legacy multipart uploads use the same admission reservation. Browsers use chunks.
