@@ -362,3 +362,17 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .bookmark-editor-time,.bookmark-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}.bookmark-time{margin:0;color:var(--lane);font-variant-numeric:tabular-nums}.bookmark-body label{display:block;font-size:12px;color:var(--muted);margin:8px 0}.bookmark-body input,.bookmark-body textarea{display:block;margin-top:5px}.bookmark-note{width:100%;resize:vertical;max-height:160px;min-height:64px;font:inherit;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:7px;padding:10px 12px}.bookmark-editor-actions{justify-content:flex-end;margin:12px 0 0}.bookmark-result{font-size:12px;color:var(--muted)}
 .bookmark-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}.bookmark-row button{padding:6px 8px;font-size:12px}.bookmark-go{display:flex;align-items:flex-start;gap:10px;text-align:left;white-space:normal;background:transparent;border-color:transparent}.bookmark-go span:last-child{overflow-wrap:anywhere;min-width:0}.bookmark-at{flex-shrink:0;color:var(--lane);font-variant-numeric:tabular-nums}.bookmark-row p{grid-column:1/-1;margin:0;color:var(--muted);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}.bookmark-delete{color:#ffb3ac}.bookmark-list>p{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
 @media(max-width:600px){.bookmark-body{padding:0 16px 16px}.bookmark-row{column-gap:3px}.bookmark-go{flex-direction:column;gap:3px}}
+/* Replay downloads: an icon beside the pin in the navigation row, so the heading keeps its height. */
+.replay-download{position:relative;flex-shrink:0}
+.replay-download>summary{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid var(--line);border-radius:7px;background:var(--panel);color:var(--muted);list-style:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.replay-download>summary::-webkit-details-marker{display:none}
+.replay-download[open]>summary{color:var(--text);background:#283b4e}
+@media(hover:hover) and (pointer:fine){.replay-download>summary:hover{color:var(--text);background:#283b4e}}
+.replay-download>summary:focus-visible{outline:2px solid var(--lane);outline-offset:2px}
+.replay-download.is-empty>summary{opacity:.45;pointer-events:none}
+.replay-download-menu{overflow-y:auto;overscroll-behavior:contain;position:absolute;left:0;top:calc(100% + 6px);z-index:20;display:grid;gap:3px;width:max-content;min-width:200px;max-width:calc(100vw - 32px);padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 8px 24px #0006}
+.replay-download-menu>p{margin:6px 10px 2px;font-size:11px;color:var(--muted)}
+.replay-download-menu>a{display:block;min-height:42px;padding:9px 12px;border-radius:6px;font-size:13px;color:var(--text);text-decoration:none}
+@media(hover:hover) and (pointer:fine){.replay-download-menu>a:hover{background:#283b4e}}
+.replay-download-menu>a:focus-visible{outline:2px solid var(--lane);outline-offset:-2px}
+.download-detail{display:block;margin-top:2px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}

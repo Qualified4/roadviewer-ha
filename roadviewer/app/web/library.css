@@ -382,3 +382,4 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .inline-help>summary::before{content:'';width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .25s cubic-bezier(.4,0,.2,1)}
 .inline-help[open]:not(.is-closing)>summary::before{transform:rotate(45deg)}
 @media(prefers-reduced-motion:reduce){.inline-help>summary::before{transition:none}}
+.recording-menu>a .download-detail{display:block}

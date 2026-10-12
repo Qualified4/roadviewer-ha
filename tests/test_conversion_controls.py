@@ -131,6 +131,14 @@ class ConversionTests(unittest.TestCase):
   with patch.object(server,'cleanup_uploads'):
    row=self.request('get','/api/logs').json['logs'][0]
   self.assertTrue(row['video']);self.assertEqual(row['video_download'],'camera.mp4')
+  self.assertEqual(row['video_downloads'],[{'source':'qcamera','kind':'camera.mp4','bytes':len(b'verified-video')}])
+  # Several cameras are listed one by one (front f, wide e, low-res q); an original wins over its MP4.
+  (p/'fcamera.hevc').write_bytes(b'front');(p/'ecamera.mp4').write_bytes(b'wide-mp4');(p/'ecamera.hevc').write_bytes(b'wide')
+  with patch.object(server,'cleanup_uploads'):
+   rows=self.request('get','/api/logs').json['logs'][0]['video_downloads']
+  self.assertEqual([(r['source'],r['kind'],r['bytes']) for r in rows],[('front','fcamera.hevc',5),('wide','ecamera.hevc',4),('qcamera','camera.mp4',len(b'verified-video'))])
+  response=self.request('get',url+'/original/ecamera.hevc');self.assertEqual(response.data,b'wide');self.assertEqual(response.mimetype,'video/hevc');response.close()
+  for name in ('fcamera.hevc','ecamera.mp4','ecamera.hevc'):(p/name).unlink()
   self.assertEqual(row['bytes'],len(b'logverified-video'))
   result=self.request('post','/api/upload',data={'files':[(io.BytesIO(b'log'),'rlog.zst')]})
   self.assertEqual(len(result.json['duplicates']),1);self.assertFalse(result.json['duplicates'][0]['video_differs'])

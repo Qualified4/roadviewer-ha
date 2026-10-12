@@ -241,7 +241,8 @@ v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)videoFailure('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
 for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncRoad','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
-document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
+// Space and arrows keep their own meaning on focused controls, links and menus.
+document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
 function renderSteering(f){
  const s=frameAvailable(f)?f.steering:null,labels={driver:'운전자 조향 개입',active:'조향 제어 중',inactive:'조향 제어 꺼짐',unknown:'상태 확인 불가'};
@@ -654,6 +655,35 @@ $('pinLog').onclick=async()=>{
   const result=await response.json();syncReplayPin(result.pinned);
  }catch(e){showError(e.message)}finally{button.disabled=false}
 };
+// Downloads from the replay screen: the log, and each stored camera video when there are several (f, e, q).
+function renderReplayDownloads(log){
+ const details=$('replayDownload'),menu=$('replayDownloadMenu');
+ details.classList.toggle('is-empty',!log);if(!log){details.open=false;menu.replaceChildren();return}
+ const items=recordingDownloads(log,'../../'),videos=items.filter(item=>item.video);
+ const nodes=items.filter(item=>!item.video).map(downloadLink);
+ if(videos.length>1){const heading=document.createElement('p');heading.textContent='영상 선택';nodes.push(heading)}
+ menu.replaceChildren(...nodes,...videos.map(downloadLink));
+}
+$('replayDownloadMenu').addEventListener('click',e=>{if(e.target.closest('a'))$('replayDownload').open=false});
+// Choose the roomier side on short screens and scroll within the available space.
+function placeReplayDownloads(){
+ const details=$('replayDownload'),menu=$('replayDownloadMenu');
+ if(!details.open)return;
+ menu.style.left='';menu.style.top='';menu.style.bottom='';menu.style.maxHeight='';
+ // Measure the button, not the menu's animated translateY position.
+ const box=details.getBoundingClientRect(),gap=6,margin=12;
+ const overflow=box.left+menu.offsetWidth-(document.documentElement.clientWidth-margin);
+ if(overflow>0)menu.style.left=-overflow+'px';
+ const bottom=Math.min(innerHeight,document.querySelector('.playback')?.getBoundingClientRect().top??innerHeight)-8;
+ const below=Math.max(0,bottom-box.bottom-gap),above=Math.max(0,box.top-gap-margin);
+ const opensAbove=menu.offsetHeight>below&&above>below;
+ if(opensAbove){menu.style.top='auto';menu.style.bottom='calc(100% + 6px)'}
+ menu.style.maxHeight=(opensAbove?above:below)+'px';
+}
+$('replayDownload').addEventListener('toggle',placeReplayDownloads);window.addEventListener('resize',placeReplayDownloads);
+window.addEventListener('scroll',placeReplayDownloads,{passive:true});
+document.addEventListener('click',e=>{const details=$('replayDownload');if(details.open&&!details.contains(e.target))details.open=false});
+document.addEventListener('keydown',e=>{const details=$('replayDownload');if(e.key==='Escape'&&details.open){details.open=false;details.querySelector('summary').focus()}});
 async function loadLogNavigation(){
  const buttons=[$('previousLog'),$('nextLog')];
  try{
@@ -668,6 +698,7 @@ async function loadLogNavigation(){
   const tags=$('replayTags');tags.replaceChildren(...recordingTagBadges(active?.tags).childNodes);tags.hidden=!active?.tags?.length;
   tagButton.onclick=()=>editRecordingTags([active],()=>loadLogNavigation());
   syncReplayPin(!!active?.pinned);$('pinLog').disabled=!active;
+  renderReplayDownloads(active);
   if(data||active)renderRecordingName($('routeName'),data?.route||active.name,recordingNameFiles).id='route';
   populateSegments(logs,current);
   const index=logs.findIndex(log=>log.id===current);

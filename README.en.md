@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.7.3**
+Feature reference: **0.8.0**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -117,7 +117,7 @@ Set automatic conversion, concurrent jobs and original-video retention in **Conv
 
 **변환 및 저장 설정** (Conversion and storage settings) provides automatic conversion, 1–4 concurrent jobs and original-video retention. qcamera TS is remuxed to MP4; front/wide HEVC is transcoded to H.264 MP4, requiring more processing. Replay analysis is gzip-compressed.
 
-Original retention defaults to on. When off, successfully converted and verified TS/HEVC originals are removed. Changing the setting does not immediately delete existing originals. **영상 다운로드** (Download video) checks front → qcamera → wide and prefers that camera's original, otherwise its MP4.
+Original retention defaults to on. When off, successfully converted and verified TS/HEVC originals are removed. Changing the setting does not immediately delete existing originals. **영상 다운로드** (Download video) downloads a single available video directly, or offers a choice of front, wide and low-resolution cameras when several exist. Each camera prefers its original, falling back to MP4. The download button in the replay header also offers the log and videos.
 
 Progress uses stage weights: log reading 25%, analysis 50–75% based on analyzed/total frames, video processing/verification 75–100%. The bar is hidden during finalization. These percentages are not a remaining-time estimate.
 
