@@ -26,7 +26,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   await page.evaluate(()=>document.fonts.ready);
   assert(await page.evaluate(()=>[...document.fonts].some(face=>face.family==='Pretendard Variable'&&face.status==='loaded')),'bundled Korean font loads through Ingress');
   assert((await page.locator('body').evaluate(e=>getComputedStyle(e).fontFamily)).includes('Pretendard Variable'));
-  await page.locator('.log-row').first().locator('.replay').click();await page.locator('#play:enabled').waitFor();
+  await page.locator(`.log-row[data-id="${ids[0]}"] .replay`).click();await page.locator('#play:enabled').waitFor();
   const open=async()=>{await page.locator('#bookmarkOpen').click();await page.locator('.bookmark-title:enabled').waitFor()},modal=page.locator('.bookmark-dialog');
   const seek=async time=>page.locator('#seek').evaluate((e,time)=>{e.value=time;e.dispatchEvent(new Event('input',{bubbles:true}))},time);
   const save=async()=>{await modal.locator('.bookmark-save').click();await modal.locator('.bookmark-result').getByText('북마크를 저장했습니다.',{exact:true}).waitFor()};
@@ -47,7 +47,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   let failed=true;await page.route('**/bookmarks',route=>route.request().method()==='POST'&&failed?route.fulfill({status:503,json:{error:'저장 테스트 오류'}}):route.continue());
   await modal.locator('.bookmark-title').fill('재시도');await modal.locator('.bookmark-save').click();await modal.getByText('저장 테스트 오류',{exact:true}).waitFor();assert.equal(await modal.locator('.bookmark-title').inputValue(),'재시도');failed=false;await save();assert.equal(read(ids[0]).bookmarks.length,3);
   page.once('dialog',d=>d.accept());await modal.getByRole('button',{name:'수정된 장면 삭제',exact:true}).click();await modal.getByText('북마크를 삭제했습니다.',{exact:true}).waitFor();assert.equal(read(ids[0]).bookmarks.length,2);assert.equal(await page.locator('.bookmark-marker').count(),2);
-  await modal.locator('.bookmark-close').click();await page.locator('.back').click();await page.locator('.log-row').first().waitFor();await page.locator('.log-row').nth(1).locator('.replay').click();await page.locator('#play:enabled').waitFor();await open();await modal.getByText('저장된 장면이 없습니다.',{exact:true}).waitFor();assert.equal(await page.locator('.bookmark-marker').count(),0);assert.deepEqual(errors,[]);
+  await modal.locator('.bookmark-close').click();await page.locator('.back').click();await page.locator('.log-row').first().waitFor();await page.locator(`.log-row[data-id="${ids[1]}"] .replay`).click();await page.locator('#play:enabled').waitFor();await open();await modal.getByText('저장된 장면이 없습니다.',{exact:true}).waitFor();assert.equal(await page.locator('.bookmark-marker').count(),0);assert.deepEqual(errors,[]);
   console.log('PASS: bookmark capture/edit/delete, safe notes, responsive dialog, pause/play-preserving synchronized seeks, markers, reload, failure retry and segment isolation');
  }finally{await browser?.close();if(python.exitCode===null){python.kill();await once(python,'exit')}fs.rmSync(dir,{recursive:true,force:true})}
 })().catch(error=>{console.error(error);process.exitCode=1});
