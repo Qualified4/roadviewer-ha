@@ -18,6 +18,21 @@ class ConversionTests(unittest.TestCase):
  def row(self,n,status,**kwargs):
   p=self.root/f'{n:032x}';p.mkdir();(p/'rlog.zst').write_bytes(b'log');(p/'qcamera.ts').write_bytes(b'ts')
   server.save_meta(p,dict(id=p.name,name='test',uploaded=n,status=status,**kwargs));return p
+ def test_library_sorts_route_counter_and_segment_not_upload_time(self):
+  names=['000003d8--26e55cbb04 / 구간 9','000003d8--26e55cbb04 / 구간 35',
+         '000003d9--26e55cbb04 / 구간 1','000003d8--26e55cbb04 / 구간 44',
+         '000003df--26e55cbb04 / 구간 0','000003e0--26e55cbb04 / 구간 0','custom']
+  for i,name in enumerate(names,1):
+   p=self.row(i,'ready');m=server.read_meta(p);m.update(name=name,uploaded=100-i);server.save_meta(p,m)
+  with patch.object(server,'cleanup_uploads'):
+   rows=self.request('get','/api/logs').json['logs']
+  self.assertEqual([m['name'] for m in rows],[names[i] for i in [5,4,2,3,1,0,6]])
+  # The same identity in original filename form has the same ordering key.
+  self.assertEqual(server.recording_order(dict(name='000003d8--26e55cbb04--44',id='x')),
+                   server.recording_order(dict(name=names[3],id='x')))
+  self.assertEqual(server.recording_order(dict(name='000003d8--26e55cbb04 / 구간 044',id='x')),
+                   server.recording_order(dict(name=names[3],id='x')))
+
  def test_disable_leaves_running_and_manual_jobs_then_enables_oldest_first(self):
   rows=[self.row(3,'queued'),self.row(1,'unconverted'),self.row(2,'processing'),self.row(4,'queued',manual_conversion=True),self.row(5,'unconverted',auto_excluded=True),self.row(6,'error')]
   self.assertEqual(self.setting(False).status_code,200)
