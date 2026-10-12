@@ -47,6 +47,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const expanded=await page.locator('#foldHeading').getAttribute('aria-expanded');
   await page.locator('#routeName .copy-recording').click();
   assert.equal(await page.locator('#foldHeading').getAttribute('aria-expanded'),expanded,'copy must not fold heading');
+  // The tag button sits on the same row: on a stuck heading a tap must reach it, not the fold control.
+  const tagHit=await page.locator('#editReplayTags').evaluate(button=>{const r=button.getBoundingClientRect();return button.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))});
+  assert(tagHit,'tag button must be above the fold control');
+  await page.locator('#editReplayTags').click();
+  assert.equal(await page.locator('#foldHeading').getAttribute('aria-expanded'),expanded,'tag edit must not fold heading');
+  assert(await page.locator('dialog[open]').count()>0,'tag editor opens');
   assert.equal(await page.evaluate(()=>copied.length),2);assert.deepEqual(errors,[]);
   console.log('PASS: shortened names, original copy, leading zero/text cases, clipboard fallback/error, replay copy over fold control and unchanged route grouping');
  }finally{await browser.close()}
