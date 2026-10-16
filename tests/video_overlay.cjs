@@ -114,32 +114,32 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const transitions=await page.evaluate(()=>{
    window.boxFixture=data.frames[0];
    data.frames=Array.from({length:65},(_,i)=>{const f=structuredClone(boxFixture);f.t=i*.05;if(i<2||i>=18){f.ccncTargets=[];f.overlay.markers=[]}return f});
-   return [2,6,17,18,25,38].map(i=>ccncBoxTransitions(data.frames,i,data.frames[i].t).map(e=>({build:e.build,alpha:e.alpha})));
+   return [2,6,17,18,25,38].map(i=>ccncBoxTransitions(data.frames,i,data.frames[i].t).map(e=>({height:e.height,alpha:e.alpha})));
   });
-  assert.equal(transitions[0][0].build,0,'new box starts as its floor outline');assert.equal(transitions[0][0].alpha,1,'a new detection is fully visible from its first sample');
-  assert(transitions[1][0].build>0&&transitions[1][0].build<1);assert.equal(transitions[2][0].build,1,'build-up finishes within 700ms');
+  assert.equal(transitions[0][0].height,0,'new box starts flat');assert.equal(transitions[0][0].alpha,1,'a new detection is fully visible from its first sample');
+  assert(transitions[1][0].height>0&&transitions[1][0].height<1);assert.equal(transitions[2][0].height,1,'rise finishes within 450ms');
   assert.equal(transitions[3][0].alpha,.4,'the first missing sample dims the box at once');assert(transitions[4][0].alpha>0&&transitions[4][0].alpha<1);assert.deepEqual(transitions[5],[],'disappeared box is removed after 600ms fade without a hold');
   const earlyFade=await page.evaluate(()=>ccncBoxTransitions(data.frames,19,.95)[0].alpha);assert(earlyFade<1&&earlyFade>0,'fade begins immediately without a hold');
   assert.deepEqual(await page.evaluate(()=>ccncBoxTransitions(data.frames,31,1.55)),[],'600ms exit has finished');
-  await page.evaluate(()=>setTime(.1));const entering=await overlayImage();await page.evaluate(()=>setTime(.85));const grown=await overlayImage();assert.notEqual(entering,grown,'box visibly builds up');
+  await page.evaluate(()=>setTime(.1));const entering=await overlayImage();await page.evaluate(()=>setTime(.85));const grown=await overlayImage();assert.notEqual(entering,grown,'box visibly rises');
   const maxAlpha=()=>page.locator('#videoOverlay').evaluate(c=>{const pixels=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let max=0;for(let i=3;i<pixels.length;i+=4)max=Math.max(max,pixels[i]);return max});
   const opaqueEdges=await maxAlpha();await page.evaluate(()=>setTime(1.25));assert((await maxAlpha())<opaqueEdges,'faces and edges fade together');
   const pausedBox=await overlayImage();await page.waitForTimeout(180);assert.equal(await overlayImage(),pausedBox,'box animation freezes while paused');
   await page.evaluate(()=>setTime(1.9));assert(!(await pixels()),'exit removes all box pixels');
-  await page.evaluate(()=>setTime(.1));assert.equal(await overlayImage(),entering,'backward seeking repeats the same build-up');
+  await page.evaluate(()=>setTime(.1));assert.equal(await overlayImage(),entering,'backward seeking repeats the same growth');
   await page.evaluate(()=>{data.frames[20]=structuredClone(data.frames[12]);data.frames[20].t=1;setTime(1)});
   assert.equal(await page.evaluate(()=>ccncBoxTransitions(data.frames,idx,t).length),1,'reappearance replaces fading slot without duplicate');
-  assert.equal(await page.evaluate(()=>ccncBoxTransitions(data.frames,idx,t)[0].build),1,'short dropout does not restart the build-up');
+  assert.equal(await page.evaluate(()=>ccncBoxTransitions(data.frames,idx,t)[0].height),1,'short dropout does not restart rising from the ground');
   const flicker=await page.evaluate(()=>{
    const frames=Array.from({length:60},(_,i)=>{const f=structuredClone(boxFixture);f.t=i*.05;if(i<2||i%3===0){f.ccncTargets=i%2?null:[];f.overlay.markers=[]}return f});
    const values=[20,21,22,23,24].map(i=>ccncBoxTransitions(frames,i,frames[i].t));
    const before=ccncBoxTransitions(frames,20,1);frames[20].valid=false;const gap=ccncBoxTransitions(frames,21,1.05);
    const fresh=Array.from({length:60},(_,i)=>{const f=structuredClone(boxFixture);f.t=i*.05;if(i>2&&i<40){f.ccncTargets=[];f.overlay.markers=[]}return f});
-   return {values:values.map(row=>row.map(e=>[e.build,e.alpha])),gap,before:before.length,newBuild:ccncBoxTransitions(fresh,40,2)[0].build};
+   return {values:values.map(row=>row.map(e=>[e.height,e.alpha])),gap,before:before.length,newHeight:ccncBoxTransitions(fresh,40,2)[0].height};
   });
-  assert(flicker.values.every(row=>row.length===1&&row[0][0]===1),'short dropouts do not restart the build-up');
+  assert(flicker.values.every(row=>row.length===1&&row[0][0]===1),'short dropouts do not restart rising from the ground');
   assert.deepEqual(flicker.values.map(row=>row[0][1]>.99?'on':row[0][1]>.3&&row[0][1]<=.4?'dip':'?'),['on','dip','on','on','dip'],'each missing sample shows as a visible blink');
-  assert.equal(flicker.before,1);assert.deepEqual(flicker.gap,[],'never fade across invalid log data');assert.equal(flicker.newBuild,0,'a detection after a completed exit builds up anew');
+  assert.equal(flicker.before,1);assert.deepEqual(flicker.gap,[],'never fade across invalid log data');assert.equal(flicker.newHeight,0,'a detection after a completed exit grows anew');
   // Same car moving FF -> LF slides and recolors instead of fading out and popping in; positions glide between samples.
   const motion=await page.evaluate(()=>{
    const shift=(f,dx)=>f.overlay.markers[0].box=f.overlay.markers[0].box.map(p=>[p[0]+dx*p[2],p[1],p[2]]);
@@ -155,16 +155,40 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    document.getElementById('ccncMotion').checked=false;
    const off={handoff:at(20,1),fade:at(21,1.05),glide:xOf(ccncBoxTransitions(glide,10,.525)[0])};
    document.getElementById('ccncMotion').checked=true;
-   return {start:start.map(e=>[e.target.slot,e.build,e.color]),mid:mid.map(e=>[e.target.slot,xOf(e),e.color]),x0,x1,done:done.map(e=>[e.target.slot,e.color]),
-    gx,ga:gA[0]/gA[2],gb:gB[0]/gB[2],glideAnimated:g.animated,farStart:farStart.map(e=>[e.target.slot,e.build]),off:{handoff:off.handoff.map(e=>[e.target.slot,e.build]),fade:off.fade.filter(e=>e.target.slot==='FF').length,glide:off.glide}};
+   return {start:start.map(e=>[e.target.slot,e.height,e.color]),mid:mid.map(e=>[e.target.slot,xOf(e),e.color]),x0,x1,done:done.map(e=>[e.target.slot,e.color]),
+    gx,ga:gA[0]/gA[2],gb:gB[0]/gB[2],glideAnimated:g.animated,farStart:farStart.map(e=>[e.target.slot,e.height]),off:{handoff:off.handoff.map(e=>[e.target.slot,e.height]),fade:off.fade.filter(e=>e.target.slot==='FF').length,glide:off.glide}};
   });
   assert.deepEqual(motion.start.map(e=>e[0]),['LF'],'old FF slot does not fade out while the same car moves to LF');
-  assert.equal(motion.start[0][1],1,'a handed-off car does not rebuild like a new detection');assert.equal(motion.start[0][2],'#8deeff','handoff starts in the previous slot color');
+  assert.equal(motion.start[0][1],1,'a handed-off car does not rise like a new detection');assert.equal(motion.start[0][2],'#8deeff','handoff starts in the previous slot color');
   assert(motion.mid[0][1]<motion.x0&&motion.mid[0][1]>motion.x1,'box slides between the two slot positions');
   assert(!['#8deeff','#4aaaff'].includes(motion.mid[0][2]),'color crossfades during the slide');assert.deepEqual(motion.done,[['LF','#4aaaff']]);
   assert(motion.gx>motion.ga&&motion.gx<motion.gb&&motion.glideAnimated,'box position is interpolated between 20 Hz samples');
   assert(motion.farStart.some(e=>e[0]==='LF'&&e[1]===0)&&motion.farStart.some(e=>e[0]==='FF'),'a distant new car is a new detection, not a handoff');
   assert.deepEqual(motion.off,{handoff:[['LF',1]],fade:0,glide:motion.ga},'turning off smooth motion shows recorded samples as-is');
+  // Real hand-overs are not always back to back: the cluster may skip samples, send both slots for a moment,
+  // or move the car by up to a lane sideways. None of these may look like a new car rising.
+  const handovers=await page.evaluate(()=>{
+   const make=(ff,lf,dy=1)=>Array.from({length:40},(_,i)=>{const f=structuredClone(boxFixture);f.t=i*.05;const base=f.ccncTargets[0],box=f.overlay.markers[0].box;
+    f.ccncTargets=[];f.overlay.markers=[];
+    if(ff(i)){f.ccncTargets.push({...base});f.overlay.markers.push({kind:'ccnc',index:f.ccncTargets.length-1,box})}
+    if(lf(i)){f.ccncTargets.push({...base,slot:'LF',yRel:(base.yRel??0)+dy});f.overlay.markers.push({kind:'ccnc',index:f.ccncTargets.length-1,box:box.map(p=>[p[0]-.2*p[2],p[1],p[2]])})}
+    return f});
+   const view=(frames,i)=>ccncBoxTransitions(frames,i,frames[i].t).map(e=>[e.target.slot,e.height]);
+   const gap=make(i=>i<20,i=>i>=23),overlap=make(i=>i<23,i=>i>=20),wide=make(i=>i<20,i=>i>=20,3.4),twoCars=make(i=>true,i=>i>=20);
+   // FF's car moves to LF while FF picks up the next car further ahead.
+   const next=make(i=>true,i=>i>=20);for(let i=20;i<40;i++){next[i].ccncTargets[0].x+=25;next[i].overlay.markers[0].box=next[i].overlay.markers[0].box.map(p=>[p[0],p[1]-.1*p[2],p[2]])}
+   const nextView=[20,21,30].map(i=>ccncBoxTransitions(next,i,next[i].t).map(e=>[e.target.slot,e.height,e.color]));
+   const glide=ccncBoxTransitions(next,19,.975).map(e=>e.target.slot);
+   return {gap:[21,23,24,30].map(i=>view(gap,i)),overlap:[20,21,22,24].map(i=>view(overlap,i)),wide:[20,21].map(i=>view(wide,i)),twoCars:view(twoCars,20),nextView,glide};
+  });
+  assert.deepEqual(handovers.gap,[[['FF',1]],[['LF',1]],[['LF',1]],[['LF',1]]],'skipped samples: FF dims, then LF takes over without rising and FF stops fading');
+  assert.deepEqual(handovers.overlap,[[['LF',1]],[['LF',1]],[['LF',1]],[['LF',1]]],'both slots sent briefly: one box, no rise');
+  assert.deepEqual(handovers.wide,[[['LF',1]],[['LF',1]]],'a lane-wide sideways move is still the same car');
+  assert.deepEqual(handovers.nextView[0].map(e=>e.slice(0,2)),[['LF',1],['FF',0]],'the car that was FF slides to LF; the next car in FF rises');
+  assert.equal(handovers.nextView[0][0][2],'#8deeff','LF starts in the FF color it came from');
+  assert.deepEqual(handovers.nextView[2].map(e=>e.slice(0,2)),[['LF',1],['FF',1]]);
+  assert.deepEqual(handovers.glide,['FF'],'no glide from one car to another within a slot');
+  assert.deepEqual(handovers.twoCars,[['LF',0],['FF',1]],'a second car next to a staying FF rises as a new detection');
   const savedMotion=await page.evaluate(()=>{const e=document.getElementById('ccncMotion');e.click();const saved=JSON.parse(localStorage.getItem('roadviewer-display-preferences')).checks.ccncMotion;e.click();return saved});
   assert.equal(savedMotion,false,'smooth motion setting is saved with the display preferences');
   await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>setTime(.1));assert.equal(await overlayImage(),grown,'reduced motion shows full box immediately');

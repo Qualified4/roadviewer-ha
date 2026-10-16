@@ -325,9 +325,9 @@ function blindspotLevels(frames,index,time){
  });
 }
 // Slot transitions use log time: pause/seek/replay cannot leave a stale animation behind.
-// New detections build up: the floor outline shows at once, edges rise from its corners, the top closes and the faces fill in; a car that moves to another slot (e.g. FF -> LF on a lane
-// change) slides there instead of fading out and appearing again; positions glide between 20 Hz samples.
-// The "부드러운 움직임" setting turns all of this off and shows each sample as recorded.
+// New detections rise from the ground; a car that moves to another slot (e.g. FF -> LF on a lane change) slides
+// there instead of fading out and rising again; positions glide between 20 Hz samples. A missing sample dims the
+// box at once so brief dropouts stay visible. The "부드러운 움직임" setting turns the motion off.
 const CCNC_SLOTS=['LF','FF','RF'];
 function ccncSmoothMotion(){return motionAllowed()&&document.getElementById('ccncMotion')?.checked!==false}
 function mixColor(a,b,k){
@@ -337,7 +337,8 @@ function mixColor(a,b,k){
 function lerpBox(a,b,k){return a.map((p,i)=>p.map((v,j)=>v+(b[i][j]-v)*k))}
 function ccncBoxTransitions(frames,index,time){
  const current=frames[index];if(!current?.valid)return [];
- const enter=.7,slide=.3,fade=.6,motion=ccncSmoothMotion();
+ // overlap: the old slot may still be sent for a moment after the new one starts.
+ const rise=.45,slide=.3,fade=.6,overlap=.3,motion=ccncSmoothMotion();
  const find=(i,slot)=>{
   const frame=frames[i];if(!frame?.valid||!Array.isArray(frame.ccncTargets))return null;
   const targetIndex=frame.ccncTargets.findIndex(target=>target.slot===slot),target=frame.ccncTargets[targetIndex];
@@ -347,15 +348,48 @@ function ccncBoxTransitions(frames,index,time){
  };
  const connected=i=>i>0&&frames[i-1].valid&&frames[i].t-frames[i-1].t<=.15;
  const ease=value=>{const p=Math.max(0,Math.min(1,value));return p*p*(3-2*p)};
- const easeOut=value=>1-Math.pow(1-Math.max(0,Math.min(1,value)),3);
- // Same car, other slot: no shared ID exists, so match by position between consecutive samples.
- const near=(a,b)=>Math.abs(a.target.x-b.target.x)<=3&&Math.abs((a.target.yRel??-a.target.y)-(b.target.yRel??-b.target.y))<=1.5;
- const handoff=(i,slot)=>{
-  if(!connected(i)||find(i-1,slot))return null;const entry=find(i,slot);
-  for(const other of CCNC_SLOTS){if(other===slot||find(i,other))continue;const previous=find(i-1,other);if(previous&&near(previous,entry))return previous}
-  return null;
+ // The cluster message has no ID, so cars are followed by position: from one sample to the next a car moves
+ // a few metres at most (more across a dropout); a different slot may differ by up to a lane sideways.
+ const near=(a,b,dt)=>Math.abs(a.target.x-b.target.x)<=3+8*dt&&Math.abs((a.target.yRel??-a.target.y)-(b.target.yRel??-b.target.y))<=4;
+ // Where the car shown in `slot` at sample i was just before: the same slot ('same'), another slot it moved
+ // from ('other', e.g. FF -> LF while FF may already show the next car), nothing (a new car), or the log start.
+ const origin=(i,slot)=>{
+  const entry=find(i,slot);if(!connected(i))return {kind:'boundary'};
+  let sameSeen=false;
+  for(let j=i-1;j>=0&&connected(j+1)&&frames[i].t-frames[j].t<=fade;j--){
+   const dt=frames[i].t-frames[j].t,same=find(j,slot);
+   if(same&&!sameSeen){sameSeen=true;if(near(same,entry,dt))return {kind:'same',index:j}}
+   for(const other of CCNC_SLOTS){
+    if(other===slot)continue;const previous=find(j,other);if(!previous||!near(previous,entry,dt))continue;
+    // That car must have left its slot: the slot is empty now or soon (both may be sent for a moment),
+    // or it already shows another car.
+    let left=false;
+    for(let k=i;frames[k]?.valid&&frames[k].t-frames[i].t<=overlap&&(k===i||connected(k));k++){
+     const now=find(k,other);if(!now||!near(previous,now,frames[k].t-frames[j].t)){left=true;break}
+    }
+    if(left)return {kind:'other',index:j,slot:other,...previous};
+   }
+   if(sameSeen)return {kind:'new'};
+  }
+  return {kind:'new'};
  };
- const movedOn=(i,slot)=>{const previous=find(i-1,slot);return !!previous&&CCNC_SLOTS.some(other=>other!==slot&&!find(i-1,other)&&find(i,other)&&near(previous,find(i,other)))};
+ // First sample of the car's run in this slot (bridging dropouts) and where it came from; limited lookback.
+ const runOf=(i,slot,limit)=>{
+  let start=i,from=origin(i,slot);
+  while(from.kind==='same'&&frames[i].t-frames[from.index].t<=limit){start=from.index;from=origin(start,slot)}
+  return {start,from:from.kind==='same'?{kind:'boundary'}:from};
+ };
+ // A car that moved to another slot is drawn there only: its old slot neither lingers nor fades out.
+ const movedAway=(slot,source)=>{
+  for(const other of CCNC_SLOTS){
+   if(other===slot||!find(index,other))continue;
+   const run=runOf(index,other,fade+overlap+slide);
+   if(run.from.kind!=='other'||run.from.slot!==slot||run.start>index)continue;
+   // Still the same car in the old slot (or its fading copy), not a new car that has arrived there since.
+   if(source<run.start||near(find(source,slot),run.from,Math.abs(frames[source].t-frames[run.from.index].t)))return true;
+  }
+  return false;
+ };
  const entries=[];
  for(const slot of CCNC_SLOTS){
   let source=index,entry=find(source,slot);
@@ -364,44 +398,32 @@ function ccncBoxTransitions(frames,index,time){
   }
   if(!entry)continue;
   const fading=source!==index;
-  // The car continues in another slot; that slot draws it, sliding from here.
-  if(fading&&motion&&movedOn(source+1,slot))continue;
-  // A missing sample is shown at once as a clear dip (40%), then the box fades out; brief detection
-  // dropouts therefore stay visible as blinks instead of being smoothed away.
+  if(motion&&movedAway(slot,source))continue;
+  // A missing sample is shown at once as a clear dip (40%), then the box fades out.
   const alpha=fading?.4*(1-ease((time-frames[source+1].t)/fade)):1;
   if(alpha<=0)continue;
-  let build=1,marker=entry.marker,color=ccncTargetColor(entry.target),animated=fading;
+  let height=1,marker=entry.marker,color=ccncTargetColor(entry.target),animated=fading;
   if(motion){
-   const appearTime=fading?frames[source+1].t:time;let start=source;
-   // Reuse the visible slot across brief dropouts, including stale CAN samples.
-   // Only inspect enough history to cover the entry, never the whole log.
-   while(appearTime-frames[start].t<Math.max(enter,slide)){
-    let previous=start;
-    while(connected(previous)&&frames[start].t-frames[previous-1].t<=fade){
-     previous--;if(find(previous,slot))break;
-    }
-    if(previous===start||!find(previous,slot))break;
-    start=previous;
-   }
+   const appearTime=fading?frames[source+1].t:time,run=runOf(source,slot,Math.max(rise,slide));
    // Glide between this sample and the next one while playing.
    if(!fading){
     const before=time<frames[index].t?index-1:index,after=before+1;
     const a=before===index?entry:find(before,slot),b=after===index?entry:find(after,slot);
-    if(a&&b&&frames[after]&&connected(after)&&before>=0){
+    if(a&&b&&frames[after]&&connected(after)&&before>=0&&near(a,b,frames[after].t-frames[before].t)){
      const k=Math.max(0,Math.min(1,(time-frames[before].t)/(frames[after].t-frames[before].t)));
      if(k>0&&k<1){marker={...marker,box:lerpBox(a.marker.box,b.marker.box,k)};animated=true}
     }
    }
    // A target already present at a log boundary is not a new detection.
-   if(connected(start)){
-    const since=appearTime-frames[start].t,from=handoff(start,slot);
-    if(from){
+   if(run.from.kind!=='boundary'){
+    const since=appearTime-frames[run.start].t,from=run.from;
+    if(from.kind==='other'){
      const k=ease(since/slide);
      if(k<1){marker={...marker,box:lerpBox(from.marker.box,marker.box,k)};color=mixColor(ccncTargetColor(from.target),color,k);animated=true}
-    }else{build=Math.max(0,Math.min(1,since/enter));if(build<1)animated=true}
+    }else{height=ease(since/rise);if(height<1)animated=true}
    }
   }
-  entries.push({...entry,marker,color,height:1,build,alpha,animated});
+  entries.push({...entry,marker,color,height,alpha,animated});
  }
  return entries;
 }
