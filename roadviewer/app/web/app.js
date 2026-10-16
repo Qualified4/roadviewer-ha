@@ -240,7 +240,7 @@ window.addEventListener('blur',finishSeekDrag);
 v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)videoFailure('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
-for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncRoad','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
+for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','ccncRoad','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Space and arrows keep their own meaning on focused controls, links and menus.
 document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
@@ -325,9 +325,19 @@ function blindspotLevels(frames,index,time){
  });
 }
 // Slot transitions use log time: pause/seek/replay cannot leave a stale animation behind.
+// New detections build up: the floor outline shows at once, edges rise from its corners, the top closes and the faces fill in; a car that moves to another slot (e.g. FF -> LF on a lane
+// change) slides there instead of fading out and appearing again; positions glide between 20 Hz samples.
+// The "부드러운 움직임" setting turns all of this off and shows each sample as recorded.
+const CCNC_SLOTS=['LF','FF','RF'];
+function ccncSmoothMotion(){return motionAllowed()&&document.getElementById('ccncMotion')?.checked!==false}
+function mixColor(a,b,k){
+ const parse=c=>[1,3,5].map(i=>parseInt(c.slice(i,i+2),16)),[x,y]=[parse(a),parse(b)];
+ return '#'+x.map((v,i)=>Math.round(v+(y[i]-v)*k).toString(16).padStart(2,'0')).join('');
+}
+function lerpBox(a,b,k){return a.map((p,i)=>p.map((v,j)=>v+(b[i][j]-v)*k))}
 function ccncBoxTransitions(frames,index,time){
  const current=frames[index];if(!current?.valid)return [];
- const rise=.45,fade=.6,motion=motionAllowed();
+ const enter=.7,slide=.3,fade=.6,motion=ccncSmoothMotion();
  const find=(i,slot)=>{
   const frame=frames[i];if(!frame?.valid||!Array.isArray(frame.ccncTargets))return null;
   const targetIndex=frame.ccncTargets.findIndex(target=>target.slot===slot),target=frame.ccncTargets[targetIndex];
@@ -337,21 +347,35 @@ function ccncBoxTransitions(frames,index,time){
  };
  const connected=i=>i>0&&frames[i-1].valid&&frames[i].t-frames[i-1].t<=.15;
  const ease=value=>{const p=Math.max(0,Math.min(1,value));return p*p*(3-2*p)};
+ const easeOut=value=>1-Math.pow(1-Math.max(0,Math.min(1,value)),3);
+ // Same car, other slot: no shared ID exists, so match by position between consecutive samples.
+ const near=(a,b)=>Math.abs(a.target.x-b.target.x)<=3&&Math.abs((a.target.yRel??-a.target.y)-(b.target.yRel??-b.target.y))<=1.5;
+ const handoff=(i,slot)=>{
+  if(!connected(i)||find(i-1,slot))return null;const entry=find(i,slot);
+  for(const other of CCNC_SLOTS){if(other===slot||find(i,other))continue;const previous=find(i-1,other);if(previous&&near(previous,entry))return previous}
+  return null;
+ };
+ const movedOn=(i,slot)=>{const previous=find(i-1,slot);return !!previous&&CCNC_SLOTS.some(other=>other!==slot&&!find(i-1,other)&&find(i,other)&&near(previous,find(i,other)))};
  const entries=[];
- for(const slot of ['LF','FF','RF']){
+ for(const slot of CCNC_SLOTS){
   let source=index,entry=find(source,slot);
   if(!entry&&motion)while(connected(source)&&time-frames[source].t<fade){
    entry=find(--source,slot);if(entry)break;
   }
   if(!entry)continue;
-  const fading=source!==index,alpha=fading?1-ease((time-frames[source+1].t)/fade):1;
+  const fading=source!==index;
+  // The car continues in another slot; that slot draws it, sliding from here.
+  if(fading&&motion&&movedOn(source+1,slot))continue;
+  // A missing sample is shown at once as a clear dip (40%), then the box fades out; brief detection
+  // dropouts therefore stay visible as blinks instead of being smoothed away.
+  const alpha=fading?.4*(1-ease((time-frames[source+1].t)/fade)):1;
   if(alpha<=0)continue;
-  let height=1;
+  let build=1,marker=entry.marker,color=ccncTargetColor(entry.target),animated=fading;
   if(motion){
-   const growthTime=fading?frames[source+1].t:time;let start=source;
+   const appearTime=fading?frames[source+1].t:time;let start=source;
    // Reuse the visible slot across brief dropouts, including stale CAN samples.
-   // Only inspect enough history to establish a fully grown box, never the whole log.
-   while(growthTime-frames[start].t<rise){
+   // Only inspect enough history to cover the entry, never the whole log.
+   while(appearTime-frames[start].t<Math.max(enter,slide)){
     let previous=start;
     while(connected(previous)&&frames[start].t-frames[previous-1].t<=fade){
      previous--;if(find(previous,slot))break;
@@ -359,10 +383,25 @@ function ccncBoxTransitions(frames,index,time){
     if(previous===start||!find(previous,slot))break;
     start=previous;
    }
+   // Glide between this sample and the next one while playing.
+   if(!fading){
+    const before=time<frames[index].t?index-1:index,after=before+1;
+    const a=before===index?entry:find(before,slot),b=after===index?entry:find(after,slot);
+    if(a&&b&&frames[after]&&connected(after)&&before>=0){
+     const k=Math.max(0,Math.min(1,(time-frames[before].t)/(frames[after].t-frames[before].t)));
+     if(k>0&&k<1){marker={...marker,box:lerpBox(a.marker.box,b.marker.box,k)};animated=true}
+    }
+   }
    // A target already present at a log boundary is not a new detection.
-   if(connected(start))height=ease((growthTime-frames[start].t)/rise);
+   if(connected(start)){
+    const since=appearTime-frames[start].t,from=handoff(start,slot);
+    if(from){
+     const k=ease(since/slide);
+     if(k<1){marker={...marker,box:lerpBox(from.marker.box,marker.box,k)};color=mixColor(ccncTargetColor(from.target),color,k);animated=true}
+    }else{build=Math.max(0,Math.min(1,since/enter));if(build<1)animated=true}
+   }
   }
-  entries.push({...entry,height,alpha,animated:fading||height<1});
+  entries.push({...entry,marker,color,height:1,build,alpha,animated});
  }
  return entries;
 }
