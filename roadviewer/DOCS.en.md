@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.8.2**.
+This guide describes **0.8.3**.
 
 [한국어](DOCS.md) · English
 
@@ -177,7 +177,7 @@ These are processed Hyundai CCNC display commands, not unfiltered radar objects.
 
 LF/RF are blue; FF is light cyan. Boxes assume width 1.8m, length 4.5m and default height 1.30m. The anchor is the rear face's bottom center. Orientation follows the midpoint of both lanes at the object and 5m ahead; missing lane geometry falls back to straight orientation. Boxes remain on the ground and ignore marker-height adjustment.
 
-Height is adjustable from 0–3m (zero draws a ground rectangle); fill opacity is 0–100%, default 30%. Transparent boxes show far faces/edges. They grow in over 450ms and fade out over 600ms without a hold period. Brief detection gaps do not restart growth from zero. Animation follows log time and reduced-motion preferences.
+Height is adjustable from 0–3m (zero draws a ground rectangle); fill opacity is 0–100%, default 30%. Transparent boxes show far faces/edges. A new detection shows its floor and label from the first frame, then over 700ms its edges rise, the top closes and the faces fill in. A frame without the detection dims the box to 40% at once before a 600ms fade, so even one-frame dropouts show as blinks; a quick return restores full brightness without replaying the entry. When the same car moves to another slot (e.g. FF→LF, within 3m along and 1.5m across) it slides there over 300ms and changes color instead of disappearing and reappearing. During playback, positions are interpolated between 20 Hz samples. Turning off **Smooth motion** disables all of this and shows each recorded sample as-is (on by default, remembered). Animation follows log time and reduced-motion preferences.
 
 LF/FF/RF display is enabled by default, with saved selections respected. Their messages lack TrackID and speed; those labels show an unavailable value. A missing/stale command is not treated as a valid detection.
 

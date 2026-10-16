@@ -160,7 +160,7 @@
    });
   }
   drawBlinkers(context,on('ccncRoad')?(frame.roadSignals??road):null,t,left+12,left+vw-12,top+vh*.72,blinkerLaneAnchors(frame.valid?frame.overlay.lanes:null).map(xy),true);
-  function drawBox(marker,color,target,growth=1,opacity=1){
+  function drawBox(marker,color,target,growth=1,opacity=1,build=1){
    const animatedHeight=boxHeight*growth;
    if(marker.box?.length!==8)return;
    const projected=marker.box.map((p,i)=>i<4?p:p.map((v,j)=>marker.box[i-4][j]+(v-marker.box[i-4][j])*animatedHeight/1.5));
@@ -170,22 +170,53 @@
     const points=face.map(i=>corners[i]),area=points.reduce((sum,p,i)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1]},0);
     return {face,points,front:animatedHeight===0||area<0,depth:face.reduce((sum,i)=>sum+projected[i][2],0)/face.length};
    }).sort((a,b)=>b.depth-a.depth);
+   // Build-up of a new detection (app.js ccncBoxTransitions): the floor outline is there from the first sample,
+   // the four edges rise from its corners, the top closes from the corners inward, then the faces fill in.
+   const stage=(from,to)=>{const p=Math.max(0,Math.min(1,(build-from)/(to-from)));return p*p*(3-2*p)};
+   const rise=stage(0,.45),close=stage(.3,.6),fill=stage(.45,1),building=build<1&&animatedHeight>0;
+   const floor=new Set(['0:1','1:3','2:3','0:2']);
    context.save();context.fillStyle=color;context.strokeStyle=color;context.lineWidth=1;
+   if(building){
+    // The floor gets a faint fill of its own so the footprint reads before the box exists.
+    const points=[0,1,3,2].map(i=>corners[i]);context.globalAlpha=opacity*.22*(1-fill);
+    context.beginPath();points.forEach(([x,y],i)=>i?context.lineTo(x,y):context.moveTo(x,y));context.closePath();context.fill();
+   }
    for(const {points} of faces){
     const ys=points.map(p=>p[1]),gradient=context.createLinearGradient(0,Math.min(...ys),0,Math.max(...ys)+1);
     gradient.addColorStop(0,color);gradient.addColorStop(1,'#246a9f');context.fillStyle=gradient;
     context.beginPath();points.forEach(([x,y],i)=>i?context.lineTo(x,y):context.moveTo(x,y));context.closePath();
-    context.globalAlpha=opacity*(animatedHeight===0?boxOpacity:1-Math.sqrt(1-boxOpacity));context.fill();
+    context.globalAlpha=opacity*(building?fill:1)*(animatedHeight===0?boxOpacity:1-Math.sqrt(1-boxOpacity));context.fill();
    }
    const edges=new Map();
    for(const {face,front} of faces)face.forEach((a,i)=>{const b=face[(i+1)%face.length],key=[a,b].sort((a,b)=>a-b).join(':');edges.set(key,{a,b,front:front||edges.get(key)?.front})});
-   for(const {a,b,front} of edges.values()){
-    context.shadowColor=color;context.shadowBlur=front?5:2;context.globalAlpha=opacity*(front?.95:.4*(1-boxOpacity));context.beginPath();context.moveTo(...corners[a]);context.lineTo(...corners[b]);context.stroke();
+   const line=(p,q)=>{context.beginPath();context.moveTo(...p);context.lineTo(...q);context.stroke()};
+   const toward=(p,q,k)=>[p[0]+(q[0]-p[0])*k,p[1]+(q[1]-p[1])*k];
+   const tips=[];
+   for(const [key,{a,b,front}] of edges){
+    context.shadowColor=color;context.shadowBlur=front?5:2;
+    const base=opacity*(front?.95:.4*(1-boxOpacity));
+    if(!building){context.globalAlpha=base;line(corners[a],corners[b]);continue}
+    // Hidden edges join only as the faces fill, so the construction reads as clean lines.
+    const alpha=base*(front?1:fill);if(alpha<=0)continue;context.globalAlpha=alpha;
+    if(floor.has(key))line(corners[a],corners[b]);
+    else if((a<4)!==(b<4)){
+     const [low,high]=a<4?[a,b]:[b,a];if(rise<=0)continue;
+     const tip=toward(corners[low],corners[high],rise);line(corners[low],tip);if(rise<1&&front)tips.push(tip);
+    }else if(close>0){
+     line(corners[a],toward(corners[a],corners[b],close/2));line(corners[b],toward(corners[b],corners[a],close/2));
+    }
    }
+   context.shadowBlur=0;
+   // A small bright point leads each rising edge.
+   if(tips.length){context.fillStyle='#e9fbff';context.globalAlpha=opacity*.9;for(const tip of tips){context.beginPath();context.arc(...tip,1.6,0,Math.PI*2);context.fill()}}
    context.fillStyle=color;context.globalAlpha=.9*opacity;
    const visibleCorners=new Set([...edges.values()].filter(e=>e.front||boxOpacity<1).flatMap(e=>[e.a,e.b]));
-   for(const i of visibleCorners){context.beginPath();context.arc(...corners[i],1.5,0,Math.PI*2);context.fill()}
-   context.shadowBlur=0;context.globalAlpha=opacity;
+   for(const i of visibleCorners){
+    if(building&&i>=4){if(close<=0)continue;context.globalAlpha=.9*opacity*close}else context.globalAlpha=.9*opacity;
+    context.beginPath();context.arc(...corners[i],1.5,0,Math.PI*2);context.fill();
+   }
+   context.globalAlpha=opacity;
+   // The label sits at its final place from the first sample, so it does not travel with the edges.
    const text=label(target),below=on('boxLabelsBelow');
    const x=below?(corners[0][0]+corners[1][0])/2:(corners[4][0]+corners[5][0])/2;
    const y=below?Math.max(...corners.slice(0,4).map(p=>p[1]))+14:Math.min(...corners.slice(4).map(p=>p[1]))-14;
@@ -196,7 +227,7 @@
   if(on('ccncTargets')){
    const boxes=ccncBoxTransitions(data.frames,idx,t).sort((a,b)=>b.target.x-a.target.x);
    boxAnimating=boxes.some(entry=>entry.animated);
-   for(const entry of boxes)drawBox(entry.marker,ccncTargetColor(entry.target),entry.target,entry.height,entry.alpha);
+   for(const entry of boxes)drawBox(entry.marker,entry.color,entry.target,entry.height,entry.alpha,entry.build);
   }
   for(const marker of frame.overlay.markers){
    if(marker.kind==='ccnc')continue;
