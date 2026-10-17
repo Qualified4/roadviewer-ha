@@ -26,7 +26,8 @@
   {id:'control',title:'자동 제어 상태',binary:true,lines:[cc('enabled','시스템 켜짐'),cc('latActive','자동 조향'),cc('longActive','자동 가감속')]},
   {id:'ccncVisible',title:'LF · FF · RF 표시 상태',binary:true,booleanLabels:['표시 안 함','표시 중'],note:'로그에 기록된 계기판 차량 표시 명령입니다. 기록이 없거나 오래된 구간은 확인 불가로 표시합니다.',lines:['LF','FF','RF'].map(slot=>line('ccnc',slot+'Visible',slot))},
   {id:'ccncDistance',title:'LF · FF · RF 전방 거리',unit:'m',note:'박스에 적용한 거리 복원값입니다. 필터링된 계기판 명령 기반으로 실제 레이더 원시 거리와 다를 수 있습니다.',lines:['LF','FF','RF'].map(slot=>line('ccnc',slot+'Distance',slot))},
-  {id:'ccncLateral',title:'LF · FF · RF 좌우 위치 (yRel)',unit:'m',note:'박스에 적용한 경로·차선 보정값입니다. 왼쪽은 양수, 오른쪽은 음수이며 원시 레이더 좌표와 다를 수 있습니다.',lines:['LF','FF','RF'].map(slot=>line('ccnc',slot+'Lateral',slot))},
+  {id:'ccncLateral',title:'LF · FF · RF 좌우 위치 (LATERAL)',unit:'m',note:'계기판 송신값 LF_LATERAL·FF_LATERAL·RF_LATERAL입니다. 경로·차선 곡률을 복원하기 전 값이며, FF는 −6.4~6.3m 부호 범위로 해석합니다. 박스 위치나 레이더 yRel과 다를 수 있습니다.',lines:['LF','FF','RF'].map(slot=>line('ccncLateral',slot+'Lateral',slot+'_LATERAL'))},
+  {id:'ccncYRel',title:'LF · FF · RF 좌우 위치 (yRel)',unit:'m',note:'박스에 적용한 경로·차선 보정 후 좌우 위치입니다. 왼쪽은 양수, 오른쪽은 음수이며 계기판 LATERAL 송신값이나 레이더 원시 좌표와 다를 수 있습니다.',lines:['LF','FF','RF'].map(slot=>line('ccnc',slot+'Lateral',slot+' yRel'))},
   {id:'cruiseState',title:'크루즈 상태',binary:true,note:'차량의 크루즈 상태입니다. 순정 ACC 작동과 openpilot 자동 가감속 활성 여부는 다를 수 있습니다.',lines:[cs('cruiseEnabled','작동'),cs('cruiseAvailable','사용 가능'),cc('longActive','자동 가감속')]},
  ];
  const defaultGraphs=[...graphs];
@@ -47,6 +48,14 @@
  function series(source){
   const cacheKey=source.topic+'.'+source.key;if(seriesCache.has(cacheKey))return seriesCache.get(cacheKey);
   const stream=payload?.streams?.[source.topic];let result={times:stream?.times||[],values:stream?.values?.[source.key]||[]};
+  if(source.topic==='ccncLateral'){
+   const frames=data?.frames||[],slot=source.key.replace(/Lateral$/,'');
+   // displayY preserves the command before path/lane restoration. Undo only the slot sign convention.
+   result={times:frames.map(frame=>frame.t),values:frames.map(frame=>{
+    const target=frame.valid?frame.ccncTargets?.find(target=>target.slot===slot):null;
+    return Number.isFinite(target?.displayY)?Math.round(target.displayY*(slot==='LF'?-1:1)*10)/10:null;
+   })};
+  }
   if(source.fallback&&!result.values.some(valid))result=series(source.fallback);
   if(payload)seriesCache.set(cacheKey,result);return result;
  }

@@ -14,6 +14,9 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
   telemetry.streams.ccnc={times,values:Object.fromEntries(['LF','FF','RF'].flatMap((slot,i)=>[[slot+'Visible',times.map(()=>i===1)],[slot+'Distance',times.map(()=>i===1?9.25:null)],[slot+'Lateral',times.map(()=>i===1?-1.873:null)]]))};
   telemetry.streams.carControl.values.targetAngle=times.map(()=>null); // Older controller angle fallback.
   const data={route:'Telemetry test',key:'telemetry-v1',duration:2,logStart:0,logEnd:2,warnings:[],video:{start:0,duration:2},frames:Array.from({length:41},(_,i)=>({t:i/20,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}))};
+  for(const frame of data.frames)frame.ccncTargets=[
+   {slot:'LF',displayY:-.7,yRel:3.2},{slot:'FF',displayY:-.5,yRel:-1.873},{slot:'RF',displayY:.8,yRel:-2.6}
+  ];
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
@@ -81,7 +84,7 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
   await page.evaluate(()=>setTime(.1));assert.equal(await displayedRange(),'0.0–1.0s');
   await page.evaluate(()=>setTime(1.9));assert.equal(await displayedRange(),'1.0–2.0s');
   await page.locator('#graphReset').click();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('0.0–2.0'));
-  await page.locator('#chooseGraphs').click();assert(await page.locator('#graphDialog').isVisible());assert.equal(await page.locator('#graphOptions input').count(),23);
+  await page.locator('#chooseGraphs').click();assert(await page.locator('#graphDialog').isVisible());assert.equal(await page.locator('#graphOptions input').count(),24);
   for(const input of await page.locator('#graphOptions input').all())await input.check();
   await page.locator('#graphDialog').evaluate(e=>e.scrollTop=0);
   const graphOrder=()=>page.locator('.graph-option input').evaluateAll(es=>es.map(e=>e.value));
@@ -103,9 +106,9 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
   await page.locator('#chooseGraphs').click();assert.equal((await graphOrder())[0],'acceleration');
   await page.locator('#graphOptions input[value="acceleration"]').uncheck();await page.locator('#graphOptions input[value="acceleration"]').check();
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
-  await page.keyboard.press('Escape');await page.locator('#graphDialog').waitFor({state:'hidden'});assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),23);
+  await page.keyboard.press('Escape');await page.locator('#graphDialog').waitFor({state:'hidden'});assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),24);
   await page.evaluate(()=>setTime(.1));
-  for(const [id,value] of [['ccncVisible','FF: 표시 중'],['ccncVisible','LF: 표시 안 함'],['ccncDistance','FF: 9.25'],['ccncLateral','FF: -1.87'],['angle','목표: 3.00'],['autoPedals','가스 출력: 25.00'],['accelPlan','제어 목표: 0.30'],['jerk','요청: 0.40'],['accelRequest','감속 요청: 켜짐'],['longState','속도 제어: 해당'],['longState','비활성: 아님'],['curvature','요청: 0.00123'],['lateralAccel','목표: 1.20'],['rpm','기록값: 1500.00']])assert((await page.locator(`[data-graph="${id}"] .telemetry-legend`).textContent()).includes(value),id+' should show logged data');
+  for(const [id,value] of [['ccncVisible','FF: 표시 중'],['ccncVisible','LF: 표시 안 함'],['ccncDistance','FF: 9.25'],['ccncLateral','LF_LATERAL: 0.70'],['ccncLateral','FF_LATERAL: -0.50'],['ccncLateral','RF_LATERAL: 0.80'],['ccncYRel','FF yRel: -1.87'],['ccncYRel','LF yRel: —'],['ccncYRel','RF yRel: —'],['angle','목표: 3.00'],['autoPedals','가스 출력: 25.00'],['accelPlan','제어 목표: 0.30'],['jerk','요청: 0.40'],['accelRequest','감속 요청: 켜짐'],['longState','속도 제어: 해당'],['longState','비활성: 아님'],['curvature','요청: 0.00123'],['lateralAccel','목표: 1.20'],['rpm','기록값: 1500.00']])assert((await page.locator(`[data-graph="${id}"] .telemetry-legend`).textContent()).includes(value),id+' should show logged data');
   assert((await page.locator('[data-graph="pedals"] .telemetry-source-note').textContent()).includes('기록값이 모두 0'));
   assert((await page.locator('[data-graph="angle"] .telemetry-source-note').textContent()).includes('출력 기록: 이 로그에 유효한 기록 없음'));
   assert(await page.locator('#telemetryGraphs').evaluate(e=>e.scrollHeight>e.clientHeight));
@@ -115,7 +118,7 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
   await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=0);
   if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-desktop.png'});
   await page.locator('#roadTab').click();await settle(page);assert(await page.locator('#roadView').isVisible());await page.locator('#telemetryTab').click();await settle(page);assert.equal(reads,1,'switching tabs reuses data');
-  await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.locator('#telemetryTab').getAttribute('aria-selected'),'true');assert.equal(await page.locator('.telemetry-chart').count(),23);
+  await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.locator('#telemetryTab').getAttribute('aria-selected'),'true');assert.equal(await page.locator('.telemetry-chart').count(),24);
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
   await page.setViewportSize({width:390,height:844});
   await page.locator('#chooseGraphs').click();await settle(page);const dialog=await page.locator('#graphDialog').boundingBox();assert(dialog.x>=0&&dialog.x+dialog.width<=390&&dialog.y>=0&&dialog.y+dialog.height<=844);
