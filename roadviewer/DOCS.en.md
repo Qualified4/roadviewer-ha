@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.8.4**.
+This guide describes **0.9.0**.
 
 [한국어](DOCS.md) · English
 
@@ -223,11 +223,11 @@ There are **23 graphs**:
 | Pedals and braking | Driver pedal input, driver pedal state, automatic gas/brake output, acceleration/deceleration requests, longitudinal control stage, standstill/brake hold |
 | Steering | Angle, steering rate, steering torque, automatic torque command, driver intervention, curvature, lateral acceleration |
 | Control state | Automatic control, cruise state |
-| Cluster vehicles | LF/FF/RF display state, forward distance, lateral yRel |
+| Cluster vehicles | LF/FF/RF display state, forward distance, lateral LATERAL and yRel graphs |
 
 Initially selected: speed, acceleration, driver pedal input, angle, intervention and automatic control. Zoom with +/− or return to the whole segment. Click/drag to seek; zoomed playback follows the current time near the center except at the ends. Dragging temporarily holds the viewport; release resumes following.
 
-Driver pedal values differ from automatic requests and final commands. Some vehicles report brake pressed but no brake amount. Torque is a sensor/command value, not proof of driver intervention; `steeringPressed` provides that state. Target steering angle and RPM availability depend on the vehicle. Zero-only valid fields cannot distinguish true zeros from unpopulated defaults; missing fields are not fabricated. LF/FF/RF graphs use the restored display positions, not raw radar coordinates.
+Driver pedal values differ from automatic requests and final commands. Some vehicles report brake pressed but no brake amount. Torque is a sensor/command value, not proof of driver intervention; `steeringPressed` provides that state. Target steering angle and RPM availability depend on the vehicle. Zero-only valid fields cannot distinguish true zeros from unpopulated defaults; missing fields are not fabricated. The LATERAL graph shows LF_LATERAL/FF_LATERAL/RF_LATERAL cluster commands before path/lane restoration; FF uses the signed −6.4–6.3m range. The separate yRel graph shows the restored box positions, positive left and negative right. Both can differ from raw radar coordinates. Existing replay data supplies the pre-restoration values without reanalysis; missing values remain unavailable.
 
 ## Camera information and steering icon
 
