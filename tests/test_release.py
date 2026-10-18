@@ -87,5 +87,33 @@ class ReleaseTests(unittest.TestCase):
                 release["release_platforms"]({"manifests": invalid})
 
 
+
+class VersionMarkerTests(unittest.TestCase):
+    """0.9.1 shipped with the page header and asset cache keys still at 0.9.0."""
+
+    def test_release_version_everywhere(self):
+        import re
+        root = Path(__file__).resolve().parents[1]
+        version = re.search(r'^version: "([^"]+)"$', (root / "roadviewer/config.yaml").read_text(), re.M)[1]
+        markers = {
+            "roadviewer/Dockerfile": [r"ARG BUILD_VERSION=([0-9.]+)"],
+            "README.md": [r"\*\*([0-9.]+)\*\*"], "README.en.md": [r"\*\*([0-9.]+)\*\*"],
+            "roadviewer/README.md": [r"\*\*([0-9.]+)\*\*"], "roadviewer/README.en.md": [r"\*\*([0-9.]+)\*\*"],
+            "roadviewer/DOCS.md": [r"\*\*([0-9.]+)\*\*"], "roadviewer/DOCS.en.md": [r"\*\*([0-9.]+)\*\*"],
+            "docs/device-api.md": [r"Road Viewer ([0-9.]+)\*\*", r"roadviewer:([0-9.]+)"],
+            "docs/device-api.en.md": [r"Road Viewer ([0-9.]+)\*\*", r"roadviewer:([0-9.]+)"],
+            "roadviewer/app/web/index.html": [r"\?v=([0-9.]+)", r'app-version">v([0-9.]+)<'],
+            "roadviewer/app/web/library.html": [r"\?v=([0-9.]+)", r'app-version">v([0-9.]+)<'],
+        }
+        for name, patterns in markers.items():
+            text = (root / name).read_text(encoding="utf-8")
+            for pattern in patterns:
+                found = re.findall(pattern, text)
+                with self.subTest(file=name, pattern=pattern):
+                    self.assertTrue(found)
+                    self.assertEqual(set(found), {version})
+        self.assertTrue((root / "roadviewer/CHANGELOG.md").read_text(encoding="utf-8").startswith(f"## {version}\n"))
+
+
 if __name__ == "__main__":
     unittest.main()
