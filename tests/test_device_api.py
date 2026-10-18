@@ -29,11 +29,11 @@ class DeviceTests(unittest.TestCase):
   r=self.external('/api/device/pair',json={'code':code,'metadata':{'name':'comma','dongle_id':'dongle'}})
   self.assertEqual(r.status_code,201,r.json);return r.json
  def batch(self,segments=1):return {'batch_id':'batch_012345678901','segments':[{'route':'00000395--0d0eda17c5','segment':i,'files':[{'kind':kind,'size':len(payload),'sha256':hashlib.sha256(payload).hexdigest()} for kind,payload in [('rlog.zst',b'log'+bytes([i])),('qcamera.ts',b'video')]]} for i in range(segments)]}
- def signed(self,body=None,stamp=None,nonce=None,signature=None):
+ def signed(self,body=None,stamp=None,nonce=None,signature=None,extra=None):
   body=body or self.batch();raw=json.dumps(body).encode();stamp=str(stamp if stamp is not None else int(time.time()));self.counter+=1;nonce=nonce or f'nonce_{self.counter:020d}'
   canonical='\n'.join(('RV1',self.device['device_id'],stamp,nonce,'POST','/api/device/uploads',hashlib.sha256(raw).hexdigest()))
   headers={'Content-Type':'application/json','X-RV-Device':self.device['device_id'],'X-RV-Timestamp':stamp,'X-RV-Nonce':nonce,'X-RV-Signature':signature or hmac.new(self.device['device_secret'].encode(),canonical.encode(),hashlib.sha256).hexdigest()}
-  return self.external('/api/device/uploads',data=raw,headers=headers)
+  return self.external('/api/device/uploads',data=raw,headers={**headers,**(extra or {})})
  def token(self,result):return {'Authorization':'Bearer '+result['token']}
  def test_test_page_has_no_management_access_or_cors(self):
   r=self.external('/api/device/test','GET')
@@ -118,6 +118,13 @@ class DeviceTests(unittest.TestCase):
    self.assertEqual(self.signed(body).json['state'],'completed')
    self.assertEqual(s.storage_policy.reserved(),0)
   self.assertEqual(len(s.recording_paths()),2)
+ def test_chunk_size_follows_announced_client_limit(self):
+  # Older uploaders announce nothing and reject anything above 256 KiB.
+  cases=((None,262144),('garbage',262144),('0',262144),('65536',65536),(str(1024*1024),1024*1024),(str(8*1024*1024),s.CHUNK_SIZE))
+  for n,(limit,expected) in enumerate(cases):
+   body=self.batch();body['batch_id']+=f'c{n}'
+   r=self.signed(body,extra={} if limit is None else {'X-RV-Max-Chunk':limit});self.assertEqual(r.status_code,201,r.json)
+   self.assertEqual(r.json['chunk_size'],expected,limit)
  def test_session_reissue_binding_cancel_expiry_and_revoke(self):
   r=self.signed().json;again=self.signed().json;self.assertEqual(r['id'],again['id'])
   self.assertEqual(self.external('/api/device/uploads/'+r['id'],'GET',headers=self.token(r)).status_code,401)

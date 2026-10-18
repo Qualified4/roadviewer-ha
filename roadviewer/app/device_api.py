@@ -9,6 +9,8 @@ PAIR_TTL = 300
 SESSION_TTL = 7200
 CLOCK_SKEW = 120
 NONCE = re.compile(r'^[A-Za-z0-9_-]{16,64}$')
+# Uploaders before Road Viewer 0.9.1 reject a chunk size above 256 KiB and announce no limit.
+LEGACY_CHUNK_SIZE = 256 * 1024
 
 class DeviceAPI:
     def __init__(self, s):
@@ -172,12 +174,18 @@ class DeviceAPI:
             meta = dict(device_id=id, batch_id=body['batch_id'], batch_hash=digest, expires_at=time.time() + SESSION_TTL)
             return self.issue_token(p, meta, 201)
 
+    def chunk_size(self):
+        # X-RV-Max-Chunk is unsigned on purpose: it can only lower what this server accepts.
+        try: limit = int(request.headers.get('X-RV-Max-Chunk', ''))
+        except ValueError: limit = 0
+        return min(self.s.CHUNK_SIZE, limit if limit >= 1 else LEGACY_CHUNK_SIZE)
+
     def issue_token(self, p, meta, status=200):
         token = secrets.token_urlsafe(32); meta['token_hash'] = hashlib.sha256(token.encode()).hexdigest()
         idle = p.stat().st_mtime
         atomic_json(p/'device.json', meta)
         self.s.os.utime(p, (idle, idle))  # Token renewal is not upload progress.
-        return jsonify(id=p.name, token=token, expires_at=meta['expires_at'], idle_timeout_seconds=self.s.UPLOAD_IDLE_SECONDS, chunk_size=self.s.CHUNK_SIZE, files=self.offsets(p)), status
+        return jsonify(id=p.name, token=token, expires_at=meta['expires_at'], idle_timeout_seconds=self.s.UPLOAD_IDLE_SECONDS, chunk_size=self.chunk_size(), files=self.offsets(p)), status
 
     def offsets(self, p):
         files = json.loads((p/'manifest.json').read_text())

@@ -50,7 +50,25 @@ class TLSBoundary(unittest.TestCase):
     stamp=str(int(time.time()));nonce='tls_nonce_0123456789';raw=json.dumps(body).encode()
     canonical='\n'.join(('RV1',device['device_id'],stamp,nonce,'POST','/api/device/uploads',hashlib.sha256(raw).hexdigest()))
     headers={'X-RV-Device':device['device_id'],'X-RV-Timestamp':stamp,'X-RV-Nonce':nonce,'X-RV-Signature':hmac.new(device['device_secret'].encode(),canonical.encode(),hashlib.sha256).hexdigest()}
-    self.assertEqual(call('/api/device/uploads',body,headers)[0],201)
+    code,session=call('/api/device/uploads',body,headers);self.assertEqual(code,201)
+    # A full chunk passes nginx's body limit; one byte more is refused before it is stored.
+    import server
+    data=os.urandom(server.CHUNK_SIZE)+b'tail';body['batch_id']='tls_batch_large_0123'
+    body['segments'][0]['files'][0].update(size=len(data),sha256=hashlib.sha256(data).hexdigest())
+    stamp=str(int(time.time()));nonce='tls_nonce_large_0123';raw=json.dumps(body).encode()
+    canonical='\n'.join(('RV1',device['device_id'],stamp,nonce,'POST','/api/device/uploads',hashlib.sha256(raw).hexdigest()))
+    headers={'X-RV-Device':device['device_id'],'X-RV-Timestamp':stamp,'X-RV-Nonce':nonce,'X-RV-Signature':hmac.new(device['device_secret'].encode(),canonical.encode(),hashlib.sha256).hexdigest()}
+    headers['X-RV-Max-Chunk']=str(8*1024*1024)  # An uploader that accepts large chunks.
+    code,session=call('/api/device/uploads',body,headers);self.assertEqual(code,201,session);self.assertEqual(session['chunk_size'],server.CHUNK_SIZE)
+    def put(offset,payload):
+     req=urllib.request.Request(f"https://localhost:8443/api/device/uploads/{session['id']}/files/0?offset={offset}",data=payload,method='PUT',
+                                headers={'Authorization':'Bearer '+session['token'],'Content-Type':'application/octet-stream'})
+     try:
+      with urllib.request.urlopen(req,context=context,timeout=20) as response:return response.status,json.load(response)
+     except urllib.error.HTTPError as e:return e.code,e.read()
+    self.assertIn(put(0,data[:server.CHUNK_SIZE+1])[0],(400,413))
+    self.assertEqual(put(0,data[:server.CHUNK_SIZE]),(200,{'received':server.CHUNK_SIZE}))
+    self.assertEqual(put(server.CHUNK_SIZE,data[server.CHUNK_SIZE:]),(200,{'received':len(data)}))
    finally:
     for proc in (nginx,gunicorn):proc.terminate()
     for proc in (nginx,gunicorn):

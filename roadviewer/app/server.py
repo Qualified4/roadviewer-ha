@@ -381,7 +381,7 @@ def register_files(files):
   for id in dict.fromkeys(m['id'] for m in staged+updated if m['status']=='queued' and not m.get('original_restored')):submit(id)
 # Small requests pass through HA Ingress and remote proxy upload limits.
 UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)
-CHUNK_SIZE=256*1024
+CHUNK_SIZE=2*1024*1024
 UPLOAD_IDLE_SECONDS=15*60
 UPLOAD_MAX_SECONDS=2*60*60
 UPLOAD_SESSION_LIMIT=32
