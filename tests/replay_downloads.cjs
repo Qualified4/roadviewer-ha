@@ -42,7 +42,11 @@ const replay={route:'test',key:'k',duration:1,warnings:[],video:null,frames:[{t:
   assert(await page.locator('#replayDownloadMenu a').first().evaluate(a=>a.hasAttribute('download')));
   await page.waitForFunction(()=>document.getElementById('replayDownloadMenu').getAnimations().every(a=>a.playState!=='running'));
   const box=await page.locator('#replayDownloadMenu').boundingBox();assert(box.x>=0&&box.x+box.width<=390,'menu fits a phone screen');
+  // The page re-places an open menu from its resize handler, which a busy runner can run after
+  // setViewportSize resolves. A listener added now runs after the page's own handler.
+  await page.evaluate(()=>{window.__narrowed=false;addEventListener('resize',()=>{window.__narrowed=true},{once:true})});
   await page.setViewportSize({width:320,height:800});
+  await page.waitForFunction(()=>window.__narrowed);
   const narrow=await page.locator('#replayDownloadMenu').boundingBox();assert(narrow.x>=0&&narrow.x+narrow.width<=320,'menu fits 320px');
   // Escape and outside taps close the menu; Space on the button does not start playback.
   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.getElementById('replayDownload').open);
