@@ -2,7 +2,7 @@
 
 한국어 · [English](device-api.en.md)
 
-구현 기준: **Road Viewer 0.9.0**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
+구현 기준: **Road Viewer 0.9.1**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
 
 공유 데이터 디렉터리는 **Gunicorn worker 1개와 여러 thread**를 전제로 합니다. 같은 디렉터리를 사용하는 worker나 서버 복제본을 추가하지 마세요.
 
@@ -69,6 +69,7 @@ Ingress의 **로그 업로드 → 외부 장치 연결 → 새 장치 연결**�
 | `X-RV-Nonce` | 새 난수 16~64자, `[A-Za-z0-9_-]`; 최소 128비트 난수 권장 |
 | `X-RV-Signature` | HMAC-SHA256 소문자 16진수 |
 | `Content-Type` | application/json |
+| `X-RV-Max-Chunk` | 선택. 장치가 받을 수 있는 최대 조각 바이트 수(서명 대상 아님) |
 
 시각 오차는 서버 기준 ±120초입니다. nonce는 허용 시각 구간 전체와 재시작 이후에도 재사용할 수 없습니다. 인증 성공 후 본문 검증·용량 검사에 실패하거나 응답을 잃어도 새 nonce를 사용합니다. 미만료 nonce 기록은 최대 10,000개이며 인증 시 만료분을 정리합니다.
 
@@ -151,10 +152,12 @@ HEVC는 Annex B parameter-set 헤더가 있어야 합니다. 변환 worker가 �
   "token":"<임의 세션 토큰>",
   "expires_at":1780000000.5,
   "idle_timeout_seconds":900,
-  "chunk_size":262144,
+  "chunk_size":2097152,
   "files":[{"index":0,"name":"00000395--0d0eda17c5--7--rlog.zst","size":123456,"received":0}]
 }
 ```
+
+`chunk_size`는 `X-RV-Max-Chunk`와 서버 최대값 2097152(2 MiB) 중 작은 값입니다. 헤더가 없으면 0.9.0 이전 업로더와 호환되도록 262144(256 KiB)를 줍니다. 이 헤더는 서버가 받는 크기를 낮출 수만 있어 서명하지 않습니다.
 
 세션은 배치 전체를 담당합니다. 전역 최대 32개 활성 장치 세션과 256개 미만료 완료 영수증을 허용합니다. 절대 유효기간은 처음 생성부터 **7200초**로 늘어나지 않습니다. 성공한 조각 전송은 **900초** 유휴 만료를 갱신하지만 상태 조회나 서명된 재연결·토큰 재발급은 갱신하지 않습니다.
 
@@ -169,11 +172,11 @@ HEVC는 Annex B parameter-set 헤더가 있어야 합니다. 변환 worker가 �
 | 요청 | 의미 |
 |---|---|
 | `GET /api/device/uploads/<id>` | `{id,state:"uploading",expires_at,files:[{index,name,size,received}]}` |
-| `PUT /api/device/uploads/<id>/files/<index>?offset=<바이트 위치>` | 1~262144바이트 조각, `application/octet-stream`; 200 `{"received":<누적 위치>}` |
+| `PUT /api/device/uploads/<id>/files/<index>?offset=<바이트 위치>` | 1~`chunk_size`바이트 조각(서버 최대 2 MiB), `application/octet-stream`; 200 `{"received":<누적 위치>}` |
 | `POST /api/device/uploads/<id>/finish` | 전체 수신·검증 후 등록 |
 | `DELETE /api/device/uploads/<id>` | 유휴 미완료 세션 취소 |
 
-파일 index는 manifest의 구간·파일 순서입니다. 파일별 순서대로 보내고 겹치는 동시 쓰기를 하지 않습니다. 선언 크기를 넘는 조각은 거부합니다. offset은 조각 번호가 아니라 바이트 수입니다.
+파일 index는 manifest의 구간·파일 순서입니다. 파일별 순서대로 보내고 같은 파일에 겹치는 동시 쓰기를 하지 않습니다. 서로 다른 파일은 동시에 보낼 수 있습니다(연결 8개 한도). 선언 크기를 넘는 조각은 거부합니다. offset은 조각 번호가 아니라 바이트 수입니다.
 
 응답을 잃으면 GET으로 서버 위치를 확인합니다. 이미 받은 같은 바이트 범위는 재전송할 수 있지만, 빈 구간이나 기존 위치의 다른 내용은 409 `offset_conflict`입니다. 기존 바이트를 덮어쓸 수 없으므로 파일이 바뀌면 취소 후 새 세션을 사용합니다.
 
@@ -278,8 +281,8 @@ python3 -m venv /tmp/roadviewer-test-env
 실제 Nginx/Gunicorn TLS 경계를 검증하려면:
 
 ```bash
-docker build -t roadviewer:0.9.0 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.9.0 /tests/test_device_tls.py
+docker build -t roadviewer:0.9.1 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.9.1 /tests/test_device_tls.py
 ```
 
 컨테이너 안에서 임시 인증서로 통신하므로 포트 공개·공유기 변경은 필요하지 않습니다. 빌드는 네트워크가 필요하며 실제 DNS/NAT 검증을 대신하지 않습니다.
