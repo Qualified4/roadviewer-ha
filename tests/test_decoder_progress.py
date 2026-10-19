@@ -71,6 +71,8 @@ class DecoderProgressTests(unittest.TestCase):
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('sendcan',1);e.sendcan[0].address=0x161;e.sendcan[0].src=0;e.sendcan[0].dat=((1<<66)|(150<<69)|(1<<120)).to_bytes(32,'little');messages.append(e.to_bytes())
    # New reserved data is recognized, and a future union tag must not abort replay.
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.customReservedRawData1=b'future metadata';messages.insert(1,e.to_bytes())
+   # The openpilot fork writes customReservedRawData2 (@155) at about 20 Hz; it is a known event, not an unsupported one.
+   e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.customReservedRawData2=b'fork data';messages.append(e.to_bytes())
    unknown=bytearray(messages[1]);schema=decoder.log.Event.schema
    self.assertEqual(int.from_bytes(unknown[:4],'little'),0) # one segment
    pointer=int.from_bytes(unknown[8:16],'little');offset=16+((pointer>>2)&0x3fffffff)*8+schema.node.struct.discriminantOffset*2
@@ -83,7 +85,7 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertFalse((dest/'data.json').exists())
    self.assertEqual(saved['cameraInfos'][0]['wideSensor'],'os04c10')
    for value,expected in zip(saved['cameraInfos'][0]['wideRpy'],[.01,.02,.03]):self.assertAlmostEqual(value,expected)
-   self.assertEqual(data['counts']['customReservedRawData1'],1);self.assertEqual(data['counts']['unknownEvent'],1)
+   self.assertEqual(data['counts']['customReservedRawData1'],1);self.assertEqual(data['counts']['customReservedRawData2'],1);self.assertEqual(data['counts']['unknownEvent'],1)
    self.assertTrue(any('이벤트 1개' in warning for warning in data['warnings']))
    # Camera information is stored once and referenced by index from each frame.
    self.assertEqual(saved['cameraInfos'][data['frames'][0]['cameraInfo']]['deviceId'],'test-device-id')
