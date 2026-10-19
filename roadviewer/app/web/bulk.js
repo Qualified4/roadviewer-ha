@@ -11,9 +11,12 @@
   $('bulkCount').textContent=`${selected.length} / ${rows.length}개 선택${pinned?` · 고정 ${pinned}개`:''}`;
   $('bulkTags').disabled=loading||running||!selected.length;
   convert.disabled=remove.disabled=del.disabled=loading||running||!selected.length;
-  remove.disabled=del.disabled=remove.disabled||(!includePinned.checked&&pinned===selected.length);
+  // Only pinned logs selected: removal is blocked by the protection, so say so next to the toggle that lifts it.
+  const blocked=!loading&&!running&&!includePinned.checked&&selected.length>0&&pinned===selected.length;
+  remove.disabled=del.disabled=remove.disabled||blocked;
   includePinned.disabled=loading||running;
-  $('bulkPinHint').textContent=includePinned.checked?'선택한 고정 로그도 제거·완전 삭제에 포함됩니다.':'고정된 로그는 제거·완전 삭제에서 보호합니다.';
+  includePinned.closest('.bulk-pin-option').classList.toggle('needs-pinned',blocked);
+  $('bulkPinHint').textContent=includePinned.checked?'선택한 고정 로그도 제거·완전 삭제에 포함됩니다.':blocked?`선택한 ${selected.length}개가 모두 고정 로그입니다. 제거·완전 삭제하려면 켜세요.`:'고정된 로그는 제거·완전 삭제에서 보호합니다.';
   close.disabled=running;
  }
  function addRow(log){

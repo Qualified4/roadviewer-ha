@@ -101,14 +101,18 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(logs[0].prepared_bytes,0);assert.equal(logs[0].pinned,true);
   await page.locator('#bulkClose').click();await page.locator('#bulkOpen').click();await page.waitForSelector('.bulk-log');
   assert(!(await include.isChecked()),'destructive override resets whenever opened');
-  await page.locator('#bulkAll').check();assert(await page.locator('#bulkDelete').isDisabled());await include.check();
+  await page.locator('#bulkAll').check();assert(await page.locator('#bulkDelete').isDisabled());
+  assert(await page.locator('.bulk-pin-option').evaluate(e=>e.classList.contains('needs-pinned')&&e.querySelector('#bulkPinHint').textContent.includes('모두 고정 로그')),'explains why removal is unavailable');
+  await include.check();assert(!(await page.locator('.bulk-pin-option').evaluate(e=>e.classList.contains('needs-pinned'))));
   for(const [width,height] of [[320,568],[768,844],[1280,844],[844,390]]){
    await page.setViewportSize({width,height});
    await page.locator('.bulk-help').evaluate(e=>e.open=true);
    const bounds=await page.locator('#bulkDialog').boundingBox(),footerBox=await page.locator('.bulk-footer').boundingBox();
    assert(bounds.x>=0&&bounds.y>=0&&bounds.x+bounds.width<=width&&bounds.y+bounds.height<=height);
-   assert(footerBox.y+footerBox.height<=height,'actions fit with expanded help');
+   assert(footerBox.y+footerBox.height<=height,'actions fit with expanded help '+width+'x'+height+' '+(footerBox.y+footerBox.height));
    assert(await page.locator('#bulkList').evaluate(e=>e.clientHeight>=50),'list remains usable with expanded help');
+   const toggle=await page.locator('.bulk-pin-option').boundingBox(),options=await page.locator('.bulk-options').boundingBox();
+   assert(toggle.y>=options.y-1&&toggle.y+toggle.height<=options.y+options.height+1&&toggle.y>=bounds.y,'pinned-delete toggle stays fully visible '+width+'x'+height);
    assert(await page.locator('#bulkDialog').evaluate(e=>e.scrollWidth<=e.clientWidth),'dialog has no horizontal overflow');
   }
   await page.locator('.bulk-help').evaluate(e=>e.open=false);

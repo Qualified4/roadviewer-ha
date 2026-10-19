@@ -159,6 +159,11 @@ struct OnroadEvent @0xc4fa6047f024e718 {
     audio0 @114;
 
     torqueNNLoad @118;
+    updateRebootRequired @125;
+    driverMonitorFallback @126;
+    systemReady @127;
+    impactDetected @128;
+    impactDashcamReboot @129;
 
     soundsUnavailableDEPRECATED @47;
   }
@@ -301,11 +306,7 @@ struct GPSNMEAData {
   nmea @2 :Text;
 }
 
-# android sensor_event_t
 struct SensorEventData {
-  version @0 :Int32;
-  sensor @1 :Int32;
-  type @2 :Int32;
   timestamp @3 :Int64;
 
   union {
@@ -324,7 +325,10 @@ struct SensorEventData {
 
   struct SensorVec {
     v @0 :List(Float32);
-    status @1 :Int8;
+
+    deprecated :group {
+      status @1 :Int8;
+    }
   }
 
   enum SensorSource {
@@ -342,7 +346,11 @@ struct SensorEventData {
     mmc5603nj @11;
   }
 
+  # formerly based on android sensor_event_t
   deprecated :group {
+    version @0 :Int32;
+    sensor @1 :Int32;
+    type @2 :Int32;
     uncalibrated @10 :Bool;
   }
 }
@@ -589,6 +597,7 @@ struct PandaState @0xa7649e2575e4591e {
   # reserved for forks building alternate experiences.
   controlsAllowedRESERVED1 @38 :Bool;
   controlsAllowedRESERVED2 @39 :Bool;
+  wakeOnCan @40 :Bool;
 
   enum FaultStatus {
     none @0;
@@ -1089,6 +1098,8 @@ struct ModelDataV2 {
     modelTurnSpeed @17 :Float32;
     laneChangeAvailableLeft @18 :Bool;
     laneChangeAvailableRight @19 :Bool;
+    laneChangeBlinkerHold @20 :LaneChangeDirection;  # carrot: hold this turn signal while a lever-requested change waits or is queued
+    leverTurn @21 :Bool;  # carrot: the turn desire comes from a latched lever (BlinkerLatchedTurn)
 
     deprecated :group {
       brakeDisengageProb @2 :Float32;
@@ -1239,6 +1250,12 @@ struct LongitudinalPlan @0xe00b5b3eba12876c {
   leadPreviewAccel @59 :Float32;  # deadbanded aLead - aEgo signal used by deceleration preview
   aChangeCost @60 :Float32;
   trafficStopModelLeadOffset @61 :Float32;  # 0 normally, +2 m for a confirmed model-vehicle stop
+  # Optional overspeed brake relief. Zero target/percent preserves legacy control.
+  cruiseCoastingTarget @62 :Float32;  # fixed physical m/s reference; 0 when ineligible
+  cruiseCoastingPercent @63 :UInt8;
+  signalDetectionSuspended @64 :Bool; # fresh vNavi motorway/urban expressway classification
+  signalObservationColor @65 :UInt8; # helper current evidence: 0 unknown, 1 red, 2 green, 3 mixed
+  signalAssistAction @66 :UInt8; # actual helper action: 0 none, 1 departure veto, 2 preparation, 3 confirmed green transition
 
   solverExecutionTime @35 :Float32;
 
@@ -1494,6 +1511,7 @@ struct ProcLog {
     memPss @17 :UInt64;        # Pss — shared pages split by mapper count
     memPssAnon @18 :UInt64;    # Pss_Anon — private anonymous (heap, stack)
     memPssShmem @19 :UInt64;   # Pss_Shmem — proportional MSGQ/tmpfs share
+    memPssMonoTime @20 :UInt64; # scan start in monotonic ns; 0 means unavailable (also older logs)
   }
 
   struct CPUTimes {
@@ -2222,6 +2240,16 @@ struct DriverMonitoringState {
   alert3Count @12 :Int8;
   noResponseCount @13 :Int8;
   noResponseForceDecel @14 :Bool;
+  cameraUnavailable @15 :Bool;
+  dm2Experimental @16 :Bool;
+  dm2StrictTimeRemaining @17 :Float32;
+  dm2WheelTimeoutFactor @18 :Float32 = 1;
+  dm2ForwardAttentionScore @19 :Float32;
+  dm2ForwardRecovery @20 :Bool;
+  dm2InteractionCredit @21 :Float32;
+  dm2VisionTimeoutFactor @22 :Float32 = 1;
+  dm2InteractionGraceRemaining @23 :Float32;
+  dm2Disabled @24 :Bool;
 
   alwaysOn @3 :Bool;
   alwaysOnLockout @4 :Bool;
@@ -2263,6 +2291,7 @@ struct DriverMonitoringState {
       pose @0: Bool;
       eye @1: Bool;
       phone @2: Bool;
+      sleep @3: Bool;
     }
 
     struct Pose {
@@ -2444,6 +2473,7 @@ struct UIDebug {
 
 struct ManagerState {
   processes @0 :List(ProcessState);
+  rebootRequired @1 :Bool; # checkout changed since manager startup
 
   struct ProcessState {
     name @0 :Text;
@@ -2694,6 +2724,7 @@ struct Event {
     navRouteNavd @125 :NavRoute;
     navInstructionCarrot @126 :NavInstruction;
     customReservedRawData1 @154 :Data;
+    customReservedRawData2 @155 :Data;
 
     # DO change the name of the field and struct
     # DON'T change the ID (e.g. @107)
