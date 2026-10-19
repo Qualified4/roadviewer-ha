@@ -34,9 +34,11 @@ class DecoderProgressTests(unittest.TestCase):
   self.assertEqual(target['yRel'],-1.873)
 
  def test_ccnc_road_bits(self):
-  bits=(2<<57)|(1<<66)|(250<<69)|(3<<105)|(12<<109)|(1<<120)
+  bits=(2<<57)|(1<<66)|(250<<69)|(8<<80)|(10<<84)|(4<<90)|(3<<105)|(12<<109)|(1<<120)
   road=decoder.ccnc_road(bits.to_bytes(32,'little'))
-  self.assertEqual(road,{'target':1,'distance':25.,'highlight':3,'left':1,'right':0,'blinkerLeft':True,'blinkerRight':False})
+  self.assertEqual(road,{'target':1,'distance':25.,'highlight':3,'left':1,'right':0,'laneLeft':8,'laneRight':4,'blinkerLeft':True,'blinkerRight':False})
+  # LANELINE_LEFT/RIGHT are 4 bits at 80/90; the neighbouring LANELINE_LEFT_POSITION (84) does not leak in.
+  self.assertEqual(decoder.ccnc_road(((15<<80)|(63<<84)|(15<<90)|(63<<94)).to_bytes(32,'little'))['laneLeft'],15)
   self.assertNotIn('highlightDistance',road)
   self.assertFalse(decoder.ccnc_road(bytes(32))['target'])
   self.assertIsNone(decoder.ccnc_road(bytes(16)))
@@ -68,7 +70,7 @@ class DecoderProgressTests(unittest.TestCase):
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('wideRoadCameraState');e.wideRoadCameraState.sensor='os04c10';messages.append(e.to_bytes())
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True
    e.init('sendcan',1);e.sendcan[0].address=0x162;e.sendcan[0].src=0;e.sendcan[0].dat=((4<<64)|(200<<69)).to_bytes(32,'little');messages.append(e.to_bytes())
-   e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('sendcan',1);e.sendcan[0].address=0x161;e.sendcan[0].src=0;e.sendcan[0].dat=((1<<66)|(150<<69)|(1<<120)).to_bytes(32,'little');messages.append(e.to_bytes())
+   e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('sendcan',1);e.sendcan[0].address=0x161;e.sendcan[0].src=0;e.sendcan[0].dat=((1<<66)|(150<<69)|(8<<80)|(4<<90)|(1<<120)).to_bytes(32,'little');messages.append(e.to_bytes())
    # New reserved data is recognized, and a future union tag must not abort replay.
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.customReservedRawData1=b'future metadata';messages.insert(1,e.to_bytes())
    # The openpilot fork writes customReservedRawData2 (@155) at about 20 Hz; it is a known event, not an unsupported one.
@@ -86,7 +88,7 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertEqual(saved['cameraInfos'][0]['wideSensor'],'os04c10')
    for value,expected in zip(saved['cameraInfos'][0]['wideRpy'],[.01,.02,.03]):self.assertAlmostEqual(value,expected)
    self.assertEqual(data['counts']['customReservedRawData1'],1);self.assertEqual(data['counts']['customReservedRawData2'],1);self.assertEqual(data['counts']['unknownEvent'],1)
-   self.assertTrue(any('이벤트 1개' in warning for warning in data['warnings']))
+   self.assertFalse(any('이벤트' in warning for warning in data['warnings']),'skipped new event types are not reported as a problem')
    # Camera information is stored once and referenced by index from each frame.
    self.assertEqual(saved['cameraInfos'][data['frames'][0]['cameraInfo']]['deviceId'],'test-device-id')
    self.assertEqual(saved['frames'][0]['ccncTargets'][0]['slot'],'FF')
@@ -97,6 +99,7 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertTrue(saved['frames'][-1]['roadSignals']['blindspotRight'])
    self.assertEqual(saved['frames'][0]['ccncRoad']['distance'],15)
    self.assertEqual(saved['frames'][0]['ccncRoad']['left'],1)
+   self.assertEqual((saved['frames'][0]['ccncRoad']['laneLeft'],saved['frames'][0]['ccncRoad']['laneRight']),(8,4))
    self.assertIsNone(saved['frames'][-1]['ccncRoad'])
    self.assertEqual(saved['route'],'Route / segment');self.assertNotIn('path',saved)
    self.assertEqual(json.loads((dest/'summary.json').read_text())['model_frames'],20)

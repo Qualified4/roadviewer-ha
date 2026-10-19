@@ -161,7 +161,20 @@ function buildReplayOverlay(frame,g){
   }
   markers.push(marker);
  });
- return {lanes:g.lanes.map(line=>line.map(screen)),edges:g.edges.map(line=>line.map(screen)),path:path.map(([x,y,z])=>screen([x,y,z+height])),
+ // Own-lane lines marked dashed: one ribbon per dash, sampled every 0.5 m (same width rule as band()).
+ const period=LANE_DASH+LANE_GAP,phase=laneDashPhase(frame);
+ const laneDashBands=g.lanes.map((points,i)=>{
+  if(LANE_LINE_CODES[laneLineCode(frame,i)]?.type!=='dashed'||points.length<2||!points.every(p=>p.length===3&&p.every(Number.isFinite)))return null;
+  const width=.15*Math.max(0,Math.min(1,Number.isFinite(frame.lp?.[i])?Math.min(.75,frame.lp[i]):0)),start=Math.max(0,points[0][0]),end=Math.min(120,points.at(-1)[0]),dashes=[];
+  for(let from=Math.floor((start+phase)/period)*period-phase;from<end;from+=period){
+   const a=Math.max(start,from),b=Math.min(end,from+LANE_DASH);if(b-a<.05)continue;
+   const xs=[];for(let x=a;x<b;x+=.5)xs.push(x);xs.push(b);
+   const ps=xs.map(x=>sample(points,x)).filter(Boolean);if(ps.length<2)continue;
+   dashes.push([-1,1].map(sign=>ps.map((p,k)=>{const n=normal(ps,k);return screen(p.map((v,j)=>v+n[j]*width*sign))})));
+  }
+  return dashes;
+ });
+ return {lanes:g.lanes.map(line=>line.map(screen)),laneDashBands,edges:g.edges.map(line=>line.map(screen)),path:path.map(([x,y,z])=>screen([x,y,z+height])),
   laneBands:g.lanes.map((line,i)=>band(line,Math.min(.75,frame.lp?.[i]))),edgeBands:g.edges.map((line,i)=>band(line,edgeConfidence(frame.es?.[i]))),
   blindspotPaths,pathProjection:path.map(([x,y,z])=>project([x,y,z+height])),pathSides:path.map((p,i)=>project(normal(path,i))),
   targetLine,targetSections,heightDirection:project([0,0,-1]),markers};
@@ -178,10 +191,24 @@ function frameOverlay(frame,source){
  return result;
 }
 
+// ADRV_0x161 LANELINE_LEFT/RIGHT (frame.ccncRoad.laneLeft/laneRight): the own-lane lines as sent to the cluster.
+// Undocumented codes keep the default lane style. The dash pattern is a symbol (3 m line, 4 m gap) anchored to
+// the distance travelled, so it flows past like paint.
+const LANE_LINE_CODES={0:{color:'#8b97a6',type:'solid',label:'회색'},1:{color:'#8b97a6',type:'hidden',label:'숨김'},2:{color:'#eef3f8',type:'solid',label:'흰색 실선'},
+ 4:{color:'#ff9f43',type:'solid',label:'주황 실선'},6:{color:'#4cd964',type:'solid',label:'녹색 실선'},8:{color:'#eef3f8',type:'dashed',label:'흰색 점선'},10:{color:'#4cd964',type:'dashed',label:'녹색 점선'}};
+const LANE_DASH=3,LANE_GAP=4;
+function laneLineCode(frame,i){const road=frame?.ccncRoad;return i===1?road?.laneLeft:i===2?road?.laneRight:undefined}
+function laneMarkingStyle(frame,i){return $('laneMarking')?.checked&&LANE_LINE_CODES[laneLineCode(frame,i)]||null}
+function laneDashPhase(frame){const period=LANE_DASH+LANE_GAP;return (((frame?.odometer||0)%period)+period)%period}
 function expandReplayData(replay){
  overlayGeometryCache.clear();
- const infos=replay.cameraInfos;
+ // Older conversions warned about skipped new event types; those never affect the replay.
+ if(Array.isArray(replay.warnings))replay.warnings=replay.warnings.filter(w=>!String(w).startsWith('지원하지 않는 새 로그 이벤트'));
+ const infos=replay.cameraInfos;let odometer=0,previous=null;
  for(const frame of replay.frames){
+  // Distance travelled, for lane dashes that move with the road.
+  if(previous&&Number.isFinite(previous.egoSpeedKph)&&frame.t>previous.t&&frame.t-previous.t<1)odometer+=previous.egoSpeedKph/3.6*(frame.t-previous.t);
+  frame.odometer=odometer;previous=frame;
   if(infos&&typeof frame.cameraInfo==='number')frame.cameraInfo=infos[frame.cameraInfo];
   frame.liveTracks?.forEach((target,i)=>{target.index??=i;target.y??=-target.yRel});
   frame.radarTargets?.forEach(target=>{target.y??=-target.yRel});
@@ -240,7 +267,7 @@ window.addEventListener('blur',finishSeekDrag);
 v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)videoFailure('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
-for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','ccncRoad','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
+for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','ccncRoad','laneMarking','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Space and arrows keep their own meaning on focused controls, links and menus.
 document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
@@ -584,7 +611,15 @@ function render(lazy){
   if(checked('modelPath')&&f.position?.length>1)line(f.position,'#c4a5ff',false,.9,2);
   if(checked('lanes')){
    if(f.lanes[1]?.length&&f.lanes[2]?.length){path([...f.lanes[1],...f.lanes[2].slice().reverse()]);ctx.closePath();ctx.fillStyle='rgba(87,217,176,0.065)';ctx.fill()}
-   f.lanes.forEach((l,i)=>{const p=Number.isFinite(f.lp[i])?Math.max(0,Math.min(1,f.lp[i])):0;line(l,'#57d9b0',p<.5,p,1+3*p)});
+   f.lanes.forEach((l,i)=>{
+    const p=Number.isFinite(f.lp[i])?Math.max(0,Math.min(1,f.lp[i])):0,marking=laneMarkingStyle(f,i),color=marking?.color||'#57d9b0';
+    if(!marking){line(l,color,p<.5,p,1+3*p);return}
+    // Cluster code: solid stays solid; dashed uses the metre pattern of the video overlay; hidden is a faint trace.
+    if(marking.type==='hidden'){line(l,color,true,.3,1);return}
+    path(l);ctx.strokeStyle=color;ctx.lineWidth=1+3*p;ctx.globalAlpha=Math.max(.35,p);
+    if(marking.type==='dashed'){const period=LANE_DASH+LANE_GAP;ctx.setLineDash([LANE_DASH*scale,LANE_GAP*scale]);ctx.lineDashOffset=(((l[0]?.[0]||0)+laneDashPhase(f))%period)*scale}
+    ctx.stroke();ctx.setLineDash([]);ctx.lineDashOffset=0;ctx.globalAlpha=1;
+   });
   }
   if(checked('edges'))f.edges.forEach((l,i)=>line(l,'#ffa665',f.es[i]>1,.95));
 
@@ -627,6 +662,8 @@ function render(lazy){
  const distance=$('boundaryDistance').getAttribute('aria-pressed')==='true';
  const meters=value=>Number.isFinite(value)?(value>0?'+':'')+value.toFixed(3)+' m':'—';
  ['lane0','left','right','lane3'].forEach((id,i)=>{$(id).textContent=valid?(distance?meters(f.laneY0?.[i]):percent(f.lp[i])):'—'});
+ // Cluster lane code next to the own-lane lines: LANELINE_LEFT/RIGHT raw value and its meaning.
+ [['laneLineLeft',1],['laneLineRight',2]].forEach(([id,i])=>{const code=valid?laneLineCode(f,i):undefined,el=$(id);el.hidden=!Number.isInteger(code);if(!el.hidden)el.textContent=`${i===1?'LANELINE_LEFT':'LANELINE_RIGHT'} ${code} · ${LANE_LINE_CODES[code]?.label||'미정의'}`});
  ['edge0','edge1'].forEach((id,i)=>{$(id).textContent=valid?(distance?meters(f.edgeY0?.[i]):Number.isFinite(f.es[i])?f.es[i].toFixed(3)+' m':'—'):'—'});
  const targets=valid?(f.radarTargets||[]):[];
  $('radarRows').replaceChildren(...targets.map(target=>{const row=document.createElement('tr');const style=targetStyle[target.group];const values=[style.label+' '+(target.index+1),target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.radar?'예':'아니오',String(target.trackId)];for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}row.firstChild.style.color=style.color;return row}));
