@@ -95,9 +95,12 @@
      }));paintBand(context,...sides,'#c4a5ff',.1,.6);
     }else line(frame.overlay.path,'#c4a5ff');
    }
-   function roadBands(bands,lines,confidence,color,isLane=true){
+   function roadBands(bands,lines,confidence,baseColor,isLane=true){
     (lines||[]).forEach((points,i)=>{
      const style=laneAppearance(confidence(i),isLane);if(!style.width)return;
+     const marking=isLane?laneMarkingStyle(frame,i):null,color=marking?.color||baseColor,dashes=marking?.type==='dashed'?frame.overlay.laneDashBands?.[i]:null;
+     if(marking?.type==='hidden'){line(points,color,true,.3,1);return}
+     if(dashes){for(const dash of dashes)paintBand(context,...dash.map(side=>side.map(p=>p?xy(p):null)),color,style.alpha,style.edge,true);return}
      const sides=bands?.[i];
      if(sides?.length===2)paintBand(context,...sides.map(side=>side.map(p=>p?xy(p):null)),color,style.alpha,style.edge,true);
      else line(points,color,false,style.edge,1);

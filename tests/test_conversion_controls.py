@@ -33,6 +33,12 @@ class ConversionTests(unittest.TestCase):
   self.assertEqual(server.recording_order(dict(name='000003d8--26e55cbb04 / 구간 044',id='x')),
                    server.recording_order(dict(name=names[3],id='x')))
 
+ def test_old_skipped_event_warning_is_not_listed(self):
+  p=self.row(1,'ready',warnings=['지원하지 않는 새 로그 이벤트 1188개를 건너뛰었습니다.','다른 경고'])
+  with patch.object(server,'cleanup_uploads'):row=self.request('get','/api/logs').json['logs'][0]
+  self.assertEqual(row['warnings'],['다른 경고'])
+  self.assertEqual(len(server.read_meta(p)['warnings']),2,'stored metadata is untouched')
+
  def test_disable_leaves_running_and_manual_jobs_then_enables_oldest_first(self):
   rows=[self.row(3,'queued'),self.row(1,'unconverted'),self.row(2,'processing'),self.row(4,'queued',manual_conversion=True),self.row(5,'unconverted',auto_excluded=True),self.row(6,'error')]
   self.assertEqual(self.setting(False).status_code,200)

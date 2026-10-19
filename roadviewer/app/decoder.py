@@ -103,6 +103,9 @@ def ccnc_road(payload):
  bits=int.from_bytes(payload,'little')
  return {'target':(bits>>66)&7,'distance':round(((bits>>69)&2047)*.1,1),
          'highlight':(bits>>105)&15,'left':(bits>>120)&7,'right':(bits>>123)&7,
+         # ADRV_0x161 LANELINE_LEFT/RIGHT: the lane line code shown on the cluster (2 white, 4 orange, 6 green,
+         # 8 white dashed, 10 green dashed, 0 grey, 1 hidden).
+         'laneLeft':(bits>>80)&15,'laneRight':(bits>>90)&15,
          'blinkerLeft':bool((bits>>57)&7),'blinkerRight':bool((bits>>60)&7)}
 
 def ccnc_at(rows,times,stamp):
@@ -212,7 +215,8 @@ def prepare(value,route=None):
  progress.update('log_analysis',frames=len(frames),total_frames=len(models),force=True)
  frames.sort(key=lambda f:f['t'])
  video_info=None;warnings=[]
- if counts['unknownEvent']:warnings.append(f"지원하지 않는 새 로그 이벤트 {counts['unknownEvent']}개를 건너뛰었습니다.")
+ # Events newer than our schema are skipped silently (counted in counts['unknownEvent']): they never affect
+ # what is shown, and a fork adding its own events must not make every log look broken.
  video_inputs={key:next((src.parent/name for name in names[:2] if (src.parent/name).is_file()),None) for key,names in SOURCES.items()}
  camera_progress=VideoProgress(progress,sum(path is not None for path in video_inputs.values()))
  try:

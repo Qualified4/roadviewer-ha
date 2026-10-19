@@ -376,3 +376,5 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 @media(hover:hover) and (pointer:fine){.replay-download-menu>a:hover{background:#283b4e}}
 .replay-download-menu>a:focus-visible{outline:2px solid var(--lane);outline-offset:-2px}
 .download-detail{display:block;margin-top:2px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+/* Cluster LANELINE_LEFT/RIGHT code under the own-lane probabilities. */
+.lane-line-code{display:block;margin-top:2px;font-size:11px;line-height:1.4;color:var(--muted);word-break:keep-all;overflow-wrap:anywhere}
