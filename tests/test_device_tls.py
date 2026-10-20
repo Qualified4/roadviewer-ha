@@ -13,7 +13,7 @@ class TLSBoundary(unittest.TestCase):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp);os.chmod(root,0o755)
    subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-keyout',str(root/'key.pem'),'-out',str(root/'cert.pem'),'-days','1','-subj','/CN=localhost','-addext','subjectAltName=DNS:localhost'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-   (root/'wsgi_test.py').write_text("import server\nserver.DEVICE_HOST_PORT=18443\napp=server.app\n")
+   (root/'wsgi_test.py').write_text("import server\nserver.DEVICE_HOST_PORT=18443\nserver.auto_convert=False\napp=server.app\n")
    config=nginx_config({'device_certfile':'cert.pem','device_keyfile':'key.pem'}).replace('/ssl/',temp+'/').replace('/tmp/roadviewer-nginx',temp+'/nginx')
    (root/'nginx.conf').write_text(config)
    env={**os.environ,'RV_DATA':str(root/'data'),'RV_INGRESS_ONLY':'0','PYTHONPATH':str(BASE)+os.pathsep+str(root)+os.pathsep+os.environ.get('PYTHONPATH','')}
@@ -69,6 +69,20 @@ class TLSBoundary(unittest.TestCase):
     self.assertIn(put(0,data[:server.CHUNK_SIZE+1])[0],(400,413))
     self.assertEqual(put(0,data[:server.CHUNK_SIZE]),(200,{'received':server.CHUNK_SIZE}))
     self.assertEqual(put(server.CHUNK_SIZE,data[server.CHUNK_SIZE:]),(200,{'received':len(data)}))
+    # The negotiated streaming cap also passes the actual nginx TLS boundary.
+    data=os.urandom(server.STREAM_CHUNK_SIZE);body['batch_id']='tls_streaming_0123456'
+    body['segments'][0]['files'][0].update(size=len(data),sha256=None)
+    stamp=str(int(time.time()));nonce='tls_stream_nonce_0123';raw=json.dumps(body).encode()
+    canonical='\n'.join(('RV1',device['device_id'],stamp,nonce,'POST','/api/device/uploads',hashlib.sha256(raw).hexdigest()))
+    headers={'X-RV-Device':device['device_id'],'X-RV-Timestamp':stamp,'X-RV-Nonce':nonce,
+             'X-RV-Signature':hmac.new(device['device_secret'].encode(),canonical.encode(),hashlib.sha256).hexdigest(),
+             'X-RV-Max-Chunk':str(server.STREAM_CHUNK_SIZE),'X-RV-Checksum':'sha256-stream'}
+    code,session=call('/api/device/uploads',body,headers);self.assertEqual(code,201,session)
+    self.assertEqual(session['chunk_size'],server.STREAM_CHUNK_SIZE)
+    self.assertEqual(put(0,data),(200,{'received':len(data)}))
+    code,result=call('/api/device/uploads/'+session['id']+'/finish',{'sha256':[hashlib.sha256(data).hexdigest()]},
+                     {'Authorization':'Bearer '+session['token']})
+    self.assertEqual(code,201,result);self.assertEqual(len(result['logs']),1)
    finally:
     for proc in (nginx,gunicorn):proc.terminate()
     for proc in (nginx,gunicorn):

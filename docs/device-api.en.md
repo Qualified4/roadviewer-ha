@@ -2,7 +2,7 @@
 
 [한국어](device-api.md) · English
 
-Implementation reference: **Road Viewer 0.9.6**.
+Implementation reference: **Road Viewer 0.9.7**.
 
 This repository provides the Road Viewer server and web UI. Compatible device uploaders are maintained separately. Existing browser uploads and Home Assistant Ingress remain supported. One Gunicorn worker with multiple threads is required; do not add workers/replicas sharing this data directory.
 
@@ -172,6 +172,43 @@ A completed finish is recorded persistently and may be retried: 200 with the sam
 
 Incomplete finish (409) keeps the session for remaining bytes. Checksum failure (422) terminates it; retransmit under a new session. A disk-full chunk terminates an inactive session. Other terminal registration failures release staging/reservation; a transient transport failure retains them until resumed or expired. The cleanup timer runs every 60 seconds. Expired sessions, chunks and reservations are deleted together. Active requests are not deleted by timer cleanup; they drain before deletion. The UI's explicit cleanup also preserves live device sessions (its existing force-cancel behavior for browser uploads remains).
 
+## Optional extension: streaming SHA-256
+
+An uploader can send `X-RV-Checksum: sha256-stream` with `sha256: null` in each
+file entry to skip the initial full-file scan. A null checksum without that header
+is rejected as `invalid_file`. Null values remain part of the signed manifest.
+A supporting server returns `checksum_mode: "sha256-stream"` on creation and
+reattachment. Check this response before transferring. An older server rejecting
+`invalid_file` or `invalid_batch` can use the original RV1 manifest with precomputed
+hashes for the current segment. Authentication/network errors are not negotiation
+failures.
+
+In this mode `POST .../finish` requires `Content-Type: application/json` and
+`{"sha256":["<file 0 SHA256>","<file 1 SHA256>"]}` in manifest order. The server
+checks the count and lowercase 64-digit hexadecimal format. Any hash also declared
+in the initial manifest must agree. All received lengths and checksums are verified
+before registration, deduplication or eviction. A checksum mismatch returns422
+and discards the session.
+
+The receiver updates SHA-256 from chunks written in order; retransmitting an
+accepted chunk does not hash it twice. Cached hashes require the same file device,
+inode, size, mtime and ctime. A restart or changed file falls back to a full disk
+hash. Library matching checks rlog first and reads video hashes only for matching
+logs when needed.
+
+Streaming sessions negotiate up to8MiB, bounded by the announced uploader limit.
+Original RV1/browser requests retain the2MiB cap and unannounced uploaders keep
+the256KiB response. Nginx permits8MiB plus headroom; the application enforces the
+negotiated session limit. Carrot starts at1MiB and adapts toward roughly four
+seconds per request, reducing the chunk after errors. Up to three different files
+within a segment transfer concurrently.
+
+Carrot Web uses one session per segment and registers it before starting the next.
+A later failure or cancellation keeps completed segments. Retry resumes only
+unfinished segments and reconciles lost completion responses using receipts.
+Partial resume can reread the acknowledged prefix to reconstruct the sender hash;
+a normal new transfer reads each source file only once.
+
 ## Revoke and authentication state
 
 Ingress-only `GET /api/settings/device-network` returns `configured_port`, `active_port`, `restart_required`, `boot_id`, `restarting`, and `restart_error`. `POST` accepts exactly `{ "enabled": true, "port": 18443 }` or `{ "enabled": false, "port": null }`. Other port mappings and app options are preserved. The response never includes Supervisor tokens or raw options. `POST /api/settings/device-network/restart` queues an explicit restart with HTTP 202. The UI only treats a new `boot_id` as restart completion and checks for up to three minutes. TLS/validation failures are 400, changes during restart are 409, and Supervisor failures are 502. These endpoints are inaccessible from the external device listener.
@@ -233,8 +270,8 @@ An OK result verifies the tested API/storage paths, not real video or log-decodi
 For the real TLS/Nginx/Gunicorn boundary, use Docker:
 
 ```bash
-docker build -t roadviewer:0.9.6 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.9.6 /tests/test_device_tls.py
+docker build -t roadviewer:0.9.7 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.9.7 /tests/test_device_tls.py
 ```
 
 The client trusts a temporary test certificate. Server and client communicate inside the container, so host port publication and router changes are unnecessary. Building needs network access; this does not validate your real DNS/NAT setup.
