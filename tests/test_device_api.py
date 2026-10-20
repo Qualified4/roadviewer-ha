@@ -120,7 +120,7 @@ class DeviceTests(unittest.TestCase):
   self.assertEqual(len(s.recording_paths()),2)
  def test_chunk_size_follows_announced_client_limit(self):
   # Older uploaders announce nothing and reject anything above 256 KiB.
-  cases=((None,262144),('garbage',262144),('0',262144),('65536',65536),(str(1024*1024),1024*1024),(str(8*1024*1024),s.CHUNK_SIZE))
+  cases=((None,262144),('garbage',262144),('0',262144),('65536',65536),(str(1024*1024),1024*1024),(str(8*1024*1024),s.STREAM_CHUNK_SIZE),(str(64*1024*1024),s.STREAM_CHUNK_SIZE))
   for n,(limit,expected) in enumerate(cases):
    body=self.batch();body['batch_id']+=f'c{n}'
    r=self.signed(body,extra={} if limit is None else {'X-RV-Max-Chunk':limit});self.assertEqual(r.status_code,201,r.json)

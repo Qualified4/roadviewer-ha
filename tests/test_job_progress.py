@@ -42,4 +42,32 @@ class JobProgressTests(unittest.TestCase):
    if fail:self.assertFalse((p/'prepared').exists())
    self.assertNotIn(p.name,server.job_progress);self.assertNotIn(p.name,server.processes)
 
+class UploadPriorityTests(unittest.TestCase):
+ def test_automatic_conversion_waits_for_arriving_uploads(self):
+  # Converting next to an arriving upload slowed and broke device transfers on a small host.
+  with tempfile.TemporaryDirectory() as root,patch.object(server,'ROOT',Path(root)),patch.object(server,'UPLOADS',Path(root)/'.uploads'),patch.object(server.time,'sleep',lambda s:None):
+   (Path(root)/'.uploads').mkdir();session=Path(root)/'.uploads'/('b'*32);session.mkdir()
+   p=Path(root)/('a'*32);p.mkdir();server.save_meta(p,dict(id=p.name,name='test',uploaded=0,status='queued'))
+   checks=[];started=[]
+   def receiving():
+    checks.append(1)
+    if len(checks)==3:os.utime(session,(time.time()-60,time.time()-60)) # Quiet from now on.
+    return real()
+   real=server.upload_receiving
+   class Started(Exception):pass
+   def popen(args,**kwargs):started.append((args,kwargs));raise Started()
+   with patch.object(server,'upload_receiving',receiving),patch.object(server.subprocess,'Popen',popen):
+    server.run_job(p.name)
+   self.assertEqual(len(checks),3,'waited while a chunk was recent, started once quiet')
+   args,kwargs=started[0]
+   self.assertIn('decoder.py',' '.join(map(str,args)));self.assertTrue(callable(kwargs.get('preexec_fn')),'decoder runs at lower CPU priority')
+   if server.shutil.which('ionice'):self.assertEqual(args[:4],['ionice','-c2','-n7','-t'])
+   # A manual request does not wait, and a removed/requeued job stops waiting.
+   server.save_meta(p,dict(id=p.name,name='test',uploaded=0,status='queued',manual_conversion=True));os.utime(session,None);started.clear()
+   with patch.object(server.subprocess,'Popen',popen):server.run_job(p.name)
+   self.assertEqual(len(started),1)
+   server.save_meta(p,dict(id=p.name,name='test',uploaded=0,status='unconverted'));started.clear()
+   with patch.object(server.subprocess,'Popen',popen):server.run_job(p.name)
+   self.assertEqual(started,[])
+
 if __name__=='__main__':unittest.main()

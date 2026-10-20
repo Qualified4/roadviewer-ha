@@ -58,7 +58,7 @@ class TLSBoundary(unittest.TestCase):
     stamp=str(int(time.time()));nonce='tls_nonce_large_0123';raw=json.dumps(body).encode()
     canonical='\n'.join(('RV1',device['device_id'],stamp,nonce,'POST','/api/device/uploads',hashlib.sha256(raw).hexdigest()))
     headers={'X-RV-Device':device['device_id'],'X-RV-Timestamp':stamp,'X-RV-Nonce':nonce,'X-RV-Signature':hmac.new(device['device_secret'].encode(),canonical.encode(),hashlib.sha256).hexdigest()}
-    headers['X-RV-Max-Chunk']=str(8*1024*1024)  # An uploader that accepts large chunks.
+    headers['X-RV-Max-Chunk']=str(server.CHUNK_SIZE)  # An uploader that accepts 2 MiB chunks.
     code,session=call('/api/device/uploads',body,headers);self.assertEqual(code,201,session);self.assertEqual(session['chunk_size'],server.CHUNK_SIZE)
     def put(offset,payload):
      req=urllib.request.Request(f"https://localhost:8443/api/device/uploads/{session['id']}/files/0?offset={offset}",data=payload,method='PUT',

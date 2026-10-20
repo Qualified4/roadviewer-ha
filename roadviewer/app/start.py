@@ -41,6 +41,7 @@ http {{
   ssl_session_tickets off;
   client_max_body_size 8200k;  # Streaming device chunks (8 MiB) plus headroom; app enforces negotiated limits.
   client_body_timeout 30s;
+  client_body_buffer_size 8200k;  # Keep each chunk in memory: no temporary file write and re-read per chunk.
   location /api/device/ {{
    limit_req zone=device burst=60 nodelay;
    limit_req_status 429;
