@@ -121,7 +121,7 @@ class RecoveryTests(unittest.TestCase):
   self.assertEqual(r.status_code,201);registered=server.ROOT/r.json['logs'][0]['id']/'rlog.zst'
   self.assertEqual(registered.read_bytes(),b'log')
   self.assertEqual(registered.stat().st_ino,inode,'the received file is moved, not copied')
-  self.assertEqual(len(digests),1,'one hash serves checksum and duplicate detection')
+  self.assertEqual(len(digests),0,'received bytes already supplied the checksum and duplicate digest')
   self.assertEqual(server.read_meta(registered.parent)['content_hashes']['rlog.zst']['sha256'],real(registered))
  def test_original_download_requires_registered_file(self):
   id='b'*32;p=server.ROOT/id;p.mkdir()

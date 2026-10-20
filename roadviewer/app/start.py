@@ -39,7 +39,7 @@ http {{
   ssl_certificate_key {key};
   ssl_protocols TLSv1.2 TLSv1.3;
   ssl_session_tickets off;
-  client_max_body_size 2100k;  # One upload chunk (server.CHUNK_SIZE, 2 MiB) plus headroom.
+  client_max_body_size 8200k;  # Streaming device chunks (8 MiB) plus headroom; app enforces negotiated limits.
   client_body_timeout 30s;
   location /api/device/ {{
    limit_req zone=device burst=60 nodelay;

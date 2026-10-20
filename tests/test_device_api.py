@@ -520,4 +520,94 @@ class DeviceTests(unittest.TestCase):
   self.assertEqual(len(s.recording_paths()),1);self.assertTrue(s.storage_policy.pinned(meta))
   self.assertTrue((s.ROOT/meta['id']/'qcamera.ts').is_file())
 
+ def streaming_upload(self, payloads=None):
+  payloads=payloads or [b'log-stream',b'video-stream']
+  body=self.batch()
+  for f,data in zip(body['segments'][0]['files'],payloads):f.update(size=len(data),sha256=None)
+  response=self.signed(body,extra={'X-RV-Checksum':'sha256-stream','X-RV-Max-Chunk':str(s.CHUNK_SIZE)})
+  self.assertEqual(response.status_code,201,response.json)
+  session=response.json;self.assertEqual(session['checksum_mode'],'sha256-stream')
+  prefix='/api/device/uploads/'+session['id']
+  for i,data in enumerate(payloads):
+   midpoint=max(1,len(data)//2)
+   for offset,part in [(0,data[:midpoint]),(midpoint,data[midpoint:])]:
+    if part:self.assertEqual(self.external(prefix+f'/files/{i}?offset={offset}','PUT',data=part,headers=self.token(session)).status_code,200)
+  return session,prefix,{'sha256':[hashlib.sha256(data).hexdigest() for data in payloads]}
+ def test_streaming_checksums_require_explicit_negotiation_and_finish_values(self):
+  body=self.batch();body['segments'][0]['files'][0]['sha256']=None
+  self.assertEqual(self.signed(body).json['error'],'invalid_file')
+  session,prefix,checksums=self.streaming_upload()
+  for value in [None,{}, {'sha256':[]},{'sha256':['0'*64,False]}, {'sha256':checksums['sha256'],'extra':True}]:
+   response=self.external(prefix+'/finish',json=value,headers=self.token(session))
+   self.assertEqual(response.status_code,400,response.json)
+   self.assertEqual(len(s.recording_paths()),0)
+  response=self.external(prefix+'/finish',json=checksums,headers=self.token(session))
+  self.assertEqual(response.status_code,201,response.json)
+  self.assertEqual(len(s.recording_paths()),1)
+  self.assertNotIn(session['id'],s.upload_hashes)
+  self.assertEqual(self.external(prefix+'/finish',json=checksums,headers=self.token(session)).status_code,200)
+ def test_streaming_finish_uses_received_hash_without_rereading_video(self):
+  session,prefix,checksums=self.streaming_upload()
+  # Repeat an already accepted chunk: it must not be hashed twice.
+  self.assertEqual(self.external(prefix+'/files/0?offset=0','PUT',data=b'log',headers=self.token(session)).status_code,200)
+  with patch.object(s,'file_digest',side_effect=AssertionError('unexpected full-file reread')):
+   response=self.external(prefix+'/finish',json=checksums,headers=self.token(session))
+   self.assertEqual(response.status_code,201,response.json)
+ def test_streaming_server_restart_falls_back_to_real_disk_hash(self):
+  session,prefix,checksums=self.streaming_upload()
+  s.upload_hashes.clear()
+  with patch.object(s,'file_digest',wraps=s.file_digest) as digest:
+   response=self.external(prefix+'/finish',json=checksums,headers=self.token(session))
+   self.assertEqual(response.status_code,201,response.json)
+   self.assertEqual(digest.call_count,2)
+ def test_streaming_changed_file_invalidates_cache_and_rejects_checksum(self):
+  session,prefix,checksums=self.streaming_upload()
+  target=s.UPLOADS/session['id']/'1';before=target.stat()
+  target.write_bytes(b'X'*before.st_size);os.utime(target,ns=(before.st_atime_ns,before.st_mtime_ns))
+  with patch.object(s,'file_digest',wraps=s.file_digest) as digest:
+   response=self.external(prefix+'/finish',json=checksums,headers=self.token(session))
+   self.assertEqual(response.status_code,422,response.json)
+   self.assertEqual(digest.call_count,1)
+  self.assertEqual(len(s.recording_paths()),0)
+ def test_streaming_wrong_sender_hash_is_rejected_before_registration(self):
+  session,prefix,checksums=self.streaming_upload()
+  checksums['sha256'][0]='0'*64
+  response=self.external(prefix+'/finish',json=checksums,headers=self.token(session))
+  self.assertEqual(response.status_code,422,response.json)
+  self.assertEqual(len(s.recording_paths()),0)
+ def test_chunks_cannot_modify_files_during_final_verification(self):
+  session,prefix,checksums=self.streaming_upload()
+  s.finishing_uploads.add(session['id'])
+  try:
+   response=self.external(prefix+'/files/0?offset=0','PUT',data=b'log',headers=self.token(session))
+   self.assertEqual(response.status_code,409,response.json)
+  finally:s.finishing_uploads.discard(session['id'])
+
+ def test_register_does_not_scan_unrelated_legacy_videos(self):
+  old=self.make_log('a','00000001--aaaaaaaaaa',0,1)
+  (old/'qcamera.ts').write_bytes(b'unrelated-video')
+  session,prefix,checksums=self.streaming_upload()
+  real=s.file_digest
+  def digest(path):
+   self.assertNotEqual(path,old/'qcamera.ts','unrelated video should not be scanned for log matching')
+   return real(path)
+  with patch.object(s,'file_digest',side_effect=digest):
+   result=self.external(prefix+'/finish',json=checksums,headers=self.token(session))
+  self.assertEqual(result.status_code,201,result.json)
+  self.assertEqual(len(s.recording_paths()),2)
+
+ def test_streaming_large_chunks_are_explicitly_negotiated_and_bounded(self):
+  payload=b'X'*(s.CHUNK_SIZE+1)
+  body=self.batch();body['segments'][0]['files']=[{'kind':'rlog.zst','size':len(payload),'sha256':None}]
+  r=self.signed(body,extra={'X-RV-Checksum':'sha256-stream','X-RV-Max-Chunk':str(s.STREAM_CHUNK_SIZE)})
+  self.assertEqual(r.status_code,201,r.json);session=r.json
+  self.assertEqual(session['chunk_size'],s.STREAM_CHUNK_SIZE)
+  prefix='/api/device/uploads/'+session['id']
+  self.assertEqual(self.external(prefix+'/files/0?offset=0','PUT',data=payload,headers=self.token(session)).status_code,200)
+  self.assertEqual(self.external(prefix+'/finish',json={'sha256':[hashlib.sha256(payload).hexdigest()]},headers=self.token(session)).status_code,201)
+  body['batch_id']+='small'
+  r=self.signed(body,extra={'X-RV-Checksum':'sha256-stream','X-RV-Max-Chunk':'65536'})
+  self.assertEqual(r.json['chunk_size'],65536)
+  self.assertEqual(self.external('/api/device/uploads/'+r.json['id']+'/files/0?offset=0','PUT',data=b'X'*65537,headers=self.token(r.json)).status_code,400)
+
 if __name__=='__main__':unittest.main()

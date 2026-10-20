@@ -17,6 +17,7 @@ DEVICE_HOST_PORT=int(os.environ.get('RV_DEVICE_HOST_PORT','0')) or None
 app=Flask(__name__,static_folder=None)
 app.config.update(MAX_CONTENT_LENGTH=int(options.get('max_upload_mb',512))*1024*1024,MAX_FORM_PARTS=220)
 lock=threading.RLock();processes={};job_progress={};active_uploads=Counter();finishing_uploads=set();registration_lock=threading.Lock()
+upload_hashes={}  # Session/file -> (stat fingerprint, incremental SHA256); restart falls back to disk verification.
 ID=re.compile(r'^[a-f0-9]{32}$');FLAT=re.compile(r'^(?P<route>.{20})--(?P<segment>\d+)--(?P<kind>rlog\.zst|qcamera\.ts|fcamera\.hevc|ecamera\.hevc)$')
 def folder(id):
  if not ID.fullmatch(id):abort(404)
@@ -154,7 +155,7 @@ def access():
  if listener is not None and listener.getsockname()[1]==8098:
   if request.remote_addr!='127.0.0.1' or DEVICE_HOST_PORT is None or not request.path.startswith('/api/device/'):
    abort(404)
-  request.max_content_length=CHUNK_SIZE+1 if request.method=='PUT' else 65536
+  request.max_content_length=STREAM_CHUNK_SIZE+1 if request.method=='PUT' else 65536
   return
  if request.path.startswith('/api/device/'):abort(404)
  # Supervisor is the only accepted network peer in a Home Assistant installation.
@@ -274,9 +275,18 @@ def file_digest(path):
  # Bound memory use even for large logs/videos.
  with path.open('rb') as source:return hashlib.file_digest(source,'sha256').hexdigest()
 
-def stored_digests(path,meta):
+def upload_fingerprint(path):
+ st=path.stat()
+ return st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns
+
+def received_digest(id,index,path):
+ cached=upload_hashes.get(id,{}).get(index)
+ if cached and cached[0]==upload_fingerprint(path):return cached[1].hexdigest()
+ return file_digest(path)
+
+def stored_digests(path,meta,kinds=UPLOAD_KINDS):
  cached=meta.get('content_hashes',{});updated={}
- for kind in UPLOAD_KINDS:
+ for kind in kinds:
   file=path/kind
   if not file.is_file():
    if kind in DERIVED and (path/DERIVED[kind]).is_file() and kind in cached:updated[kind]=cached[kind]
@@ -285,7 +295,7 @@ def stored_digests(path,meta):
   if old.get('size')==stat.st_size and old.get('mtime_ns')==stat.st_mtime_ns and old.get('sha256'):
    updated[kind]=old
   else:updated[kind]={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':file_digest(file)}
- meta['content_hashes']=updated
+ meta['content_hashes']={**cached,**updated} if kinds!=UPLOAD_KINDS else updated
  return {kind:value['sha256'] for kind,value in updated.items()}
 
 def register_files(files):
@@ -319,9 +329,11 @@ def register_files(files):
    with registration_lock:
     # Hash old recordings without blocking upload chunks or conversion progress.
     existing={};hash_updates=[]
+    wanted={g['hashes']['rlog.zst'] for g in groups.values()}
     for path in ROOT.iterdir():
      if not path.is_dir() or not ID.fullmatch(path.name) or not (path/'meta.json').is_file():continue
-     meta=read_meta(path);hashes=stored_digests(path,meta)
+     meta=read_meta(path);hashes=stored_digests(path,meta,('rlog.zst',))
+     if hashes.get('rlog.zst') in wanted:hashes=stored_digests(path,meta)
      hash_updates.append((path,meta['content_hashes']))
      if 'rlog.zst' in hashes:existing.setdefault(hashes['rlog.zst'],(meta,hashes))
     with lock:
@@ -385,6 +397,7 @@ def register_files(files):
 # Small requests pass through HA Ingress and remote proxy upload limits.
 UPLOADS=ROOT/'.uploads';UPLOADS.mkdir(exist_ok=True)
 CHUNK_SIZE=2*1024*1024
+STREAM_CHUNK_SIZE=8*1024*1024
 UPLOAD_IDLE_SECONDS=15*60
 UPLOAD_MAX_SECONDS=2*60*60
 UPLOAD_SESSION_LIMIT=32
@@ -410,6 +423,8 @@ def cleanup_uploads(startup=False,force=False):
    # Staging copies only; registered originals and conversions are preserved.
    for p in ROOT.glob('.upload-*'):
     if p.is_dir():removed+=storage_used_bytes(p);shutil.rmtree(p)
+  for id in list(upload_hashes):
+   if not (UPLOADS/id).is_dir():upload_hashes.pop(id,None)
  return removed
 
 cleanup_uploads(startup=True)
@@ -478,15 +493,17 @@ def create_upload(files,max_bytes=None,max_files=100):
  return jsonify(id=id,chunk_size=CHUNK_SIZE),201
 
 @app.route('/api/uploads/<id>/files/<int:index>',methods=['PUT'])
-def upload_chunk(id,index):
+def upload_chunk(id,index,max_chunk_size=None):
+ maximum=max_chunk_size or CHUNK_SIZE
  with lock:
   p,files=upload_session(id)
   if index>=len(files):abort(404)
+  if id in finishing_uploads:return upload_error('upload_busy','업로드를 등록 중입니다.',409)
   active_uploads[id]+=1
  failed=False
  try:
   # Network reads must not hold the job lock.
-  payload=request.stream.read(CHUNK_SIZE+1)
+  payload=request.stream.read(maximum+1)
   with lock:
    if request.path.startswith('/api/device/'):
     try:devices.authorize_session(id)
@@ -497,7 +514,7 @@ def upload_chunk(id,index):
    except ValueError:return upload_error('invalid_offset','잘못된 업로드 위치입니다.',400)
    if not (p/'manifest.json').is_file():return upload_error('session_expired','정리된 업로드입니다. 파일을 다시 선택해 주세요.',410)
    target=p/str(index);current=target.stat().st_size if target.exists() else 0
-   if offset<0 or not payload or len(payload)>CHUNK_SIZE or offset+len(payload)>files[index]['size']:return upload_error('invalid_chunk','업로드 조각의 크기가 잘못되었습니다.',400)
+   if offset<0 or not payload or len(payload)>maximum or offset+len(payload)>files[index]['size']:return upload_error('invalid_chunk','업로드 조각의 크기가 잘못되었습니다.',400)
    if offset<current and offset+len(payload)<=current:
     with target.open('rb') as source:
      source.seek(offset)
@@ -507,7 +524,13 @@ def upload_chunk(id,index):
    if shutil.disk_usage(ROOT).free<len(payload)+100*1024*1024:
     failed=True
     return upload_error('insufficient_disk_space','저장 공간이 부족합니다.',507)
+   cached=upload_hashes.get(id,{}).get(index)
+   digest=hashlib.sha256() if current==0 else cached[1].copy() if cached and cached[0]==upload_fingerprint(target) else None
    with target.open('ab') as out:out.write(payload)
+   if digest is not None:
+    digest.update(payload)
+    upload_hashes.setdefault(id,{})[index]=(upload_fingerprint(target),digest)
+   else:upload_hashes.get(id,{}).pop(index,None)
    os.utime(p,None)
   return jsonify(received=current+len(payload))
  except OSError:
@@ -518,16 +541,18 @@ def upload_chunk(id,index):
    active_uploads[id]-=1
    if not active_uploads[id]:
     active_uploads.pop(id,None)
-    if failed:shutil.rmtree(p,ignore_errors=True)
+    if failed:
+     shutil.rmtree(p,ignore_errors=True);upload_hashes.pop(id,None)
 
 class ReceivedFile:
  # A completely received chunked upload, registered by moving it instead of copying a stream.
  def __init__(self,path,filename,sha256):self.path,self.filename,self.sha256=path,filename,sha256
 
 @app.route('/api/uploads/<id>/finish',methods=['POST'])
-def finish_upload(id):
+def finish_upload(id,expected_hashes=None):
  with lock:
   p,files=upload_session(id)
+  if expected_hashes is None and any(f.get('sha256','') is None for f in files):return upload_error('invalid_file','체크섬이 필요합니다.',400)
   if active_uploads[id]:return upload_error('upload_busy','업로드 조각을 전송 중입니다.',409)
   if any(not (p/str(i)).is_file() or (p/str(i)).stat().st_size!=f['size'] for i,f in enumerate(files)):return upload_error('incomplete_upload','아직 전송되지 않은 파일이 있습니다.',409)
   active_uploads[id]+=1;finishing_uploads.add(id)
@@ -535,8 +560,9 @@ def finish_upload(id):
   # Each file is hashed once: the same digest checks the device checksum and finds duplicates.
   received=[]
   for i,f in enumerate(files):
-   digest=file_digest(p/str(i))
-   if f.get('sha256') and digest!=f['sha256']:return jsonify(error='checksum_mismatch'),422
+   digest=received_digest(id,i,p/str(i))
+   expected=expected_hashes[i] if expected_hashes is not None else f.get('sha256')
+   if expected and digest!=expected:return jsonify(error='checksum_mismatch'),422
    received.append(ReceivedFile(p/str(i),f['name'],digest))
   # Hashing and registering up to 512 MB must not block other requests.
   return register_files(received)
@@ -544,6 +570,7 @@ def finish_upload(id):
   with lock:
    shutil.rmtree(p,ignore_errors=True)
    active_uploads.pop(id,None);finishing_uploads.discard(id)
+   upload_hashes.pop(id,None)
 
 @app.route('/api/uploads/<id>',methods=['DELETE'])
 def cancel_upload(id):
@@ -551,6 +578,7 @@ def cancel_upload(id):
   p,_=upload_session(id)
   if active_uploads[id]:return upload_error('upload_busy','업로드 처리 중입니다.',409)
   shutil.rmtree(p)
+  upload_hashes.pop(id,None)
  return jsonify(deleted=id)
 
 @app.route('/api/logs/<id>',methods=['DELETE'])

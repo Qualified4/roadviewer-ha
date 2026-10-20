@@ -11,6 +11,7 @@ CLOCK_SKEW = 120
 NONCE = re.compile(r'^[A-Za-z0-9_-]{16,64}$')
 # Uploaders before Road Viewer 0.9.1 reject a chunk size above 256 KiB and announce no limit.
 LEGACY_CHUNK_SIZE = 256 * 1024
+STREAM_CHECKSUM = 'sha256-stream'
 
 class DeviceAPI:
     def __init__(self, s):
@@ -141,7 +142,10 @@ class DeviceAPI:
             if (route, number) in seen: abort(400, description='duplicate_segment')
             seen.add((route, number)); names = set()
             for f in kinds:
-                if not isinstance(f, dict) or set(f) != {'kind', 'size', 'sha256'} or f.get('kind') not in UPLOAD_KINDS or type(f.get('size')) is not int or not 0 < f['size'] <= (self.s.app.config['MAX_CONTENT_LENGTH'] if f['kind']=='rlog.zst' else DEVICE_VIDEO_LIMIT) or not isinstance(f.get('sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', f['sha256']): abort(400, description='invalid_file')
+                if not isinstance(f, dict) or set(f) != {'kind', 'size', 'sha256'} or f.get('kind') not in UPLOAD_KINDS or type(f.get('size')) is not int or not 0 < f['size'] <= (self.s.app.config['MAX_CONTENT_LENGTH'] if f['kind']=='rlog.zst' else DEVICE_VIDEO_LIMIT): abort(400, description='invalid_file')
+                if f['sha256'] is None:
+                    if request.headers.get('X-RV-Checksum') != STREAM_CHECKSUM: abort(400, description='invalid_file')
+                elif not isinstance(f['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', f['sha256']): abort(400, description='invalid_file')
                 if f['kind'] in names: abort(400, description='duplicate_file')
                 names.add(f['kind']); files.append(dict(name=f'{route}--{number}--{f["kind"]}', size=f['size'], sha256=f['sha256']))
             if 'rlog.zst' not in names: abort(400, description='rlog_required')
@@ -171,21 +175,25 @@ class DeviceAPI:
             response, status = self.s.create_upload(files, max_bytes=DEVICE_BATCH_LIMIT, max_files=200)
             if status != 201: return response, status
             p = self.s.UPLOADS / response.json['id']
-            meta = dict(device_id=id, batch_id=body['batch_id'], batch_hash=digest, expires_at=time.time() + SESSION_TTL)
+            meta = dict(device_id=id, batch_id=body['batch_id'], batch_hash=digest, expires_at=time.time() + SESSION_TTL,
+                        streaming=any(f['sha256'] is None for f in files))
             return self.issue_token(p, meta, 201)
 
-    def chunk_size(self):
+    def chunk_size(self, streaming=False):
         # X-RV-Max-Chunk is unsigned on purpose: it can only lower what this server accepts.
         try: limit = int(request.headers.get('X-RV-Max-Chunk', ''))
         except ValueError: limit = 0
-        return min(self.s.CHUNK_SIZE, limit if limit >= 1 else LEGACY_CHUNK_SIZE)
+        maximum = self.s.STREAM_CHUNK_SIZE if streaming else self.s.CHUNK_SIZE
+        return min(maximum, limit if limit >= 1 else LEGACY_CHUNK_SIZE)
 
     def issue_token(self, p, meta, status=200):
         token = secrets.token_urlsafe(32); meta['token_hash'] = hashlib.sha256(token.encode()).hexdigest()
+        meta['chunk_size'] = self.chunk_size(meta.get('streaming'))
         idle = p.stat().st_mtime
         atomic_json(p/'device.json', meta)
         self.s.os.utime(p, (idle, idle))  # Token renewal is not upload progress.
-        return jsonify(id=p.name, token=token, expires_at=meta['expires_at'], idle_timeout_seconds=self.s.UPLOAD_IDLE_SECONDS, chunk_size=self.chunk_size(), files=self.offsets(p)), status
+        return jsonify(id=p.name, token=token, expires_at=meta['expires_at'], idle_timeout_seconds=self.s.UPLOAD_IDLE_SECONDS,
+                       chunk_size=meta['chunk_size'], files=self.offsets(p), checksum_mode=STREAM_CHECKSUM if meta.get('streaming') else 'sha256-manifest'), status
 
     def offsets(self, p):
         files = json.loads((p/'manifest.json').read_text())
@@ -217,7 +225,7 @@ class DeviceAPI:
             _, meta = self.authorize_session(id)
             if 'result' in meta: return self.fail('session_completed', 409)
         try:
-            response = self.s.app.make_response(self.s.upload_chunk(id, index))
+            response = self.s.app.make_response(self.s.upload_chunk(id, index, max_chunk_size=meta.get('chunk_size', self.s.CHUNK_SIZE)))
         except OSError as e:
             if e.errno != errno.ENOSPC: raise
             response = self.s.app.make_response(self.fail('insufficient_disk_space', 507))
@@ -230,8 +238,18 @@ class DeviceAPI:
         with self.s.lock:
             p, meta = self.authorize_session(id)
             if 'result' in meta: return jsonify(meta['result']), 200
+            hashes = None
+            if meta.get('streaming'):
+                body = request.get_json(silent=True)
+                files = json.loads((p/'manifest.json').read_text())
+                if (not isinstance(body, dict) or set(body) != {'sha256'} or not isinstance(body['sha256'], list)
+                    or len(body['sha256']) != len(files) or any(not isinstance(h, str) or not re.fullmatch(r'[0-9a-f]{64}', h) for h in body['sha256'])):
+                    return self.fail('invalid_file')
+                hashes = body['sha256']
+                if any(f.get('sha256') is not None and f['sha256'] != h for f, h in zip(files, hashes)):
+                    return self.fail('checksum_mismatch', 422)
         # Existing finish validates length, checks SHA256, registers and cleans up.
-        response = self.s.app.make_response(self.s.finish_upload(id))
+        response = self.s.app.make_response(self.s.finish_upload(id, expected_hashes=hashes))
         if response.status_code == 201:
             with self.s.lock:
                 self.state['receipts'][id] = dict(meta, result=response.get_json())
