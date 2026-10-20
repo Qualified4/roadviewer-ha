@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.9.5**.
+This guide describes **0.9.6**.
 
 [한국어](DOCS.md) · English
 
@@ -106,6 +106,8 @@ The primary action is Play or Convert. The adjacent dropdown contains removal, d
 Manually removed recordings are excluded from automatic conversion until Convert is requested.
 
 Use **로그 선택** at the bottom of settings for bulk actions. Select-all and action controls remain visible while scrolling. **고정 항목도 삭제** is off whenever the dialog opens: pinned segments are protected from bulk removal/deletion unless explicitly included. This does not affect bulk conversion. Individual dropdown actions can explicitly delete pinned recordings.
+
+**다운로드** (download) in the bulk dialog sends the selected segments as one ZIP: logs only, logs + low-res video, or logs + all videos (front, wide, low-res), each with its estimated size. Files keep their uploaded names and are stored without recompression; the server streams the archive without staging it on disk. Pinned segments are included; up to 150 segments per download.
 
 During a bulk operation selection and closing are locked. Results show completed, skipped and incomplete counts; failed items remain selected.
 

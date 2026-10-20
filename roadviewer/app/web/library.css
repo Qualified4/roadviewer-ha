@@ -389,3 +389,11 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .inline-help[open]:not(.is-closing)>summary::before{transform:rotate(45deg)}
 @media(prefers-reduced-motion:reduce){.inline-help>summary::before{transition:none}}
 .recording-menu>a .download-detail{display:block}
+/* Bulk download: a small menu opening upward over the list, inside the dialog. */
+.bulk-download{position:relative;display:flex}.bulk-download>button{flex:1}
+.bulk-download-menu{position:absolute;right:0;bottom:calc(100% + 6px);z-index:2;width:min(300px,calc(100vw - 48px));padding:6px;background:#0e1721;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px #0009}
+.bulk-download-menu>p{margin:4px 8px 6px;font-size:11px;color:var(--muted)}
+.bulk-download-menu a{display:block;padding:9px 10px;border-radius:8px;color:var(--text);text-decoration:none;font-size:13px}
+.bulk-download-menu a small{display:block;margin-top:2px;font-size:11px;color:var(--muted)}
+.bulk-download-menu a:focus-visible{outline:2px solid var(--lane);outline-offset:-2px}
+@media(hover:hover) and (pointer:fine){.bulk-download-menu a:hover{background:#ffffff08}}
