@@ -1,5 +1,5 @@
 from pathlib import Path,PurePosixPath
-import gzip,hashlib,unicodedata,math
+import gzip,hashlib,unicodedata,math,zipfile
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
 from collections import Counter
 from progress import ProgressChannel
@@ -253,9 +253,9 @@ def logs():
  cleanup_uploads()
  def item(p):
   m=read_meta(p);m.pop('bookmarks',None)
-  # Logs converted before 0.9.5 stored a warning for skipped new event types; it was never a problem.
+  # Logs converted before 0.9.6 stored a warning for skipped new event types; it was never a problem.
   m['warnings']=[w for w in m.get('warnings') or [] if not str(w).startswith(SKIPPED_EVENTS_WARNING)]
-  return dict(m,pinned=storage_policy.pinned(m),bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),video_downloads=video_downloads(p),progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared'))
+  return dict(m,pinned=storage_policy.pinned(m),bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),video_downloads=video_downloads(p),log_bytes=(p/'rlog.zst').stat().st_size if (p/'rlog.zst').is_file() else 0,progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared'))
  with lock:items=[item(p) for p in recording_paths()]
  return jsonify(logs=sorted(items,key=recording_order,reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 @app.route('/api/upload',methods=['POST'])
@@ -663,14 +663,67 @@ def download_video(id):
   if kind is None:abort(404)
   return original(id,kind)
 
+def download_name(m,kind):
+ # The uploaded filename (e.g. 000003fe--d524dc1e0b--8--rlog.zst); a kept MP4 takes its original's name.
+ source_kind=next((original for original,mp4 in DERIVED.items() if kind==mp4),kind)
+ files=m.get('files',{});name=PurePosixPath(files.get(source_kind,source_kind)).name
+ # A camera added later without its filename recorded follows the log's route--segment prefix.
+ log=PurePosixPath(files.get('rlog.zst','')).name
+ if source_kind not in files and log.endswith('--rlog.zst'):name=log[:-len('rlog.zst')]+source_kind
+ return str(PurePosixPath(name).with_suffix('.mp4')) if kind.endswith('.mp4') else name
+
+class _ZipSink:
+ # zipfile writes into this unseekable buffer (data descriptors); the response streams it out as it fills.
+ def __init__(self):self.chunks=[]
+ def write(self,data):self.chunks.append(bytes(data));return len(data)
+ def flush(self):pass
+ def take(self):
+  data=b''.join(self.chunks);self.chunks.clear();return data
+
+def zip_stream(entries):
+ # Stored, not deflated: rlog.zst and the videos are already compressed. Nothing is staged on disk.
+ sink=_ZipSink()
+ with zipfile.ZipFile(sink,'w',zipfile.ZIP_STORED,allowZip64=True) as archive:
+  for path,name in entries:
+   try:source=path.open('rb')
+   except OSError:continue # Removed since the request started.
+   with source:
+    stat=os.fstat(source.fileno())
+    info=zipfile.ZipInfo(name,time.localtime(max(stat.st_mtime,315532800))[:6]);info.file_size=stat.st_size
+    with archive.open(info,'w',force_zip64=stat.st_size>=0x7fffffff) as out:
+     while chunk:=source.read(1<<20):
+      out.write(chunk);yield sink.take()
+   yield sink.take()
+ yield sink.take()
+
+DOWNLOAD_PARTS=('rlog','front','wide','qcamera')
+@app.route('/api/logs/download.zip')
+def download_many():
+ # Several segments as one ZIP: the logs and, if asked, one file per camera (as the single downloads offer).
+ ids=list(dict.fromkeys(i for i in request.args.get('ids','').split(',') if i))
+ parts=set(request.args.get('parts','rlog').split(','))
+ if not ids or len(ids)>1000 or not parts<=set(DOWNLOAD_PARTS):abort(400)
+ entries,names=[],set()
+ with lock:
+  for id in ids:
+   p=folder(id);m=read_meta(p)
+   kinds=(['rlog.zst'] if 'rlog' in parts and (p/'rlog.zst').is_file() else [])+[row['kind'] for row in video_downloads(p) if row['source'] in parts]
+   for kind in kinds:
+    name=download_name(m,kind)
+    if name in names:name=f'{id[:8]}-{name}'
+    names.add(name);entries.append((p/kind,name))
+ if not entries:abort(404)
+ response=app.response_class(zip_stream(entries),mimetype='application/zip',direct_passthrough=True)
+ response.headers['Content-Disposition']=f'attachment; filename="roadviewer-{len(ids)}-segments-{time.strftime("%Y%m%d-%H%M%S")}.zip"'
+ response.headers['Cache-Control']='no-store'
+ return response
+
 @app.route('/api/logs/<id>/original/<kind>')
 def original(id,kind):
  if kind not in STORED_KINDS:abort(404)
  p=folder(id);file=p/kind
  if not file.is_file():abort(404)
- source_kind=next((original for original,mp4 in DERIVED.items() if kind==mp4),kind)
- name=PurePosixPath(read_meta(p).get('files',{}).get(source_kind,source_kind)).name
- if kind.endswith('.mp4'):name=str(PurePosixPath(name).with_suffix('.mp4'))
+ name=download_name(read_meta(p),kind)
  mime='video/mp4' if kind.endswith('.mp4') else 'video/hevc' if kind.endswith('.hevc') else 'video/mp2t' if kind=='qcamera.ts' else 'application/zstd'
  return send_file(file,as_attachment=True,download_name=name,mimetype=mime,conditional=True)
 

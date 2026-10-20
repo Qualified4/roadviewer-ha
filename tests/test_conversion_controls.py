@@ -33,6 +33,24 @@ class ConversionTests(unittest.TestCase):
   self.assertEqual(server.recording_order(dict(name='000003d8--26e55cbb04 / 구간 044',id='x')),
                    server.recording_order(dict(name=names[3],id='x')))
 
+ def test_bulk_download_streams_one_zip(self):
+  import zipfile
+  a=self.row(1,'ready',files={'rlog.zst':'000003fe--d524dc1e0b--1--rlog.zst','qcamera.ts':'000003fe--d524dc1e0b--1--qcamera.ts'})
+  (a/'fcamera.hevc').write_bytes(b'front'*1000)
+  b=self.row(2,'unconverted') # No recorded filenames: the plain kind names, made unique.
+  with patch.object(server,'cleanup_uploads'):rows={r['id']:r for r in self.request('get','/api/logs').json['logs']}
+  self.assertEqual(rows[a.name]['log_bytes'],3)
+  get=lambda query:self.request('get','/api/logs/download.zip?'+query)
+  response=get(f'ids={a.name},{b.name},{a.name}&parts=rlog,qcamera')
+  self.assertEqual(response.status_code,200);self.assertEqual(response.mimetype,'application/zip')
+  self.assertIn('attachment; filename="roadviewer-2-segments-',response.headers['Content-Disposition'])
+  archive=zipfile.ZipFile(io.BytesIO(response.get_data()))
+  self.assertEqual(archive.namelist(),['000003fe--d524dc1e0b--1--rlog.zst','000003fe--d524dc1e0b--1--qcamera.ts','rlog.zst','qcamera.ts'])
+  self.assertTrue(all(i.compress_type==zipfile.ZIP_STORED for i in archive.infolist()));self.assertEqual(archive.read('rlog.zst'),b'log')
+  self.assertEqual(zipfile.ZipFile(io.BytesIO(get(f'ids={a.name}&parts=front').get_data())).read('000003fe--d524dc1e0b--1--fcamera.hevc'),b'front'*1000)
+  for query in ('ids=','ids=x&parts=rlog',f'ids={a.name}&parts=secret',f'ids={b.name}&parts=front'):
+   self.assertIn(get(query).status_code,(400,404),query)
+
  def test_old_skipped_event_warning_is_not_listed(self):
   p=self.row(1,'ready',warnings=['지원하지 않는 새 로그 이벤트 1188개를 건너뛰었습니다.','다른 경고'])
   with patch.object(server,'cleanup_uploads'):row=self.request('get','/api/logs').json['logs'][0]

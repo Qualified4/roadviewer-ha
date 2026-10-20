@@ -4,7 +4,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[],conversions=[];
   page.on('pageerror',e=>errors.push(e.message));
-  let logs=Array.from({length:30},(_,i)=>({id:String(i),name:'주행 기록 / 구간 '+i,status:i===0?'processing':'ready',bytes:10,prepared_bytes:20,uploaded:i,video:true})),failLoad=false,failConvert=true,expectPinProtection=true;
+  let logs=Array.from({length:30},(_,i)=>({id:String(i),name:'주행 기록 / 구간 '+i,status:i===0?'processing':'ready',bytes:10,prepared_bytes:20,uploaded:i,video:true,log_bytes:1048576,video_downloads:i%2?[{source:'qcamera',kind:'qcamera.ts',bytes:2097152},{source:'front',kind:'fcamera.hevc',bytes:52428800}]:[]})),failLoad=false,failConvert=true,expectPinProtection=true;
   await page.route('https://rv.test/**',async route=>{
    const p=new URL(route.request().url()).pathname,request=route.request();
    if(p==='/api/logs')return failLoad?route.fulfill({status:500,json:{error:'목록 실패'}}):route.fulfill({json:{logs,concurrency:1,auto_convert:false,max_upload_mb:512,storage_used_bytes:900}});
@@ -41,6 +41,17 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal((await page.locator('.bulk-select').boundingBox()).y,top.y);
   assert.equal((await page.locator('.bulk-footer').boundingBox()).y,footer.y);
   assert(top.y>=0&&footer.y+footer.height<=844);
+  // Download: one ZIP for the selection, choices with their sizes, opening over the list and closing with Escape.
+  await page.locator('#bulkDownload').click();
+  const menu=await page.$$eval('#bulkDownloadMenu a',els=>els.map(a=>({label:a.querySelector('span').textContent,href:a.getAttribute('href'),size:a.querySelector('small').textContent,download:a.hasAttribute('download')})));
+  assert.deepEqual(menu.map(m=>m.label),['로그만','로그 + 저화질 영상','로그 + 모든 영상']);
+  assert.deepEqual(menu.map(m=>m.size.split('약 ')[1]),['30.0 MB','60.0 MB','810.0 MB']);
+  assert(menu.every(m=>m.download&&m.href.startsWith('api/logs/download.zip?ids='+logs.map(l=>l.id).join(','))));
+  assert.deepEqual(menu.map(m=>m.href.split('parts=')[1]),['rlog','rlog,qcamera','rlog,front,wide,qcamera']);
+  const menuBox=await page.locator('#bulkDownloadMenu').boundingBox(),dialogBox=await page.locator('#bulkDialog').boundingBox();
+  assert(menuBox.x>=dialogBox.x&&menuBox.x+menuBox.width<=dialogBox.x+dialogBox.width&&menuBox.y>=dialogBox.y,'menu stays inside the dialog');
+  await page.keyboard.press('Escape');assert(await page.locator('#bulkDownloadMenu').isHidden());assert(await page.locator('#bulkDialog').evaluate(d=>d.open),'Escape closes only the menu');
+  await page.locator('#bulkDownload').click();await page.locator('.bulk-select').click({position:{x:5,y:5}});assert(await page.locator('#bulkDownloadMenu').isHidden(),'outside tap closes the menu');
   page.once('dialog',d=>d.dismiss());await page.locator('#bulkDelete').click();assert.equal(calls.length,0);
   page.once('dialog',d=>d.accept());await page.locator('#bulkRemove').click();
   await page.waitForFunction(()=>document.getElementById('bulkClose').disabled);await page.keyboard.press('Escape');

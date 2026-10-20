@@ -18,7 +18,33 @@
   includePinned.closest('.bulk-pin-option').classList.toggle('needs-pinned',blocked);
   $('bulkPinHint').textContent=includePinned.checked?'선택한 고정 로그도 제거·완전 삭제에 포함됩니다.':blocked?`선택한 ${selected.length}개가 모두 고정 로그입니다. 제거·완전 삭제하려면 켜세요.`:'고정된 로그는 제거·완전 삭제에서 보호합니다.';
   close.disabled=running;
+  download.disabled=loading||running||!selected.length;
+  if(download.disabled)closeDownloads();
  }
+ // Selected segments as one ZIP (server streams it): the logs, optionally with one file per camera.
+ const download=$('bulkDownload'),downloadMenu=$('bulkDownloadMenu');
+ const DOWNLOAD_CHOICES=[['rlog','로그만','rlog.zst'],['rlog,qcamera','로그 + 저화질 영상','rlog · qcamera'],['rlog,front,wide,qcamera','로그 + 모든 영상','rlog · 전방 · 와이드 · 저화질']];
+ function closeDownloads(){downloadMenu.hidden=true;download.setAttribute('aria-expanded','false')}
+ function openDownloads(){
+  const selected=rows.filter(row=>row.input.checked).map(row=>row.log),ids=selected.map(log=>log.id).join(',');
+  const size=parts=>selected.reduce((sum,log)=>sum+(parts.includes('rlog')?log.log_bytes||0:0)+(log.video_downloads||[]).filter(v=>parts.includes(v.source)).reduce((a,v)=>a+v.bytes,0),0);
+  const title=document.createElement('p');title.textContent=`선택한 ${selected.length}개 구간 · ZIP 하나`;
+  let previous=-1;const items=[];
+  for(const [parts,label,detail] of DOWNLOAD_CHOICES){
+   const bytes=size(parts.split(','));if(!bytes||bytes===previous)continue;previous=bytes;
+   const link=document.createElement('a');link.role='menuitem';link.href=`api/logs/download.zip?ids=${ids}&parts=${parts}`;link.download='';
+   const name=document.createElement('span');name.textContent=label;const small=document.createElement('small');small.textContent=`${detail} · 약 ${storageSize(bytes)}`;
+   link.append(name,small);link.onclick=()=>{closeDownloads();$('bulkStatus').textContent=`${selected.length}개 구간 다운로드를 시작했습니다. 받는 동안 이 화면을 닫아도 됩니다.`};items.push(link);
+  }
+  if(!items.length){const none=document.createElement('p');none.textContent='받을 수 있는 파일이 없습니다.';items.push(none)}
+  // Very long selections exceed what a link can carry through Home Assistant Ingress.
+  if(ids.length>6000){items.length=0;const many=document.createElement('p');many.textContent='한 번에 150개 구간까지 받을 수 있습니다. 선택을 나눠 주세요.';items.push(many)}
+  downloadMenu.replaceChildren(title,...items);downloadMenu.hidden=false;download.setAttribute('aria-expanded','true');
+  downloadMenu.querySelector('a')?.focus({preventScroll:true});
+ }
+ download.onclick=()=>downloadMenu.hidden?openDownloads():closeDownloads();
+ dialog.addEventListener('keydown',e=>{if(e.key==='Escape'&&!downloadMenu.hidden){e.preventDefault();e.stopPropagation();closeDownloads();download.focus()}},true);
+ dialog.addEventListener('pointerdown',e=>{if(!downloadMenu.hidden&&!e.target.closest('.bulk-download'))closeDownloads()});
  function addRow(log){
   const label=document.createElement('label');label.className='bulk-log';
   const input=document.createElement('input');input.type='checkbox';input.value=log.id;input.onchange=sync;
