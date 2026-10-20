@@ -107,7 +107,7 @@
     });
    }
    if(on('lanes'))roadBands(frame.overlay.laneBands,frame.overlay.lanes,i=>frame.lp[i],'#57d9b0');
-   if(on('edges'))roadBands(frame.overlay.edgeBands,frame.overlay.edges,i=>edgeConfidence(frame.es[i]),'#ffa665',false);
+   if(on('edges'))roadBands(frame.overlay.edgeBands,frame.overlay.edges,i=>edgeConfidence(frame.es[i]),'#ff5c5c',false);
    const sections=frame.overlay.targetSections,trail=sections?.map(section=>targetSectionPoints(section))||[],target=sections?trail[0]:horizontalTargetLine(frame.overlay.targetLine);
    if([1,3].includes(road?.target)&&road.distance>0&&road.distance<204.6&&target?.length===2&&target.every(Boolean)){
     const color=road.target===3?'#edf7ff':'#7be5ff',length=8*targetBrakeLevel(data.frames,idx);

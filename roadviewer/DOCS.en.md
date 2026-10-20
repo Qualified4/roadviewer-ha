@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.9.4**.
+This guide describes **0.9.5**.
 
 [한국어](DOCS.md) · English
 
@@ -155,9 +155,9 @@ Actual width never exceeds the viewport. Each category is remembered separately.
 
 In the video overlay, mint lane bands grow up to 75% confidence, reaching a maximum physical width of **0.225m**. Above 75%, width stays fixed while fill opacity grows from **7.5% to 20%**. The 1px outline's opacity follows confidence. Projection makes distant bands narrower.
 
-Orange road-edge bands use confidence `1/(1+standard deviation)`; maximum fill opacity remains 10%. Glow is video-only.
+Coral red road-edge bands use confidence `1/(1+standard deviation)`; maximum fill opacity remains 10%. Glow is video-only.
 
-The road panel uses lane lines of 1–4px with confidence-based brightness and dashed lines below 50%. Road edges are 2px orange lines, dashed above standard deviation 1. The model path is a purple line, not a vehicle-width ribbon.
+The road panel uses lane lines of 1–4px with confidence-based brightness and dashed lines below 50%. Road edges are 2px coral red lines, dashed above standard deviation 1. The model path is a purple line, not a vehicle-width ribbon.
 
 The 25/50/80m forward range affects **only the road panel**. Camera lanes, paths, vehicle boxes, detection markers and TARGET are not clipped to this setting; they still require valid data and projection. BSD walls retain their separate 40m maximum length.
 
