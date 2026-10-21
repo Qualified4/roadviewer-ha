@@ -25,6 +25,21 @@ class RecoveryTests(unittest.TestCase):
   self.assertEqual(self.put(id).json['received'],3)
   self.assertEqual((server.UPLOADS/id/'0').read_bytes(),b'log')
   self.assertEqual(self.put(id,b'bad').status_code,409)
+ def test_chunk_write_and_hash_run_outside_the_job_lock(self):
+  # A slow disk write must not stall the other files, the web UI or conversion progress.
+  id=self.begin();seen=[];real=server.hashlib.sha256
+  class Probe:
+   def __init__(self,inner):self.inner=inner
+   def update(self,data):
+    # RLock: re-entry by this thread would always succeed, so try from another thread.
+    other=[];t=threading.Thread(target=lambda:other.append(server.lock.acquire(timeout=.5) and (server.lock.release() or True)));t.start();t.join()
+    seen.append(other[0]);self.inner.update(data)
+   def copy(self):return Probe(self.inner.copy())
+   def hexdigest(self):return self.inner.hexdigest()
+  with patch.object(server.hashlib,'sha256',lambda *a:Probe(real(*a))):
+   self.assertEqual(self.put(id).status_code,200)
+  self.assertEqual(seen,[True],'another thread can take the job lock while the chunk is hashed')
+  self.assertEqual(server.received_digest(id,0,server.UPLOADS/id/'0'),real(b'log').hexdigest())
  def test_cleanup_on_startup_preserves_registered_sources(self):
   id=self.begin();self.put(id)
   p=server.ROOT/('a'*32);p.mkdir();(p/'rlog.zst').write_bytes(b'original')

@@ -2,7 +2,7 @@
 
 한국어 · [English](device-api.en.md)
 
-구현 기준: **Road Viewer 0.9.7**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
+구현 기준: **Road Viewer 0.9.8**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
 
 공유 데이터 디렉터리는 **Gunicorn worker 1개와 여러 thread**를 전제로 합니다. 같은 디렉터리를 사용하는 worker나 서버 복제본을 추가하지 마세요.
 
@@ -157,7 +157,7 @@ HEVC는 Annex B parameter-set 헤더가 있어야 합니다. 변환 worker가 �
 }
 ```
 
-`chunk_size`는 `X-RV-Max-Chunk`와 서버 최대값 2097152(2 MiB) 중 작은 값입니다. 헤더가 없으면 Road Viewer 0.9.1보다 먼저 만든 업로더와 호환되도록 262144(256 KiB)를 줍니다. 이 헤더는 서버가 받는 크기를 낮출 수만 있어 서명하지 않습니다.
+`chunk_size`는 `X-RV-Max-Chunk`와 서버 최대값 8388608(8 MiB, 0.9.8부터 체크섬 방식과 관계없이 적용) 중 작은 값입니다. 헤더가 없으면 Road Viewer 0.9.1보다 먼저 만든 업로더와 호환되도록 262144(256 KiB)를 줍니다. 이 헤더는 서버가 받는 크기를 낮출 수만 있어 서명하지 않습니다.
 
 세션은 배치 전체를 담당합니다. 전역 최대 32개 활성 장치 세션과 256개 미만료 완료 영수증을 허용합니다. 절대 유효기간은 처음 생성부터 **7200초**로 늘어나지 않습니다. 성공한 조각 전송은 **900초** 유휴 만료를 갱신하지만 상태 조회나 서명된 재연결·토큰 재발급은 갱신하지 않습니다.
 
@@ -172,7 +172,7 @@ HEVC는 Annex B parameter-set 헤더가 있어야 합니다. 변환 worker가 �
 | 요청 | 의미 |
 |---|---|
 | `GET /api/device/uploads/<id>` | `{id,state:"uploading",expires_at,files:[{index,name,size,received}]}` |
-| `PUT /api/device/uploads/<id>/files/<index>?offset=<바이트 위치>` | 1~`chunk_size`바이트 조각(서버 최대 2 MiB), `application/octet-stream`; 200 `{"received":<누적 위치>}` |
+| `PUT /api/device/uploads/<id>/files/<index>?offset=<바이트 위치>` | 1~`chunk_size`바이트 조각(서버 최대 8 MiB), `application/octet-stream`; 200 `{"received":<누적 위치>}` |
 | `POST /api/device/uploads/<id>/finish` | 전체 수신·검증 후 등록 |
 | `DELETE /api/device/uploads/<id>` | 유휴 미완료 세션 취소 |
 
@@ -316,8 +316,8 @@ python3 -m venv /tmp/roadviewer-test-env
 실제 Nginx/Gunicorn TLS 경계를 검증하려면:
 
 ```bash
-docker build -t roadviewer:0.9.7 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.9.7 /tests/test_device_tls.py
+docker build -t roadviewer:0.9.8 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.9.8 /tests/test_device_tls.py
 ```
 
 컨테이너 안에서 임시 인증서로 통신하므로 포트 공개·공유기 변경은 필요하지 않습니다. 빌드는 네트워크가 필요하며 실제 DNS/NAT 검증을 대신하지 않습니다.

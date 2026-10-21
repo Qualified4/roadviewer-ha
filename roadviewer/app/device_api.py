@@ -183,7 +183,8 @@ class DeviceAPI:
         # X-RV-Max-Chunk is unsigned on purpose: it can only lower what this server accepts.
         try: limit = int(request.headers.get('X-RV-Max-Chunk', ''))
         except ValueError: limit = 0
-        maximum = self.s.STREAM_CHUNK_SIZE if streaming else self.s.CHUNK_SIZE
+        # Large chunks help both checksum modes (a pre-hashed manifest no longer means a slower 2 MiB cap).
+        maximum = self.s.STREAM_CHUNK_SIZE
         return min(maximum, limit if limit >= 1 else LEGACY_CHUNK_SIZE)
 
     def issue_token(self, p, meta, status=200):

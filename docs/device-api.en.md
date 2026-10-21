@@ -2,7 +2,7 @@
 
 [한국어](device-api.md) · English
 
-Implementation reference: **Road Viewer 0.9.7**.
+Implementation reference: **Road Viewer 0.9.8**.
 
 This repository provides the Road Viewer server and web UI. Compatible device uploaders are maintained separately. Existing browser uploads and Home Assistant Ingress remain supported. One Gunicorn worker with multiple threads is required; do not add workers/replicas sharing this data directory.
 
@@ -139,7 +139,7 @@ Signed `POST /api/device/uploads` body (<= 65,536 bytes):
 }
 ```
 
-`chunk_size` is the smaller of `X-RV-Max-Chunk` and the server maximum 2097152 (2 MiB). Without the header it is 262144 (256 KiB) so uploaders older than 0.9.1 keep working. The header can only lower what the server accepts, so it is not signed.
+`chunk_size` is the smaller of `X-RV-Max-Chunk` and the server maximum 8388608 (8 MiB; from 0.9.8 for both checksum modes). Without the header it is 262144 (256 KiB) so uploaders older than 0.9.1 keep working. The header can only lower what the server accepts, so it is not signed.
 
 The session covers the **whole batch**. There are at most 32 live device sessions and 256 unexpired completion receipts globally. Absolute TTL is **7200 seconds** from first creation, never extended. Successful chunks refresh the 900-second idle deadline. Status polling does not extend it. Signed reattachment/token renewal preserves both the idle deadline and absolute expiry; it is not upload progress.
 
@@ -152,7 +152,7 @@ If already completed and its receipt is still valid: 200 `{"state":"completed","
 All following requests require `Authorization: Bearer <token>` and HTTPS. No long-term HMAC or UI `X-RoadViewer-Request` header is needed.
 
 - `GET /api/device/uploads/<id>` → `{id,state:"uploading",expires_at,files:[{index,name,size,received}]}`. Indices are the order of segments/files in the manifest. It reports persisted offsets; it does not reserve more space.
-- `PUT /api/device/uploads/<id>/files/<index>?offset=<byte offset>` with raw binary body, `Content-Type: application/octet-stream`. Chunk length is 1–`chunk_size` bytes (server maximum 2 MiB) and cannot exceed declared file size. Upload sequentially per file; no overlapping concurrent writes to the same file. Different files may be sent concurrently (8 connections per client). 200 `{"received":<offset after this chunk>}`.
+- `PUT /api/device/uploads/<id>/files/<index>?offset=<byte offset>` with raw binary body, `Content-Type: application/octet-stream`. Chunk length is 1–`chunk_size` bytes (server maximum 8 MiB) and cannot exceed declared file size. Upload sequentially per file; no overlapping concurrent writes to the same file. Different files may be sent concurrently (8 connections per client). 200 `{"received":<offset after this chunk>}`.
 - If a response is lost, GET status then continue at `received`. Repeating an already received identical range is accepted. A gap or changed data at an old offset returns 409 `offset_conflict`; query status. Offsets are byte counts, not chunk numbers. A conflicting chunk cannot overwrite old bytes; cancel/restart for a changed file.
 - Partial data is retained across a network failure and an ordinary add-on restart within both deadlines. Startup removes browser/staging leftovers but preserves valid device manifests/chunks/reservations. Device credentials and replay checks survive restarts.
 
@@ -270,8 +270,8 @@ An OK result verifies the tested API/storage paths, not real video or log-decodi
 For the real TLS/Nginx/Gunicorn boundary, use Docker:
 
 ```bash
-docker build -t roadviewer:0.9.7 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.9.7 /tests/test_device_tls.py
+docker build -t roadviewer:0.9.8 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.9.8 /tests/test_device_tls.py
 ```
 
 The client trusts a temporary test certificate. Server and client communicate inside the container, so host port publication and router changes are unnecessary. Building needs network access; this does not validate your real DNS/NAT setup.
