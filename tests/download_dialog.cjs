@@ -22,17 +22,17 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await dialog.getByRole('button',{name:/^원본 형식/}).click();assert((await dialog.textContent()).includes('ecamera.hevc'));assert((await dialog.textContent()).includes('바이트까지 동일하지는'));
   await dialog.locator('.rv-download-file input').nth(0).uncheck();await dialog.locator('.rv-download-file input').nth(2).uncheck();await dialog.locator('.rv-download-file input').nth(3).uncheck();
   url=new URL(await dialog.locator('.rv-download-start').getAttribute('href'),'https://rv.test');assert.equal(url.searchParams.get('source'),'front');assert.equal(url.searchParams.get('format'),'original');
-  await page.keyboard.press('Escape');assert.equal(await page.locator('.rv-download-dialog').count(),0);
+  await page.keyboard.press('Escape');await dialog.waitFor({state:'detached'});assert.equal(await page.locator('.rv-download-dialog').count(),0);
   await page.locator('#bulkOpen').click();await page.locator('#bulkAll').check();await page.locator('#bulkDownload').click();await dialog.waitFor();
   assert((await dialog.locator('.rv-download-total').textContent()).includes('8개 파일'));url=new URL(await dialog.locator('.rv-download-start').getAttribute('href'),'https://rv.test');assert.equal(url.searchParams.get('ids').split(',').length,2);
-  await dialog.getByRole('button',{name:'닫기',exact:true}).click();await page.locator('#bulkClose').click();
+  await dialog.getByRole('button',{name:'닫기',exact:true}).click();await dialog.waitFor({state:'detached'});await page.locator('#bulkClose').click();
   if(process.env.RV_CAPTURE_DOCS){
    await page.locator('.upload > summary').click();await page.locator('#storageSettings').evaluate(e=>e.open=true);await page.locator('.conversion-info').screenshot({path:'docs/images/roadviewer-library-settings.png'});
-   await page.locator('.recording-more summary').first().click();await page.getByRole('link',{name:'모두 받기',exact:true}).first().click();await dialog.screenshot({path:'docs/images/roadviewer-download-options.png'});await page.keyboard.press('Escape');
+   await page.locator('.recording-more summary').first().click();await page.getByRole('link',{name:'모두 받기',exact:true}).first().click();await dialog.screenshot({path:'docs/images/roadviewer-download-options.png'});await page.keyboard.press('Escape');await dialog.waitFor({state:'detached'});
   }
   for(const width of [320,390]){
    await page.setViewportSize({width,height:844});await page.locator('.recording-more summary').first().click();await page.getByRole('link',{name:'원본 형식 다운로드',exact:true}).first().click();await dialog.waitFor();
-   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const box=await dialog.boundingBox();assert(box.x>=0&&box.x+box.width<=width);await page.keyboard.press('Escape');
+   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const box=await dialog.boundingBox();assert(box.x>=0&&box.x+box.width<=width);await page.keyboard.press('Escape');await dialog.waitFor({state:'detached'});
   }
   assert.deepEqual(errors,[]);console.log('PASS: compact rows, modal formats/files, ZIP scopes, nested dialog and mobile widths');
  }finally{await browser.close()}
