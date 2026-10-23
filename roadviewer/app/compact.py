@@ -22,11 +22,13 @@ def compact_target(target, fields=('x', 'yRel', 'vRel')):
         if key in target: target[key] = r4(target[key])
     target.pop('y', None)  # Always -yRel; the browser restores it.
 
-def compact_data(data):
+def compact_data(data, progress=None):
     """In place and idempotent, so migrating an already compact file is harmless."""
     infos, index = data.get('cameraInfos') or [], {}
     for i, info in enumerate(infos): index[json.dumps(info, sort_keys=True)] = i
-    for frame in data.get('frames', []):
+    frames=data.get('frames', [])
+    for i,frame in enumerate(frames):
+        if progress and i%32==0:progress(100*i/max(len(frames),1))
         info = frame.get('cameraInfo')
         if isinstance(info, dict):
             # Calibration changes a few times per drive; the full object was repeated in every frame.
@@ -65,16 +67,44 @@ def compact_data(data):
                     marker.pop('point', None)
                     # Five decimals: near targets have small depths, which magnify rounding in the division.
                     marker['projection'] = [round(value, 5) if isinstance(value, float) else value for value in marker['projection']]
+    if progress:progress(100)
     if infos: data['cameraInfos'] = infos
     return data
 
-def write_gzip_json(path, value, **options):
+def write_gzip_json(path, value, *, progress=None, **options):
     """Atomic: readers see the old file or the complete new one, never a partial write."""
     path = Path(path); temp = path.with_name(path.name + '.tmp')
-    body = json.dumps(value, separators=(',', ':'), allow_nan=False, **options).encode()
+    def encode(item):return json.dumps(item, separators=(',', ':'), allow_nan=False, **options).encode()
+    if progress:progress('encode',0)
+    # Encode replay frames in C-backed batches, avoiding Python's per-token iterencode overhead.
+    frames=value.get('frames') if isinstance(value,dict) else None
+    if progress and isinstance(frames,list) and frames and all(isinstance(k,str) for k in value) and set(options)<={'ensure_ascii'}:
+        parts=[b'{'];done=0;total=len(frames)+len(value)-1
+        for i,(key,item) in enumerate(value.items()):
+            if i:parts.append(b',')
+            parts.extend((encode(key),b':'))
+            if key=='frames':
+                parts.append(b'[')
+                for start in range(0,len(frames),64):
+                    if start:parts.append(b',')
+                    block=frames[start:start+64];parts.append(encode(block)[1:-1]);done+=len(block)
+                    progress('encode',100*done/total)
+                parts.append(b']')
+            else:parts.append(encode(item));done+=1
+            progress('encode',100*done/total)
+        parts.append(b'}');body=b''.join(parts);del parts
+    else:body=encode(value)
+    if progress:progress('encode',100)
+    if progress:progress('compress',0)
     # mtime=0 keeps identical content byte-identical, so ETags only change with the data.
-    with open(temp, 'wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=3, mtime=0) as out: out.write(body)
+    with open(temp, 'wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=3, mtime=0) as out:
+        if progress:
+            for start in range(0,len(body),256*1024):
+                block=body[start:start+256*1024];out.write(block)
+                progress('compress',100*(start+len(block))/len(body))
+        else:out.write(body)
     temp.replace(path)
+    if progress:progress('compress',100)
 
 def migrate(prepared):
     """Write compact gzip copies of a finished conversion as *.gz.migrating files.

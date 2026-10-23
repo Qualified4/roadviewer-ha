@@ -51,7 +51,7 @@ class ProgressChannel:
    for line in source:
     try:
      event=json.loads(line)
-     if isinstance(event,dict) and event.get('stage') in ('log_read','log_analysis','video_read','video_convert','video_verify','saving'):
+     if isinstance(event,dict) and event.get('stage') in ('log_prepare','log_decompress','log_read','log_analysis','video_read','video_convert','video_verify','telemetry_build','telemetry_encode','telemetry_compress','replay_compact','replay_encode','replay_compress','summary_save','saving'):
       self.callback(event)
     except (ValueError,TypeError):pass
 

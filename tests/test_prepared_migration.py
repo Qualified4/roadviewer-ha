@@ -4,7 +4,7 @@ from unittest.mock import patch
 os.environ['RV_DATA']=tempfile.mkdtemp() # Before importing server, which creates its data folder.
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
 import server
-from compact import compact_data
+from compact import compact_data,write_gzip_json
 
 FRAME={'t':0,'id':1,'cameraInfo':{'device':'tizi','deviceId':'d','sensor':'os04c10','calibrationStatus':'calibrated','rpy':[0,0,0],'height':1.22,'heightDefault':False},
  'liveTracks':[{'index':3,'trackId':7,'x':42.29999923706055,'y':-2.9000000953674316,'yRel':2.9000000953674316,'vRel':.41999998688697815,'measured':True,'source':'frontRadar','trackState':2}],
@@ -13,6 +13,20 @@ FRAME={'t':0,'id':1,'cameraInfo':{'device':'tizi','deviceId':'d','sensor':'os04c
  'lp':[.4999999],'overlay':{'heightDirection':[.1,.2,.3],'lanes':[[None,[-1.252792,3.034763]]],'edges':[],'path':[[.5,.6]],'markers':[{'kind':'model','index':0,'point':[.48908,.787639],'projection':[3.6182092105449004,5.8269425531224,7.3979848401320645]}]}}
 
 class CompactTests(unittest.TestCase):
+ def test_chunked_json_and_gzip_progress_preserve_atomic_bytes(self):
+  with tempfile.TemporaryDirectory() as root:
+   path=Path(root)/'data.json.gz';value={'route':'한글 경로','frames':[{'t':i,'text':'영상'*1024} for i in range(129)],'empty':[]}
+   write_gzip_json(path,value,ensure_ascii=False);before=path.read_bytes();events=[]
+   write_gzip_json(path,value,ensure_ascii=False,progress=lambda stage,p:events.append((stage,p)))
+   self.assertEqual(path.read_bytes(),before)
+   self.assertEqual(gzip.decompress(path.read_bytes()),json.dumps(value,separators=(',',':'),allow_nan=False,ensure_ascii=False).encode())
+   for stage in ('encode','compress'):
+    values=[p for kind,p in events if kind==stage]
+    self.assertEqual(values,sorted(values));self.assertEqual(values[0],0);self.assertEqual(values[-1],100)
+    self.assertTrue(any(0<p<100 for p in values))
+   with self.assertRaises(ValueError):write_gzip_json(path,{'frames':[{'x':float('nan')}]},progress=lambda *args:None)
+   self.assertEqual(path.read_bytes(),before,'encoding failure must preserve the previous complete file')
+
  def test_compact_is_idempotent_and_reversible(self):
   data=compact_data({'frames':[json.loads(json.dumps(FRAME)) for _ in range(3)]})
   self.assertEqual(data['cameraInfos'],[FRAME['cameraInfo']]);self.assertEqual([f['cameraInfo'] for f in data['frames']],[0,0,0])

@@ -1,5 +1,5 @@
 from pathlib import Path
-import sys,json,hashlib,bisect,collections,math
+import sys,json,hashlib,bisect,collections,math,struct
 import av,zstandard,capnp
 from steering import SteeringReplay
 from timeline import align_timeline
@@ -120,7 +120,8 @@ def first_y(line):
  return float(values[0]) if values and math.isfinite(values[0]) else None
 
 def prepare(value,route=None):
- progress=Reporter();progress.update('log_read')
+ progress=Reporter();progress.update('log_prepare',percent=0)
+ def report(stage,percent):progress.update(stage,percent=percent,force=percent in (0,100))
  src=Path(value).resolve();video=src.parent/'qcamera.ts'
  if not video.is_file():video=src.parent/'camera.mp4'
  log_entry={'label':route or src.parent.name};choices=[]
@@ -132,14 +133,28 @@ def prepare(value,route=None):
  def save_summary(data):
   (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{})},ensure_ascii=False))
  print('로그 읽는 중:',src,flush=True)
- with src.open('rb') as source, zstandard.ZstdDecompressor().stream_reader(source) as reader:
-  raw=reader.read(512*1024*1024+1)
+ report('log_prepare',100)
+ compressed_size=max(src.stat().st_size,1)
+ with src.open('rb') as source:
+  class CompressedSource:
+   def read(self,size):
+    block=source.read(size);report('log_decompress',100*source.tell()/compressed_size);return block
+  report('log_decompress',0)
+  with zstandard.ZstdDecompressor().stream_reader(CompressedSource(),closefd=False) as reader:
+   raw=reader.read(512*1024*1024+1)
+ report('log_decompress',100)
  if len(raw)>512*1024*1024:raise ValueError('압축 해제된 로그가 512MB 제한을 초과합니다.')
  streams=collections.defaultdict(list)
  ccnc=[];ccnc_roads=[];road_signals=[]
  video_indices=collections.defaultdict(list)
  models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter()
- for e in log.Event.read_multiple_bytes(raw):
+ offset=0;report('log_read',0)
+ for number,e in enumerate(log.Event.read_multiple_bytes(raw)):
+  # The native reader validated this message. Track its framed byte extent only for progress.
+  segments=struct.unpack_from('<I',raw,offset)[0]+1
+  words=sum(struct.unpack_from('<'+str(segments)+'I',raw,offset+4))
+  offset+=((segments+2)//2)*8+words*8
+  if number%128==0:progress.update('log_read',frames=len(models),percent=100*offset/len(raw))
   try:kind=e.which()
   except capnp.KjException as exc:
    # A newer Event union member has no name in our schema. Preserve known events.
@@ -151,7 +166,7 @@ def prepare(value,route=None):
   if kind=='deviceState':streams[kind].append((e.logMonoTime,e.valid,{'deviceType':str(e.deviceState.deviceType)}))
   if kind in ('roadCameraState','wideRoadCameraState'):streams[kind].append((e.logMonoTime,e.valid,{'sensor':str(getattr(e,kind).sensor)}))
   if kind=='modelV2':
-   models.append((e.logMonoTime,e.valid,pick(e.modelV2,SPECS['modelV2'])));progress.update('log_read',frames=len(models))
+   models.append((e.logMonoTime,e.valid,pick(e.modelV2,SPECS['modelV2'])))
   elif kind=='sendcan':
    for msg in e.sendcan:
     if msg.address==0x161 and msg.src<128 and len(msg.dat)==32:ccnc_roads.append((e.logMonoTime,e.valid,ccnc_road(msg.dat)))
@@ -164,6 +179,7 @@ def prepare(value,route=None):
    road_signals.append((e.logMonoTime,e.valid,{'acceleration':acceleration if math.isfinite(acceleration) else None,**{name:bool(getattr(e.carState,field)) for name,field in [('blinkerLeft','leftBlinker'),('blinkerRight','rightBlinker'),('blindspotLeft','leftBlindspot'),('blindspotRight','rightBlindspot')]}}))
   elif kind in ('qRoadEncodeIdx','roadEncodeIdx','wideRoadEncodeIdx'):
    video_indices[kind].append(pick(getattr(e,kind),SPECS['qRoadEncodeIdx']))
+ progress.update('log_read',frames=len(models),percent=100,force=True)
  cameras=video_indices['qRoadEncodeIdx']
  if not models:raise ValueError('이 로그에 modelV2 데이터가 없습니다.')
  camera_by_id={q['frameId']:q['timestampEof'] for q in cameras}
@@ -231,7 +247,7 @@ def prepare(value,route=None):
     stream=c.streams.video[0];pictures=Pictures(stream,annex_b=video.suffix=='.ts')
     for packet in c.demux(stream):
      if packet.pts is None or packet.size==0:continue
-     pts.append(float(packet.pts*stream.time_base));pictures.add(packet);camera_progress.update('video_read',frames=len(pts))
+     pts.append(float(packet.pts*stream.time_base));pictures.add(packet);camera_progress.update('video_read',frames=len(pts),percent=min(100,100*len(pts)/max(len(qs),1)))
    signature=pictures.finish()
    pts.sort()
    if len(pts)==len(qs) and [q['segmentId'] for q in qs]==list(range(len(qs))):
@@ -272,17 +288,21 @@ def prepare(value,route=None):
  default_video=next((source for source in ('front','qcamera','wide') if source in videos),None)
  video_info=videos.get(default_video)
  if not videos:warnings.append('재생 가능한 영상이 없어 도로 형태만 표시합니다.')
- progress.update('saving')
+ report('telemetry_build',0)
  timeline_start=frames[0]['t']
  bounds=align_timeline(frames,video_info,videos)
  telemetry_origin=origin+timeline_start-frames[0]['t']
- telemetry=extract_telemetry(streams,telemetry_origin,bounds['duration'],frames)
+ telemetry=extract_telemetry(streams,telemetry_origin,bounds['duration'],frames,progress=lambda p:report('telemetry_build',p))
  # Compact gzip files: about 5x smaller on disk and over the network (see compact.py).
- write_gzip_json(dest/'telemetry.json.gz',telemetry)
+ write_gzip_json(dest/'telemetry.json.gz',telemetry,progress=lambda stage,p:report('telemetry_'+stage,p))
  data={'route':log_entry['label'],'key':key,**bounds,'frames':frames,'video':video_info,'videos':videos,'defaultVideo':default_video,'warnings':warnings,'counts':dict(counts)}
- write_gzip_json(dest/'data.json.gz',compact_data(data),ensure_ascii=False)
+ report('replay_compact',0)
+ compact_data(data,progress=lambda p:report('replay_compact',p))
+ write_gzip_json(dest/'data.json.gz',data,ensure_ascii=False,progress=lambda stage,p:report('replay_'+stage,p))
  for stale in ('data.json','telemetry.json'):(dest/stale).unlink(missing_ok=True) # Plain files from an earlier version.
+ report('summary_save',0)
  save_summary(data)
+ report('summary_save',100)
  print('준비 완료:',len(frames),'개 모델 프레임',flush=True)
  return dest,attach(data)
 

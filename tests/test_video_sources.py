@@ -61,7 +61,7 @@ class VideoSourcesTests(unittest.TestCase):
     for percent in (0,50,100):progress.update(stage,percent=percent)
   self.assertEqual({stage for stage,_ in events},{'video_read','video_convert','video_verify'})
   values=[fields['video_percent'] for _,fields in events];self.assertEqual(values,sorted(values))
-  self.assertEqual([fields['video_percent'] for stage,fields in events[:9] if stage=='video_convert'],[0,0,0])
+  for actual,expected in zip([fields['video_percent'] for stage,fields in events[:9] if stage=='video_convert'],[20/3,15,70/3]):self.assertAlmostEqual(actual,expected)
   self.assertEqual([fields['percent'] for _,fields in events[:3]],[0,50,100])
   self.assertAlmostEqual(values[0],0);self.assertAlmostEqual(values[-1],100)
 

@@ -75,7 +75,7 @@ def run_job(id):
      m.update(status='unconverted');save_meta(p,m);return
     revision=m.get('conversion_revision',0)
     m.update(status='processing');save_meta(p,m)
-    job_progress[id]={'stage':'log_read'}
+    job_progress[id]={'stage':'log_prepare','percent':0}
     proc=subprocess.Popen([*LOW_PRIORITY,sys.executable,'-B',str(BASE/'decoder.py'),str(p/'rlog.zst'),m['name']],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,preexec_fn=lambda:os.nice(10),**channel.options());processes[id]=proc
    channel.start()
    try:
@@ -83,6 +83,7 @@ def run_job(id):
     if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
     # The decoder writes the large data file. Only its small summary is needed here.
     summary=json.loads((p/'prepared/summary.json').read_text())
+    with lock:job_progress[id]={'stage':'registering','percent':0}
     with registration_lock,lock:
      if not (p/'meta.json').exists():return
      m=read_meta(p)
