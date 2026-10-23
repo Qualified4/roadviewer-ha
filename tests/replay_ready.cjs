@@ -23,25 +23,26 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.goto(base+'/');assert.equal(await page.locator('.diagnostics').count(),0);assert.equal(await page.locator('script[src*="picker-diagnostics"]').count(),0);await page.waitForFunction(()=>document.querySelectorAll('.log-row').length===2);
   for(const [progress,text] of [
    [{stage:'log_analysis',frames:1234},'프레임 분석 완료'],
-   [{stage:'video_convert',percent:65},'영상 변환 중 · 65%'],
-   [{stage:'video_verify',percent:80},'영상 패킷 검증 중 · 80%'],
+   [{stage:'video_convert',percent:65},'영상 변환 중'],
+   [{stage:'video_verify',percent:80},'영상 패킷 검증 중'],
    [{stage:'log_prepare'},'변환 준비 중'],
-   [{stage:'log_decompress',percent:50},'로그 압축 해제 중 · 50%'],
-   ...Object.entries({telemetry_build:'차량 그래프 생성 중',telemetry_encode:'차량 그래프 JSON 변환 중',telemetry_compress:'차량 그래프 압축·저장 중',replay_compact:'재생 데이터 정리 중',replay_encode:'재생 데이터 JSON 변환 중',replay_compress:'재생 데이터 압축·저장 중',summary_save:'요약 저장 중'}).map(([stage,label])=>[{stage,percent:50},label+' · 50%'])
+   [{stage:'log_decompress',percent:50},'로그 압축 해제 중'],
+   ...Object.entries({telemetry_build:'차량 그래프 생성 중',telemetry_encode:'차량 그래프 JSON 변환 중',telemetry_compress:'차량 그래프 압축·저장 중',replay_compact:'재생 데이터 정리 중',replay_encode:'재생 데이터 JSON 변환 중',replay_compress:'재생 데이터 압축·저장 중',summary_save:'요약 저장 중'}).map(([stage,label])=>[{stage,percent:50},label])
   ]){
    logs[0].progress=progress;await page.evaluate(()=>refresh());
    assert((await page.locator('.state-processing').first().textContent()).includes(text));
   }
+  logs[0].conversion_revision=1;logs[0].progress={stage:'log_prepare',percent:0};await page.evaluate(()=>refresh());
   await page.evaluate(()=>window.savedProcessingRow=document.querySelector('.log-row'));
   logs[0].progress={stage:'video_convert',percent:91};
   const readsBefore=progressReads;
-  await page.waitForFunction(()=>document.querySelector('.state-processing').textContent==='영상 변환 중 · 91%');
+  await page.waitForFunction(()=>document.querySelector('.state-processing').textContent==='영상 변환 중 · 73%');
   assert(progressReads>readsBefore);
   assert(await page.evaluate(()=>savedProcessingRow===document.querySelector('.log-row')));
   logs[0].progress={stage:'video_verify',percent:92};
   await page.evaluate(()=>refresh());
   assert(await page.evaluate(()=>savedProcessingRow===document.querySelector('.log-row')));
-  assert.equal(await page.locator('.state-processing').first().textContent(),'영상 패킷 검증 중 · 92%');
+  assert.equal(await page.locator('.state-processing').first().textContent(),'영상 패킷 검증 중 · 79%');
   logs[0].status='ready';await page.evaluate(()=>refresh());
   await page.evaluate(()=>window.savedReplay=document.querySelector('.replay'));
   await page.evaluate(()=>refresh());assert(await page.evaluate(()=>savedReplay===document.querySelector('.replay')));

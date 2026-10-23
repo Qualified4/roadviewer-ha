@@ -52,14 +52,14 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     [{stage:'video_convert',percent:50,video_percent:50},'0.7'],[{stage:'video_verify',percent:50,video_percent:75},'0.75'],
     [{stage:'telemetry_build',percent:50},'0.825'],[{stage:'telemetry_encode',percent:50},'0.855'],
     [{stage:'telemetry_compress',percent:50},'0.87'],[{stage:'replay_compact',percent:50},'0.9'],
-    [{stage:'replay_encode',percent:50},'0.94'],[{stage:'replay_compress',percent:50},'0.975'],
-    [{stage:'summary_save',percent:100},'0.995'],[{stage:'saving'},'0.8'],
+    [{stage:'replay_encode',percent:50},'0.94'],[{stage:'replay_compress',percent:50},'0.98'],
+    [{stage:'summary_save',percent:100},'1'],[{stage:'registering'},'1'],[{stage:'saving'},'0.8'],
    ];
    for(const [i,[progress,expected]] of progressCases.entries()){
     logs=[{...logs[0],prepared_bytes:42+i,conversion_revision:i+1,progress}];
     await page.evaluate(()=>refresh());
     assert(await page.locator('.state-processing').evaluate(e=>e===processingBadge),'metadata refresh keeps the badge connected');
-    assert.equal(await page.locator('.state-progress').evaluate(e=>e.hidden),false,'progress remains visible through registration');
+    assert.equal(await page.locator('.state-progress').evaluate(e=>e.hidden),['summary_save','registering'].includes(progress.stage),'only the short summary/registration hides the bar');
     if(expected)assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),expected);
     if(!reduced){
      assert(await page.locator('.state-processing').evaluate(e=>e.getAnimations().find(a=>a.animationName==='rv-sweep')===sweep),'stage changes retain the same sweep animation');

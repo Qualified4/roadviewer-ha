@@ -101,7 +101,7 @@ def write_gzip_json(path, value, *, progress=None, **options):
         if progress:
             for start in range(0,len(body),256*1024):
                 block=body[start:start+256*1024];out.write(block)
-                progress('compress',100*(start+len(block))/len(body))
+                progress('compress',min(99,100*(start+len(block))/len(body)))
         else:out.write(body)
     temp.replace(path)
     if progress:progress('compress',100)

@@ -2,8 +2,8 @@
 let uploadController=null,networkRestarting=false;
 let concurrencySaving=false,concurrencyRevision=0,savedConcurrency=1,savedAutoConvert=true;
 const names={unconverted:'미변환',queued:'대기 중',processing:'처리 중',ready:'재생 가능',error:'변환 실패'};
-// Work-based stage weights; reserve at least the last 0.5% for server registration.
-const STAGE_PROGRESS={log_prepare:[0,.01],log_decompress:[.01,.04],log_read:[.04,.45],log_analysis:[.45,.60],video_read:[.60,.64],video_convert:[.64,.74],video_verify:[.74,.80],telemetry_build:[.80,.85],telemetry_encode:[.85,.86],telemetry_compress:[.86,.88],replay_compact:[.88,.92],replay_encode:[.92,.96],replay_compress:[.96,.99],summary_save:[.99,.995],registering:[.995,.995],saving:[.8,.8]};
+// Work-based weights: finish large writes at 100%, then show only the short summary/registration sweep.
+const STAGE_PROGRESS={log_prepare:[0,.01],log_decompress:[.01,.04],log_read:[.04,.45],log_analysis:[.45,.60],video_read:[.60,.64],video_convert:[.64,.74],video_verify:[.74,.80],telemetry_build:[.80,.85],telemetry_encode:[.85,.86],telemetry_compress:[.86,.88],replay_compact:[.88,.92],replay_encode:[.92,.96],replay_compress:[.96,1],summary_save:[1,1],registering:[1,1],saving:[.8,.8]};
 const FINAL_STAGE_LABELS={telemetry_build:'차량 그래프 생성 중',telemetry_encode:'차량 그래프 JSON 변환 중',telemetry_compress:'차량 그래프 압축·저장 중',replay_compact:'재생 데이터 정리 중',replay_encode:'재생 데이터 JSON 변환 중',replay_compress:'재생 데이터 압축·저장 중',summary_save:'요약 저장 중',registering:'결과 등록 중',saving:'결과 저장 중'};
 function showState(state,m){
  const text=processingText(m);let bar=state.querySelector('.state-progress');
@@ -19,14 +19,15 @@ function showState(state,m){
  }
  const ratio=aggregate?p.video_percent/100:p.stage==='log_analysis'?(Number.isFinite(p.frames)&&Number.isFinite(p.total_frames)&&p.total_frames>0?p.frames/p.total_frames:0):(Number.isFinite(p.percent)?p.percent/100:0),part=Math.max(0,Math.min(1,ratio));
  const revision=String(m.conversion_revision??0),previous=bar.dataset.revision===revision?Number(bar.firstChild.style.getPropertyValue('--progress')):0;
- const value=Number(Math.min(.995,Math.max(previous,from+(to-from)*part)).toFixed(6));
+ const value=Number(Math.min(1,Math.max(previous,from+(to-from)*part)).toFixed(6));
+ bar.hidden=p.stage==='summary_save'||p.stage==='registering';state.firstChild.nodeValue=processingText(m,Math.floor(value*100));
  bar.dataset.revision=revision;bar.firstChild.style.setProperty('--progress',String(value));bar.setAttribute('aria-valuenow',String(Math.round(value*1000)/10));
 }
-function processingText(m){
+function processingText(m,overallPercent=null){
  if(m.status!=='processing')return m.status==='unconverted'&&m.auto_excluded?'미변환 · 수동 변환 필요':names[m.status];
  const p=m.progress||{},frames=Number.isFinite(p.frames)?Math.max(0,Math.floor(p.frames)).toLocaleString():'0';
- const pct=Number.isFinite(p.percent)?Math.max(0,Math.min(100,Math.floor(p.percent))):0;
- if(p.stage==='registering')return FINAL_STAGE_LABELS[p.stage];
+ const pct=overallPercent??(Number.isFinite(p.percent)?Math.max(0,Math.min(100,Math.floor(p.percent))):0);
+ if(p.stage==='registering'||p.stage==='summary_save')return FINAL_STAGE_LABELS[p.stage];
  if(FINAL_STAGE_LABELS[p.stage])return `${FINAL_STAGE_LABELS[p.stage]} · ${pct}%`;
  switch(p.stage){
   case 'log_prepare':return '변환 준비 중';
