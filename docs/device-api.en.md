@@ -299,3 +299,5 @@ The long-term secret becomes a nonextractable Web Crypto HMAC key in page memory
 
 - [User guide (English)](../roadviewer/DOCS.en.md) · [사용 설명서 (한국어)](../roadviewer/DOCS.md)
 - [API 한국어](device-api.md)
+
+Video verification compares SHA-256 hashes of compressed pictures and decoder headers, packet counts and log timestamps without full-frame decoding. It checks preservation across remuxing rather than screening the source for every possible decoding error.

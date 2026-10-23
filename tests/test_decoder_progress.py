@@ -4,6 +4,7 @@ from unittest.mock import patch
 sys.path.insert(0,'/app')
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
 import av,zstandard,decoder
+from test_video_sources import no_decode_open
 from progress import Reporter
 
 class DecoderProgressTests(unittest.TestCase):
@@ -82,7 +83,7 @@ class DecoderProgressTests(unittest.TestCase):
    messages.insert(2,bytes(unknown))
    src=root/'rlog.zst';src.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
    output=io.StringIO();counter=iter(range(10000));reporter=Reporter(output,clock=lambda:next(counter))
-   with patch.object(decoder,'Reporter',return_value=reporter):dest,data=decoder.prepare(src,'Route / segment')
+   with patch.object(decoder,'Reporter',return_value=reporter),patch.object(av,'open',side_effect=no_decode_open(av.open)):dest,data=decoder.prepare(src,'Route / segment')
    saved=json.loads(gzip.decompress((dest/'data.json.gz').read_bytes()))
    self.assertFalse((dest/'data.json').exists())
    self.assertEqual(saved['cameraInfos'][0]['wideSensor'],'os04c10')
@@ -128,11 +129,11 @@ class DecoderProgressTests(unittest.TestCase):
    self.assertEqual(sum(value is True for value in state['values']['steeringPressed']),1)
    self.assertEqual(state['values']['steeringPressed'][31],True)
    (dest/'summary.json').unlink()
-   with patch.object(decoder,'Reporter',return_value=reporter):decoder.prepare(src,'Route / segment')
+   with patch.object(decoder,'Reporter',return_value=reporter),patch.object(av,'open',side_effect=no_decode_open(av.open)):decoder.prepare(src,'Route / segment')
    self.assertEqual(json.loads((dest/'summary.json').read_text())['model_frames'],20)
    (dest/'camera.mp4').replace(root/'camera.mp4');video.unlink();shutil.rmtree(dest)
    before=(root/'camera.mp4').read_bytes()
-   with patch.object(decoder,'Reporter',return_value=reporter):dest,reused=decoder.prepare(src,'Route / segment')
+   with patch.object(decoder,'Reporter',return_value=reporter),patch.object(av,'open',side_effect=no_decode_open(av.open)):dest,reused=decoder.prepare(src,'Route / segment')
    self.assertEqual((root/'camera.mp4').read_bytes(),before);self.assertFalse((dest/'camera.mp4').exists())
    self.assertEqual(reused['video']['frames'],data['video']['frames'])
    self.assertAlmostEqual(reused['video']['start'],data['video']['start'],places=6)

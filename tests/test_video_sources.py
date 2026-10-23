@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0, '/app')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'roadviewer/app'))
@@ -12,10 +13,28 @@ import zstandard
 import decoder
 from hevc_video import prepare_video,VideoProgress
 from video_sources import validate_hevc
+from video_packets import Pictures, inspect_mp4
 
 
 class Reporter:
  def update(self, *args, **kwargs): pass
+
+
+class NoDecode:
+ """Normal preparation must never ask libav for decoded pixels."""
+ def __init__(self, container):self.container=container
+ def __getattr__(self, key):
+  if key=='decode':raise AssertionError('Pixel decoding is forbidden during preparation')
+  return getattr(self.container,key)
+ def __enter__(self):return self
+ def __exit__(self,*args):self.container.close()
+
+
+def no_decode_open(original):
+ def open(*args,**kwargs):
+  container=original(*args,**kwargs)
+  return NoDecode(container) if isinstance(container,av.container.InputContainer) else container
+ return open
 
 
 def hevc(path, count=8):
@@ -52,7 +71,8 @@ class VideoSourcesTests(unittest.TestCase):
    validate_hevc(source)
    times=[0,.05,.1,.15,.25,.3,.35,.4]
    indices=[{'segmentId':i,'timestampEof':10_000_000_000+round(t*1e9)} for i,t in enumerate(times)]
-   info=prepare_video(source,output,indices,9,Reporter())
+   with patch.object(av,'open',side_effect=no_decode_open(av.open)):
+    info=prepare_video(source,output,indices,9,Reporter())
    self.assertAlmostEqual(info['start'],1);self.assertEqual(info['frames'],8)
    with av.open(str(output)) as video:
     self.assertEqual(video.streams.video[0].codec_context.name,'hevc')
@@ -64,6 +84,31 @@ class VideoSourcesTests(unittest.TestCase):
    self.assertFalse((root/'bad.mp4').exists())
    indices[2]['segmentId']=9
    with self.assertRaises(ValueError):prepare_video(source,root/'bad.mp4',indices,9,Reporter())
+
+ def test_compressed_picture_corruption_and_clock_changes_are_rejected(self):
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp);source=root/'fcamera.hevc';output=root/'good.mp4';hevc(source)
+   times=[i*.05 for i in range(8)]
+   indices=[dict(segmentId=i,timestampEof=10_000_000_000+round(t*1e9)) for i,t in enumerate(times)]
+   prepare_video(source,output,indices,10,Reporter())
+   with av.open(str(source)) as inp:
+    pictures=Pictures(inp.streams.video[0],annex_b=True)
+    for packet in inp.demux(video=0):
+     if packet.size:pictures.add(packet)
+    signature=pictures.finish()
+   # Same packet count, lengths, headers and timestamps, but one changed picture byte.
+   with av.open(str(output)) as inp,av.open(str(root/'corrupt.mp4'),'w') as out:
+    stream=inp.streams.video[0];target=out.add_stream_from_template(stream,opaque=True)
+    for i,packet in enumerate(inp.demux(stream)):
+     if not packet.size:continue
+     data=bytearray(packet)
+     if i==3:data[-5]^=1
+     changed=av.Packet(bytes(data));changed.pts=packet.pts;changed.dts=packet.dts;changed.time_base=packet.time_base;changed.duration=packet.duration;changed.stream=target;out.mux(changed)
+   with self.assertRaisesRegex(ValueError,'원본과 다릅니다'):
+    inspect_mp4(root/'corrupt.mp4',times,Reporter(),signature)
+   wrong=times.copy();wrong[4]+=.01
+   with self.assertRaisesRegex(ValueError,'시간이 로그와'):
+    inspect_mp4(output,wrong,Reporter(),signature)
 
  def test_decoder_prefers_front_and_keeps_all_camera_offsets(self):
   with tempfile.TemporaryDirectory() as temp:

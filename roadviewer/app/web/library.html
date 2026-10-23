@@ -45,7 +45,7 @@
 <div class="setting-row processing-setting"><div class="setting-copy"><h3><label for="concurrency">동시 처리 개수</label></h3><p id="concurrencyStatus">동시에 처리할 로그 개수입니다.</p></div><div class="setting-control concurrency-control"><select id="concurrency" aria-label="동시 처리 개수" aria-describedby="concurrencyStatus" disabled><option value="1">1개</option><option value="2">2개</option><option value="3">3개</option><option value="4">4개</option></select></div></div>
 </div>
 
-<p class="settings-note"><span>영상 보관 방식</span>새로 완료하는 변환은 q·f·e 영상을 재압축 없이 MP4로 포장하고 검증한 뒤 원본 TS·HEVC를 정리합니다. 검증에 실패한 영상은 원본을 유지합니다. 자동 변환을 끄면 업로드한 파일을 보관하며, 직접 변환한 뒤 MP4로 보관합니다. 원본 로그는 유지합니다. 다운로드 팝업에서 MP4 또는 원본 형식을 선택할 수 있습니다.</p>
+<p class="settings-note"><span>영상 보관 방식</span>새로 완료하는 변환은 q·f·e 영상을 재압축 없이 MP4로 포장하고, 전체 디코딩 없이 압축 데이터·헤더·프레임 수·시간을 검증한 뒤 원본 TS·HEVC를 정리합니다. 검증에 실패한 영상은 원본을 유지합니다. 자동 변환을 끄면 업로드한 파일을 보관하며, 직접 변환한 뒤 MP4로 보관합니다. 원본 로그는 유지합니다. 다운로드 팝업에서 MP4 또는 원본 형식을 선택할 수 있습니다.</p>
 <details id="storageSettings" class="managed-settings"><summary><div><h3>저장공간 관리</h3><span class="disclosure-description">사용량 한도와 공간 부족 시 동작</span></div><span class="disclosure-hint" aria-hidden="true"><span class="when-closed">펼치기</span><span class="when-open">접기</span></span></summary>
 <div class="storage-settings-body"><dl id="storageUsage" class="storage-metrics" role="status" aria-label="저장공간 현황">
 <div><dt>사용 중</dt><dd id="storageUsed">—</dd></div>

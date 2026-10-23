@@ -343,3 +343,5 @@ docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.10.1 
 
 - [사용 설명서 한국어](../roadviewer/DOCS.md) · [English user guide](../roadviewer/DOCS.en.md)
 - [영문 API 문서](device-api.en.md)
+
+영상 검증은 전체 프레임 디코딩 대신 압축 프레임·디코더 헤더의 SHA-256과 패킷 수·로그 시간을 비교합니다. 포장 전후 데이터 보존을 확인하며 원본 자체의 모든 디코딩 오류를 검사하지는 않습니다.

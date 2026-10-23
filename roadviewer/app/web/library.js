@@ -24,7 +24,7 @@ function processingText(m){
   case 'log_analysis':return `로그 분석 중 · ${frames}프레임 분석 완료`;
   case 'video_read':return `영상 읽는 중 · ${frames}프레임`;
   case 'video_convert':return `영상 변환 중 · ${pct}%`;
-  case 'video_verify':return `영상 검증 중 · ${pct}%`;
+  case 'video_verify':return `영상 패킷 검증 중 · ${pct}%`;
   case 'saving':return '마무리 중';
   default:return m.status==='unconverted'&&m.auto_excluded?'미변환 · 수동 변환 필요':names[m.status];
  }
