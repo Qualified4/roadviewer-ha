@@ -326,6 +326,12 @@ def stored_digests(path,meta,kinds=UPLOAD_KINDS):
  meta['content_hashes']={**cached,**updated} if kinds!=UPLOAD_KINDS else updated
  return {kind:value['sha256'] for kind,value in updated.items()}
 
+def retained_original(p,m,kind,digest,known):
+ # A matching re-upload must not recreate the second permanent camera copy.
+ source=next(key for key,value in SOURCES.items() if value[0]==kind)
+ return ((p/DERIVED[kind]).is_file() and digest==known.get(kind) and
+         m.get('video_codecs',{}).get(source)==('h264' if source=='qcamera' else 'hevc'))
+
 def register_files(files):
  if not files or len(files)>(200 if request.path.startswith('/api/device/') else 100):return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
  if shutil.disk_usage(ROOT).free<(request.content_length or 0)+100*1024*1024:return upload_error('insufficient_disk_space','로그를 저장할 디스크 공간이 부족합니다.',507)
@@ -381,7 +387,7 @@ def register_files(files):
        changes=True
       else:
        path=ROOT/match[0]['id']
-       if any(kind in g['hashes'] and not (path/kind).is_file() and
+       if any(kind in g['hashes'] and not retained_original(path,match[0],kind,g['hashes'][kind],match[1]) and not (path/kind).is_file() and
               (not (path/DERIVED[kind]).is_file() or g['hashes'][kind]==match[1].get(kind)) for kind in ORIGINALS):changes=True
      if changes:
       storage_policy.admit(0,[{'name':name} for g in groups.values() for name in g['files'].values()],commit=True,protected_ids={match[0]['id'] for match in matches if match})
@@ -390,7 +396,7 @@ def register_files(files):
       if match:
        meta,hashes=match
        p=ROOT/meta['id'];meta=read_meta(p)
-       added=[kind for kind in ORIGINALS if kind in g['hashes'] and not (p/kind).is_file() and
+       added=[kind for kind in ORIGINALS if kind in g['hashes'] and not retained_original(p,meta,kind,g['hashes'][kind],hashes) and not (p/kind).is_file() and
               (not (p/DERIVED[kind]).is_file() or g['hashes'][kind]==hashes.get(kind))]
        if added:
         restored=all((p/DERIVED[kind]).is_file() and g['hashes'][kind]==hashes.get(kind) for kind in added)

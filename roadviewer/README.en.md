@@ -20,7 +20,7 @@ Select `rlog.zst` and optional cameras from the same segment: `qcamera.ts`, high
 - Automatic, side-by-side and stacked layouts, adjustable width and sticky playback controls
 - 23 selectable/reorderable graphs and camera installation information
 - Automatic/manual conversion, up to four concurrent jobs and lossless MP4 retention
-- Later camera attachment, missing-original restoration and log/video downloads
+- Later camera attachment, original-format export and log/video downloads
 - Per-segment pins, bulk conversion/removal/deletion, storage budgets and cleanup
 - Optional HTTPS device uploads with pairing
 

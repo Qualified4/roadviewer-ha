@@ -42,10 +42,10 @@ Mixed routes and nonconsecutive segments are supported.
 - **Log only:** conversion produces road and vehicle information without video.
 - **Add video later:** send the same log with the additional video. It attaches to the existing recording rather than creating another log.
 - **Video only:** rejected; include the matching log.
-- **Restore a missing original:** resend the same log and original camera file. If its cached original SHA-256 matches a retained MP4, only the original is restored; existing playback data and status remain unchanged.
+- Re-uploading the same source video checks its saved hash and preserves the retained MP4 and replay data without storing another original copy. Use the download modal for original-format files.
 - **Different video:** existing camera data is not overwritten. To replace it, completely delete that recording and upload it again.
 
-Duplicates are detected using the compressed rlog's SHA-256. Renaming identical content does not create another recording; recompression may change the hash. Browser deduplication happens after transfer, so it saves storage/conversion rather than transfer bandwidth. Missing-video attachment and verified original restoration are exceptions to ordinary duplicate skipping.
+Duplicates are detected using the compressed rlog's SHA-256. Renaming identical content does not create another recording; recompression may change the hash. Browser deduplication happens after transfer, so it saves storage/conversion rather than transfer bandwidth. Missing-video attachment are exceptions to ordinary duplicate skipping.
 
 ### Limits and recovery
 

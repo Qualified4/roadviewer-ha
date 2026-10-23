@@ -66,7 +66,7 @@ For one segment, bare filenames work. For multiple segments, retain their identi
 
 - Logs alone support road views and vehicle graphs. Video-only and direct MP4 uploads are unsupported.
 - Add a camera later by uploading it with the identical log; it attaches to the existing recording.
-- If an original was removed but its MP4 remains, resending the log and matching TS/HEVC restores only the original after checking its stored hash. Existing MP4 and analysis remain intact.
+- Re-uploading the same source video checks its saved hash and preserves the retained MP4 and replay data without storing another original copy. Use the download modal for original-format files.
 - Compressed-log SHA-256 identifies duplicates at registration, after transfer.
 - Browser uploads default to **512 MiB per batch**, configurable through `max_upload_mb` from 16–2048. This is separate from the storage budget. Device uploads support 8 GiB per batch, 50 segments, 200 files and 2 GiB per video; each log must fit `max_upload_mb`.
 
