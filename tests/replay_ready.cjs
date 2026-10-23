@@ -24,7 +24,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   for(const [progress,text] of [
    [{stage:'log_analysis',frames:1234},'프레임 분석 완료'],
    [{stage:'video_convert',percent:65},'영상 변환 중 · 65%'],
-   [{stage:'video_verify',percent:80},'영상 검증 중 · 80%'],
+   [{stage:'video_verify',percent:80},'영상 패킷 검증 중 · 80%'],
    [{stage:'saving'},'마무리 중']
   ]){
    logs[0].progress=progress;await page.evaluate(()=>refresh());
@@ -39,7 +39,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   logs[0].progress={stage:'video_verify',percent:92};
   await page.evaluate(()=>refresh());
   assert(await page.evaluate(()=>savedProcessingRow===document.querySelector('.log-row')));
-  assert.equal(await page.locator('.state-processing').first().textContent(),'영상 검증 중 · 92%');
+  assert.equal(await page.locator('.state-processing').first().textContent(),'영상 패킷 검증 중 · 92%');
   logs[0].status='ready';await page.evaluate(()=>refresh());
   await page.evaluate(()=>window.savedReplay=document.querySelector('.replay'));
   await page.evaluate(()=>refresh());assert(await page.evaluate(()=>savedReplay===document.querySelector('.replay')));

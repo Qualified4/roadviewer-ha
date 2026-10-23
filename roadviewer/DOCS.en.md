@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.10.0**.
+This guide describes **0.10.1**.
 
 [한국어](DOCS.md) · English
 
@@ -75,7 +75,7 @@ Use the existing compact recording menu for **모두 받기** (Download all), th
 
 ### Conversion and storage settings
 
-Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 without re-encoding. Originals are removed only after frame and log-clock verification; failed sources and rlog.zst are preserved. With automatic conversion off, uploads remain in their uploaded form until manual conversion. HEVC playback requires browser/device support; playback failure switches to the low-resolution camera when available.
+Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 without re-encoding. Verification compares SHA-256 hashes of compressed pictures and headers, packet counts and timestamps without decoding every frame; it does not screen the source for every possible decoding error. Originals are removed only after compressed-picture, decoder-header, packet-count and log-clock verification; failed sources and rlog.zst are preserved. With automatic conversion off, uploads remain in their uploaded form until manual conversion. HEVC playback requires browser/device support; playback failure switches to the low-resolution camera when available.
 
 - **자동 변환:** enabled by default. Eligible recordings are queued oldest-upload first. Disabling clears automatic queued work; running and manually requested work continue.
 - **동시 처리 개수:** 1–4, default 1. Lowering the limit does not interrupt running jobs. Settings survive restart; parallel jobs may finish out of order.

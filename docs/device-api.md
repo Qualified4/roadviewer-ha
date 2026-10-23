@@ -2,7 +2,7 @@
 
 한국어 · [English](device-api.en.md)
 
-구현 기준: **Road Viewer 0.10.0**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
+구현 기준: **Road Viewer 0.10.1**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
 
 공유 데이터 디렉터리는 **Gunicorn worker 1개와 여러 thread**를 전제로 합니다. 같은 디렉터리를 사용하는 worker나 서버 복제본을 추가하지 마세요.
 
@@ -316,8 +316,8 @@ python3 -m venv /tmp/roadviewer-test-env
 실제 Nginx/Gunicorn TLS 경계를 검증하려면:
 
 ```bash
-docker build -t roadviewer:0.10.0 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.10.0 /tests/test_device_tls.py
+docker build -t roadviewer:0.10.1 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.10.1 /tests/test_device_tls.py
 ```
 
 컨테이너 안에서 임시 인증서로 통신하므로 포트 공개·공유기 변경은 필요하지 않습니다. 빌드는 네트워크가 필요하며 실제 DNS/NAT 검증을 대신하지 않습니다.
@@ -343,3 +343,5 @@ docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.10.0 
 
 - [사용 설명서 한국어](../roadviewer/DOCS.md) · [English user guide](../roadviewer/DOCS.en.md)
 - [영문 API 문서](device-api.en.md)
+
+영상 검증은 전체 프레임 디코딩 대신 압축 프레임·디코더 헤더의 SHA-256과 패킷 수·로그 시간을 비교합니다. 포장 전후 데이터 보존을 확인하며 원본 자체의 모든 디코딩 오류를 검사하지는 않습니다.

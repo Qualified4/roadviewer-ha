@@ -138,7 +138,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .settings-section-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 28px 0 12px; }
 .settings-section-heading h3 { font-size: 13px; }
 .settings-section-heading>span { font-size: 12px; color: var(--muted); }
-.processing-controls { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.processing-controls { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .setting-row { display: grid; grid-template-columns: minmax(0,1fr) auto; align-content: start; gap: 12px; }
 .processing-setting { padding: 18px; border: 1px solid var(--line); border-radius: 10px; background: #0f1822; }
 .setting-copy { display: contents; }

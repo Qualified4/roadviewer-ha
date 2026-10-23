@@ -6,6 +6,7 @@ from timeline import align_timeline
 from video_sources import SOURCES
 from hevc_video import prepare_video,VideoProgress
 from progress import Reporter
+from video_packets import Pictures, inspect_mp4
 from overlay import OverlayProjector,restore_ccnc_targets
 from telemetry import extract_telemetry,FIELDS
 from compact import compact_data,write_gzip_json
@@ -225,12 +226,13 @@ def prepare(value,route=None):
    qs=sorted(cameras,key=lambda q:q['segmentId'])
    camera_progress.update('video_read',frames=0)
    pts=[]
-   # Frame timestamps come from the packets; decoding every frame here only repeated the verify step below.
+   # Check the source packets and clock without decoding pixels.
    with av.open(str(video)) as c:
-    stream=c.streams.video[0]
+    stream=c.streams.video[0];pictures=Pictures(stream,annex_b=video.suffix=='.ts')
     for packet in c.demux(stream):
      if packet.pts is None or packet.size==0:continue
-     pts.append(float(packet.pts*stream.time_base));camera_progress.update('video_read',frames=len(pts))
+     pts.append(float(packet.pts*stream.time_base));pictures.add(packet);camera_progress.update('video_read',frames=len(pts))
+   signature=pictures.finish()
    pts.sort()
    if len(pts)==len(qs) and [q['segmentId'] for q in qs]==list(range(len(qs))):
     offsets=[q['timestampEof']/1e9-p for q,p in zip(qs,pts)]
@@ -250,15 +252,8 @@ def prepare(value,route=None):
         camera_progress.update('video_convert',percent=converted_percent)
      camera_progress.update('video_convert',percent=100,force=True)
      camera_progress.update('video_verify',percent=0)
-     with av.open(str(output_video)) as check:
-      video_duration=float(check.duration)/av.time_base if check.duration is not None else pts[-1]-pts[0]+(pts[-1]-pts[-2] if len(pts)>1 else .05)
-      decoded_count=0;first_pts=0
-      for f in check.decode(video=0):
-       if decoded_count==0:first_pts=float(f.pts*f.time_base)
-       decoded_count+=1
-       camera_progress.update('video_verify',percent=min(99,100*decoded_count/len(pts)))
-      if decoded_count!=len(pts):raise ValueError('변환된 영상 프레임 수가 다릅니다.')
-     video_info={'start':qs[0]['timestampEof']/1e9-origin-first_pts,'duration':video_duration,'frames':len(pts),'timestampSpreadMs':(max(offsets)-min(offsets))*1000,'codec':stream.codec_context.name,'sourcePts':pts[0] if video.suffix=='.ts' else json.loads((src.parent/'meta.json').read_text()).get('video_origins',{}).get('qcamera',0) if (src.parent/'meta.json').is_file() else 0}
+     verified=inspect_mp4(output_video,[p-pts[0] for p in pts] if video.suffix=='.ts' else pts,camera_progress,signature)
+     video_info={**verified,'start':qs[0]['timestampEof']/1e9-origin-(0 if video.suffix=='.ts' else pts[0]),'timestampSpreadMs':(max(offsets)-min(offsets))*1000,'sourcePts':pts[0] if video.suffix=='.ts' else json.loads((src.parent/'meta.json').read_text()).get('video_origins',{}).get('qcamera',0) if (src.parent/'meta.json').is_file() else 0}
     else:warnings.append('영상과 로그의 프레임 시간이 일치하지 않아 영상 동기화를 중단했습니다.')
    else:warnings.append('영상과 로그의 프레임 수가 일치하지 않아 영상 동기화를 중단했습니다.')
   elif video.exists():warnings.append('카메라 프레임 정보가 없어 영상 동기화를 사용할 수 없습니다.')
