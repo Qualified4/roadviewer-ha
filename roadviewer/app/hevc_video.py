@@ -5,16 +5,15 @@ from video_packets import Pictures, inspect_mp4
 
 
 class VideoProgress:
-    """Keep the existing 75–100% video interval monotonic across multiple cameras."""
+    """Aggregate actual read/remux/verify work across all cameras."""
     def __init__(self, reporter, count):
         self.reporter, self.count, self.index = reporter, count, 0
 
     def update(self, stage, **fields):
-        if self.count <= 1:
-            self.reporter.update(stage, **fields)
-            return
+        if not self.count:return
         percent = fields.get('percent', 0) / 100
-        part = percent if stage == 'video_verify' else 0
+        start,weight={'video_read':(0,.2),'video_convert':(.2,.5),'video_verify':(.7,.3)}[stage]
+        part=start+weight*percent
         self.reporter.update(stage, **fields, video_percent=100 * (self.index + part) / self.count)
 
 

@@ -36,17 +36,19 @@ def number(value,factor=1):
  result=value*factor
  return round(result,6) if math.isfinite(result) else None
 
-def extract_telemetry(streams,origin,duration,frames=()):
- result={}
+def extract_telemetry(streams,origin,duration,frames=(),progress=None):
+ result={};rows_by_topic={topic:streams.get(topic,[]) for topic in FIELDS}
+ if not rows_by_topic['carOutput']:
+  rows_by_topic['carOutput']=[(stamp,valid,{'actuatorsOutput':record['actuatorsOutputDEPRECATED']}) for stamp,valid,record in streams.get('carControl',[]) if isinstance(record.get('actuatorsOutputDEPRECATED'),dict)]
+ total=sum(map(len,rows_by_topic.values()))+len(frames);done=0
  for topic,fields in FIELDS.items():
   times=[];values={key:[] for key in fields}
   if topic=='controlsState':values['desiredAngle']=[]
   if topic=='carControl':values.update(accelRequested=[],decelRequested=[])
-  rows=streams.get(topic,[])
-  # Older logs wrote final actuator values inside carControl.
-  if topic=='carOutput' and not rows:
-   rows=[(stamp,valid,{'actuatorsOutput':record['actuatorsOutputDEPRECATED']}) for stamp,valid,record in streams.get('carControl',[]) if isinstance(record.get('actuatorsOutputDEPRECATED'),dict)]
+  rows=rows_by_topic[topic]
   for stamp,valid,record in sorted(rows,key=lambda row:row[0]):
+   done+=1
+   if progress and done%128==0:progress(100*done/max(total,1))
    time=round(stamp/1e9-origin,6)
    if time<-.15 or time>duration+.15:continue
    times.append(time)
@@ -78,6 +80,8 @@ def extract_telemetry(streams,origin,duration,frames=()):
  # Use the same restored coordinates and freshness as the rendered boxes.
  values={slot+field:[] for slot in ('LF','FF','RF') for field in ('Visible','Distance','Lateral')}
  for frame in frames:
+  done+=1
+  if progress and done%128==0:progress(100*done/max(total,1))
   targets=frame.get('ccncTargets') if frame.get('valid') else None
   by_slot={target['slot']:target for target in targets or []}
   for slot in ('LF','FF','RF'):
@@ -86,4 +90,5 @@ def extract_telemetry(streams,origin,duration,frames=()):
    values[slot+'Distance'].append(number(target['x']) if target else None)
    values[slot+'Lateral'].append(number(target['yRel']) if target else None)
  result['ccnc']={'times':[frame['t'] for frame in frames],'values':values}
+ if progress:progress(100)
  return {'duration':duration,'maxGap':.15,'streams':result}

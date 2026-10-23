@@ -82,6 +82,8 @@ runpy.run_path(sys.argv[0],run_name='__main__')
    with av.open(str(video)) as inp:pts=[float(frame.pts*frame.time_base) for frame in inp.decode(video=0)]
    e=decoder.log.Event.new_message();e.logMonoTime=0;e.valid=True;e.init('initData');e.initData.dongleId='test-device-id'
    messages=[e.to_bytes()]
+   multi=decoder.log.Event.new_message(num_first_segment_words=1);multi.logMonoTime=0;multi.logMessage='multi-segment '+('x'*4096)
+   payload=multi.to_bytes();self.assertGreater(int.from_bytes(payload[:4],'little'),0);messages.append(payload)
    for i,pts_value in enumerate(pts):
     stamp=round((pts_value+10)*1e9)
     for name,values in [('modelV2',dict(frameId=i,timestampEof=stamp,laneLines=[],laneLineProbs=[],roadEdges=[],roadEdgeStds=[])),('qRoadEncodeIdx',dict(frameId=i,segmentId=i,timestampEof=stamp))]:
@@ -138,7 +140,12 @@ runpy.run_path(sys.argv[0],run_name='__main__')
    self.assertTrue(all(e['total_frames']==20 for e in analysis))
    self.assertEqual([e for e in events if e['stage']=='video_convert'][-1]['percent'],100)
    self.assertTrue(any(e['stage']=='video_verify' for e in events))
-   self.assertEqual(events[-1]['stage'],'saving')
+   self.assertEqual(events[-1],{'stage':'summary_save','percent':100})
+   stages=[e['stage'] for i,e in enumerate(events) if not i or e['stage']!=events[i-1]['stage']]
+   self.assertEqual(stages[-7:],['telemetry_build','telemetry_encode','telemetry_compress','replay_compact','replay_encode','replay_compress','summary_save'])
+   for stage in ('log_decompress','log_read','telemetry_build','telemetry_encode','telemetry_compress','replay_compact','replay_encode','replay_compress'):
+    values=[e['percent'] for e in events if e['stage']==stage and 'percent' in e]
+    self.assertEqual(values,sorted(values));self.assertEqual(values[-1],100)
    self.assertEqual(data['video']['frames'],20)
    self.assertTrue((dest/'camera.mp4').is_file())
    telemetry=json.loads(gzip.decompress((dest/'telemetry.json.gz').read_bytes()))

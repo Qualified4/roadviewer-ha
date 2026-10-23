@@ -28,12 +28,13 @@ class ProgressTests(unittest.TestCase):
   r=Reporter(Broken());r.update('log_analysis',frames=4);r.update('saving')
  def test_pipe_keeps_stdout_and_stderr_separate(self):
   events=[]
-  script="import os,json; f=os.fdopen(int(os.environ['RV_PROGRESS_FD']),'w'); f.write(json.dumps({'stage':'log_analysis','frames':42})+'\\n'); f.flush(); print('x'*100000)"
+  stages=['log_prepare','log_decompress','telemetry_build','telemetry_encode','telemetry_compress','replay_compact','replay_encode','replay_compress','summary_save']
+  script="import os,json; f=os.fdopen(int(os.environ['RV_PROGRESS_FD']),'w'); [f.write(json.dumps({'stage':stage,'percent':50})+'\\n') for stage in "+repr(stages)+"]; f.flush(); print('x'*100000)"
   with ProgressChannel(events.append) as channel:
    p=subprocess.Popen([sys.executable,'-c',script],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,**channel.options())
    channel.start();stdout,stderr=p.communicate(timeout=10)
   self.assertEqual(p.returncode,0,stderr);self.assertGreater(len(stdout),100000)
-  self.assertEqual(events,[{'stage':'log_analysis','frames':42}])
+  self.assertEqual(events,[{'stage':stage,'percent':50} for stage in stages])
  def test_killed_child_closes_progress_reader(self):
   with ProgressChannel(lambda e:None) as channel:
    p=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'],**channel.options())

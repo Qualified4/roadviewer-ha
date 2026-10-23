@@ -23,8 +23,8 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     return route.fulfill(asset(p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','')));
    });
    await page.goto('https://rv.test/');await page.locator('.log-row').waitFor();
-   // Processing: a sweep in the badge and a progress bar at video_verify 50% = 0.875 overall.
-   assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.875');
+   // Processing: a sweep in the badge and a progress bar at video_verify 50% = 0.77 overall.
+   assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.77');
    assert.equal((await running(page)).includes('rv-sweep'),!reduced);
    assert((await page.locator('.state-processing').boundingBox()).height<=30,'processing badge stays compact');
    if(!reduced){
@@ -39,30 +39,26 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    }
    await page.locator('.state-processing').evaluate(async e=>{window.processingBadge=e;window.sweep=e.getAnimations().find(a=>a.animationName==='rv-sweep');if(sweep){await sweep.ready;sweep.currentTime=725;await sweep.ready;window.sweepStart=sweep.startTime}});
    const progressCases=[
-    [{stage:'log_read',frames:99999},'0.25'],
-    [{stage:'log_analysis',frames:99999},'0.5'],
-    [{stage:'log_analysis',frames:0,total_frames:20},'0.5'],
-    [{stage:'log_analysis',frames:10,total_frames:20},'0.625'],
-    [{stage:'log_analysis',frames:20,total_frames:20},'0.75'],
-    [{stage:'log_analysis',frames:25,total_frames:20},'0.75'],
-    [{stage:'log_analysis',frames:-1,total_frames:20},'0.5'],
-    [{stage:'log_analysis',frames:1,total_frames:0},'0.5'],
-    [{stage:'log_analysis',total_frames:20},'0.5'],
-    [{stage:'video_read',frames:5},'0.75'],
-    [{stage:'video_convert',percent:75},'0.75'],
-    [{stage:'video_verify',percent:0},'0.75'],
-    [{stage:'video_verify',percent:90},'0.975'],
-    [{stage:'video_verify',percent:100},'1'],
-    [{stage:'video_verify',percent:100,video_percent:50},'0.875'],
-    [{stage:'video_convert',percent:50,video_percent:50},'0.875'],
-    [{stage:'video_verify',percent:50,video_percent:75},'0.9375'],
-    [{stage:'saving'},null],
+    [{stage:'log_prepare',percent:0},'0'],[{stage:'log_decompress',percent:50},'0.025'],
+    [{stage:'log_read',frames:99999},'0.04'],[{stage:'log_read',percent:50},'0.245'],
+    [{stage:'log_analysis',frames:99999},'0.45'],[{stage:'log_analysis',frames:0,total_frames:20},'0.45'],
+    [{stage:'log_analysis',frames:10,total_frames:20},'0.525'],[{stage:'log_analysis',frames:20,total_frames:20},'0.6'],
+    [{stage:'log_analysis',frames:25,total_frames:20},'0.6'],[{stage:'log_analysis',frames:-1,total_frames:20},'0.45'],
+    [{stage:'log_analysis',frames:1,total_frames:0},'0.45'],[{stage:'log_analysis',total_frames:20},'0.45'],
+    [{stage:'video_read',frames:5},'0.6'],[{stage:'video_convert',percent:75},'0.715'],
+    [{stage:'video_verify',percent:0},'0.74'],[{stage:'video_verify',percent:90},'0.794'],
+    [{stage:'video_verify',percent:100},'0.8'],[{stage:'video_verify',percent:100,video_percent:50},'0.7'],
+    [{stage:'video_convert',percent:50,video_percent:50},'0.7'],[{stage:'video_verify',percent:50,video_percent:75},'0.75'],
+    [{stage:'telemetry_build',percent:50},'0.825'],[{stage:'telemetry_encode',percent:50},'0.855'],
+    [{stage:'telemetry_compress',percent:50},'0.87'],[{stage:'replay_compact',percent:50},'0.9'],
+    [{stage:'replay_encode',percent:50},'0.94'],[{stage:'replay_compress',percent:50},'0.975'],
+    [{stage:'summary_save',percent:100},'0.995'],[{stage:'saving'},'0.8'],
    ];
    for(const [i,[progress,expected]] of progressCases.entries()){
-    logs=[{...logs[0],prepared_bytes:42+i,progress}];
+    logs=[{...logs[0],prepared_bytes:42+i,conversion_revision:i+1,progress}];
     await page.evaluate(()=>refresh());
     assert(await page.locator('.state-processing').evaluate(e=>e===processingBadge),'metadata refresh keeps the badge connected');
-    assert.equal(await page.locator('.state-progress').evaluate(e=>e.hidden),progress.stage==='saving','finishing hides the progress bar');
+    assert.equal(await page.locator('.state-progress').evaluate(e=>e.hidden),false,'progress remains visible through registration');
     if(expected)assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),expected);
     if(!reduced){
      assert(await page.locator('.state-processing').evaluate(e=>e.getAnimations().find(a=>a.animationName==='rv-sweep')===sweep),'stage changes retain the same sweep animation');
@@ -70,6 +66,12 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
      assert(await page.evaluate(()=>sweep.currentTime>=725),'sweep keeps advancing');
     }
    }
+   logs=[{...logs[0],conversion_revision:100,progress:{stage:'replay_compress',percent:75}}];await page.evaluate(()=>refresh());
+   const forward=await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress'));
+   logs[0].progress={stage:'log_read',percent:10};await page.evaluate(()=>refresh());
+   assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),forward,'late progress never moves backwards');
+   logs=[{...logs[0],conversion_revision:101,video:false,progress:{stage:'log_analysis',frames:10,total_frames:20}}];await page.evaluate(()=>refresh());
+   assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.65','log-only recordings redistribute video work');
    await page.evaluate(()=>addFiles([new File(['x'],'unsupported.txt')]));
    assert(await page.locator('#error').evaluate(e=>parseFloat(getComputedStyle(e).marginTop)>=12),'unsupported-file message has top spacing');
    await page.evaluate(()=>{const d=document.querySelector('.inline-help');for(let p=d.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;d.open=true;});

@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.10.3**
+Feature reference: **0.10.4**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -119,7 +119,7 @@ Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 wit
 
 Use the existing compact recording menu for **모두 받기** (Download all), the log, MP4 videos or original-format videos. A separate modal selects files and MP4/original format; recording rows do not expand. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Multiple files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
-Progress uses stage weights: log reading 25%, analysis 50–75% based on analyzed/total frames, video processing/verification 75–100%. The bar is hidden during finalization. These percentages are not a remaining-time estimate.
+The bar stays visible from preparation through result registration. With video, stage weights are preparation/decompression 0–4%, log reading 4–45%, frame analysis 45–60%, camera reading/remuxing/verification 60–80%, and graph generation, JSON encoding, compression/writes and replay compaction 80–99.5%. Log-only recordings redistribute the video share across reading, analysis and saving. Updates use consumed bytes, processed frames/samples and written bytes, with smooth transitions at roughly one-second intervals. Labels name the actual operation. The bar remains below 100% until registration completes and disappears on completion. These are work-based stage weights, not a remaining-time estimate.
 
 | Action | Effect |
 |---|---|

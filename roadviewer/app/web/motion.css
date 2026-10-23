@@ -51,7 +51,7 @@ dialog:not([open])::backdrop{opacity:0}
 .state-processing{position:relative;overflow:hidden;background-image:linear-gradient(100deg,transparent 30%,#ffd28a26 50%,transparent 70%);background-size:220% 100%;background-repeat:no-repeat;animation:rv-sweep 1.8s linear infinite}
 @keyframes rv-sweep{from{background-position:120% 0}to{background-position:-100% 0}}
 .state-progress{display:block;position:absolute;bottom:0;left:0;right:0;height:2px;border-radius:2px;background:#d5a14b33;overflow:hidden}
-.state-progress>span{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(var(--progress,0));background:#ffd28a;transition:transform .6s var(--ease)}
+.state-progress>span{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(var(--progress,0));background:#ffd28a;transition:transform 1.2s linear}
 .state.is-update:not(.state-processing){animation:rv-settle .45s var(--ease)}
 @keyframes rv-settle{from{opacity:.2}}
 

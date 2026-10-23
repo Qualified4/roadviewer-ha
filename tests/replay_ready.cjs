@@ -25,7 +25,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    [{stage:'log_analysis',frames:1234},'프레임 분석 완료'],
    [{stage:'video_convert',percent:65},'영상 변환 중 · 65%'],
    [{stage:'video_verify',percent:80},'영상 패킷 검증 중 · 80%'],
-   [{stage:'saving'},'마무리 중']
+   [{stage:'log_prepare'},'변환 준비 중'],
+   [{stage:'log_decompress',percent:50},'로그 압축 해제 중 · 50%'],
+   ...Object.entries({telemetry_build:'차량 그래프 생성 중',telemetry_encode:'차량 그래프 JSON 변환 중',telemetry_compress:'차량 그래프 압축·저장 중',replay_compact:'재생 데이터 정리 중',replay_encode:'재생 데이터 JSON 변환 중',replay_compress:'재생 데이터 압축·저장 중',summary_save:'요약 저장 중'}).map(([stage,label])=>[{stage,percent:50},label+' · 50%'])
   ]){
    logs[0].progress=progress;await page.evaluate(()=>refresh());
    assert((await page.locator('.state-processing').first().textContent()).includes(text));
