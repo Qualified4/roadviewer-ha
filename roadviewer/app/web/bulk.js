@@ -26,6 +26,8 @@
  const DOWNLOAD_CHOICES=[['rlog','로그만','rlog.zst'],['rlog,qcamera','로그 + 저화질 영상','rlog · qcamera'],['rlog,front,wide,qcamera','로그 + 모든 영상','rlog · 전방 · 와이드 · 저화질']];
  function closeDownloads(){downloadMenu.hidden=true;download.setAttribute('aria-expanded','false')}
  function openDownloads(){
+  const modern=rows.filter(row=>row.input.checked).map(row=>row.log);
+  if(modern.length&&modern.every(log=>log.download_options)){closeDownloads();openRecordingDownload(modern,'','all');return}
   const selected=rows.filter(row=>row.input.checked).map(row=>row.log),ids=selected.map(log=>log.id).join(',');
   const size=parts=>selected.reduce((sum,log)=>sum+(parts.includes('rlog')?log.log_bytes||0:0)+(log.video_downloads||[]).filter(v=>parts.includes(v.source)).reduce((a,v)=>a+v.bytes,0),0);
   const title=document.createElement('p');title.textContent=`선택한 ${selected.length}개 구간 · ZIP 하나`;
@@ -85,7 +87,7 @@
   const protectedCount=converting||!protectPinned?0:selected.filter(row=>row.log.pinned).length,targetCount=selected.length-protectedCount;
   if(!targetCount)return;
   const protection=protectedCount?`고정된 ${protectedCount}개는 제외합니다. `:!protectPinned?'고정된 항목도 삭제 대상에 포함합니다. ':'';
-  const message=protection+(complete?`선택한 ${targetCount}개 로그의 원본·영상·변환 데이터를 완전히 삭제할까요? 되돌릴 수 없습니다.`:`선택한 ${targetCount}개 로그의 변환 데이터를 제거할까요? 보관 로그·TS와 유일한 MP4는 유지합니다. 대기 중인 변환은 취소하고 처리 중인 항목만 제외하며 자동 재변환하지 않습니다.`);
+  const message=protection+(complete?`선택한 ${targetCount}개 로그의 원본·영상·변환 데이터를 완전히 삭제할까요? 되돌릴 수 없습니다.`:`선택한 ${targetCount}개 로그의 변환 데이터를 제거할까요? 원본 로그와 보관 영상은 유지합니다. 대기 중인 변환은 취소하고 처리 중인 항목만 제외하며 자동 재변환하지 않습니다.`);
   if(!converting&&!confirm(message))return;
   running=true;sync();let succeeded=0,skipped=0;const failures=[];
   $('bulkFailures').hidden=true;$('bulkFailures').replaceChildren();

@@ -240,7 +240,7 @@ def prepare(value,route=None):
      output_video=dest/'camera.mp4' if video.suffix=='.ts' else video
      if video.suffix=='.ts':
       with av.open(str(video)) as inp, av.open(str(dest/'camera.mp4'),'w',options={'movflags':'+faststart'}) as out:
-       stream=inp.streams.video[0]; target=out.add_stream_from_template(stream);offset=round(pts[0]/float(stream.time_base))
+       stream=inp.streams.video[0]; target=out.add_stream_from_template(stream, opaque=True);offset=round(pts[0]/float(stream.time_base))
        for packet in inp.demux(stream):
         if packet.dts is None:continue
         packet.pts-=offset;packet.dts-=offset;packet.stream=target
@@ -258,7 +258,7 @@ def prepare(value,route=None):
        decoded_count+=1
        camera_progress.update('video_verify',percent=min(99,100*decoded_count/len(pts)))
       if decoded_count!=len(pts):raise ValueError('변환된 영상 프레임 수가 다릅니다.')
-     video_info={'start':qs[0]['timestampEof']/1e9-origin-first_pts,'duration':video_duration,'frames':len(pts),'timestampSpreadMs':(max(offsets)-min(offsets))*1000}
+     video_info={'start':qs[0]['timestampEof']/1e9-origin-first_pts,'duration':video_duration,'frames':len(pts),'timestampSpreadMs':(max(offsets)-min(offsets))*1000,'codec':stream.codec_context.name,'sourcePts':pts[0] if video.suffix=='.ts' else json.loads((src.parent/'meta.json').read_text()).get('video_origins',{}).get('qcamera',0) if (src.parent/'meta.json').is_file() else 0}
     else:warnings.append('영상과 로그의 프레임 시간이 일치하지 않아 영상 동기화를 중단했습니다.')
    else:warnings.append('영상과 로그의 프레임 수가 일치하지 않아 영상 동기화를 중단했습니다.')
   elif video.exists():warnings.append('카메라 프레임 정보가 없어 영상 동기화를 사용할 수 없습니다.')

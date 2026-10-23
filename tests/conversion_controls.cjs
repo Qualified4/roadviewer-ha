@@ -89,15 +89,9 @@ async function checkRemovalRefresh(browser){
   await page.getByRole('switch',{name:'자동 변환'}).uncheck();await page.waitForFunction(()=>document.getElementById('autoConvertState').textContent==='꺼짐');assert.equal(automatic,false);
   await page.reload();assert.equal(await page.getByRole('switch',{name:'자동 변환'}).isChecked(),false);
   fail=true;await page.getByRole('switch',{name:'자동 변환'}).check();await page.waitForFunction(()=>document.getElementById('error').textContent==='설정 저장 실패');assert.equal(await page.getByRole('switch',{name:'자동 변환'}).isChecked(),false);fail=false;
-  assert.equal(await guide.locator('#autoConvert, #concurrency, #keepOriginalVideo').count(),3);
-  await page.getByRole('switch',{name:'원본 영상 같이 보관'}).uncheck();
-  await page.waitForFunction(()=>[...document.querySelectorAll('.recording-menu a')].some(a=>a.href.endsWith('/download/video')));await more.click();
-  await page.getByRole('link',{name:'영상 다운로드'}).waitFor();
-  assert.equal(keep,false);assert((await page.getByRole('link',{name:'영상 다운로드'}).getAttribute('href')).endsWith('/download/video'));
-  await page.reload();assert.equal(await page.getByRole('switch',{name:'원본 영상 같이 보관'}).isChecked(),false);
-  fail=true;await page.getByRole('switch',{name:'원본 영상 같이 보관'}).check();
-  await page.waitForFunction(()=>!document.getElementById('keepOriginalVideo').disabled);
-  assert.equal(await page.getByRole('switch',{name:'원본 영상 같이 보관'}).isChecked(),false);fail=false;
+  assert.equal(await guide.locator('#autoConvert, #concurrency').count(),2);
+  assert.equal(await page.locator('#keepOriginalVideo').count(),0);
+  assert((await guide.textContent()).includes('재압축 없이 MP4'));
   page.on('dialog',d=>d.accept());await more.click();await page.getByRole('button',{name:'제거',exact:true}).click();await page.getByRole('button',{name:'변환',exact:true}).waitFor();assert.equal(removed,1);assert.equal(await page.locator('.replay').count(),0);assert((await page.locator('.state').textContent()).includes('수동 변환 필요'));
   await more.click();assert.equal(await page.getByRole('button',{name:'제거',exact:true}).count(),0);assert(await page.getByRole('button',{name:'완전 삭제',exact:true}).isVisible());
   await page.keyboard.press('Escape');await page.getByRole('button',{name:'변환',exact:true}).click();await page.getByRole('button',{name:'대기 중',exact:true}).waitFor();assert.equal(converted,1);assert(await page.getByRole('button',{name:'대기 중',exact:true}).isDisabled());
