@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
 os.environ.setdefault('RV_DATA',tempfile.mkdtemp(prefix='rv-media-tests-'))
+sys.path.insert(0,'/app')
 import av,server
 from hevc_video import prepare_video
 from test_video_sources import hevc,Reporter
