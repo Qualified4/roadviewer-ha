@@ -73,7 +73,7 @@ def write_gzip_json(path, value, **options):
     path = Path(path); temp = path.with_name(path.name + '.tmp')
     body = json.dumps(value, separators=(',', ':'), allow_nan=False, **options).encode()
     # mtime=0 keeps identical content byte-identical, so ETags only change with the data.
-    with open(temp, 'wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=6, mtime=0) as out: out.write(body)
+    with open(temp, 'wb') as raw, gzip.GzipFile(fileobj=raw, mode='wb', compresslevel=3, mtime=0) as out: out.write(body)
     temp.replace(path)
 
 def migrate(prepared):
