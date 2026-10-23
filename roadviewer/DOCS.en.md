@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.9.10**.
+This guide describes **0.9.11**.
 
 [한국어](DOCS.md) · English
 
