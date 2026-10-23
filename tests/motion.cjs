@@ -19,6 +19,7 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
     if(p==='/api/logs')return route.fulfill({json:{logs,concurrency:1,auto_convert:true,keep_original_video:true,max_upload_mb:512,storage_used_bytes:1}});
     if(p.endsWith('/data'))return route.fulfill({json:replay});
+    if(p==='/api/progress')return route.fulfill({json:{progress:Object.fromEntries(logs.filter(m=>m.status==='processing').map(m=>[m.id,m.progress]))}});
     if(p.startsWith('/api/'))return route.fulfill({json:{progress:{}}});
     return route.fulfill(asset(p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','')));
    });
@@ -72,6 +73,9 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),forward,'late progress never moves backwards');
    logs=[{...logs[0],conversion_revision:101,video:false,progress:{stage:'log_analysis',frames:10,total_frames:20}}];await page.evaluate(()=>refresh());
    assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.65','log-only recordings redistribute video work');
+   logs[0].progress={stage:'log_analysis',frames:15,total_frames:20};await page.evaluate(()=>refreshProgress());
+   assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7','lightweight polls preserve log-only weights and conversion revision');
+   await page.evaluate(()=>refresh());assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7','full refresh matches lightweight progress');
    await page.evaluate(()=>addFiles([new File(['x'],'unsupported.txt')]));
    assert(await page.locator('#error').evaluate(e=>parseFloat(getComputedStyle(e).marginTop)>=12),'unsupported-file message has top spacing');
    await page.evaluate(()=>{const d=document.querySelector('.inline-help');for(let p=d.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;d.open=true;});
