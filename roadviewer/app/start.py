@@ -21,7 +21,7 @@ def nginx_config(options):
         paths.append('/ssl/' + value)
     cert, key = paths
     return f'''pid /tmp/roadviewer-nginx.pid;
-worker_processes 1;
+worker_processes 2;
 error_log /dev/stderr warn;
 events {{ worker_connections 128; }}
 http {{
