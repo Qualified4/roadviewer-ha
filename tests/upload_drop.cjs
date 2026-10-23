@@ -66,7 +66,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await heldChunk.fulfill({json:{received:15}});
   await page.waitForFunction(()=>document.getElementById('uploadStatus').textContent.includes('새 로그'));
   assert.equal(await page.locator('#selectedFiles li').count(),0);
-  assert((await page.locator('#uploadStatus').textContent()).includes('원본 TS 복원 1개'));
+  assert((await page.locator('#uploadStatus').textContent()).includes('원본 영상 복원 1개'));
   assert(!(await page.locator('#uploadStatus').textContent()).includes('준비가 끝나면'));
   await page.locator('#cleanupStorage').click();
   for(let i=0;i<100&&!heldCleanup;i++)await page.waitForTimeout(50);assert(heldCleanup);
