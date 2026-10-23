@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.9.8**
+Feature reference: **0.9.9**
 
 Replay and analyze openpilot logs with front/wide camera video inside Home Assistant.
 

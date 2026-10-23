@@ -40,6 +40,38 @@ class RecoveryTests(unittest.TestCase):
    self.assertEqual(self.put(id).status_code,200)
   self.assertEqual(seen,[True],'another thread can take the job lock while the chunk is hashed')
   self.assertEqual(server.received_digest(id,0,server.UPLOADS/id/'0'),real(b'log').hexdigest())
+ def test_library_scan_does_not_block_chunks_or_progress(self):
+  id=self.begin();self.put(id)
+  registered=self.c.post(f'/api/uploads/{id}/finish',headers=HEADERS,environ_overrides=PEER).json['logs'][0]['id']
+  entered=threading.Event();release=threading.Event();result=[];real=server.storage_used_bytes
+  def slow_scan(root=None):
+   if root==server.ROOT/registered/'prepared':
+    entered.set();release.wait(3)
+   return real(root)
+  def listing():
+   with server.app.test_client() as client:result.append(client.get('/api/logs',environ_overrides=PEER).status_code)
+  with patch.object(server,'storage_used_bytes',side_effect=slow_scan):
+   thread=threading.Thread(target=listing);thread.start()
+   try:
+    self.assertTrue(entered.wait(2))
+    acquired=server.lock.acquire(timeout=.2)
+    if acquired:server.lock.release()
+    self.assertTrue(acquired,'library disk scan held the shared upload lock')
+    other=self.begin();self.assertEqual(self.put(other).status_code,200)
+    self.assertEqual(self.c.get('/api/progress',environ_overrides=PEER).status_code,200)
+   finally:release.set();thread.join(4)
+  self.assertEqual(result,[200])
+ def test_library_tolerates_recording_deleted_during_snapshot(self):
+  id=self.begin();self.put(id)
+  registered=self.c.post(f'/api/uploads/{id}/finish',headers=HEADERS,environ_overrides=PEER).json['logs'][0]['id']
+  real=server.read_meta
+  def deleted(path):
+   if path.name==registered:
+    shutil.rmtree(path)
+   return real(path)
+  with patch.object(server,'read_meta',side_effect=deleted):
+   response=self.c.get('/api/logs',environ_overrides=PEER)
+  self.assertEqual(response.status_code,200);self.assertEqual(response.json['logs'],[])
  def test_cleanup_on_startup_preserves_registered_sources(self):
   id=self.begin();self.put(id)
   p=server.ROOT/('a'*32);p.mkdir();(p/'rlog.zst').write_bytes(b'original')
