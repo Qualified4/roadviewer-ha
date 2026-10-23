@@ -272,11 +272,17 @@ SKIPPED_EVENTS_WARNING='지원하지 않는 새 로그 이벤트'
 def logs():
  cleanup_uploads()
  def item(p):
+  # Metadata is atomically replaced. Slow file/stat scans must not hold the
+  # lock shared with upload chunks and conversion progress.
   m=read_meta(p);m.pop('bookmarks',None)
+  with lock:pinned=storage_policy.pinned(m);progress=job_progress.get(p.name)
   # Logs converted before 0.9.6 stored a warning for skipped new event types; it was never a problem.
   m['warnings']=[w for w in m.get('warnings') or [] if not str(w).startswith(SKIPPED_EVENTS_WARNING)]
-  return dict(m,pinned=storage_policy.pinned(m),bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),video_downloads=video_downloads(p),log_bytes=(p/'rlog.zst').stat().st_size if (p/'rlog.zst').is_file() else 0,progress=job_progress.get(p.name),prepared_bytes=storage_used_bytes(p/'prepared'))
- with lock:items=[item(p) for p in recording_paths()]
+  return dict(m,pinned=pinned,bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),video_downloads=video_downloads(p),log_bytes=(p/'rlog.zst').stat().st_size if (p/'rlog.zst').is_file() else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
+ items=[]
+ for p in recording_paths():
+  try:items.append(item(p))
+  except FileNotFoundError:pass # A recording may be deleted while the snapshot is read.
  return jsonify(logs=sorted(items,key=recording_order,reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 @app.route('/api/upload',methods=['POST'])
 def upload():
