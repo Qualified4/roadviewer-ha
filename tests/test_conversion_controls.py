@@ -140,11 +140,11 @@ class ConversionTests(unittest.TestCase):
   self.assertEqual(server.read_meta(p)['status'],'unconverted')
 
  def test_video_retention_setting_persists_and_rejects_invalid_values(self):
-  self.assertTrue(server.read_keep_original_video())
+  self.assertFalse(server.read_keep_original_video())
   for value in (False,True):
    r=self.request('post','/api/settings/processing',json={'keep_original_video':value})
-   self.assertEqual(r.status_code,200);self.assertEqual(server.read_keep_original_video(),value)
-   self.assertEqual(self.setting(False).json['keep_original_video'],value)
+   self.assertEqual(r.status_code,200);self.assertFalse(server.read_keep_original_video())
+   self.assertFalse(self.setting(False).json['keep_original_video'])
   for value in (None,1,'false',[]):
    self.assertEqual(self.request('post','/api/settings/processing',json={'keep_original_video':value}).status_code,400)
 
@@ -239,7 +239,7 @@ class ConversionTests(unittest.TestCase):
   self.assertEqual(server.read_meta(p)['status'],'unconverted')
 
  def test_video_retention_preserves_ts_on_failure_and_replaces_only_verified_mp4(self):
-  for index,(keep,video,failed) in enumerate([(True,{'frames':1},False),(False,{'frames':1},False),(False,None,False),(False,{'frames':1},True)],10):
+  for index,(keep,video,failed) in enumerate([(True,{'frames':1,'codec':'h264'},False),(False,{'frames':1,'codec':'h264'},False),(False,None,False),(False,{'frames':1,'codec':'h264'},True)],10):
    with self.subTest(keep=keep,video=video,failed=failed):
     p=self.row(index,'queued');server.keep_original_video=keep
     prepared=p/'prepared';prepared.mkdir();(prepared/'camera.mp4').write_bytes(b'output')
@@ -249,7 +249,7 @@ class ConversionTests(unittest.TestCase):
      channel.return_value.__enter__.return_value.options.return_value={}
      popen.return_value.communicate.return_value=('','failed');popen.return_value.returncode=int(failed);popen.return_value.poll.return_value=int(failed)
      server.run_job(p.name)
-    removed=not keep and bool(video) and not failed
+    removed=bool(video) and not failed
     self.assertEqual((p/'qcamera.ts').exists(),not removed);self.assertEqual((p/'camera.mp4').exists(),removed)
     self.assertEqual(server.read_meta(p)['status'],'error' if failed else 'ready')
     self.assertEqual((prepared/'camera.mp4').exists(),not failed and not removed)
@@ -274,13 +274,13 @@ class ConversionTests(unittest.TestCase):
     (p/original).write_bytes(b'original');(prepared/mp4).write_bytes(b'verified')
    # Wide validation failed: its original must survive even when retention is off.
    (prepared/'ecamera.mp4').unlink()
-   (prepared/'summary.json').write_text(json.dumps(dict(duration=1,warnings=[],model_frames=1,video={'frames':1},videos={'qcamera':{'frames':1},'front':{'frames':1}})))
+   (prepared/'summary.json').write_text(json.dumps(dict(duration=1,warnings=[],model_frames=1,video={'frames':1,'codec':'h264'},videos={'qcamera':{'frames':1,'codec':'h264'},'front':{'frames':1,'codec':'hevc'}})))
    with patch.object(server,'ProgressChannel') as channel,patch.object(server.subprocess,'Popen') as popen:
     channel.return_value.__enter__.return_value.options.return_value={}
     popen.return_value.communicate.return_value=('','');popen.return_value.returncode=0;popen.return_value.poll.return_value=0
     server.run_job(p.name)
    for original,mp4 in (('qcamera.ts','camera.mp4'),('fcamera.hevc','fcamera.mp4')):
-    self.assertEqual((p/original).exists(),keep);self.assertEqual((p/mp4).exists(),not keep)
+    self.assertFalse((p/original).exists());self.assertTrue((p/mp4).exists())
    self.assertTrue((p/'ecamera.hevc').exists())
    self.assertEqual(server.read_meta(p)['bytes'],server.original_bytes(p))
 

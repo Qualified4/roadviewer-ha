@@ -51,6 +51,17 @@ function downloadSize(bytes){
  return (unit?value.toFixed(value<10?1:0):value)+' '+units[unit];
 }
 function recordingDownloads(log,base){
+ if(log.download_options){
+  const open=(mode)=>e=>{e.preventDefault();document.querySelectorAll('.recording-more[open],#replayDownload[open]').forEach(el=>el.open=false);openRecordingDownload([log],base,mode)};
+  return [
+   {href:'#',label:'모두 받기',detail:'로그 + 모든 영상 · ZIP',onclick:open('all')},
+   {href:`${base}api/logs/${log.id}/original/rlog.zst`,label:'로그 다운로드',detail:'rlog.zst'},
+   ...(log.download_options.length?[
+    {href:'#',label:'영상 다운로드',detail:'MP4',video:true,onclick:open('videos')},
+    {href:'#',label:'원본 형식 다운로드',detail:'HEVC · TS',video:true,onclick:open('original')}
+   ]:[])
+  ];
+ }
  const items=[{href:`${base}api/logs/${log.id}/original/rlog.zst`,label:'로그 다운로드',detail:'rlog.zst'}];
  const videos=log.video_downloads||[];
  const format=kind=>kind.endsWith('.hevc')?'HEVC':kind.endsWith('.mp4')?'MP4':'TS';
@@ -61,7 +72,7 @@ function recordingDownloads(log,base){
  return items;
 }
 function downloadLink(item){
- const link=document.createElement('a');link.className='download-original';link.href=item.href;link.setAttribute('download','');
+ const link=document.createElement('a');link.className='download-original';link.href=item.href;link.setAttribute('download','');if(item.onclick)link.onclick=item.onclick;
  const label=document.createElement('span');label.textContent=item.label;link.append(label);
  // The label alone stays the accessible name; the detail is visual context.
  if(item.detail){const detail=document.createElement('small');detail.className='download-detail';detail.textContent=item.detail;detail.setAttribute('aria-hidden','true');link.append(detail)}

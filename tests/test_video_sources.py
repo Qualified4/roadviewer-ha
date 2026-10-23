@@ -55,7 +55,7 @@ class VideoSourcesTests(unittest.TestCase):
    info=prepare_video(source,output,indices,9,Reporter())
    self.assertAlmostEqual(info['start'],1);self.assertEqual(info['frames'],8)
    with av.open(str(output)) as video:
-    self.assertEqual(video.streams.video[0].codec_context.name,'h264')
+    self.assertEqual(video.streams.video[0].codec_context.name,'hevc')
     stamps=[float(frame.pts*frame.time_base) for frame in video.decode(video=0)]
    for actual,expected in zip(stamps,times):self.assertAlmostEqual(actual,expected,places=5)
    self.assertEqual(prepare_video(output,root/'unused.mp4',indices,9,Reporter()),info)

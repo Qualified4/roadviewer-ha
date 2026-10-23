@@ -1,4 +1,4 @@
-"""Stream HEVC into browser-compatible H.264 using the camera's logged clock."""
+"""Remux HEVC losslessly into MP4 using the camera's logged clock."""
 from fractions import Fraction
 import av
 
@@ -35,27 +35,25 @@ def prepare_video(source, output, indices, origin, progress):
                 width, height = stream.width, stream.height
                 if not (0 < width <= 4096 and 0 < height <= 2160) or width % 2 or height % 2:
                     raise ValueError('지원하지 않는 카메라 해상도입니다.')
-                stream.codec_context.thread_count = 2
-                target = out.add_stream('libx264', rate=20)
-                target.width, target.height = width, height
-                target.pix_fmt = 'yuv420p'
-                target.time_base = target.codec_context.time_base = Fraction(1, 1_000_000)
+                target = out.add_stream_from_template(stream, opaque=True)
+                target.codec_context.codec_tag = 'hvc1'
                 target.codec_context.thread_count = 2
-                target.options = {'preset': 'veryfast', 'crf': '20', 'bf': '0'}
+                target.time_base = Fraction(1, 1_000_000)
                 count = 0
-                for frame in inp.decode(stream):
-                    if count >= len(times):
-                        raise ValueError('영상과 로그의 프레임 수가 다릅니다.')
-                    frame.pts = round(times[count] * 1_000_000)
-                    frame.time_base = Fraction(1, 1_000_000)
-                    for packet in target.encode(frame):
-                        out.mux(packet)
+                for packet in inp.demux(stream):
+                    if not packet.size:
+                        continue
+                    if count >= len(times) or stream.codec_context.has_b_frames:
+                        raise ValueError('영상 프레임 수 또는 B 프레임 구성이 지원되지 않습니다.')
+                    packet.pts = packet.dts = round(times[count] * 1_000_000)
+                    packet.duration = round((times[count + 1] - times[count] if count + 1 < len(times) else .05) * 1_000_000)
+                    packet.time_base = target.time_base
+                    packet.stream = target
+                    out.mux(packet)
                     count += 1
                     progress.update('video_convert', percent=100 * count / len(times))
                 if count != len(times):
                     raise ValueError('영상과 로그의 프레임 수가 다릅니다.')
-                for packet in target.encode():
-                    out.mux(packet)
         except Exception:
             output.unlink(missing_ok=True)
             raise
@@ -75,7 +73,7 @@ def prepare_video(source, output, indices, origin, progress):
                 raise ValueError('변환된 영상 프레임 수가 다릅니다.')
             duration = float(stream.duration * stream.time_base) if stream.duration is not None else times[-1] + .05
             return {'start': stamps[0] / 1e9 - origin, 'duration': duration, 'frames': count,
-                    'width': stream.width, 'height': stream.height}
+                    'width': stream.width, 'height': stream.height, 'codec': stream.codec_context.name}
     except Exception:
         if raw:
             output.unlink(missing_ok=True)

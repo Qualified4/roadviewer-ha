@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.9.11**
+Feature reference: **0.10.0**
 
 Replay and analyze openpilot logs with front/wide camera video inside Home Assistant.
 
@@ -19,7 +19,7 @@ Select `rlog.zst` and optional cameras from the same segment: `qcamera.ts`, high
 - Lanes, model paths, radar points, LF/FF/RF boxes, blind spots and turn signals
 - Automatic, side-by-side and stacked layouts, adjustable width and sticky playback controls
 - 23 selectable/reorderable graphs and camera installation information
-- Automatic/manual conversion, up to four concurrent jobs and optional TS/HEVC retention
+- Automatic/manual conversion, up to four concurrent jobs and lossless MP4 retention
 - Later camera attachment, missing-original restoration and log/video downloads
 - Per-segment pins, bulk conversion/removal/deletion, storage budgets and cleanup
 - Optional HTTPS device uploads with pairing
@@ -41,3 +41,9 @@ See the [user guide](DOCS.en.md) · [한국어](DOCS.md), or the app's Documenta
 ## Platforms
 
 Supports `amd64` (64-bit Intel/AMD) and `aarch64` (64-bit ARM). Installation/update downloads only the matching prebuilt image. Download/extraction progress presentation depends on Home Assistant/Supervisor.
+
+## MP4 storage and downloads
+
+Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 without re-encoding. Originals are removed only after frame and log-clock verification; failed sources and rlog.zst are preserved. With automatic conversion off, uploads remain in their uploaded form until manual conversion. HEVC playback requires browser/device support; playback failure switches to the low-resolution camera when available.
+
+Use the existing compact recording menu for **모두 받기** (Download all), the log, MP4 videos or original-format videos. A separate modal selects files and MP4/original format; recording rows do not expand. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Multiple files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.

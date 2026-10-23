@@ -2,7 +2,7 @@
 
 한국어 · [English](device-api.en.md)
 
-구현 기준: **Road Viewer 0.9.11**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
+구현 기준: **Road Viewer 0.10.0**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
 
 공유 데이터 디렉터리는 **Gunicorn worker 1개와 여러 thread**를 전제로 합니다. 같은 디렉터리를 사용하는 worker나 서버 복제본을 추가하지 마세요.
 
@@ -140,7 +140,7 @@ headers = {
 
 8 GiB를 넘는 배치는 클라이언트에서 나눕니다. 이 제한은 실제 디스크 여유·저장 한도·고정 보호·세션 만료를 우회하지 않습니다.
 
-HEVC는 Annex B parameter-set 헤더가 있어야 합니다. 변환 worker가 코덱·크기·프레임 수·카메라별 encode timestamp를 확인하고 제한된 thread로 H.264 MP4를 만듭니다. 주행 장치에서 트랜스코딩하지 않습니다.
+HEVC는 Annex B parameter-set 헤더가 있어야 합니다. 변환 worker가 코덱·크기·프레임 수·카메라별 encode timestamp를 확인하고 재압축 없이 HEVC MP4(hvc1)로 포장합니다. 검증 성공 후 MP4를 보관하며, 원본 형식 다운로드는 요청 시 재포장합니다. 주행 장치에서 트랜스코딩하지 않습니다.
 
 서버가 정규화한 파일명과 UUID 디렉터리를 생성하므로 클라이언트는 저장 경로를 선택할 수 없습니다.
 
@@ -316,8 +316,8 @@ python3 -m venv /tmp/roadviewer-test-env
 실제 Nginx/Gunicorn TLS 경계를 검증하려면:
 
 ```bash
-docker build -t roadviewer:0.9.11 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.9.11 /tests/test_device_tls.py
+docker build -t roadviewer:0.10.0 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.10.0 /tests/test_device_tls.py
 ```
 
 컨테이너 안에서 임시 인증서로 통신하므로 포트 공개·공유기 변경은 필요하지 않습니다. 빌드는 네트워크가 필요하며 실제 DNS/NAT 검증을 대신하지 않습니다.

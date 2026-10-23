@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.9.11**
+Feature reference: **0.10.0**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -111,13 +111,13 @@ Layout, display selections, graph order and collapsed sections are remembered in
 
 **Conversion behavior and storage policy**
 
-Set automatic conversion, concurrent jobs and original-video retention in **Conversion and storage settings**. The expanded **Storage management** section shows usage and free space and configures the budget and full-storage policy. These settings differ from the per-recording actions below. Sizes and selected values reflect the example installation at capture time.
+Set automatic conversion and concurrent jobs in **Conversion and storage settings**. Storage management controls the budget and full-storage policy.
 
 ![Conversion settings and storage management](docs/images/roadviewer-library-settings.png)
 
-**변환 및 저장 설정** (Conversion and storage settings) provides automatic conversion, 1–4 concurrent jobs and original-video retention. qcamera TS is remuxed to MP4; front/wide HEVC is transcoded to H.264 MP4, requiring more processing. Replay analysis is gzip-compressed.
+Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 without re-encoding. Originals are removed only after frame and log-clock verification; failed sources and rlog.zst are preserved. With automatic conversion off, uploads remain in their uploaded form until manual conversion. HEVC playback requires browser/device support; playback failure switches to the low-resolution camera when available.
 
-Original retention defaults to on. When off, successfully converted and verified TS/HEVC originals are removed. Changing the setting does not immediately delete existing originals. **영상 다운로드** (Download video) downloads a single available video directly, or offers a choice of front, wide and low-resolution cameras when several exist. Each camera prefers its original, falling back to MP4. The download button in the replay header also offers the log and videos.
+Use the existing compact recording menu for **모두 받기** (Download all), the log, MP4 videos or original-format videos. A separate modal selects files and MP4/original format; recording rows do not expand. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Multiple files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
 Progress uses stage weights: log reading 25%, analysis 50–75% based on analyzed/total frames, video processing/verification 75–100%. The bar is hidden during finalization. These percentages are not a remaining-time estimate.
 
@@ -165,3 +165,5 @@ Artifacts expire after seven days. If missing or the latest validation failed/ca
 Temporary tags use `build-<validation-run>-<attempt>-amd64` / `arm64`. Release assembly references image digests; Home Assistant uses version tags. Existing versions are verified, not overwritten. For local source builds, follow the user guide's instructions to remove `image:` from the local app configuration.
 
 Road Viewer is distributed under the [MIT license](LICENSE). Raw driving logs/videos are not included in the repository; the introduction uses selected public screenshots. See [OPENPILOT-LICENSE](roadviewer/schema/OPENPILOT-LICENSE) for bundled schema and UI-resource licensing.
+
+![MP4 and original-format download options](docs/images/roadviewer-download-options.png)

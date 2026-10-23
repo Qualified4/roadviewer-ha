@@ -90,10 +90,13 @@ def run_job(id):
      available=summary.get('videos',{'qcamera':summary.get('video')})
      for source,(original,mp4,_) in SOURCES.items():
       if not available.get(source) or not (p/'prepared'/mp4).is_file():continue
-      if not keep_original_video:
-       (p/'prepared'/mp4).replace(p/mp4)
-       (p/original).unlink(missing_ok=True)
-      elif (p/original).is_file():(p/mp4).unlink(missing_ok=True)
+      # Only a newly verified, codec-preserving result may replace an original.
+      expected='h264' if source=='qcamera' else 'hevc'
+      if available[source].get('codec')!=expected:continue
+      (p/'prepared'/mp4).replace(p/mp4)
+      (p/original).unlink(missing_ok=True)
+     m['video_codecs']={**m.get('video_codecs',{}),**{key:info['codec'] for key,info in available.items() if info and info.get('codec')}}
+     m['video_origins']={**m.get('video_origins',{}),**{key:info['sourcePts'] for key,info in available.items() if info and 'sourcePts' in info}}
      m['bytes']=original_bytes(p)
      m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v28-runtime-geometry');save_meta(p,m)
    except Exception:
@@ -117,7 +120,7 @@ def read_processing_settings():
   if not isinstance(saved,dict):saved={}
  except (OSError,ValueError):saved={}
  value=saved.get('concurrency',1)
- return (value if type(value) is int and value in (1,2,3,4) else 1),saved.get('auto_convert',True) is not False,saved.get('keep_original_video',True) is not False
+ return (value if type(value) is int and value in (1,2,3,4) else 1),saved.get('auto_convert',True) is not False,False
 
 def read_processing_limit():return read_processing_settings()[0]
 def read_auto_convert():return read_processing_settings()[1]
@@ -156,8 +159,8 @@ def processing_settings():
    if type(automatic) is not bool:return jsonify(error='자동 변환 설정은 켜짐 또는 꺼짐이어야 합니다.'),400
    if type(keep) is not bool:return jsonify(error='원본 영상 보관 설정은 켜짐 또는 꺼짐이어야 합니다.'),400
    temp=PROCESSING_SETTINGS.with_suffix('.tmp')
-   temp.write_text(json.dumps({'concurrency':value,'auto_convert':automatic,'keep_original_video':keep}));temp.replace(PROCESSING_SETTINGS)
-   auto_convert=automatic;keep_original_video=keep
+   temp.write_text(json.dumps({'concurrency':value,'auto_convert':automatic,'keep_original_video':False}));temp.replace(PROCESSING_SETTINGS)
+   auto_convert=automatic;keep_original_video=False
    if not auto_convert:
     for p in recording_paths():
      m=read_meta(p)
@@ -206,8 +209,8 @@ def not_found(e):
  if request.path.startswith('/api/device/'):return jsonify(error='session_not_found' if '/uploads/' in request.path else 'not_found'),404
  return jsonify(error='로그 또는 파일을 찾을 수 없습니다.'),404
 PAGE_SCRIPTS={
- 'library':['disclosure','recording-name','tags','library','choices','bulk','storage-devices'],
- 'replay':['recording-name','tags','app','choices','video-overlay','camera-info','telemetry','bookmarks'],
+ 'library':['disclosure','recording-name','download-dialog','tags','library','choices','bulk','storage-devices'],
+ 'replay':['recording-name','download-dialog','tags','app','choices','video-overlay','camera-info','telemetry','bookmarks'],
 }
 
 def page_response(kind):
@@ -278,7 +281,7 @@ def logs():
   with lock:pinned=storage_policy.pinned(m);progress=job_progress.get(p.name)
   # Logs converted before 0.9.6 stored a warning for skipped new event types; it was never a problem.
   m['warnings']=[w for w in m.get('warnings') or [] if not str(w).startswith(SKIPPED_EVENTS_WARNING)]
-  return dict(m,pinned=pinned,bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),video_downloads=video_downloads(p),log_bytes=(p/'rlog.zst').stat().st_size if (p/'rlog.zst').is_file() else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
+  return dict(m,pinned=pinned,bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),video_downloads=video_downloads(p),download_options=download_options(p,m),log_bytes=(p/'rlog.zst').stat().st_size if (p/'rlog.zst').is_file() else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
  items=[]
  for p in recording_paths():
   try:items.append(item(p))
@@ -758,12 +761,106 @@ def zip_stream(entries):
  yield sink.take()
 
 DOWNLOAD_PARTS=('rlog','front','wide','qcamera')
+
+def download_options(p,m):
+ rows=[]
+ for source,(original,mp4,_) in SOURCES.items():
+  video=next((path for path in (p/mp4,p/'prepared'/mp4) if path.is_file()),None)
+  raw=p/original
+  if not raw.is_file() and video is None:continue
+  codec=m.get('video_codecs',{}).get(source)
+  reversible=video is not None and (codec=='hevc' if source!='qcamera' else codec in (None,'h264'))
+  rows.append(dict(source=source,mp4=video is not None,original=raw.is_file() or reversible,
+                   bytes=(video or raw).stat().st_size,original_kind=original))
+ return rows
+
+def planned_video(p,m,source,format):
+ original,mp4,_=SOURCES[source]
+ raw=p/original
+ video=next((path for path in (p/mp4,p/'prepared'/mp4) if path.is_file()),None)
+ if format=='mp4':return (video,mp4,None,0) if video else None
+ if raw.is_file():return raw,original,None,0
+ if video is None:return None
+ option=next(row for row in download_options(p,m) if row['source']==source)
+ if not option['original']:abort(409,description='요청한 원본 형식 파일을 만들 수 없습니다.')
+ return video,original,'mpegts' if source=='qcamera' else 'hevc',m.get('video_origins',{}).get(source,0)
+
+def export_chunks(source,kind,offset):
+ # The source descriptor stays valid if the recording is deleted during a download.
+ proc=subprocess.Popen([sys.executable,str(BASE/'media_export.py'),f'/proc/self/fd/{source.fileno()}',kind,str(offset)],
+                       pass_fds=(source.fileno(),),stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+ try:
+  while chunk:=proc.stdout.read(65536):yield chunk
+  proc.stderr.read();proc.wait()
+  if proc.returncode:raise OSError('원본 형식 영상 생성에 실패했습니다.')
+ finally:
+  if proc.poll() is None:proc.terminate()
+  proc.wait();proc.stdout.close();proc.stderr.close()
+
+def download_selected(ids,parts,format,single=False):
+ if format not in ('mp4','original'):abort(400)
+ entries=[]
+ try:
+  with lock:
+   for id in ids:
+    p=folder(id);m=read_meta(p)
+    plans=[]
+    if 'rlog' in parts and (p/'rlog.zst').is_file():plans.append((p/'rlog.zst','rlog.zst',None,0))
+    for source in ('front','wide','qcamera'):
+     if source not in parts:continue
+     plan=planned_video(p,m,source,format)
+     if plan:plans.append(plan)
+    for path,kind,export,offset in plans:
+     name=download_name(m,kind)
+     if any(entry[1]==name for entry in entries):name=f'{id[:8]}-{name}'
+     entries.append((path.open('rb'),name,export,offset))
+  if not entries:abort(404)
+ except BaseException:
+  for source,*_ in entries:source.close()
+  raise
+ def stream():
+  try:
+   if single:
+    source,_,kind,offset=entries[0]
+    if kind:yield from export_chunks(source,kind,offset)
+    else:
+     while chunk:=source.read(65536):yield chunk
+   else:
+    sink=_ZipSink()
+    with zipfile.ZipFile(sink,'w',zipfile.ZIP_STORED,allowZip64=True) as archive:
+     for source,name,kind,offset in entries:
+      info=zipfile.ZipInfo(name);info.file_size=0 if kind else os.fstat(source.fileno()).st_size
+      with archive.open(info,'w',force_zip64=True) as out:
+       if kind:
+        for chunk in export_chunks(source,kind,offset):out.write(chunk);yield sink.take()
+       else:
+        while chunk:=source.read(65536):out.write(chunk);yield sink.take()
+      yield sink.take()
+    yield sink.take()
+  finally:
+   for source,*_ in entries:source.close()
+ name=entries[0][1] if single else f'roadviewer-{len(ids)}-segments-{format}.zip'
+ mime=('video/mp4' if name.endswith('.mp4') else 'video/hevc' if name.endswith('.hevc') else 'video/mp2t' if name.endswith('.ts') else 'application/zstd') if single else 'application/zip'
+ response=app.response_class(stream(),mimetype=mime,direct_passthrough=True)
+ from urllib.parse import quote
+ response.headers['Content-Disposition']="attachment; filename=download; filename*=UTF-8''"+quote(name,safe='')
+ response.headers['Cache-Control']='no-store'
+ response.call_on_close(lambda:[source.close() for source,*_ in entries])
+ return response
+
+@app.route('/api/logs/<id>/download')
+def download_one(id):
+ source=request.args.get('source','rlog')
+ if source not in DOWNLOAD_PARTS:abort(400)
+ return download_selected([id],{source},request.args.get('format','mp4'),single=True)
+
 @app.route('/api/logs/download.zip')
 def download_many():
  # Several segments as one ZIP: the logs and, if asked, one file per camera (as the single downloads offer).
  ids=list(dict.fromkeys(i for i in request.args.get('ids','').split(',') if i))
  parts=set(request.args.get('parts','rlog').split(','))
- if not ids or len(ids)>1000 or not parts<=set(DOWNLOAD_PARTS):abort(400)
+ if not ids or len(ids)>150 or not parts or not parts<=set(DOWNLOAD_PARTS):abort(400)
+ if request.args.get('format') is not None:return download_selected(ids,parts,request.args['format'])
  entries,names=[],set()
  with lock:
   for id in ids:

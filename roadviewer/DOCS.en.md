@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.9.11**.
+This guide describes **0.10.0**.
 
 [한국어](DOCS.md) · English
 
@@ -71,17 +71,17 @@ If Android's native file picker cannot return multiple files, add one at a time.
 
 The header reports Road Viewer file usage, including originals, prepared data and temporary uploads—not whole-disk utilization. Each recording separately reports retained files and removable prepared data. **영상 있음** indicates that any supported original or MP4 exists, not that conversion is complete. A log-only recording can also become playable.
 
-**로그 다운로드** downloads the ZST log. **영상 다운로드** downloads a single available video directly. With multiple cameras, separate front, wide and low-resolution entries show the format and size. Each entry prefers its original over MP4, independently of the camera playing. The replay header also provides these downloads next to the pin button. On short screens, the menu opens toward the available space and scrolls internally.
+Use the existing compact recording menu for **모두 받기** (Download all), the log, MP4 videos or original-format videos. A separate modal selects files and MP4/original format; recording rows do not expand. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Multiple files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
 ### Conversion and storage settings
 
-**변환 및 저장 설정** sits below uploads and remembers its collapsed state. Conversion creates replay/graph data, remuxes qcamera TS into MP4, and transcodes high-quality/wide HEVC into H.264 MP4 on the server. Each video uses its own log timestamps. HEVC processing is more expensive than TS remuxing.
+Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 without re-encoding. Originals are removed only after frame and log-clock verification; failed sources and rlog.zst are preserved. With automatic conversion off, uploads remain in their uploaded form until manual conversion. HEVC playback requires browser/device support; playback failure switches to the low-resolution camera when available.
 
 - **자동 변환:** enabled by default. Eligible recordings are queued oldest-upload first. Disabling clears automatic queued work; running and manually requested work continue.
 - **동시 처리 개수:** 1–4, default 1. Lowering the limit does not interrupt running jobs. Settings survive restart; parallel jobs may finish out of order.
-- **원본 영상 같이 보관:** enabled by default. Keeps TS/HEVC originals alongside camera-specific MP4s. When disabled, originals are removed only after successful conversion/verification; failed or unsynchronized sources remain. Changing this setting does not immediately delete or restore existing originals.
+Use the existing compact recording menu for **모두 받기** (Download all), the log, MP4 videos or original-format videos. A separate modal selects files and MP4/original format; recording rows do not expand. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Multiple files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
-Processing options save immediately; storage budget/policy have their own Save button. Restoring an original while retention is disabled does not delete it immediately; a subsequent conversion follows the retention setting.
+Processing options save immediately; storage budget/policy have their own Save button. Failed videos retain their uploaded originals.
 
 | State | Meaning |
 |---|---|
@@ -107,7 +107,7 @@ Manually removed recordings are excluded from automatic conversion until Convert
 
 Use **로그 선택** at the bottom of settings for bulk actions. Select-all and action controls remain visible while scrolling. **고정 항목도 삭제** is off whenever the dialog opens: pinned segments are protected from bulk removal/deletion unless explicitly included. This does not affect bulk conversion. Individual dropdown actions can explicitly delete pinned recordings.
 
-**다운로드** (download) in the bulk dialog sends the selected segments as one ZIP: logs only, logs + low-res video, or logs + all videos (front, wide, low-res), each with its estimated size. Files keep their uploaded names and are stored without recompression; the server streams the archive without staging it on disk. Pinned segments are included; up to 150 segments per download.
+Use the existing compact recording menu for **모두 받기** (Download all), the log, MP4 videos or original-format videos. A separate modal selects files and MP4/original format; recording rows do not expand. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Multiple files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
 During a bulk operation selection and closing are locked. Results show completed, skipped and incomplete counts; failed items remain selected.
 

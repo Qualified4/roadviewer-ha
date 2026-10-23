@@ -2,7 +2,7 @@
 
 [한국어](device-api.md) · English
 
-Implementation reference: **Road Viewer 0.9.11**.
+Implementation reference: **Road Viewer 0.10.0**.
 
 This repository provides the Road Viewer server and web UI. Compatible device uploaders are maintained separately. Existing browser uploads and Home Assistant Ingress remain supported. One Gunicorn worker with multiple threads is required; do not add workers/replicas sharing this data directory.
 
@@ -123,7 +123,7 @@ Signed `POST /api/device/uploads` body (<= 65,536 bytes):
 - `segment`: integer 0–999999 (not string/bool).
 - `size`: positive integer of actual file bytes. `sha256`: mandatory SHA256 of the complete file. Additional fields at batch/segment/file level are rejected.
 - Device batches allow up to 200 files / 50 segments, **8 GiB total** and **2 GiB per video**. Each rlog must fit `max_upload_mb` (default 512 MiB). The browser upload total still uses `max_upload_mb`. All declared bytes participate in the same disk/quota reservations; these limits do not bypass available space, pin protection, or session timeouts. Split batches over 8 GiB client-side.
-- HEVC originals must contain an Annex B parameter-set header. The conversion worker validates codec, dimensions, frame count and each camera's encode timestamps. It streams HEVC into H.264 MP4 with bounded encoder/decoder threads. Video conversion is performed on Road Viewer, never on the driving device.
+- HEVC originals must contain an Annex B parameter-set header. The conversion worker validates codec, dimensions, frame count and each camera's encode timestamps. It remuxes HEVC into MP4 (hvc1) without encoding and retains the verified MP4. Original-format downloads are remuxed on demand; no encoding runs on the driving device.
 - Playback metadata includes `videos` keyed by `front`, `qcamera`, and `wide`, each with its own `start` and `duration` on the log timeline. The legacy `video` field points to the preferred available stream (front → qcamera → wide). `GET /api/logs/<id>/video?source=<key>` uses the existing Ingress authorization and HTTP Range behavior. Wide playback projects the shared 3D geometry using its own sensor and liveCalibration.wideFromDeviceEuler. Missing wide calibration or unsupported sensors disable that overlay with an explanation; front-camera projection is never substituted. Older prepared logs need reanalysis for wide calibration metadata. Camera-overlay objects do not use the road-panel forward-range limit.
 - The server generates canonical flat names and UUID storage directories. Clients cannot select disk paths.
 
@@ -270,8 +270,8 @@ An OK result verifies the tested API/storage paths, not real video or log-decodi
 For the real TLS/Nginx/Gunicorn boundary, use Docker:
 
 ```bash
-docker build -t roadviewer:0.9.11 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.9.11 /tests/test_device_tls.py
+docker build -t roadviewer:0.10.0 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.10.0 /tests/test_device_tls.py
 ```
 
 The client trusts a temporary test certificate. Server and client communicate inside the container, so host port publication and router changes are unnecessary. Building needs network access; this does not validate your real DNS/NAT setup.
