@@ -1,4 +1,4 @@
-import gzip,io,json,shutil,sys,tempfile,unittest
+import gzip,io,json,os,shutil,subprocess,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,'/app')
@@ -8,6 +8,31 @@ from test_video_sources import no_decode_open
 from progress import Reporter
 
 class DecoderProgressTests(unittest.TestCase):
+ def test_cli_gc_scope_and_identical_replay(self):
+  with tempfile.TemporaryDirectory() as root:
+   src=Path(root)/'rlog.zst'
+   event=decoder.log.Event.new_message();event.logMonoTime=10_000_000_000;event.valid=True
+   event.init('modelV2');event.modelV2={'frameId':0,'timestampEof':event.logMonoTime,'laneLines':[],'laneLineProbs':[],'roadEdges':[],'roadEdgeStds':[]}
+   src.write_bytes(zstandard.ZstdCompressor().compress(event.to_bytes()))
+   dest,_=decoder.prepare(src,'gc scope')
+   names=('data.json.gz','telemetry.json.gz','summary.json')
+   before={name:(dest/name).read_bytes() for name in names}
+   code="""
+import gc,runpy,sys
+assert gc.isenabled()
+import decoder,progress
+assert gc.isenabled(), 'Importing decoder must leave the host GC enabled'
+class Reporter:
+ def update(self,*args,**kwargs):
+  assert not gc.isenabled(), 'The one-job CLI must skip cyclic GC during conversion'
+progress.Reporter=Reporter
+sys.argv=[str(decoder.BASE/'decoder.py'),sys.argv[1],'gc scope']
+runpy.run_path(sys.argv[0],run_name='__main__')
+"""
+   result=subprocess.run([sys.executable,'-c',code,str(src)],env=dict(os.environ,PYTHONPATH=str(decoder.BASE)),capture_output=True,text=True)
+   self.assertEqual(result.returncode,0,result.stderr)
+   self.assertEqual({name:(dest/name).read_bytes() for name in names},before)
+
  def test_ccnc_decode_and_freshness(self):
   bits=(3<<112)|(250<<117)|(35<<128)|(4<<64)|(123<<69)|(123<<80)|(5<<136)|(350<<141)|(42<<152)
   payload=bits.to_bytes(32,'little');targets=decoder.ccnc_targets(payload)

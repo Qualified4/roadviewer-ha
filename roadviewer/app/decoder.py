@@ -287,5 +287,8 @@ def prepare(value,route=None):
  return dest,attach(data)
 
 if __name__=='__main__':
+ # This one-job child exits after conversion; keep refcount cleanup, skip cyclic-GC scans of the replay tree.
+ import gc
+ gc.disable()
  try:prepare(sys.argv[1],sys.argv[2] if len(sys.argv)>2 else None)
  except Exception as e:print(str(e),file=sys.stderr);sys.exit(1)
