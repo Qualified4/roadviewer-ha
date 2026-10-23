@@ -19,6 +19,7 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
     if(p==='/api/logs')return route.fulfill({json:{logs,concurrency:1,auto_convert:true,keep_original_video:true,max_upload_mb:512,storage_used_bytes:1}});
     if(p.endsWith('/data'))return route.fulfill({json:replay});
+    if(p==='/api/progress')return route.fulfill({json:{progress:Object.fromEntries(logs.filter(m=>m.status==='processing').map(m=>[m.id,m.progress]))}});
     if(p.startsWith('/api/'))return route.fulfill({json:{progress:{}}});
     return route.fulfill(asset(p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','')));
    });
@@ -51,14 +52,14 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     [{stage:'video_convert',percent:50,video_percent:50},'0.7'],[{stage:'video_verify',percent:50,video_percent:75},'0.75'],
     [{stage:'telemetry_build',percent:50},'0.825'],[{stage:'telemetry_encode',percent:50},'0.855'],
     [{stage:'telemetry_compress',percent:50},'0.87'],[{stage:'replay_compact',percent:50},'0.9'],
-    [{stage:'replay_encode',percent:50},'0.94'],[{stage:'replay_compress',percent:50},'0.975'],
-    [{stage:'summary_save',percent:100},'0.995'],[{stage:'saving'},'0.8'],
+    [{stage:'replay_encode',percent:50},'0.94'],[{stage:'replay_compress',percent:50},'0.98'],
+    [{stage:'summary_save',percent:100},'1'],[{stage:'registering'},'1'],[{stage:'saving'},'0.8'],
    ];
    for(const [i,[progress,expected]] of progressCases.entries()){
     logs=[{...logs[0],prepared_bytes:42+i,conversion_revision:i+1,progress}];
     await page.evaluate(()=>refresh());
     assert(await page.locator('.state-processing').evaluate(e=>e===processingBadge),'metadata refresh keeps the badge connected');
-    assert.equal(await page.locator('.state-progress').evaluate(e=>e.hidden),false,'progress remains visible through registration');
+    assert.equal(await page.locator('.state-progress').evaluate(e=>e.hidden),['summary_save','registering'].includes(progress.stage),'only the short summary/registration hides the bar');
     if(expected)assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),expected);
     if(!reduced){
      assert(await page.locator('.state-processing').evaluate(e=>e.getAnimations().find(a=>a.animationName==='rv-sweep')===sweep),'stage changes retain the same sweep animation');
@@ -72,6 +73,9 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),forward,'late progress never moves backwards');
    logs=[{...logs[0],conversion_revision:101,video:false,progress:{stage:'log_analysis',frames:10,total_frames:20}}];await page.evaluate(()=>refresh());
    assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.65','log-only recordings redistribute video work');
+   logs[0].progress={stage:'log_analysis',frames:15,total_frames:20};await page.evaluate(()=>refreshProgress());
+   assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7','lightweight polls preserve log-only weights and conversion revision');
+   await page.evaluate(()=>refresh());assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7','full refresh matches lightweight progress');
    await page.evaluate(()=>addFiles([new File(['x'],'unsupported.txt')]));
    assert(await page.locator('#error').evaluate(e=>parseFloat(getComputedStyle(e).marginTop)>=12),'unsupported-file message has top spacing');
    await page.evaluate(()=>{const d=document.querySelector('.inline-help');for(let p=d.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;d.open=true;});

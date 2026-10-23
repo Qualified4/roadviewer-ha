@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.10.4**.
+This guide describes **0.10.5**.
 
 [한국어](DOCS.md) · English
 
@@ -91,7 +91,7 @@ Processing options save immediately; storage budget/policy have their own Save b
 | 재생 가능 | Playback data is ready, including log-only recordings |
 | 변환 실패 | Inspect the error, then retry conversion |
 
-The bar stays visible from preparation through result registration. With video, stage weights are preparation/decompression 0–4%, log reading 4–45%, frame analysis 45–60%, camera reading/remuxing/verification 60–80%, and graph generation, JSON encoding, compression/writes and replay compaction 80–99.5%. Log-only recordings redistribute the video share across reading, analysis and saving. Updates use consumed bytes, processed frames/samples and written bytes, with smooth transitions at roughly one-second intervals. Labels name the actual operation. The bar remains below 100% until registration completes and disappears on completion. These are work-based stage weights, not a remaining-time estimate.
+The bar stays visible from preparation until the large compressed files have been saved. With video, stage weights are preparation/decompression 0–4%, log reading 4–45%, frame analysis 45–60%, camera reading/remuxing/verification 60–80%, and graph generation, JSON encoding, compression/writes and replay compaction 80–100%. Log-only recordings redistribute the video share across reading, analysis and saving. Updates use consumed bytes, processed frames/samples and written bytes, with smooth transitions at roughly one-second intervals. Labels name the actual operation and show overall progress. Atomic completion of the large writes reaches 100%; the brief summary/registration phase hides the bar and keeps only the sweep effect. Heavy conversion work is completed before that final phase. These are work-based stage weights, not a remaining-time estimate.
 
 ### Individual and bulk actions
 
