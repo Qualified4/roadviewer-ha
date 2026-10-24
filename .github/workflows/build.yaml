@@ -105,6 +105,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install flask
+      - name: Validate AppArmor policy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apparmor
+          python tests/test_apparmor.py
       - run: python tests/test_duplicates.py
       - run: python tests/test_upload_recovery.py
       - run: python tests/test_device_api.py
