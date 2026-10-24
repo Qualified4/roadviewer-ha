@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'roadviewer/app'))
+sys.path.insert(0, '/app')
 os.environ.setdefault('RV_DATA', tempfile.mkdtemp(prefix='rv-mp4-import-'))
 import av
 import zstandard
