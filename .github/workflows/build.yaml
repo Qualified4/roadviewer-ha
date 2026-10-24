@@ -192,6 +192,8 @@ jobs:
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_decoder_progress.py
       - name: Multi-camera HEVC conversion tests
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_video_sources.py
+      - name: MP4 upload round-trip tests
+        run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_mp4_uploads.py
       - name: Lossless camera export and ZIP tests
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_media_downloads.py
       - name: Mobile download filename tests

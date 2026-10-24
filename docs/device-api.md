@@ -2,7 +2,7 @@
 
 한국어 · [English](device-api.en.md)
 
-구현 기준: **Road Viewer 0.10.7**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
+구현 기준: **Road Viewer 0.10.8**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
 
 공유 데이터 디렉터리는 **Gunicorn worker 1개와 여러 thread**를 전제로 합니다. 같은 디렉터리를 사용하는 worker나 서버 복제본을 추가하지 마세요.
 
@@ -126,6 +126,7 @@ headers = {
 
 - `batch_id`: 장치 내 배치별 고유 16~64자 `[A-Za-z0-9_-]`. manifest와 함께 보관합니다.
 - 1~50개 구간. 각 구간에는 `rlog.zst`가 필수이며 `qcamera.ts`, `fcamera.hevc`, `ecamera.hevc`는 선택입니다. 없는 파일은 manifest에서 제외합니다.
+- MP4 대체 형식은 저용량 전방 `qcamera.mp4`(또는 `camera.mp4`, H.264), 고화질 전방 `fcamera.mp4`, 와이드 `ecamera.mp4`(HEVC)입니다. 같은 카메라의 원본과 MP4를 동시에 넣을 수 없으며, 기존 영상은 덮어쓰지 않습니다.
 - 같은 route/segment나 파일 종류를 중복으로 넣을 수 없습니다. 영상만 업로드할 수 없으며, 기존 로그에 영상을 추가할 때도 동일 rlog를 포함합니다.
 - `route`: 8자리 hex + `--` + 10자리 hex 또는 기존 `YYYY-MM-DD--HH-MM-SS` 형식입니다. 후자는 식별자 형태만 확인하며 실제 주행 시각을 검증하지 않습니다. 임의 경로나 이름은 거부합니다.
 - `segment`: 정수 0~999999. 문자열이나 bool은 거부합니다.
@@ -316,8 +317,8 @@ python3 -m venv /tmp/roadviewer-test-env
 실제 Nginx/Gunicorn TLS 경계를 검증하려면:
 
 ```bash
-docker build -t roadviewer:0.10.7 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.10.7 /tests/test_device_tls.py
+docker build -t roadviewer:0.10.8 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.10.8 /tests/test_device_tls.py
 ```
 
 컨테이너 안에서 임시 인증서로 통신하므로 포트 공개·공유기 변경은 필요하지 않습니다. 빌드는 네트워크가 필요하며 실제 DNS/NAT 검증을 대신하지 않습니다.

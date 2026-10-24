@@ -74,6 +74,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await heldCleanup.fulfill({json:{removed_bytes:0}});await page.waitForFunction(()=>!document.getElementById('cleanupStorage').disabled);
   await zone.dispatchEvent('drop',{dataTransfer:transfer});assert.equal(await page.locator('#selectedFiles li').count(),2);
   await page.locator('#clearSelection').click();assert.equal(await page.locator('#selectedFiles li').count(),0);assert(await page.locator('#upload').isDisabled());
+  const mp4Names=['camera.mp4','qcamera.mp4','fcamera.mp4','ecamera.mp4','0000041b--c6f39793a8--1--qcamera.mp4'];
+  await page.locator('#files').setInputFiles(mp4Names.map(name=>({name,mimeType:'video/mp4',buffer:Buffer.from('mp4')})));
+  assert.equal(await page.locator('#selectedFiles li').count(),mp4Names.length);
+  assert.deepEqual(await page.locator('#selectedFiles li').allTextContents(),mp4Names);
+  await page.locator('#clearSelection').click();
   for(const width of [320,390,768,1280]){
    await page.setViewportSize({width,height:900});await zone.dispatchEvent('dragover',{dataTransfer:transfer});
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));

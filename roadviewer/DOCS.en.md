@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.10.7**.
+This guide describes **0.10.8**.
 
 [한국어](DOCS.md) · English
 
@@ -27,7 +27,7 @@ Use **파일 추가** (Add files), or drag files onto the upload area, then pres
 | `fcamera.hevc` | Optional high-quality front video |
 | `ecamera.hevc` | Optional wide video |
 
-Driver-camera and direct MP4 uploads are unsupported. One segment may use the bare filenames above. Multiple segments use their original route/segment identifiers:
+Downloaded `qcamera.mp4` (or `camera.mp4`), `fcamera.mp4`, and `ecamera.mp4` can be uploaded again with the matching `rlog.zst`. Low-resolution front MP4 uses H.264; front/wide MP4 uses HEVC. Select one format per camera; existing camera files are not overwritten. Driver-camera uploads remain unsupported. One segment may use the bare filenames above. Multiple segments use their original route/segment identifiers:
 
 ```text
 0000035f--b513269850--0--rlog.zst
