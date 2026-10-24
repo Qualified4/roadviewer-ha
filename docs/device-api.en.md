@@ -2,7 +2,7 @@
 
 [한국어](device-api.md) · English
 
-Implementation reference: **Road Viewer 0.10.7**.
+Implementation reference: **Road Viewer 0.10.8**.
 
 This repository provides the Road Viewer server and web UI. Compatible device uploaders are maintained separately. Existing browser uploads and Home Assistant Ingress remain supported. One Gunicorn worker with multiple threads is required; do not add workers/replicas sharing this data directory.
 
@@ -118,6 +118,7 @@ Signed `POST /api/device/uploads` body (<= 65,536 bytes):
 ```
 
 - `batch_id`: 16–64 `[A-Za-z0-9_-]` characters, unique per device per batch. Save it with the manifest on the device.
+- MP4 alternatives are `qcamera.mp4` (or `camera.mp4`, H.264), `fcamera.mp4`, and `ecamera.mp4` (HEVC). Use one format per camera. Existing camera files are not overwritten.
 - 1–50 segments; each segment has one required `rlog.zst` and optional `qcamera.ts`, `fcamera.hevc` (high-quality front), and `ecamera.hevc` (wide). Missing optional files are simply omitted. Driver camera uploads are not accepted. No repeated route/segment or file kind. Video-only uploads are rejected; to attach video later send the matching rlog again with it (existing hash deduplication is reused).
 - `route`: either 8 hex characters, `--`, 10 hex characters, or legacy `YYYY-MM-DD--HH-MM-SS` digit shape. Legacy timestamps are identifiers only, not validated driving times. No paths, slashes or arbitrary names.
 - `segment`: integer 0–999999 (not string/bool).
@@ -270,8 +271,8 @@ An OK result verifies the tested API/storage paths, not real video or log-decodi
 For the real TLS/Nginx/Gunicorn boundary, use Docker:
 
 ```bash
-docker build -t roadviewer:0.10.7 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.10.7 /tests/test_device_tls.py
+docker build -t roadviewer:0.10.8 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.10.8 /tests/test_device_tls.py
 ```
 
 The client trusts a temporary test certificate. Server and client communicate inside the container, so host port publication and router changes are unnecessary. Building needs network access; this does not validate your real DNS/NAT setup.

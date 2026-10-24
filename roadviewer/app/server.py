@@ -9,7 +9,7 @@ from werkzeug.exceptions import HTTPException
 from storage_policy import StoragePolicy,atomic_json
 from device_api import DeviceAPI
 from device_network import DeviceNetwork
-from video_sources import SOURCES,ORIGINALS,DERIVED,UPLOAD_KINDS,STORED_KINDS,validate_hevc
+from video_sources import SOURCES,ORIGINALS,DERIVED,VIDEO_KINDS,CAMERA_KINDS,UPLOAD_KINDS,STORED_KINDS,validate_hevc,validate_mp4
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
 options_path=Path('/data/options.json');options=json.loads(options_path.read_text()) if options_path.exists() else {}
@@ -19,7 +19,7 @@ app.config.update(MAX_CONTENT_LENGTH=int(options.get('max_upload_mb',512))*1024*
 lock=threading.RLock();processes={};job_progress={};active_uploads=Counter();finishing_uploads=set();registration_lock=threading.Lock()
 upload_hashes={}  # Session/file -> (stat fingerprint, incremental SHA256); restart falls back to disk verification.
 upload_file_locks={}  # Session/file -> Lock: one chunk per file at a time, so disk writes and hashing stay outside the job lock.
-ID=re.compile(r'^[a-f0-9]{32}$');FLAT=re.compile(r'^(?P<route>.{20})--(?P<segment>\d+)--(?P<kind>rlog\.zst|qcamera\.ts|fcamera\.hevc|ecamera\.hevc)$')
+ID=re.compile(r'^[a-f0-9]{32}$');FLAT=re.compile(r'^(?P<route>.{20})--(?P<segment>\d+)--(?P<kind>'+ '|'.join(map(re.escape,UPLOAD_KINDS))+r')$')
 def folder(id):
  if not ID.fullmatch(id):abort(404)
  p=ROOT/id
@@ -333,6 +333,19 @@ def retained_original(p,m,kind,digest,known):
  return ((p/DERIVED[kind]).is_file() and digest==known.get(kind) and
          m.get('video_codecs',{}).get(source)==('h264' if source=='qcamera' else 'hevc'))
 
+def additional_videos(p,meta,incoming,known):
+ added=[]
+ for kind in VIDEO_KINDS:
+  if kind not in incoming or (p/kind).is_file():continue
+  if kind in DERIVED:
+   if retained_original(p,meta,kind,incoming[kind],known):continue
+   if (p/DERIVED[kind]).is_file() and incoming[kind]!=known.get(kind):continue
+  else:
+   original=next(raw for raw,mp4 in DERIVED.items() if mp4==kind)
+   if (p/original).is_file() or (p/'prepared'/kind).is_file():continue
+  added.append(kind)
+ return added
+
 def register_files(files):
  if not files or len(files)>(200 if request.path.startswith('/api/device/') else 100):return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
  if shutil.disk_usage(ROOT).free<(request.content_length or 0)+100*1024*1024:return upload_error('insufficient_disk_space','로그를 저장할 디스크 공간이 부족합니다.',507)
@@ -347,15 +360,17 @@ def register_files(files):
     if match:group=str(path.parent)+'/'+match['route']+'--'+match['segment'];kind=match['kind'];label=match['route']+' / 구간 '+str(int(match['segment']))
     elif path.name in UPLOAD_KINDS:group=str(path.parent);kind=path.name;label=path.parent.name or '업로드한 로그'
     else:raise ValueError('지원하지 않는 파일: '+path.name)
+    if kind=='qcamera.mp4':kind='camera.mp4'
     if group not in groups:
      group_dir=Path(temp)/uuid.uuid4().hex;group_dir.mkdir();groups[group]={'dir':group_dir,'label':label,'files':{}}
     g=groups[group]
-    if kind in g['files']:raise ValueError('같은 구간의 파일이 중복되었습니다: '+path.name)
+    if kind in g['files'] or (kind in CAMERA_KINDS and any(CAMERA_KINDS.get(k)==CAMERA_KINDS[kind] for k in g['files'])):raise ValueError('같은 구간의 카메라 파일이 중복되었습니다: '+path.name)
     if getattr(f,'path',None):
      # Finished chunked uploads already live under ROOT: move instead of copying up to 512 MB.
      os.replace(f.path,g['dir']/kind);g.setdefault('known',{})[kind]=f.sha256
     else:f.save(g['dir']/kind)
     if kind.endswith('.hevc'):validate_hevc(g['dir']/kind)
+    if kind.endswith('.mp4'):validate_mp4(g['dir']/kind)
     g['files'][kind]=path.name
    for g in groups.values():
     if 'rlog.zst' not in g['files']:raise ValueError(g['label']+': 영상과 짝이 되는 rlog.zst를 함께 올려주세요.')
@@ -388,8 +403,7 @@ def register_files(files):
        changes=True
       else:
        path=ROOT/match[0]['id']
-       if any(kind in g['hashes'] and not retained_original(path,match[0],kind,g['hashes'][kind],match[1]) and not (path/kind).is_file() and
-              (not (path/DERIVED[kind]).is_file() or g['hashes'][kind]==match[1].get(kind)) for kind in ORIGINALS):changes=True
+       if additional_videos(path,match[0],g['hashes'],match[1]):changes=True
      if changes:
       storage_policy.admit(0,[{'name':name} for g in groups.values() for name in g['files'].values()],commit=True,protected_ids={match[0]['id'] for match in matches if match})
      for g in groups.values():
@@ -397,10 +411,9 @@ def register_files(files):
       if match:
        meta,hashes=match
        p=ROOT/meta['id'];meta=read_meta(p)
-       added=[kind for kind in ORIGINALS if kind in g['hashes'] and not retained_original(p,meta,kind,g['hashes'][kind],hashes) and not (p/kind).is_file() and
-              (not (p/DERIVED[kind]).is_file() or g['hashes'][kind]==hashes.get(kind))]
+       added=additional_videos(p,meta,g['hashes'],hashes)
        if added:
-        restored=all((p/DERIVED[kind]).is_file() and g['hashes'][kind]==hashes.get(kind) for kind in added)
+        restored=all(kind in DERIVED and (p/DERIVED[kind]).is_file() and g['hashes'][kind]==hashes.get(kind) for kind in added)
         if not restored:
          proc=processes.get(meta['id'])
          if proc and proc.poll() is None:
@@ -419,11 +432,11 @@ def register_files(files):
         existing[g['hashes']['rlog.zst']]=(meta,hashes)
         updated.append(dict(meta,original_restored=True) if restored else meta)
         continue
-       video_diff=any(kind in g['hashes'] and g['hashes'][kind]!=hashes.get(kind) for kind in ORIGINALS)
+       video_diff=any(kind in g['hashes'] and g['hashes'][kind]!=hashes.get(kind) for kind in VIDEO_KINDS)
        duplicates.append({'id':meta['id'],'name':g['label'],'video_differs':video_diff})
        continue
       id=uuid.uuid4().hex;p=g['dir']
-      m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':any(kind in g['files'] for kind in ORIGINALS),'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None,'content_hashes':{kind:{'size':(p/kind).stat().st_size,'mtime_ns':(p/kind).stat().st_mtime_ns,'sha256':digest} for kind,digest in g['hashes'].items()}};save_meta(p,m);p.rename(ROOT/id);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
+      m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':any(kind in g['files'] for kind in VIDEO_KINDS),'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None,'content_hashes':{kind:{'size':(p/kind).stat().st_size,'mtime_ns':(p/kind).stat().st_mtime_ns,'sha256':digest} for kind,digest in g['hashes'].items()}};save_meta(p,m);p.rename(ROOT/id);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
   return jsonify(logs=staged,duplicates=duplicates,updated=updated),201
  except ValueError as e:return jsonify(error=str(e)),400
  finally:
@@ -737,10 +750,10 @@ def download_video(id):
 def download_name(m,kind):
  # The uploaded filename (e.g. 000003fe--d524dc1e0b--8--rlog.zst); a kept MP4 takes its original's name.
  source_kind=next((original for original,mp4 in DERIVED.items() if kind==mp4),kind)
- files=m.get('files',{});name=PurePosixPath(files.get(source_kind,source_kind)).name
+ files=m.get('files',{});name=PurePosixPath(files.get(source_kind,files.get(kind,source_kind))).name
  # A camera added later without its filename recorded follows the log's route--segment prefix.
  log=PurePosixPath(files.get('rlog.zst','')).name
- if source_kind not in files and log.endswith('--rlog.zst'):name=log[:-len('rlog.zst')]+source_kind
+ if source_kind not in files and kind not in files and log.endswith('--rlog.zst'):name=log[:-len('rlog.zst')]+source_kind
  return str(PurePosixPath(name).with_suffix('.mp4')) if kind.endswith('.mp4') else name
 
 class _ZipSink:

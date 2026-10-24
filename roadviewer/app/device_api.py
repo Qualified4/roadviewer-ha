@@ -1,4 +1,4 @@
-from video_sources import UPLOAD_KINDS,DEVICE_VIDEO_LIMIT,DEVICE_BATCH_LIMIT
+from video_sources import UPLOAD_KINDS,CAMERA_KINDS,DEVICE_VIDEO_LIMIT,DEVICE_BATCH_LIMIT
 """Device-only HTTP contract. File transfer delegates to server's upload engine."""
 import errno, hashlib, hmac, json, re, secrets, time
 from collections import deque
@@ -146,7 +146,7 @@ class DeviceAPI:
                 if f['sha256'] is None:
                     if request.headers.get('X-RV-Checksum') != STREAM_CHECKSUM: abort(400, description='invalid_file')
                 elif not isinstance(f['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', f['sha256']): abort(400, description='invalid_file')
-                if f['kind'] in names: abort(400, description='duplicate_file')
+                if f['kind'] in names or (f['kind'] in CAMERA_KINDS and any(CAMERA_KINDS.get(k)==CAMERA_KINDS[f['kind']] for k in names)): abort(400, description='duplicate_file')
                 names.add(f['kind']); files.append(dict(name=f'{route}--{number}--{f["kind"]}', size=f['size'], sha256=f['sha256']))
             if 'rlog.zst' not in names: abort(400, description='rlog_required')
         return files

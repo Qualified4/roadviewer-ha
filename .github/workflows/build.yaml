@@ -105,6 +105,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install flask
+      - name: Validate AppArmor policy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apparmor
+          python tests/test_apparmor.py
       - run: python tests/test_duplicates.py
       - run: python tests/test_upload_recovery.py
       - run: python tests/test_device_api.py
@@ -187,6 +192,8 @@ jobs:
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_decoder_progress.py
       - name: Multi-camera HEVC conversion tests
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_video_sources.py
+      - name: MP4 upload round-trip tests
+        run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_mp4_uploads.py
       - name: Lossless camera export and ZIP tests
         run: docker run --rm --platform linux/${{ matrix.arch }} -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:test /tests/test_media_downloads.py
       - name: Mobile download filename tests

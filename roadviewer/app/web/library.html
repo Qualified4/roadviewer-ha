@@ -1,5 +1,5 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>html,body{background:#0c1118;color-scheme:dark}</style><meta name="viewport" content="width=device-width,initial-scale=1"><title>Road Viewer · Home Assistant</title><link rel="stylesheet" href="assets/style.css?v=0.10.7"><link rel="stylesheet" href="assets/library.css?v=0.10.7"><link rel="stylesheet" href="assets/motion.css?v=0.10.7"><link rel="icon" type="image/svg+xml" href="assets/icon.svg?v=0.10.7"></head><body class="library-page"><main>
-<header><div class="app-brand"><img class="app-icon" src="assets/icon.svg?v=0.10.7" alt=""><div><div class="eyebrow">HOME ASSISTANT <span class="app-version">v0.10.7</span></div><h1>Road Viewer</h1></div></div><span id="summary" title="Road Viewer 원본·변환·업로드 임시 파일의 총 파일 용량">목록 불러오는 중…</span></header>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><style>html,body{background:#0c1118;color-scheme:dark}</style><meta name="viewport" content="width=device-width,initial-scale=1"><title>Road Viewer · Home Assistant</title><link rel="stylesheet" href="assets/style.css?v=0.10.8"><link rel="stylesheet" href="assets/library.css?v=0.10.8"><link rel="stylesheet" href="assets/motion.css?v=0.10.8"><link rel="icon" type="image/svg+xml" href="assets/icon.svg?v=0.10.8"></head><body class="library-page"><main>
+<header><div class="app-brand"><img class="app-icon" src="assets/icon.svg?v=0.10.8" alt=""><div><div class="eyebrow">HOME ASSISTANT <span class="app-version">v0.10.8</span></div><h1>Road Viewer</h1></div></div><span id="summary" title="Road Viewer 원본·변환·업로드 임시 파일의 총 파일 용량">목록 불러오는 중…</span></header>
 
 <details class="upload" open>
 <summary class="section-summary"><span class="section-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m-4 4 4-4 4 4M4 15v5h16v-5"/></svg></span><div class="section-title"><h2>로그 업로드</h2><p>로그와 영상을 추가하고 주행을 확인하세요.</p></div><span class="section-disclosure" aria-hidden="true"><span class="when-closed">펼치기</span><span class="when-open">접기</span></span></summary>
@@ -9,7 +9,7 @@
 <svg class="picker-icon" viewBox="0 0 40 40" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M24 5H11a3 3 0 0 0-3 3v24a3 3 0 0 0 3 3h18a3 3 0 0 0 3-3V13L24 5Z"/><path d="M24 5v8h8M20 28V17m-5 5 5-5 5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>
 <div class="picker-description"><h3><span class="picker-idle-title">업로드할 파일을 선택하세요</span><span class="picker-drop-title">놓아서 선택 목록에 추가</span></h3><p>파일 추가 버튼을 누르거나 이곳에 파일을 끌어다 놓으세요.</p></div>
 <label class="pick-button"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>파일 추가</span><input id="files" type="file" multiple accept="*/*" aria-label="파일 추가" aria-describedby="pickerHint uploadLimit"></label>
-<div class="file-types"><span>로그 <code>rlog.zst</code></span><span>영상 <code>qcamera.ts</code> · <code>fcamera.hevc</code> · <code>ecamera.hevc</code></span></div>
+<div class="file-types"><span>로그 <code>rlog.zst</code></span><span>영상 <code>qcamera.ts</code> · <code>fcamera.hevc</code> · <code>ecamera.hevc</code> · <code>카메라 MP4</code></span></div>
 </div>
 <ul id="selectedFiles" aria-label="선택한 파일"></ul>
 <div class="upload-footer"><div class="upload-selection"><span id="selection">선택한 파일 없음</span><p id="uploadLimit">업로드 용량 제한 확인 중…</p></div><div class="upload-row"><button id="clearSelection" type="button" disabled>선택 비우기</button><button id="upload" aria-describedby="uploadLimit" class="primary" type="button" disabled>업로드</button></div></div>
@@ -18,7 +18,7 @@
 <aside class="upload-guide" aria-labelledby="uploadGuideTitle"><h3 id="uploadGuideTitle">파일 준비 안내</h3><dl>
 <div><dt>로그만 있어도 시작할 수 있어요</dt><dd id="pickerHint">여러 구간의 로그와 영상을 함께 선택할 수 있습니다. 영상만 단독으로는 등록할 수 없습니다.</dd></div>
 <div><dt>영상은 나중에 추가해도 괜찮아요</dt><dd>기존 로그에 영상을 추가하려면 같은 로그 파일과 영상을 함께 선택하세요. 동일한 원본 영상을 다시 올리면 보관 MP4와 분석 데이터를 유지합니다.</dd></div>
-<div><dt>파일 이름을 그대로 유지해 주세요</dt><dd><code>루트--구간--rlog.zst</code><br><code>루트--구간--qcamera.ts</code><span class="guide-caption">이름이 같은 구간의 로그와 영상을 연결합니다.</span></dd></div>
+<div><dt>파일 이름을 그대로 유지해 주세요</dt><dd><code>루트--구간--rlog.zst</code><br><code>루트--구간--qcamera.ts</code><span class="guide-caption">이름이 같은 구간의 로그와 영상을 연결합니다. 내려받은 qcamera.mp4, fcamera.mp4, ecamera.mp4도 같은 rlog.zst와 함께 올릴 수 있습니다.</span></dd></div>
 </dl></aside>
 </div>
 <div class="upload-cleanup"><div><h3>업로드가 중단되었나요?</h3><p>완료되지 않은 임시 파일을 즉시 정리합니다. 등록된 로그와 변환 데이터는 유지됩니다.</p><p class="cleanup-caution">다른 기기에서 진행 중인 업로드도 중단될 수 있습니다.</p></div><button id="cleanupStorage" type="button">저장소 즉시 정리</button><p id="cleanupStatus" role="status"></p></div>
@@ -85,4 +85,4 @@
 </div>
 <div class="pair-footer"><button id="pairRenew" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2 6M20 4v7h-7"/></svg><span>새 코드 발급</span></button><button id="pairClose" type="button">취소</button></div>
 </dialog>
-<script src="assets/disclosure.js?v=0.10.7"></script><script src="assets/element-motion.js?v=0.10.7"></script><script src="assets/recording-name.js?v=0.10.7"></script><script src="assets/download-dialog.js?v=0.10.7"></script><script src="assets/tags.js?v=0.10.7"></script><script src="assets/library.js?v=0.10.7"></script><script src="assets/choices.js?v=0.10.7"></script><script src="assets/bulk.js?v=0.10.7"></script><script src="assets/storage-devices.js?v=0.10.7"></script></body></html>
+<script src="assets/disclosure.js?v=0.10.8"></script><script src="assets/element-motion.js?v=0.10.8"></script><script src="assets/recording-name.js?v=0.10.8"></script><script src="assets/download-dialog.js?v=0.10.8"></script><script src="assets/tags.js?v=0.10.8"></script><script src="assets/library.js?v=0.10.8"></script><script src="assets/choices.js?v=0.10.8"></script><script src="assets/bulk.js?v=0.10.8"></script><script src="assets/storage-devices.js?v=0.10.8"></script></body></html>
