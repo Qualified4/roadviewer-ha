@@ -267,7 +267,7 @@ window.addEventListener('blur',finishSeekDrag);
 v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=()=>{if(data?.video)videoFailure('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.')};
-for(const id of ['range','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','ccncRoad','laneMarking','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
+for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','ccncRoad','laneMarking','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Space and arrows keep their own meaning on focused controls, links and menus.
 document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
@@ -566,13 +566,15 @@ function render(lazy){
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!data)return;
  const f=data.frames[idx],valid=f.valid&&frameAvailable(f);
  window.renderVideoOverlay?.(f,frameAvailable(f));
- const range=Number($('range').value),scale=(h-78)/range,lateral=Number($('lateralRange').value),manualLateral=Number.isFinite(lateral)&&lateral>0,cx=manualLateral?(38+w-12)/2:w/2,cy=h-48;
+ const range=Number($('range').value),rear=checked('rearView')?({25:5,50:10,80:20}[range]||0):0,bottom=h-48,scale=(h-78)/(range+rear),lateral=Number($('lateralRange').value),manualLateral=Number.isFinite(lateral)&&lateral>0,cx=manualLateral?(38+w-12)/2:w/2,cy=bottom-rear*scale;
  const lateralScale=manualLateral?(w-50)/(2*lateral):scale;
  const X=y=>cx+y*lateralScale,Y=x=>cy-x*scale;
  ctx.font='11px "Pretendard Variable", system-ui';ctx.lineWidth=1;ctx.strokeStyle='#273646';ctx.fillStyle='#8fa3b8';
- for(let x=0;x<=range;x+=10){ctx.beginPath();ctx.moveTo(38,Y(x));ctx.lineTo(w-12,Y(x));ctx.stroke();ctx.fillText(x+' m',5,Y(x)+4)}
- for(let y=manualLateral?-lateral:-Math.floor((w/2-40)/scale/5)*5;y<=(manualLateral?lateral:(w/2-20)/scale);y+=5){ctx.beginPath();ctx.moveTo(X(y),24);ctx.lineTo(X(y),cy);ctx.stroke();ctx.textAlign='center';ctx.fillText(y,X(y),h-13)}ctx.textAlign='left';ctx.fillText('전방 x ↑',12,16);ctx.textAlign='right';ctx.fillText('좌우 y → (m)',w-10,16);ctx.textAlign='left';
- ctx.save();ctx.beginPath();ctx.rect(38,22,w-50,cy-20);ctx.clip();
+ if(rear){ctx.fillStyle='#101b28';ctx.fillRect(38,cy,w-50,bottom-cy);ctx.fillStyle='#8fa3b8'}
+ for(const x of [...Array.from({length:rear/5},(_,i)=>-rear+i*5),...Array.from({length:Math.floor(range/10)+1},(_,i)=>i*10)]){ctx.beginPath();ctx.moveTo(38,Y(x));ctx.lineTo(w-12,Y(x));ctx.stroke();ctx.fillText(x+' m',5,Y(x)+4)}
+ if(rear){ctx.strokeStyle='#64758b';ctx.beginPath();ctx.moveTo(38,cy);ctx.lineTo(w-12,cy);ctx.stroke();ctx.strokeStyle='#273646'}
+ for(let y=manualLateral?-lateral:-Math.floor((w/2-40)/scale/5)*5;y<=(manualLateral?lateral:(w/2-20)/scale);y+=5){ctx.beginPath();ctx.moveTo(X(y),24);ctx.lineTo(X(y),bottom);ctx.stroke();ctx.textAlign='center';ctx.fillText(y,X(y),h-13)}ctx.textAlign='left';ctx.fillText('전방 x ↑',12,16);ctx.textAlign='right';ctx.fillText('좌우 y → (m)',w-10,16);ctx.textAlign='left';
+ ctx.save();ctx.beginPath();ctx.rect(38,22,w-50,bottom-20);ctx.clip();
  const labels=[];
  const targetValue=(target,lateral)=>{
   if(checked('trackLabels'))return Number.isInteger(target.trackId)&&target.trackId>=0?String(target.trackId):'—';
@@ -584,13 +586,13 @@ function render(lazy){
    const value=checked('relativeSpeedLabels')?relative:speed;
    return Number.isFinite(value)?(checked('relativeSpeedLabels')&&value>0?'+':'')+value.toFixed(1)+' km/h':'—';
   }
-  return target.x.toFixed(1)+'m';
+  return target.x<0?'후방 '+Math.abs(target.x).toFixed(1)+'m':target.x.toFixed(1)+'m';
  };
  function annotate(text,x,y,color,side=1){
   if(checked('hideLabels'))return;
   const lines=text.split('\n'),width=Math.max(...lines.map(line=>ctx.measureText(line).width)),height=lines.length*13;let box=null;
   for(const offset of [-8,12,-28,32,-48,52,-68,72]){
-   const left=Math.max(42,Math.min(w-16-width,x+(side>0?12:-width-12))),top=Math.max(26,Math.min(cy-height-3,y+offset));
+   const left=Math.max(42,Math.min(w-16-width,x+(side>0?12:-width-12))),top=Math.max(26,Math.min(bottom-height-3,y+offset));
    const next={left,top,right:left+width,bottom:top+height};
    if(!labels.some(b=>next.left<b.right+4&&next.right>b.left-4&&next.top<b.bottom+3&&next.bottom>b.top-3)){box=next;break}
   }
@@ -598,6 +600,13 @@ function render(lazy){
  }
  function path(points){ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(X(y),Y(x)):ctx.moveTo(X(y),Y(x)))}
  function line(points,color,dashed,alpha,width=2){path(points);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.setLineDash(dashed?[6,5]:[]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1}
+ if(rear&&checked('lanes')){
+  // Straight reference guides only: no invented curvature behind the camera's model.
+  ctx.save();ctx.strokeStyle='#66778d';ctx.globalAlpha=.45;ctx.lineWidth=1;ctx.setLineDash([3,6]);
+  const guides=[0,1,2,3].map(i=>valid&&Number.isFinite(f.laneY0?.[i])?f.laneY0[i]:[-5.4,-1.8,1.8,5.4][i]);
+  for(const y of guides){ctx.beginPath();ctx.moveTo(X(y),cy);ctx.lineTo(X(y),bottom);ctx.stroke()}
+  ctx.restore();
+ }
  if(valid){
   const screen=points=>(points||[]).map(p=>p?[X(p[1]),Y(p[0])]:null);
   if(checked('ccncRoad')){
@@ -628,7 +637,7 @@ function render(lazy){
    const l=f.selected;if(l&&l.x>=0&&l.x<=range){const x=X(l.y),y=Y(l.x);ctx.strokeStyle='#eee7bc';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+7,y);ctx.lineTo(x,y+7);ctx.lineTo(x-7,y);ctx.closePath();ctx.stroke();annotate(`선택 · ${targetValue(l,-l.y)}`,x,y,'#eee7bc')}
   }
   for(const target of f.radarTargets||[]){
-   const style=targetStyle[target.group];if(!style||!checked(style.toggle)||target.x<0||target.x>range)continue;
+   const style=targetStyle[target.group];if(!style||!checked(style.toggle)||target.x< -rear||target.x>range)continue;
    const x=X(target.y),y=Y(target.x);ctx.strokeStyle=style.color;ctx.lineWidth=2;ctx.strokeRect(x-5,y-8,10,16);
    annotate(`${style.label} ${target.index+1} · ${targetValue(target,target.yRel)}`,x,y,style.color,target.group==='left'?-1:1);
   }
@@ -643,11 +652,17 @@ function render(lazy){
    else annotate(text,x,y,color,target.slot==='LF'?-1:1);
   }
  }
+ if(rear&&valid)for(const target of f.ccncRearTargets||[]){
+  if(target.x< -rear||target.x>0)continue;
+  const x=X(target.y),y=Y(target.x),color='#4aaaff';ctx.strokeStyle=color;ctx.lineWidth=2;ctx.strokeRect(x-8,y-11,16,22);
+  if(checked('boxLabels'))annotate(`${target.slot} · ${targetValue(target,target.yRel)}`,x,y,color,target.slot==='LR'?-1:1);
+ }
+ $('rearStatus').textContent=rear&&f.ccncRearTargets===undefined?'기존 변환 데이터에 후방 정보가 없습니다. 로그를 다시 변환하면 기록된 LR·RR을 확인할 수 있습니다.':'';
  $('ccncStatus').textContent=checked('ccncTargets')&&(!frameAvailable(f)||f.ccncTargets==null)?'이 시점의 CCNC 송신 데이터가 없습니다.':'';
  const rawVisible=frameAvailable(f)&&f.liveTracksValid;
  const rawTargets=rawVisible?(f.liveTracks||[]).filter(target=>!checked('hideScc')||String(target.source).toLowerCase()!=='scc'):[];
  if(checked('liveTracks'))for(const target of rawTargets){
-  if(target.x<0||target.x>range)continue;
+  if(target.x< -rear||target.x>range)continue;
   const x=X(target.y),y=Y(target.x);ctx.strokeStyle='#78e9fa';ctx.lineWidth=1.5;ctx.globalAlpha=target.measured?.9:.5;ctx.beginPath();
   if(target.measured){ctx.moveTo(x-4,y-4);ctx.lineTo(x+4,y+4);ctx.moveTo(x-4,y+4);ctx.lineTo(x+4,y-4)}else ctx.arc(x,y,4,0,Math.PI*2);
   ctx.stroke();ctx.globalAlpha=1;
@@ -672,7 +687,7 @@ function render(lazy){
  $('rawTiming').textContent=rawVisible?`메시지 시각 차이 ${f.liveTracksDeltaMs.toFixed(1)}ms`: '이 시점의 유효한 liveTracks 메시지가 없습니다.';
  $('rawRows').replaceChildren(...rawTargets.map(target=>{const row=document.createElement('tr');for(const value of [target.trackId,target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.measured?'예':'아니오',target.source,target.trackState]){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}return row}));
  if(!rawTargets.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=7;cell.textContent='표시할 liveTracks 감지점이 없습니다.';row.append(cell);$('rawRows').append(row)}
- canvas.setAttribute('aria-label',`주행 상황. 현재 radarState 중앙·좌우 차량 ${targets.length}개. 전방 범위 ${range}m.`);
+ canvas.setAttribute('aria-label',`주행 상황. 현재 radarState 중앙·좌우 차량 ${targets.length}개. 전방 범위 ${range}m, 후방 범위 ${rear}m.`);
  renderSteering(f);
  $('egoSpeed').textContent=frameAvailable(f)&&Number.isFinite(f.egoSpeedKph)?f.egoSpeedKph.toFixed(1):'—';
  $('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'앞차 미감지';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent=frameAvailable(f)?'FRAME '+f.id:'FRAME —';
