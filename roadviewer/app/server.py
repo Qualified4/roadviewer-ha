@@ -849,8 +849,9 @@ def download_selected(ids,parts,format,single=False):
  name=entries[0][1] if single else f'roadviewer-{len(ids)}-segments-{format}.zip'
  mime=('video/mp4' if name.endswith('.mp4') else 'video/hevc' if name.endswith('.hevc') else 'video/mp2t' if name.endswith('.ts') else 'application/zstd') if single else 'application/zip'
  response=app.response_class(stream(),mimetype=mime,direct_passthrough=True)
- from urllib.parse import quote
- response.headers['Content-Disposition']="attachment; filename=download; filename*=UTF-8''"+quote(name,safe='')
+ from email.message import Message
+ disposition=Message();disposition.add_header('Content-Disposition','attachment',filename=name)
+ response.headers['Content-Disposition']=disposition['Content-Disposition']
  response.headers['Cache-Control']='no-store'
  response.call_on_close(lambda:[source.close() for source,*_ in entries])
  return response
