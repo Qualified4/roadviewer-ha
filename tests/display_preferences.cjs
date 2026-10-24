@@ -13,6 +13,26 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   });
   await page.goto('https://rv.test/view/one/');
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  assert(await page.locator('#rearView').isChecked());
+  assert.deepEqual(await page.locator('#range option').allTextContents(),['25 / 5 m','50 / 10 m','80 / 20 m']);
+  const rearAt=async range=>page.evaluate(range=>{
+   const f=data.frames[0],saved={...f},rects=[],labels=[],stroke=ctx.strokeRect,text=ctx.fillText;
+   Object.assign(f,{ccncRearTargets:[{slot:'LR',x:-4,y:-3,yRel:3},{slot:'RR',x:-8,y:3,yRel:-3}],ccncTargets:[]});
+   document.getElementById('range').value=String(range);document.getElementById('distanceLabels').checked=true;
+   ctx.strokeRect=function(x,y,w,h){rects.push({x,y,w,h});return stroke.call(this,x,y,w,h)};
+   ctx.fillText=function(value,...args){labels.push(value);return text.call(this,value,...args)};
+   try{render()}finally{ctx.strokeRect=stroke;ctx.fillText=text;Object.assign(f,saved)}
+   return {rects,labels,description:canvas.getAttribute('aria-label'),height:canvas.clientHeight};
+  },range);
+  for(const [range,rear,count] of [[25,5,1],[50,10,2],[80,20,2]]){
+   const drawn=await rearAt(range);assert.equal(drawn.rects.filter(r=>r.w===16).length,count,'rear targets obey the selected rear range');
+   assert(drawn.description.includes(`후방 범위 ${rear}m`));assert(drawn.labels.some(v=>v==='LR · 후방 4.0m'));
+   const zero=drawn.height-48-rear*(drawn.height-78)/(range+rear);
+   assert(drawn.rects.filter(r=>r.w===16).every(r=>r.y+11>zero),'rear vehicles are below the ego origin');
+  }
+  await page.locator('#rearView').uncheck();const forwardOnly=await rearAt(50);assert.equal(forwardOnly.rects.length,0);assert(forwardOnly.description.includes('후방 범위 0m'));
+  await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);assert(!(await page.locator('#rearView').isChecked()),'rear preference persists');
+  await page.locator('#rearView').check();await page.locator('#trackLabels').check();
   assert(await page.locator('#trackLabels').isChecked());
   assert.deepEqual(await page.locator('.target-label-mode input').evaluateAll(inputs=>inputs.map(input=>input.id)),['hideLabels','trackLabels','distanceLabels','yRelLabels','speedLabels','relativeSpeedLabels','liveTrackLabels']);
   assert(await page.locator('#modelPath').isChecked());assert(!(await page.locator('#hideScc').isChecked()));

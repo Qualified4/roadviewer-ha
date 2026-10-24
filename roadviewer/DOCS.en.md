@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.10.8**.
+This guide describes **0.11.0**.
 
 [한국어](DOCS.md) · English
 
@@ -161,7 +161,7 @@ Coral red road-edge bands use confidence `1/(1+standard deviation)`; maximum fil
 
 The road panel uses lane lines of 1–4px with confidence-based brightness and dashed lines below 50%. Road edges are 2px coral red lines, dashed above standard deviation 1. The model path is a purple line, not a vehicle-width ribbon.
 
-The 25/50/80m forward range affects **only the road panel**. Camera lanes, paths, vehicle boxes, detection markers and TARGET are not clipped to this setting; they still require valid data and projection. BSD walls retain their separate 40m maximum length.
+The paired front/rear ranges **25/5m, 50/10m and 80/20m** affect **only the road panel**. **후방 표시 · LR / RR** defaults to on and remembers its state; turning it off restores the full forward view. LR/RR appear behind the ego vehicle and 0m line. Rear dashed lines are straight position guides, not measured lanes or extrapolated road curvature. Rear coordinates retain the cluster command distance without the front targets' 0.8 distance restoration or curvature correction. Existing logs need reconversion to populate rear values; existing playback remains available. LR/RR are not added to the camera overlay, which retains BSD. Camera lanes, paths, vehicle boxes, detection markers and TARGET are not clipped to this setting; they still require valid data and projection. BSD walls retain their separate 40m maximum length.
 
 ### Objects and labels
 

@@ -99,6 +99,18 @@ def ccnc_targets(payload):
   targets.append({'slot':slot,'detect':detect,'x':round(distance*.1,1),'yRel':y_rel,'y':-y_rel})
  return targets
 
+def ccnc_rear_targets(payload):
+ # CCNC_0x162 rear slots: LR's Motorola 175|8 occupies byte 21 (bits 168..175).
+ if len(payload)!=32:return []
+ bits=int.from_bytes(payload,'little');targets=[]
+ for slot,detect_bit,distance_bit,lateral_bit in (('LR',163,168,176),('RR',192,197,205)):
+  detect=(bits>>detect_bit)&31
+  if not 1<=detect<=14:continue
+  x=-round(((bits>>distance_bit)&255)*.1,1)
+  y_rel=round(((bits>>lateral_bit)&127)*.1*(1 if slot=='LR' else -1),1)
+  targets.append({'slot':slot,'detect':detect,'x':x,'yRel':y_rel,'y':-y_rel})
+ return targets
+
 def ccnc_road(payload):
  if len(payload)!=32:return None
  bits=int.from_bytes(payload,'little')
@@ -128,7 +140,7 @@ def prepare(value,route=None):
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str((src.parent/name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if (src.parent/name).is_file())+'v28-runtime-geometry').encode()).hexdigest()[:20]
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str((src.parent/name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if (src.parent/name).is_file())+'v28-runtime-geometry-rear1').encode()).hexdigest()[:20]
  dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
  def save_summary(data):
   (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{})},ensure_ascii=False))
@@ -145,7 +157,7 @@ def prepare(value,route=None):
  report('log_decompress',100)
  if len(raw)>512*1024*1024:raise ValueError('압축 해제된 로그가 512MB 제한을 초과합니다.')
  streams=collections.defaultdict(list)
- ccnc=[];ccnc_roads=[];road_signals=[]
+ ccnc=[];ccnc_rears=[];ccnc_roads=[];road_signals=[]
  video_indices=collections.defaultdict(list)
  models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter()
  offset=0;report('log_read',0)
@@ -170,7 +182,9 @@ def prepare(value,route=None):
   elif kind=='sendcan':
    for msg in e.sendcan:
     if msg.address==0x161 and msg.src<128 and len(msg.dat)==32:ccnc_roads.append((e.logMonoTime,e.valid,ccnc_road(msg.dat)))
-    if msg.address==0x162 and msg.src<128 and len(msg.dat)==32:ccnc.append((e.logMonoTime,e.valid,ccnc_targets(msg.dat)))
+    if msg.address==0x162 and msg.src<128 and len(msg.dat)==32:
+     ccnc.append((e.logMonoTime,e.valid,ccnc_targets(msg.dat)))
+     ccnc_rears.append((e.logMonoTime,e.valid,ccnc_rear_targets(msg.dat)))
   elif kind=='radarState':radars.append((e.logMonoTime,e.valid,pick(e.radarState,SPECS['radarState'])))
   elif kind=='liveTracks':live_tracks.append((e.logMonoTime,e.valid,pick(e.liveTracks,SPECS['liveTracks'])))
   elif kind=='carState':
@@ -192,6 +206,7 @@ def prepare(value,route=None):
  if not any(valid and p.get('brand')=='hyundai' for _,valid,p in streams['carParams']):ccnc=[];ccnc_roads=[]
  ccnc_roads.sort(key=lambda row:row[0]);ccnc_road_times=[row[0] for row in ccnc_roads]
  ccnc.sort(key=lambda row:row[0]);ccnc_times=[row[0] for row in ccnc]
+ ccnc_rears.sort(key=lambda row:row[0]);rear_times=[row[0] for row in ccnc_rears]
  road_signals.sort(key=lambda row:row[0]);signal_times=[row[0] for row in road_signals]
  steering=SteeringReplay(streams)
  overlay=OverlayProjector(streams)
@@ -224,6 +239,7 @@ def prepare(value,route=None):
   leads=[{'x':l['x'][0],'y':l['y'][0],'p':l['prob'],'speedKph':float(l['v'][0])*3.6 if l.get('v') and math.isfinite(l['v'][0]) else None} for l in m.get('leadsV3',[])[:2] if l.get('x') and l.get('y')]
   frames.append({'t':round(time_of(stamp,m)-origin,6),'id':m['frameId'],'egoSpeedKph':ego_speed,'steering':steering.at(time_of(stamp,m)*1e9),'valid':valid,'position':points(m.get('position',{'x':[],'y':[]})),'lanes':[points(l) for l in m['laneLines']],'laneY0':[first_y(l) for l in m['laneLines']],'lp':m['laneLineProbs'],'edges':[points(l) for l in m['roadEdges']],'edgeY0':[first_y(l) for l in m['roadEdges']],'es':m['roadEdgeStds'],'leads':leads,'selected':selected,'radarTargets':radar_targets,'liveTracks':raw_targets,'liveTracksValid':live_valid,'liveTracksDeltaMs':live_delta})
   frames[-1]['ccncTargets']=restore_ccnc_targets(ccnc_at(ccnc,ccnc_times,time_of(stamp,m)*1e9),m,valid)
+  frames[-1]['ccncRearTargets']=ccnc_at(ccnc_rears,rear_times,time_of(stamp,m)*1e9) if ccnc else None
   frames[-1]['ccncRoad']=ccnc_at(ccnc_roads,ccnc_road_times,time_of(stamp,m)*1e9)
   frames[-1]['roadSignals']=ccnc_at(road_signals,signal_times,time_of(stamp,m)*1e9)
   frames[-1]['cameraInfo']=overlay.camera_info(time_of(stamp,m)*1e9)
