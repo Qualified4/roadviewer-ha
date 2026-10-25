@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.11.0**
+Feature reference: **0.11.1**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -52,6 +52,8 @@ The log is required; include whichever cameras you need from the same segment.
 | `qcamera.ts` | Low-bandwidth front video |
 | `fcamera.hevc` | High-quality front video |
 | `ecamera.hevc` | Wide video |
+| `camera.mp4` / `qcamera.mp4` | Low-resolution H.264 MP4 for re-upload |
+| `fcamera.mp4` / `ecamera.mp4` | High-quality front / wide HEVC MP4 for re-upload |
 
 For one segment, bare filenames work. For multiple segments, retain their identifiers:
 
@@ -64,7 +66,8 @@ For one segment, bare filenames work. For multiple segments, retain their identi
 00000395--0d0eda17c5--8--qcamera.ts
 ```
 
-- Logs alone support road views and vehicle graphs. Video-only and direct MP4 uploads are unsupported.
+- Logs alone support road views and vehicle graphs. Video-only registration is unsupported.
+- Downloaded camera MP4s can be re-uploaded with the same segment’s log. Segment/camera names and codecs must match. Select one format per camera rather than its original and MP4 together; existing retained videos are not overwritten.
 - Add a camera later by uploading it with the identical log; it attaches to the existing recording.
 - Re-uploading the same source video checks its saved hash and preserves the retained MP4 and replay data without storing another original copy. Use the download modal for original-format files.
 - Compressed-log SHA-256 identifies duplicates at registration, after transfer.
@@ -91,9 +94,15 @@ Pairing supports code copy, remaining time and reissue. Codes last five minutes 
 | Synchronized playback | Video with road view or vehicle graphs, up to 4× speed |
 | Layout | Automatic, side-by-side or stacked; adjustable width for phone, tablet and desktop |
 | Road view | Lanes, road edges, model paths, leads and radar detections |
-| Vehicle information | 23 selectable, reorderable graphs |
+| Vehicle information | 24 selectable, reorderable graphs, including separate LATERAL command and restored yRel values |
+| Tags | Name and color segments, filter the library, and add/remove tags in bulk |
+| Scene bookmarks | Save a log timestamp with a title/note and jump back from the timeline or bookmark list |
 | Navigation and pins | Segment selector, previous/next recording and per-segment pins |
 | Scrolling | Sticky navigation and playback controls; collapsible navigation buttons |
+
+**Forward and rear road view**
+
+Choose paired **front/rear ranges of 25/5m, 50/10m or 80/20m**. **후방 표시 · LR / RR** shows rear targets behind the ego vehicle and 0m line; switching it off restores the full forward view. Rear dashed lines are position guides rather than extrapolated lanes. Reconvert an older recording to populate LR/RR values if they are missing. Camera overlays retain BSD instead of adding rear targets.
 
 **Wide-camera playback and overlays**
 
@@ -107,6 +116,40 @@ Overlay settings control box height/opacity, path width, BSD wall height and ind
 
 Layout, display selections, graph order and collapsed sections are remembered in the current browser. Library and playback pins share the same per-segment setting.
 
+## Organize segments with tags
+
+Tags **classify a whole segment**. Use labels such as “Lane change”, “Rain” or “Needs review” to describe driving conditions and follow-up work, then choose the **tag filter** above the saved recordings to narrow the library. Colored badges appear next to the recording name/pin and are also visible during playback.
+
+The following tag and bookmark screenshots use **synthetic examples in the actual Korean UI**, without personal driving logs.
+
+![Saved example segments with colored lane-change, review and rainy-weather tags, plus the tag filter above the list](docs/images/roadviewer-tags-library.png)
+
+1. Click the **tag icon** next to a recording name or **태그** (Tags) in playback.
+2. Enter a name, select a color, then choose **추가 → 저장** (Add → Save). Reuse an existing tag or click a badge in the editor to change its name/color.
+3. To tag several segments together, open **로그 선택** (Select logs), select the segments and add/remove tags in bulk.
+
+Tags support 12 colors, names up to 32 characters and up to 100 tags per segment. Saving tags does not reconvert logs or videos.
+
+<img src="docs/images/roadviewer-tags-editor.png" alt="Actual tag editor with lane-change and review tags, a new merge tag, and the twelve-color palette" width="556">
+
+## Return to a moment with scene bookmarks
+
+A bookmark stores **a specific log timestamp within one segment**. Mark a lane change, a lead-distance check or the start of deceleration to return directly to that moment later.
+
+1. Play or seek to the desired time, then click **북마크** (Bookmark) in the fixed playback bar.
+2. Check the captured timestamp, add a title and optional note, and **저장** (Save). **현재 시각으로** (Use current time) updates the editor’s timestamp to the current playback position.
+3. Click a saved **time/title** or a **timeline marker** to move the video, road view and graphs together, preserving the playing/paused state.
+
+<img src="docs/images/roadviewer-bookmarks-editor.png" alt="Scene bookmark editor capturing the 22-second moment with a title/note and a chronological list of saved lane-change, lead-distance and deceleration scenes" width="556">
+
+Saved bookmarks also appear as small timeline markers. Hover over a marker to see its time and title.
+
+![Playback bar with bookmark markers at 8.5, 22 and 41.2 seconds and the Bookmark button](docs/images/roadviewer-bookmarks-timeline.png)
+
+Bookmarks use log time rather than a camera file’s timestamp, so changing cameras still leads to the same moment. Each segment supports 100 bookmarks, with titles up to 80 characters and notes up to 1000 characters; entries can be edited or deleted. Tags and bookmarks survive reconversion and removal of prepared data, but are removed when the segment is **completely deleted**.
+
+**Tags and bookmarks do not protect recordings from automatic deletion.** Pin a segment separately when it needs to be retained.
+
 ## Conversion and file management
 
 **Conversion behavior and storage policy**
@@ -116,8 +159,6 @@ Set automatic conversion and concurrent jobs in **Conversion and storage setting
 ![Conversion settings and storage management](docs/images/roadviewer-library-settings.png)
 
 Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 without re-encoding. Verification compares SHA-256 hashes of compressed pictures and headers, packet counts and timestamps without decoding every frame; it does not screen the source for every possible decoding error. Originals are removed only after compressed-picture, decoder-header, packet-count and log-clock verification; failed sources and rlog.zst are preserved. With automatic conversion off, uploads remain in their uploaded form until manual conversion. HEVC playback requires browser/device support; playback failure switches to the low-resolution camera when available.
-
-Choose **다운로드** (Download) in the compact recording menu to select files and MP4/original format in a modal. **전체 선택** (Select all) and **선택 해제** (Clear selection) control the ZIP contents. Use **받기** beside a file to download it individually without ZIP; for multiple segments, expand **개별 받기** to choose a segment’s file. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Selected files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
 The bar stays visible from preparation until the large compressed files have been saved. With video, stage weights are preparation/decompression 0–4%, log reading 4–45%, frame analysis 45–60%, camera reading/remuxing/verification 60–80%, and graph generation, JSON encoding, compression/writes and replay compaction 80–100%. Log-only recordings redistribute the video share across reading, analysis and saving. Updates use consumed bytes, processed frames/samples and written bytes, with smooth transitions at roughly one-second intervals. Labels name the actual operation and show overall progress. Atomic completion of the large writes reaches 100%; the brief summary/registration phase hides the bar and keeps only the sweep effect. Heavy conversion work is completed before that final phase. These are work-based stage weights, not a remaining-time estimate.
 
@@ -129,9 +170,22 @@ The bar stays visible from preparation until the large compressed files have bee
 
 **Segment status and file management**
 
-Each row shows processing status, video availability and retained/prepared file sizes. Ready entries offer **Play**, while entries needing preparation offer **Convert**. Pin individual segments and use the adjacent dropdown for downloads, removal and complete deletion.
+The library is sorted by route counter and segment number descending. Each row shows processing status, video availability and retained/prepared file sizes. Ready entries offer **Play**, while entries needing preparation offer **Convert**. Pin individual segments and use the adjacent dropdown for downloads, removal and complete deletion.
 
 ![Saved recordings with per-segment playback, pinning and management controls](docs/images/roadviewer-library-logs.png)
+
+**Download logs and camera videos**
+
+Open **다운로드** (Download) from a recording’s dropdown or the replay screen. Choose the format and included files, then download individual files or a ZIP.
+
+- **MP4:** Download the retained camera video as stored. HEVC front/wide playback requires codec support in the browser/device.
+- **Original format:** Remux f/e to HEVC and q to TS without re-encoding. Quality is preserved, but the bytes and hashes may differ from the original upload.
+- **Select all / Clear selection:** Choose the ZIP contents. **받기** (Get) beside a file downloads it individually without ZIP.
+- **Several segments:** Bulk management uses the same popup for up to 150 selected segments. Expand **개별 받기** (Individual downloads) to choose a segment’s file, or download the selected files as a ZIP. Missing cameras are omitted.
+
+<img src="docs/images/roadviewer-download-options.png" alt="Download popup selecting logs and front, wide and low-resolution videos in MP4/original format, with individual-file and ZIP controls" width="490">
+
+ZIPs stream without retaining a download copy on the server. Each camera’s sole MP4 is a retained video, so removing prepared data preserves it.
 
 Use **로그 선택** (Select logs) at the bottom of settings for bulk conversion/removal/deletion. Pinned segments are excluded from bulk removal/deletion by default. **고정 항목도 삭제** explicitly includes them for that dialog session; reopening restores protection. Individual menus allow explicit deletion of pinned recordings.
 
@@ -165,5 +219,3 @@ Artifacts expire after seven days. If missing or the latest validation failed/ca
 Temporary tags use `build-<validation-run>-<attempt>-amd64` / `arm64`. Release assembly references image digests; Home Assistant uses version tags. Existing versions are verified, not overwritten. For local source builds, follow the user guide's instructions to remove `image:` from the local app configuration.
 
 Road Viewer is distributed under the [MIT license](LICENSE). Raw driving logs/videos are not included in the repository; the introduction uses selected public screenshots. See [OPENPILOT-LICENSE](roadviewer/schema/OPENPILOT-LICENSE) for bundled schema and UI-resource licensing.
-
-![MP4 and original-format download options](docs/images/roadviewer-download-options.png)
