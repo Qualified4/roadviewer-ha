@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.11.1**.
+This guide describes **0.12.0**.
 
 [한국어](DOCS.md) · English
 
@@ -72,6 +72,8 @@ If Android's native file picker cannot return multiple files, add one at a time.
 The header reports Road Viewer file usage, including originals, prepared data and temporary uploads—not whole-disk utilization. Each recording separately reports retained files and removable prepared data. **영상 있음** indicates that any supported original or MP4 exists, not that conversion is complete. A log-only recording can also become playable.
 
 Choose **다운로드** (Download) in the compact recording menu to select files and MP4/original format in a modal. **전체 선택** (Select all) and **선택 해제** (Clear selection) control the ZIP contents. Use **받기** beside a file to download it individually without ZIP; for multiple segments, expand **개별 받기** to choose a segment’s file. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Selected files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
+
+In the download popup, use route-level select-all and individual segment checkboxes to change the scope. A minus indicates a partial selection; select-all, the selected count and the download button stay visible while scrolling. Replay initially selects the current segment; bulk management preserves the segments you selected.
 
 ### Conversion and storage settings
 

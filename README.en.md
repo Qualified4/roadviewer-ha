@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.11.1**
+Feature reference: **0.12.0**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -182,6 +182,8 @@ Open **다운로드** (Download) from a recording’s dropdown or the replay scr
 - **Original format:** Remux f/e to HEVC and q to TS without re-encoding. Quality is preserved, but the bytes and hashes may differ from the original upload.
 - **Select all / Clear selection:** Choose the ZIP contents. **받기** (Get) beside a file downloads it individually without ZIP.
 - **Several segments:** Bulk management uses the same popup for up to 150 selected segments. Expand **개별 받기** (Individual downloads) to choose a segment’s file, or download the selected files as a ZIP. Missing cameras are omitted.
+
+In the download popup, use route-level select-all and individual segment checkboxes to change the scope. A minus indicates a partial selection; select-all, the selected count and the download button stay visible while scrolling. Replay initially selects the current segment; bulk management preserves the segments you selected.
 
 <img src="docs/images/roadviewer-download-options.png" alt="Download popup selecting logs and front, wide and low-resolution videos in MP4/original format, with individual-file and ZIP controls" width="490">
 
