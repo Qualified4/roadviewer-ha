@@ -41,6 +41,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const inputs=page.locator('.bulk-log input');await inputs.nth(1).check();
   assert(await page.locator('#bulkAll').evaluate(e=>e.indeterminate));
   await page.locator('#bulkAll').check();assert.equal(await inputs.evaluateAll(els=>els.filter(e=>e.checked).length),30);
+  // Group folding changes the dialog height; measure scroll-fixed controls only after it settles.
+  await page.evaluate(()=>document.fonts.ready);
+  await page.waitForFunction(()=>!document.querySelector('.bulk-route')._foldAnimation&&document.getElementById('bulkDialog').getAnimations({subtree:true}).every(animation=>animation.playState!=='running'));
   const top=await page.locator('.bulk-select').boundingBox(),footer=await page.locator('.bulk-footer').boundingBox();
   await page.locator('#bulkList').evaluate(e=>e.scrollTop=e.scrollHeight);
   assert.equal((await page.locator('.bulk-select').boundingBox()).y,top.y);
