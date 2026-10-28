@@ -397,3 +397,11 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .bulk-download-menu a small{display:block;margin-top:2px;font-size:11px;color:var(--muted)}
 .bulk-download-menu a:focus-visible{outline:2px solid var(--lane);outline-offset:-2px}
 @media(hover:hover) and (pointer:fine){.bulk-download-menu a:hover{background:#ffffff08}}
+
+/* Route selection belongs in the first bulk-management dialog. */
+.bulk-route{border-bottom:1px solid var(--line);padding:4px 0}
+.bulk-route>summary{position:sticky;top:0;z-index:1;background:var(--panel);padding:12px;cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px}
+.bulk-route>summary::-webkit-details-marker{display:none}.bulk-route>summary::after{content:'⌄';color:var(--muted);transition:transform .15s}.bulk-route[open]:not(.is-closing)>summary::after{transform:rotate(180deg)}
+.bulk-route>summary label{display:flex;align-items:center;gap:12px;min-width:0;cursor:pointer;font-size:13px}.bulk-route>summary input{accent-color:var(--lane);width:18px;height:18px;margin:0;flex-shrink:0}
+.bulk-route-count{margin-left:auto;color:var(--muted);font-size:11px;white-space:nowrap}.bulk-route .bulk-log{margin-left:18px}
+@media(prefers-reduced-motion:reduce){.bulk-route>summary::after{transition:none}}

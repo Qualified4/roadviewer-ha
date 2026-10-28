@@ -4,7 +4,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[],conversions=[];
   page.on('pageerror',e=>errors.push(e.message));
-  let logs=Array.from({length:30},(_,i)=>({id:String(i),name:'주행 기록 / 구간 '+i,status:i===0?'processing':'ready',bytes:10,prepared_bytes:20,uploaded:i,video:true,log_bytes:1048576,video_downloads:i%2?[{source:'qcamera',kind:'qcamera.ts',bytes:2097152},{source:'front',kind:'fcamera.hevc',bytes:52428800}]:[]})),failLoad=false,failConvert=true,expectPinProtection=true;
+  let logs=Array.from({length:30},(_,i)=>({id:String(i),name:`00000395--${i<15?'aaaaaaaaaa':'bbbbbbbbbb'}--${i%15}`,status:i===0?'processing':'ready',bytes:10,prepared_bytes:20,uploaded:i,video:true,log_bytes:1048576,video_downloads:i%2?[{source:'qcamera',kind:'qcamera.ts',bytes:2097152},{source:'front',kind:'fcamera.hevc',bytes:52428800}]:[]})),failLoad=false,failConvert=true,expectPinProtection=true;
   await page.route('https://rv.test/**',async route=>{
    const p=new URL(route.request().url()).pathname,request=route.request();
    if(p==='/api/logs')return failLoad?route.fulfill({status:500,json:{error:'목록 실패'}}):route.fulfill({json:{logs,concurrency:1,auto_convert:false,max_upload_mb:512,storage_used_bytes:900}});
@@ -33,6 +33,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await page.locator('#bulkAll').isDisabled());await page.locator('#bulkClose').click();failLoad=false;
   await page.locator('#bulkOpen').click();await page.waitForSelector('.bulk-log');
   assert.equal(await page.locator('.bulk-log').count(),30);assert(await page.locator('#bulkRemove').isDisabled());
+  const routeSelects=page.locator('.bulk-route>summary input');assert.equal(await routeSelects.count(),2,'different route hashes are separate groups even with the same counter');
+  await routeSelects.first().check();assert.equal(await page.locator('.bulk-log input:checked').count(),15);assert(await page.locator('#bulkAll').evaluate(input=>input.indeterminate));
+  await page.locator('.bulk-log input').nth(1).uncheck();assert(await routeSelects.first().evaluate(input=>input.indeterminate));
+  await routeSelects.first().check();await routeSelects.first().uncheck();assert.equal(await page.locator('.bulk-log input:checked').count(),0);
+  await page.locator('.bulk-route>summary').first().click({position:{x:5,y:5}});await page.waitForFunction(()=>!document.querySelector('.bulk-route').open);await page.locator('.bulk-route>summary').first().click({position:{x:5,y:5}});
   const inputs=page.locator('.bulk-log input');await inputs.nth(1).check();
   assert(await page.locator('#bulkAll').evaluate(e=>e.indeterminate));
   await page.locator('#bulkAll').check();assert.equal(await inputs.evaluateAll(els=>els.filter(e=>e.checked).length),30);
@@ -54,7 +59,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#bulkDownload').click();await page.locator('.bulk-select').click({position:{x:5,y:5}});assert(await page.locator('#bulkDownloadMenu').isHidden(),'outside tap closes the menu');
   page.once('dialog',d=>d.dismiss());await page.locator('#bulkDelete').click();assert.equal(calls.length,0);
   page.once('dialog',d=>d.accept());await page.locator('#bulkRemove').click();
-  await page.waitForFunction(()=>document.getElementById('bulkClose').disabled);await page.keyboard.press('Escape');
+  await page.waitForFunction(()=>document.getElementById('bulkClose').disabled);assert(await routeSelects.first().isDisabled());await page.keyboard.press('Escape');
   assert(await page.locator('#bulkDialog').evaluate(e=>e.open));
   await page.waitForFunction(()=>!document.getElementById('bulkClose').disabled);
   assert.equal(calls.length,30);assert.equal(logs.length,30);assert.equal(logs.filter(l=>l.prepared_bytes===0).length,29);
@@ -100,7 +105,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   logs=[{id:'protected',name:'00000395--0d0eda17c5 / 구간 9',pinned:true,status:'ready',bytes:10,prepared_bytes:20}];
   await page.locator('#bulkOpen').click();await page.waitForFunction(()=>document.querySelectorAll('.bulk-log').length===1);
   const include=page.locator('#bulkIncludePinned');assert(!(await include.isChecked()));
-  assert((await page.locator('.bulk-log-title').textContent()).includes('395 / 구간 9'));
+  assert((await page.locator('.bulk-log-title').textContent()).includes('구간 9'));
   await page.locator('#bulkAll').check();await include.check();
   assert(await page.locator('#bulkDelete').isEnabled());assert(await page.locator('#bulkRemove').isEnabled());
   const beforeOverride=calls.length;
