@@ -27,7 +27,7 @@
  function closeDownloads(){downloadMenu.hidden=true;download.setAttribute('aria-expanded','false')}
  function openDownloads(){
   const modern=rows.filter(row=>row.input.checked).map(row=>row.log);
-  if(modern.length&&modern.every(log=>log.download_options)){closeDownloads();openRecordingDownload(modern,'','all');return}
+  if(modern.length&&modern.every(log=>log.download_options)){closeDownloads();openRecordingDownload(modern,'','all',true);return}
   const selected=rows.filter(row=>row.input.checked).map(row=>row.log),ids=selected.map(log=>log.id).join(',');
   const size=parts=>selected.reduce((sum,log)=>sum+(parts.includes('rlog')?log.log_bytes||0:0)+(log.video_downloads||[]).filter(v=>parts.includes(v.source)).reduce((a,v)=>a+v.bytes,0),0);
   const title=document.createElement('p');title.textContent=`선택한 ${selected.length}개 구간 · ZIP 하나`;
