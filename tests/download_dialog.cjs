@@ -17,6 +17,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('.recording-more summary').first().click();assert.deepEqual(await page.locator('.recording-menu').first().locator('button').allTextContents(),['제거','다운로드','완전 삭제']);await page.getByRole('button',{name:'다운로드',exact:true}).first().click();
   const dialog=page.getByRole('dialog',{name:'로그 및 영상 다운로드'});await dialog.waitFor();
   assert.equal(await page.locator('.log-row').first().evaluate(e=>e.offsetHeight),height);
+  assert.equal(await dialog.locator('.rv-download-segment-heading,.rv-download-segments').count(),0,'individual download keeps the compact file-only popup');
+  assert.equal(await dialog.locator('.rv-download-one').count(),4,'other segments are not included in individual downloads');
   assert((await dialog.locator('.rv-download-total').textContent()).includes('4개 파일'));
   let url=new URL(await dialog.locator('.rv-download-start').getAttribute('href'),'https://rv.test');assert.equal(url.searchParams.get('format'),'mp4');assert.equal(url.searchParams.get('parts'),'rlog,front,wide,qcamera');
   await dialog.getByRole('button',{name:'선택 해제',exact:true}).click();assert.equal(await dialog.locator('.rv-download-file input:checked').count(),0);assert.equal(await dialog.locator('.rv-download-start').getAttribute('href'),null);
@@ -48,9 +50,13 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.setViewportSize({width,height:844});await page.locator('.recording-more summary').first().click();await page.getByRole('button',{name:'다운로드',exact:true}).first().click();await dialog.waitFor();await dialog.getByRole('button',{name:/^원본 형식/}).click();
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const box=await dialog.boundingBox();assert(box.x>=0&&box.x+box.width<=width);await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});
   }
+  // Replay uses the same compact popup, with no segment selection.
+  await page.evaluate(log=>openRecordingDownload([log],'../../','videos'),logs[0]);await dialog.waitFor();
+  assert.equal(await dialog.locator('.rv-download-segments').count(),0);assert((await dialog.locator('.rv-download-total').textContent()).includes('3개 파일'));
+  await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});
   // Separate routes stay separate, missing cameras do not disable available files.
   const varied=[logs[0],{...logs[1],name:'0000041c--different--0',files:{'rlog.zst':'0000041c--different--0--rlog.zst'},download_options:[]}];
-  await page.evaluate(items=>openRecordingDownload(items),varied);await dialog.waitFor();
+  await page.evaluate(items=>openRecordingDownload(items,'','all',true),varied);await dialog.waitFor();
   assert.equal(await dialog.locator('.rv-download-group').count(),2);
   assert((await dialog.locator('.rv-download-total').textContent()).includes('5개 파일'));
   await dialog.getByRole('button',{name:'선택 해제',exact:true}).click();await dialog.locator('.rv-download-file input').nth(2).check();
@@ -59,7 +65,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const pinned=await dialog.locator('.rv-download-segment-heading').boundingBox(),frame=await dialog.boundingBox(),bottom=await dialog.locator('.rv-download-footer').boundingBox();assert(pinned.y>=frame.y&&pinned.y+pinned.height<frame.y+frame.height);assert(bottom.y+bottom.height<=frame.y+frame.height+1);
   await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});
   const many=Array.from({length:151},(_,n)=>({...logs[0],id:`many${n}`,name:`0000041d--limit--${n}`,files:{'rlog.zst':`0000041d--limit--${n}--rlog.zst`}}));
-  await page.evaluate(items=>openRecordingDownload(items),many);await dialog.waitFor();assert.equal(await dialog.locator('.rv-download-start').getAttribute('href'),null);assert((await dialog.locator('.rv-download-segment-count').textContent()).includes('151'));
+  await page.evaluate(items=>openRecordingDownload(items,'','all',true),many);await dialog.waitFor();assert.equal(await dialog.locator('.rv-download-start').getAttribute('href'),null);assert((await dialog.locator('.rv-download-segment-count').textContent()).includes('151'));
   await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});
   assert.deepEqual(errors,[]);console.log('PASS: compact rows, modal formats/files, ZIP scopes, nested dialog and mobile widths');
  }finally{await browser.close()}

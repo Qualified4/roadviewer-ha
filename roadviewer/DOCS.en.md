@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.12.0**.
+This guide describes **0.12.1**.
 
 [한국어](DOCS.md) · English
 
@@ -73,7 +73,7 @@ The header reports Road Viewer file usage, including originals, prepared data an
 
 Choose **다운로드** (Download) in the compact recording menu to select files and MP4/original format in a modal. **전체 선택** (Select all) and **선택 해제** (Clear selection) control the ZIP contents. Use **받기** beside a file to download it individually without ZIP; for multiple segments, expand **개별 받기** to choose a segment’s file. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Selected files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
-In the download popup, use route-level select-all and individual segment checkboxes to change the scope. A minus indicates a partial selection; select-all, the selected count and the download button stay visible while scrolling. Replay initially selects the current segment; bulk management preserves the segments you selected.
+Only the bulk download popup opened through **로그 선택 → 다운로드** (Select logs → Download) offers route-level select-all and individual segment checkboxes. A minus indicates a partial selection; select-all, the selected count and the download button stay visible while scrolling. Segments selected in bulk management are initially checked. Individual library menus and replay downloads keep the compact file/format popup for the current segment.
 
 ### Conversion and storage settings
 

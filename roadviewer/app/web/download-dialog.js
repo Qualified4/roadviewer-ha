@@ -1,24 +1,26 @@
 'use strict';
 // One native modal for the compact list menu, replay menu and bulk selection.
-async function openRecordingDownload(logs,base='',mode='all'){
+async function openRecordingDownload(logs,base='',mode='all',selectSegments=false){
  const initialIds=new Set(logs.map(log=>log.id));
- try{const response=await fetch(`${base}api/logs`);if(response.ok){const data=await response.json();const available=data.logs.filter(log=>Array.isArray(log.download_options));logs=[...logs,...available.filter(log=>!initialIds.has(log.id))]}}catch{/* Keep the original selection available when refreshing the list fails. */}
- const dialog=document.createElement('dialog');dialog.className='rv-download-dialog';
+ if(selectSegments)try{const response=await fetch(`${base}api/logs`);if(response.ok){const data=await response.json();const available=data.logs.filter(log=>Array.isArray(log.download_options));logs=[...logs,...available.filter(log=>!initialIds.has(log.id))]}}catch{/* Keep the original selection available when refreshing the list fails. */}
+ const dialog=document.createElement('dialog');dialog.className='rv-download-dialog'+(selectSegments?' has-segments':'');
  dialog.setAttribute('aria-label','로그 및 영상 다운로드');
  dialog.innerHTML='<div class="rv-download-head"><h2>다운로드</h2><button type="button" class="rv-download-close">닫기</button></div><p class="rv-download-context"></p><div class="rv-download-segment-heading"><label><input type="checkbox" class="rv-download-segments-all"> 전체 구간 선택</label><span class="rv-download-segment-count" role="status"></span></div><div class="rv-download-segments"><div class="rv-download-groups"></div></div><div class="rv-download-body"><span class="rv-download-label">영상 파일 형식</span><div class="rv-download-formats" role="group" aria-label="영상 파일 형식"><button type="button" data-format="mp4">MP4<small>저장된 영상 그대로</small></button><button type="button" data-format="original">원본 형식<small>f·e HEVC / q TS</small></button></div><div class="rv-download-file-heading"><span>포함할 파일</span><span><button type="button" class="rv-download-all">전체 선택</button> <button type="button" class="rv-download-clear">선택 해제</button></span></div><div class="rv-download-files"></div><p class="rv-download-notice"></p><p class="rv-download-hint">각 파일 옆의 받기로 개별 다운로드하거나, 선택한 파일을 ZIP으로 묶어 받을 수 있습니다. 없는 카메라는 제외됩니다.</p></div><div class="rv-download-footer"><span class="rv-download-total"></span><a class="rv-download-start primary" download>모두 받기</a></div><p class="rv-download-status" role="status"></p>';
  const find=selector=>dialog.querySelector(selector),files=find('.rv-download-files');
  find('.rv-download-context').textContent=logs.length===1?recordingIdentity(logs[0].name,logs[0].files).display:`선택한 ${logs.length}개 구간`;
  const segmentInputs=new Map(),groups=new Map();
- for(const log of logs){
-  const identity=recordingIdentity(log.name,log.files),match=/^(.*)--(\d+)$/.exec(identity.original),key=match?match[1]:identity.original;
-  if(!groups.has(key)){
-   const group=document.createElement('details');group.className='rv-download-group';group.open=true;
-   const summary=document.createElement('summary'),label=document.createElement('label'),input=document.createElement('input'),title=document.createElement('span');input.type='checkbox';input.setAttribute('aria-label',`${key} 전체 구간 선택`);title.textContent=match?identity.display.split(' / ')[0]:identity.display;title.title=key;label.append(input,title);summary.append(label);group.append(summary);find('.rv-download-groups').append(group);label.onclick=event=>event.stopPropagation();input.onchange=()=>{for(const item of groups.get(key).inputs)item.checked=input.checked;update()};groups.set(key,{group,input,inputs:[]});
+ if(selectSegments){
+  for(const log of logs){
+   const identity=recordingIdentity(log.name,log.files),match=/^(.*)--(\d+)$/.exec(identity.original),key=match?match[1]:identity.original;
+   if(!groups.has(key)){
+    const group=document.createElement('details');group.className='rv-download-group';group.open=true;
+    const summary=document.createElement('summary'),label=document.createElement('label'),input=document.createElement('input'),title=document.createElement('span');input.type='checkbox';input.setAttribute('aria-label',`${key} 전체 구간 선택`);title.textContent=match?identity.display.split(' / ')[0]:identity.display;title.title=key;label.append(input,title);summary.append(label);group.append(summary);find('.rv-download-groups').append(group);label.onclick=event=>event.stopPropagation();input.onchange=()=>{for(const item of groups.get(key).inputs)item.checked=input.checked;update()};groups.set(key,{group,input,inputs:[]});
+   }
+   const group=groups.get(key),label=document.createElement('label'),input=document.createElement('input'),text=document.createElement('span'),title=document.createElement('b'),detail=document.createElement('small');
+   label.className='rv-download-segment';input.type='checkbox';input.checked=initialIds.has(log.id);input.setAttribute('aria-label',identity.display);title.textContent=match?`구간 ${Number(match[2])}`:identity.display;detail.textContent=['로그',...log.download_options.map(option=>({front:'전방',wide:'와이드',qcamera:'저화질'})[option.source]||option.source)].join(' · ');text.append(title,detail);label.append(input,text);group.group.append(label);group.inputs.push(input);segmentInputs.set(log.id,input);input.onchange=update;
   }
-  const group=groups.get(key),label=document.createElement('label'),input=document.createElement('input'),text=document.createElement('span'),title=document.createElement('b'),detail=document.createElement('small');
-  label.className='rv-download-segment';input.type='checkbox';input.checked=initialIds.has(log.id);input.setAttribute('aria-label',identity.display);title.textContent=match?`구간 ${Number(match[2])}`:identity.display;detail.textContent=['로그',...log.download_options.map(option=>({front:'전방',wide:'와이드',qcamera:'저화질'})[option.source]||option.source)].join(' · ');text.append(title,detail);label.append(input,text);group.group.append(label);group.inputs.push(input);segmentInputs.set(log.id,input);input.onchange=update;
- }
- find('.rv-download-segments-all').onchange=event=>{for(const input of segmentInputs.values())input.checked=event.target.checked;update()};
+  find('.rv-download-segments-all').onchange=event=>{for(const input of segmentInputs.values())input.checked=event.target.checked;update()};
+ }else{find('.rv-download-segment-heading').remove();find('.rv-download-segments').remove()}
  let format=mode==='original'?'original':'mp4';
  const definitions=[['rlog','주행 로그','rlog.zst','rlog.zst'],['front','전방 영상','fcamera.mp4','fcamera.hevc'],['wide','와이드 영상','ecamera.mp4','ecamera.hevc'],['qcamera','저화질 영상','qcamera.mp4','qcamera.ts']];
  const rows=definitions.map(([key,label,mp4,original])=>{
@@ -35,11 +37,13 @@ async function openRecordingDownload(logs,base='',mode='all'){
   return {key,input,detail,mp4,original,options};
  }).filter(Boolean);
  function update(){
-  const chosen=logs.filter(log=>segmentInputs.get(log.id).checked),ids=new Set(chosen.map(log=>log.id));
+  const chosen=selectSegments?logs.filter(log=>segmentInputs.get(log.id).checked):logs,ids=new Set(chosen.map(log=>log.id));
   find('.rv-download-context').textContent=chosen.length===1?recordingIdentity(chosen[0].name,chosen[0].files).display:`선택한 ${chosen.length}개 구간`;
+  if(selectSegments){
   const allSegments=find('.rv-download-segments-all');allSegments.checked=chosen.length===logs.length;allSegments.indeterminate=chosen.length>0&&chosen.length<logs.length;
   find('.rv-download-segment-count').textContent=`선택 ${chosen.length}개 / 최대 150개`;
   for(const group of groups.values()){const count=group.inputs.filter(input=>input.checked).length;group.input.checked=count===group.inputs.length;group.input.indeterminate=count>0&&count<group.inputs.length}
+  }
   for(const row of rows){
    row.active=row.options.filter(option=>ids.has(option.log.id)&&option[format]);
    row.input.disabled=!row.active.length;
@@ -65,7 +69,7 @@ async function openRecordingDownload(logs,base='',mode='all'){
  find('.rv-download-close').onclick=()=>dialog.close();
  find('.rv-download-start').onclick=event=>{if(!event.currentTarget.hasAttribute('href')){event.preventDefault();return}find('.rv-download-status').textContent='다운로드를 시작합니다. 원본 형식은 파일을 준비하는 동안 잠시 기다려 주세요.'};
  const overflow=document.body.style.overflow,focus=document.activeElement;
- const headerSize=new ResizeObserver(()=>dialog.style.setProperty('--download-head-height',`${find('.rv-download-head').offsetHeight}px`));
- dialog.addEventListener('close',()=>{headerSize.disconnect();document.body.style.overflow=overflow;dialog.remove();focus?.focus({preventScroll:true})},{once:true});
- document.body.append(dialog);document.body.style.overflow='hidden';update();dialog.showModal();headerSize.observe(find('.rv-download-head'));
+ const headerSize=selectSegments?new ResizeObserver(()=>dialog.style.setProperty('--download-head-height',`${find('.rv-download-head').offsetHeight}px`)):null;
+ dialog.addEventListener('close',()=>{headerSize?.disconnect();document.body.style.overflow=overflow;dialog.remove();focus?.focus({preventScroll:true})},{once:true});
+ document.body.append(dialog);document.body.style.overflow='hidden';update();dialog.showModal();headerSize?.observe(find('.rv-download-head'));
 }
