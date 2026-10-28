@@ -1,12 +1,18 @@
 'use strict';
 (()=>{
  const dialog=$('bulkDialog'),list=$('bulkList'),all=$('bulkAll'),convert=$('bulkConvert'),remove=$('bulkRemove'),del=$('bulkDelete'),close=$('bulkClose'),includePinned=$('bulkIncludePinned');
+ const groups=new Map();
  let rows=[],running=false,loading=false,oldOverflow='',loadRevision=0;
  function sync(){
   const selected=rows.filter(row=>row.input.checked);
   all.checked=rows.length>0&&selected.length===rows.length;all.indeterminate=selected.length>0&&selected.length<rows.length;
   all.disabled=loading||running||!rows.length;
   for(const row of rows)row.input.disabled=running;
+  for(const group of groups.values()){
+   const count=group.rows.filter(row=>row.input.checked).length;
+   group.input.checked=group.rows.length>0&&count===group.rows.length;group.input.indeterminate=count>0&&count<group.rows.length;group.input.disabled=loading||running||!group.rows.length;
+   group.count.textContent=`${count} / ${group.rows.length}개 구간`;group.element.hidden=!group.rows.length;
+  }
   const pinned=selected.filter(row=>row.log.pinned).length;
   $('bulkCount').textContent=`${selected.length} / ${rows.length}개 선택${pinned?` · 고정 ${pinned}개`:''}`;
   $('bulkTags').disabled=loading||running||!selected.length;
@@ -27,7 +33,7 @@
  function closeDownloads(){downloadMenu.hidden=true;download.setAttribute('aria-expanded','false')}
  function openDownloads(){
   const modern=rows.filter(row=>row.input.checked).map(row=>row.log);
-  if(modern.length&&modern.every(log=>log.download_options)){closeDownloads();openRecordingDownload(modern,'','all',true);return}
+  if(modern.length&&modern.every(log=>log.download_options)){closeDownloads();openRecordingDownload(modern,'','all');return}
   const selected=rows.filter(row=>row.input.checked).map(row=>row.log),ids=selected.map(log=>log.id).join(',');
   const size=parts=>selected.reduce((sum,log)=>sum+(parts.includes('rlog')?log.log_bytes||0:0)+(log.video_downloads||[]).filter(v=>parts.includes(v.source)).reduce((a,v)=>a+v.bytes,0),0);
   const title=document.createElement('p');title.textContent=`선택한 ${selected.length}개 구간 · ZIP 하나`;
@@ -48,13 +54,21 @@
  dialog.addEventListener('keydown',e=>{if(e.key==='Escape'&&!downloadMenu.hidden){e.preventDefault();e.stopPropagation();closeDownloads();download.focus()}},true);
  dialog.addEventListener('pointerdown',e=>{if(!downloadMenu.hidden&&!e.target.closest('.bulk-download'))closeDownloads()});
  function addRow(log){
+  const identity=recordingIdentity(log.name,log.files),match=/^(.*)--(\d+)$/.exec(identity.original),key=match?match[1]:'';
+  if(!groups.has(key)){
+   const element=document.createElement('details');element.className='bulk-route';element.open=true;
+   const summary=document.createElement('summary'),label=document.createElement('label'),input=document.createElement('input'),title=document.createElement('span'),count=document.createElement('small');input.type='checkbox';
+   const name=match?`주행 ${identity.display.split(' / ')[0]}`:'기타 로그';title.textContent=name;title.title=key;input.setAttribute('aria-label',`${key||name} 전체 구간 선택`);count.className='bulk-route-count';label.append(input,title);summary.append(label,count);element.append(summary);list.append(element);
+   const group={element,input,count,rows:[]};groups.set(key,group);label.onclick=event=>event.stopPropagation();input.onchange=()=>{for(const row of group.rows)row.input.checked=input.checked;sync()};
+  }
+  const group=groups.get(key);
   const label=document.createElement('label');label.className='bulk-log';
   const input=document.createElement('input');input.type='checkbox';input.value=log.id;input.onchange=sync;
   const info=document.createElement('span'),title=document.createElement('span'),detail=document.createElement('small');
-  const identity=recordingIdentity(log.name,log.files);title.textContent=identity.display;title.title=identity.original;
+  title.textContent=match?`구간 ${Number(match[2])}`:identity.display;title.title=identity.original;
   title.className='bulk-log-title';const badge=document.createElement('span');badge.className='pin-badge';badge.textContent='고정';title.append(badge);
   info.append(title,detail);label.append(input,info);
-  const row={log,input,label,detail,badge};updateRow(row);list.append(label);return row;
+  const row={log,input,label,detail,badge,group};group.rows.push(row);updateRow(row);group.element.append(label);return row;
  }
  function updateRow(row){
   row.badge.hidden=!row.log.pinned;
@@ -63,7 +77,7 @@
  }
  $('bulkOpen').onclick=async()=>{
   if(dialog.open)return;
-  const revision=++loadRevision;includePinned.checked=false;dialog.querySelector('.bulk-help').open=false;rows=[];list.replaceChildren();loading=true;sync();$('bulkFailures').hidden=true;$('bulkFailures').replaceChildren();
+  const revision=++loadRevision;includePinned.checked=false;dialog.querySelector('.bulk-help').open=false;rows=[];groups.clear();list.replaceChildren();loading=true;sync();$('bulkFailures').hidden=true;$('bulkFailures').replaceChildren();
   $('bulkStatus').textContent='목록을 불러오는 중입니다.';
   oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.showModal();
   try{
@@ -100,7 +114,7 @@
      const result=await api(`api/logs/${row.log.id}${converting?'/convert':complete?'':'/prepared'}${converting||!protectPinned?'':'?skip_pinned=1'}`,{method:converting?'POST':'DELETE'});
      if(result.skipped==='pinned'){skipped++;row.log.pinned=true;row.input.checked=false;updateRow(row);sync();continue}
      if(converting&&result.status!=='queued')skipped++;else succeeded++;row.input.checked=false;
-     if(complete){row.label.remove();rows=rows.filter(item=>item!==row);logRows.delete(row.log.id)}
+     if(complete){row.label.remove();row.group.rows=row.group.rows.filter(item=>item!==row);rows=rows.filter(item=>item!==row);logRows.delete(row.log.id)}
      else if(converting){row.log={...row.log,status:result.status};updateRow(row)}
      else{row.log={...row.log,status:'unconverted',prepared_bytes:0,auto_excluded:true};updateRow(row)}
      if(!complete)recordingChanged(row.log);

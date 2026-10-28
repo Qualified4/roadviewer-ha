@@ -30,17 +30,20 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await dialog.locator('.rv-download-file input').nth(0).uncheck();await dialog.locator('.rv-download-file input').nth(2).uncheck();await dialog.locator('.rv-download-file input').nth(3).uncheck();
   url=new URL(await dialog.locator('.rv-download-start').getAttribute('href'),'https://rv.test');assert.equal(url.searchParams.get('source'),'front');assert.equal(url.searchParams.get('format'),'original');
   await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});assert.equal(await page.locator('.rv-download-dialog').count(),0);
-  await page.locator('#bulkOpen').click();await page.locator('#bulkAll').check();await page.locator('#bulkDownload').click();await dialog.waitFor();
-  assert((await dialog.locator('.rv-download-total').textContent()).includes('8개 파일'));url=new URL(await dialog.locator('.rv-download-start').getAttribute('href'),'https://rv.test');assert.equal(url.searchParams.get('ids').split(',').length,2);
-  await dialog.locator('.rv-download-individual summary').nth(1).click();const links=dialog.locator('.rv-download-file').nth(1).locator('.rv-download-one');assert.equal(await links.count(),2);for(let n=0;n<2;n++){url=new URL(await links.nth(n).getAttribute('href'),'https://rv.test');assert.equal(url.pathname,`/api/logs/${logs[n].id}/download`);assert.equal(url.searchParams.get('source'),'front')}
-  const segments=dialog.locator('.rv-download-segment input');
-  assert.equal(await segments.count(),2);
-  await segments.nth(1).uncheck();
-  assert.equal(await dialog.locator('.rv-download-group summary input').evaluate(e=>e.indeterminate),true);
+  await page.locator('#bulkOpen').click();await page.waitForSelector('#bulkList .bulk-log');
+  assert.equal(await page.locator('#bulkList .bulk-route').count(),1,'route selection is in the first log-selection popup');
+  const segments=page.locator('#bulkList .bulk-log input'),routeSelect=page.locator('#bulkList .bulk-route>summary input');
+  await segments.first().check();assert(await routeSelect.evaluate(input=>input.indeterminate));
+  await page.locator('#bulkDownload').click();await dialog.waitFor();
+  assert.equal(await dialog.locator('.rv-download-segments').count(),0,'download popup only chooses files and format');
   assert((await dialog.locator('.rv-download-total').textContent()).includes('4개 파일'));
   url=new URL(await dialog.locator('.rv-download-start').getAttribute('href'),'https://rv.test');assert.equal(url.searchParams.get('ids'),logs[0].id);
-  await dialog.locator('.rv-download-segments-all').check();await dialog.locator('.rv-download-segments-all').uncheck();assert.equal(await dialog.locator('.rv-download-start').getAttribute('href'),null);
-  await dialog.locator('.rv-download-group summary input').check();assert.equal(await segments.count(),2);assert.equal(await segments.evaluateAll(inputs=>inputs.filter(input=>input.checked).length),2);
+  await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});
+  assert(await segments.first().isChecked(),'returning from format selection preserves segment choices');
+  await routeSelect.check();assert.equal(await segments.evaluateAll(inputs=>inputs.filter(input=>input.checked).length),2);
+  await page.locator('#bulkDownload').click();await dialog.waitFor();
+  assert((await dialog.locator('.rv-download-total').textContent()).includes('8개 파일'));url=new URL(await dialog.locator('.rv-download-start').getAttribute('href'),'https://rv.test');assert.equal(url.searchParams.get('ids').split(',').length,2);
+  await dialog.locator('.rv-download-individual summary').nth(1).click();const links=dialog.locator('.rv-download-file').nth(1).locator('.rv-download-one');assert.equal(await links.count(),2);for(let n=0;n<2;n++){url=new URL(await links.nth(n).getAttribute('href'),'https://rv.test');assert.equal(url.pathname,`/api/logs/${logs[n].id}/download`);assert.equal(url.searchParams.get('source'),'front')}
   await dialog.getByRole('button',{name:'닫기',exact:true}).click();await page.locator('.rv-download-dialog').waitFor({state:'detached'});await page.locator('#bulkClose').click();
   if(process.env.RV_CAPTURE_DOCS){
    await page.locator('.upload > summary').click();await page.locator('#storageSettings').evaluate(e=>e.open=true);await page.locator('.conversion-info').screenshot({path:'docs/images/roadviewer-library-settings.png'});
@@ -56,16 +59,14 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});
   // Separate routes stay separate, missing cameras do not disable available files.
   const varied=[logs[0],{...logs[1],name:'0000041c--different--0',files:{'rlog.zst':'0000041c--different--0--rlog.zst'},download_options:[]}];
-  await page.evaluate(items=>openRecordingDownload(items,'','all',true),varied);await dialog.waitFor();
-  assert.equal(await dialog.locator('.rv-download-group').count(),2);
+  await page.evaluate(items=>openRecordingDownload(items),varied);await dialog.waitFor();
+  assert.equal(await dialog.locator('.rv-download-segments').count(),0);
   assert((await dialog.locator('.rv-download-total').textContent()).includes('5개 파일'));
   await dialog.getByRole('button',{name:'선택 해제',exact:true}).click();await dialog.locator('.rv-download-file input').nth(2).check();
   url=new URL(await dialog.locator('.rv-download-start').getAttribute('href'),'https://rv.test');assert.equal(url.pathname,`/api/logs/${logs[0].id}/download`);assert.equal(url.searchParams.get('source'),'wide');
-  await dialog.evaluate(el=>el.scrollTop=el.scrollHeight);
-  const pinned=await dialog.locator('.rv-download-segment-heading').boundingBox(),frame=await dialog.boundingBox(),bottom=await dialog.locator('.rv-download-footer').boundingBox();assert(pinned.y>=frame.y&&pinned.y+pinned.height<frame.y+frame.height);assert(bottom.y+bottom.height<=frame.y+frame.height+1);
   await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});
   const many=Array.from({length:151},(_,n)=>({...logs[0],id:`many${n}`,name:`0000041d--limit--${n}`,files:{'rlog.zst':`0000041d--limit--${n}--rlog.zst`}}));
-  await page.evaluate(items=>openRecordingDownload(items,'','all',true),many);await dialog.waitFor();assert.equal(await dialog.locator('.rv-download-start').getAttribute('href'),null);assert((await dialog.locator('.rv-download-segment-count').textContent()).includes('151'));
+  await page.evaluate(items=>openRecordingDownload(items),many);await dialog.waitFor();assert.equal(await dialog.locator('.rv-download-start').getAttribute('href'),null);
   await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});
   assert.deepEqual(errors,[]);console.log('PASS: compact rows, modal formats/files, ZIP scopes, nested dialog and mobile widths');
  }finally{await browser.close()}
