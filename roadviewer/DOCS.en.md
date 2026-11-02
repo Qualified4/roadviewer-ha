@@ -341,11 +341,11 @@ With archiving on, the library's video label has these states.
 
 | Label | Meaning | Playback, download, conversion |
 |---|---|---|
-| 영상 있음 (video available) | Stored locally, or on the connected NAS according to the index. The list does not check each NAS file, so a NAS copy that went missing shows as no video when played; after the next app start it is recorded as removed once the NAS connects. | As usual |
+| 영상 있음 (video available) | Stored locally, or on the connected NAS according to the index. The list does not check each NAS file, so a NAS copy that went missing shows as no video when played. | As usual |
 | 저장소 연결 불가 (storage unavailable) | The video is on the NAS, which cannot be reached now | Playback switches to another camera or, if none, shows “영상 저장소에 연결할 수 없습니다. NAS 연결을 확인하세요.” and continues without video. Downloads fail; ZIPs are never built partially. Conversion is refused with “저장소 연결 후 다시 시도하세요.” |
-| 영상 없음 (no video) | No video registered, or removed by NAS cleanup | Replay without video |
+| 영상 없음 (no video) | No video registered, removed by NAS cleanup, or not found on the connected NAS. A file not found is never recorded as removed: its index entry stays, so it shows as available again once the NAS shows it. Only NAS cleanup records a removal. | Replay without video |
 | 영상 확인 중 (checking) | The NAS connection is being checked | Retry shortly |
-| 영상 읽기 오류 (read error) | The stored copy failed verification during recovery: neither the NAS copy nor the leftover local file matches the record | Cannot be played or downloaded. Conversion of the recording is refused so its converted video is kept. |
+| 영상 읽기 오류 (read error) | The stored copy failed verification during recovery: neither the copy present on the NAS nor the leftover local file matches the record. A missing NAS copy alone never leads here, and the state clears at the next start once the NAS copy matches the record again. | Cannot be played or downloaded. Conversion of the recording is refused so its converted video is kept. |
 
 ### When the NAS is unreachable
 
@@ -364,7 +364,7 @@ When the NAS folder exceeds `archive_nas_max_mb` or NAS free space falls below `
 1. Videos of unpinned recordings, oldest upload first.
 2. If still short, `rlog.zst` of unpinned recordings, oldest first.
 
-Files of pinned segments and of recordings waiting for or undergoing conversion are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. Restarting the app keeps the converted data of such recordings. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). While space stays short, runs continue on every interval and retry cleanup; only moving files pauses until space is freed, and Storage management shows the error.
+Files of pinned segments and of recordings waiting for or undergoing conversion are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. Restarting the app keeps the converted data of such recordings. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). Cleanup records its intent in the index before removing a file and records the removal after it. If the app stops in between, the next start clears the intent when the file is still there and records the removal when it is gone. A file that is merely not visible on a connected NAS (for example right after a reconnect) shows as no video but is never recorded as removed. Files an earlier version recorded as removed because it could not find them are restored at the next start when the NAS holds their recorded content. SMB-specific behaviours (stale file handles, cache delays, power loss) were only simulated, not tested on a real SMB share. While space stays short, runs continue on every interval and retry cleanup; only moving files pauses until space is freed, and Storage management shows the error.
 
 ### Backups
 

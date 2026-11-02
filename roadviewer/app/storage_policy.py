@@ -77,7 +77,8 @@ class StoragePolicy:
         return dict(enabled=settings.enabled, state=state, reason=reason, path_configured=settings.path is not None,
                     used_bytes=used, free_bytes=free, max_bytes=settings.nas_max_bytes, margin_bytes=settings.nas_margin_bytes,
                     last_cycle_at=status['last_cycle_at'], last_error=status['last_error'], consecutive_failures=status['consecutive_failures'],
-                    running=status['running'], pending_deletes=pending, archived_files=files, archived_bytes=size)
+                    running=status['running'], pending_deletes=pending, archived_files=files, archived_bytes=size,
+                    missing_archived=status['missing_archived'])
 
     def archived_totals(self):
         # (files, bytes) on the archive according to every recording's index.
