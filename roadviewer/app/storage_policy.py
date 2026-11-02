@@ -69,20 +69,26 @@ class StoragePolicy:
         s = self.s; store, settings = s.store, s.store.settings
         state, reason = store.state(), store.reason()
         used, free = store.usage() if state == 'connected' else (0, 0)
-        files = size = 0
+        # Archiving off: nothing is read from disk for the block (the panel polls every few seconds).
+        files, size = store.index_totals(self.archived_totals) if settings.enabled else (0, 0)
+        try: pending = s.media_store.PendingDeletes(s.ROOT).count() if settings.enabled else 0
+        except (OSError, ValueError): pending = 0
+        status = s.archiver.status()
+        return dict(enabled=settings.enabled, state=state, reason=reason, path_configured=settings.path is not None,
+                    used_bytes=used, free_bytes=free, max_bytes=settings.nas_max_bytes, margin_bytes=settings.nas_margin_bytes,
+                    last_cycle_at=status['last_cycle_at'], last_error=status['last_error'], consecutive_failures=status['consecutive_failures'],
+                    running=status['running'], pending_deletes=pending, archived_files=files, archived_bytes=size)
+
+    def archived_totals(self):
+        # (files, bytes) on the archive according to every recording's index.
+        s = self.s; files = size = 0
         for p in s.recording_paths():
             try: m = s.read_meta(p)
             except (OSError, ValueError): continue
             if not isinstance(m, dict): continue
             files += sum(s.media_store.location(m, k) == 'nas' for k in s.media_store.MEDIA_KINDS)
             size += s.media_store.archived_bytes(m)
-        try: pending = s.media_store.PendingDeletes(s.ROOT).count()
-        except (OSError, ValueError): pending = 0
-        status = s.archiver.status()
-        return dict(enabled=settings.enabled, state=state, reason=reason, path_configured=settings.path is not None,
-                    used_bytes=used, free_bytes=free, max_bytes=settings.nas_max_bytes, margin_bytes=settings.nas_margin_bytes,
-                    last_cycle_at=status['last_cycle_at'], last_error=status['last_error'], consecutive_failures=status['consecutive_failures'],
-                    pending_deletes=pending, archived_files=files, archived_bytes=size)
+        return files, size
 
     def pin(self, id):
         with self.s.registration_lock, self.s.lock:

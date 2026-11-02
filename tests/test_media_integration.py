@@ -431,7 +431,7 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertEqual(json.loads(path.read_text()),[{'id':'c'*32,'kinds':['camera.mp4']}])
   self.assertFalse((nas/('a'*32)).exists());self.assertFalse((nas/('b'*32)).exists())
 
- ARCHIVE_KEYS={'enabled','state','reason','path_configured','used_bytes','free_bytes','max_bytes','margin_bytes','last_cycle_at','last_error','consecutive_failures','pending_deletes','archived_files','archived_bytes'}
+ ARCHIVE_KEYS={'enabled','state','reason','path_configured','used_bytes','free_bytes','max_bytes','margin_bytes','last_cycle_at','last_error','consecutive_failures','pending_deletes','archived_files','archived_bytes','running'}
  def test_storage_snapshot_has_archive_block_without_path(self):
   # Archiving off: the block reports "disabled" and the existing fields are unchanged.
   body=self.get('/api/settings/storage').json
@@ -481,15 +481,65 @@ class MediaIntegrationTests(unittest.TestCase):
   r=self.send('post','/api/settings/archive/run')
   self.assertEqual((r.status_code,r.json),(409,{'error':'archive_disabled'}));self.assertEqual(r.headers['Cache-Control'],'no-store')
   nas,store=make_nas(self.root);self.use(store)
-  archiver=media_store.Archiver(server,store,store.settings)
-  with patch.object(server,'archiver',archiver):
-   result={'archived':1,'bytes':5,'stopped':None}
-   with patch.object(archiver,'run_cycle',return_value=result) as cycle:r=self.send('post','/api/settings/archive/run')
-   cycle.assert_called_once_with();self.assertEqual((r.status_code,r.json),(200,result));self.assertEqual(r.headers['Cache-Control'],'no-store')
+  archiver=media_store.Archiver(server,store,store.settings);calls=[]
+  def body(result):
+   calls.append(threading.current_thread());self.assertTrue(archiver.status()['running']);return 'below_threshold'
+  with patch.object(server,'archiver',archiver),patch.object(archiver,'_cycle',side_effect=body):
+   r=self.send('post','/api/settings/archive/run')
+   self.assertEqual((r.status_code,r.json),(202,{'started':True}));self.assertEqual(r.headers['Cache-Control'],'no-store')
+   archiver.manual.join(5);self.assertFalse(archiver.manual.is_alive())
+   # The cycle ran once, off the request thread, and released the lock.
+   self.assertEqual(len(calls),1);self.assertIs(calls[0],archiver.manual);self.assertNotEqual(calls[0],threading.current_thread())
+   self.assertTrue(archiver.cycle.acquire(blocking=False));archiver.cycle.release();self.assertFalse(archiver.status()['running'])
    # A cycle already running (the background loop) is not started twice.
    with archiver.cycle:r=self.send('post','/api/settings/archive/run')
    self.assertEqual((r.status_code,r.json),(409,{'error':'archive_running'}))
-   self.assertNotIn(str(nas),r.get_data(as_text=True))
+   self.assertNotIn(str(nas),r.get_data(as_text=True));self.assertEqual(len(calls),1)
+
+ def test_archive_run_second_post_while_running_is_409(self):
+  nas,store=make_nas(self.root);self.use(store)
+  archiver=media_store.Archiver(server,store,store.settings);started,release=threading.Event(),threading.Event();calls=[]
+  def body(result):calls.append(1);started.set();release.wait(5);return 'below_threshold'
+  with patch.object(server,'archiver',archiver),patch.object(archiver,'_cycle',side_effect=body):
+   try:
+    self.assertEqual(self.send('post','/api/settings/archive/run').status_code,202);self.assertTrue(started.wait(5))
+    r=self.send('post','/api/settings/archive/run')
+    self.assertEqual((r.status_code,r.json),(409,{'error':'archive_running'}))
+    self.assertTrue(self.get('/api/settings/storage').json['archive']['running'])
+    self.assertEqual(archiver.run_cycle()['stopped'],'busy')  # The background loop waits too.
+   finally:release.set();archiver.manual.join(5)
+  self.assertEqual(calls,[1]);self.assertFalse(self.get('/api/settings/storage').json['archive']['running'])
+
+ def test_storage_snapshot_reads_no_index_when_archiving_disabled(self):
+  make_log(self.root,'a'*32,['rlog.zst'],[])
+  media_store.PendingDeletes(self.root).add('c'*32,['fcamera.mp4'])
+  def forbidden(*args,**kw):raise AssertionError('index scanned while archiving is disabled')
+  with patch.object(server,'recording_paths',side_effect=forbidden),patch.object(server,'read_meta',side_effect=forbidden),patch.object(media_store.PendingDeletes,'count',side_effect=forbidden):
+   r=self.get('/api/settings/storage')
+  self.assertEqual(r.status_code,200)
+  archive=r.json['archive'];self.assertEqual((archive['enabled'],archive['archived_files'],archive['archived_bytes'],archive['pending_deletes']),(False,0,0,0))
+
+ def test_storage_snapshot_caches_index_scan(self):
+  class Clock:
+   t=1000.0
+   def __call__(self):return self.t
+  clock=Clock();nas,_=make_nas(self.root)
+  store=media_store.ArchiveStore(media_store.ArchiveSettings(enabled=True,path=nas),self.root,clock=clock);self.use(store)
+  archiver=media_store.Archiver(server,store,store.settings);patcher=patch.object(server,'archiver',archiver);patcher.start();self.addCleanup(patcher.stop)
+  make_log(self.root,'a'*32,['rlog.zst'],['fcamera.mp4'],nas=nas)
+  files=lambda:self.get('/api/settings/storage').json['archive']['archived_files']
+  scans=[];real=server.storage_policy.archived_totals
+  with patch.object(server.storage_policy,'archived_totals',side_effect=lambda:scans.append(1) or real()):
+   self.assertEqual(files(),1)
+   make_log(self.root,'b'*32,['rlog.zst'],['fcamera.mp4'],nas=nas)
+   clock.t+=9.9;self.assertEqual(files(),1);self.assertEqual(len(scans),1)  # Within 10 s: the earlier scan.
+   clock.t+=0.1;self.assertEqual(files(),2);self.assertEqual(len(scans),2)
+   make_log(self.root,'c'*32,['rlog.zst'],['fcamera.mp4'],nas=nas)
+   store.invalidate();self.assertEqual(files(),3)
+   make_log(self.root,'d'*32,['rlog.zst'],['fcamera.mp4'],nas=nas)
+   # Each archiver cycle ends by dropping the cached scan.
+   with patch.object(archiver,'_cycle',return_value='below_threshold'):archiver.run_cycle()
+   self.assertEqual(files(),4);self.assertEqual(len(scans),4)
 
  def test_config_yaml_has_share_map_and_archive_options(self):
   import re

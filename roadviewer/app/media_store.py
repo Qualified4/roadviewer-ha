@@ -69,6 +69,7 @@ class ArchiveStore:
         self.lock = threading.Lock()
         self.cached = None  # (checked_at, state, reason)
         self.usage_cached = None  # (measured_at, (used, free))
+        self.index_cached = None  # (scanned_at, (archived files, archived bytes))
 
     def local_id(self):
         try: return json.loads((self.root / LOCAL_COPY).read_text())['storage_id']
@@ -110,8 +111,17 @@ class ArchiveStore:
         return cached[1] if cached and self.clock() - cached[0] < CACHE_SECONDS else None
     def reason(self): return self._check()[1]
     def available(self): return self.state() == 'connected'
-    def invalidate(self): self.cached = self.usage_cached = None
+    def invalidate(self): self.cached = self.usage_cached = self.index_cached = None
     def forget_usage(self): self.usage_cached = None
+    def forget_index(self): self.index_cached = None
+
+    def index_totals(self, scan):
+        # scan() reads every recording's index; the settings panel polls, so a result is reused for CACHE_SECONDS.
+        cached = self.index_cached
+        if cached and self.clock() - cached[0] < CACHE_SECONDS: return cached[1]
+        result = scan()
+        self.index_cached = (self.clock(), result)
+        return result
     def path_for(self, id, kind): return self.settings.path / id / _kind(kind)
 
     def usage(self):
@@ -273,6 +283,7 @@ class Archiver:
         self.server, self.store, self.settings = server, store, settings
         self.cycle = threading.Lock()  # One cycle (or recovery) at a time.
         self.thread = None
+        self.manual = None  # The latest manual run (start_cycle).
         self.running, self.last_cycle_at, self.last_error, self.consecutive_failures = False, None, None, 0
         self.archived_files_total, self.requeued_deferred, self.removed_files_total = 0, 0, 0
         # What triggered the last share cleanup (None, 'nas_max', 'nas_margin') and why it could not finish.
@@ -304,11 +315,35 @@ class Archiver:
         result = {'archived': 0, 'bytes': 0, 'stopped': None}
         if not self.settings.enabled: return {**result, 'stopped': 'disabled'}
         if not self.cycle.acquire(blocking=False): return {**result, 'stopped': 'busy'}
+        return self._run_locked()
+
+    def start_cycle(self):
+        # A manual run in the background: False when a cycle already runs. The lock is taken here and
+        # handed to the thread, so there is no window between the check and the start.
+        if not self.cycle.acquire(blocking=False): return False
+        try:
+            self.running = True
+            self.manual = threading.Thread(target=self._run_background, name='archive-run', daemon=True)
+            self.manual.start()
+        except BaseException:
+            self.running = False
+            self.cycle.release()
+            raise
+        return True
+
+    def _run_background(self):
+        try: self._run_locked()
+        except Exception: self.server.app.logger.exception('Archive cycle failed')
+
+    def _run_locked(self):
+        # Caller holds self.cycle; it is released here.
+        result = {'archived': 0, 'bytes': 0, 'stopped': None}
         try:
             self.running = True
             result['stopped'] = self._cycle(result)
         finally:
             self.running = False
+            self.store.forget_index()  # The cycle may have changed what the index says is archived.
             self.cycle.release()
         return result
 

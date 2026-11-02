@@ -1138,11 +1138,11 @@ elif archive_settings.error:app.logger.warning('Video archive is disabled: %s',a
 archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings)
 @app.route('/api/settings/archive/run',methods=['POST'])
 def run_archive():
- # One cycle now, in this request; the background loop's cycle is never run twice at once.
+ # One cycle now, in the background (a cycle can outlast the Ingress timeout); progress shows in
+ # the storage settings' archive block. Never two cycles at once.
  if not archiver.settings.enabled:return jsonify(error='archive_disabled'),409
- result=archiver.run_cycle()
- if result['stopped']=='busy':return jsonify(error='archive_running'),409
- return jsonify(result)
+ if not archiver.start_cycle():return jsonify(error='archive_running'),409
+ return jsonify(started=True),202
 storage_policy=StoragePolicy(sys.modules[__name__])
 devices=DeviceAPI(sys.modules[__name__])
 device_network=DeviceNetwork(sys.modules[__name__])
