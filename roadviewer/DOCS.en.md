@@ -312,7 +312,7 @@ Options are changed only in the app configuration and apply after a restart. MB 
 | `archive_interval_minutes` | `10` | 1–1440 | Interval between automatic runs |
 | `archive_batch` | `4` | 1–64 | Maximum files moved per run |
 | `archive_nas_max_mb` | `0` | 0 or more | Usage limit of the NAS folder; `0` means unlimited |
-| `archive_nas_margin_mb` | `1024` | 0 or more | Clean up when NAS free space falls below this |
+| `archive_nas_margin_mb` | `1024` | 0 or more | Clean up when NAS free space falls below this. Free space is measured on the whole NAS volume. |
 
 ### What moves, in which order
 
@@ -343,13 +343,13 @@ With archiving on, the library's video label has these states.
 |---|---|---|
 | 영상 있음 (video available) | Readable locally or on the NAS | As usual |
 | 저장소 연결 불가 (storage unavailable) | The video is on the NAS, which cannot be reached now | Playback switches to another camera or, if none, shows “영상 저장소에 연결할 수 없습니다. NAS 연결을 확인하세요.” and continues without video. Downloads fail; ZIPs are never built partially. Conversion is refused with “저장소 연결 후 다시 시도하세요.” |
-| 영상 없음 (no video) | No video registered, or removed by NAS cleanup | Replay without video |
+| 영상 없음 (no video) | No video registered, removed by NAS cleanup, or its NAS copy is missing while the NAS is reachable | Replay without video |
 | 영상 확인 중 (checking) | The NAS connection is being checked | Retry shortly |
-| 영상 읽기 오류 (read error) | The NAS copy is missing or does not match its record | Cannot be played or downloaded |
+| 영상 읽기 오류 (read error) | The stored copy failed verification during recovery: neither the NAS copy nor the leftover local file matches the record | Cannot be played or downloaded |
 
 ### When the NAS is unreachable
 
-An unreachable NAS never causes file deletion, removal of converted data or reconversion. Restarting the app keeps converted data of recordings with files on the NAS. Queued conversions are postponed with “저장소에 연결할 수 없어 변환을 미뤘습니다.” and requeued once the NAS answers. Adding a new camera video to a recording with files on the NAS also waits for the connection.
+An unreachable NAS never causes file deletion, removal of converted data or reconversion. Restarting the app keeps converted data of recordings with files on the NAS. Queued conversions are postponed with “저장소에 연결할 수 없어 변환을 미뤘습니다.” and requeued once the NAS answers. Adding a new camera video to a recording with files on the NAS is refused while the NAS is unreachable (“저장소 연결 후 다시 시도하세요.”) and is not queued; upload it again once connected.
 
 With the **delete oldest unpinned** storage policy, recordings with files on the NAS are excluded from automatic deletion while it is unreachable; when it is connected, automatic deletion removes their NAS files too. **Reject new** is recommended together with archiving.
 
@@ -359,12 +359,12 @@ With the **delete oldest unpinned** storage policy, recordings with files on the
 
 ### NAS cleanup
 
-When the NAS folder exceeds `archive_nas_max_mb` or NAS free space falls below `archive_nas_margin_mb`, NAS files are removed in this order:
+When the NAS folder exceeds `archive_nas_max_mb` or NAS free space falls below `archive_nas_margin_mb`, NAS files are removed in this order. Free space is measured on the whole NAS volume, so other data growing on the same volume can trigger cleanup of archived videos.
 
 1. Videos of unpinned recordings, oldest upload first.
 2. If still short, `rlog.zst` of unpinned recordings, oldest first.
 
-Files of pinned segments and of recordings being converted are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). If nothing can be removed, archiving stops and reports an error.
+Files of pinned segments and of recordings being converted are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). While space stays short, runs continue on every interval and retry cleanup; only moving files pauses until space is freed, and Storage management shows the error.
 
 ### Backups
 
