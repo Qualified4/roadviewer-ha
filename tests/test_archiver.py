@@ -476,4 +476,18 @@ class ArchiverTests(unittest.TestCase):
    archiver.start();archiver.thread.join(5)
   self.assertFalse(archiver.thread.is_alive());recover.assert_called_once_with();cycle.assert_not_called()
 
+ def test_loop_activates_before_recovery(self):
+  # Activation moved from import to the archiver thread: first the share is checked (and logged), then recovery.
+  archiver=self.archiver(interval_seconds=60);order=[]
+  stop=server.threading.Event();stop.set()
+  with patch.object(server,'cleanup_stop',stop),patch.object(self.store,'activate',side_effect=lambda:order.append('activate')),       patch.object(archiver,'recover_startup',side_effect=lambda:order.append('recover')),patch.object(self.store,'available',return_value=False),       patch.object(self.store,'reason',return_value='sentinel_missing'),patch.object(server.app.logger,'warning') as warning:
+   archiver.start();archiver.thread.join(5)
+  self.assertEqual(order,['activate','recover'])
+  warning.assert_called_once_with('Video archive is not connected: %s','sentinel_missing')
+  # A failing activation is logged and recovery still runs.
+  archiver=self.archiver(interval_seconds=60);order.clear()
+  with patch.object(server,'cleanup_stop',stop),patch.object(self.store,'activate',side_effect=OSError('hung')),       patch.object(archiver,'recover_startup',side_effect=lambda:order.append('recover')),patch.object(server.app.logger,'exception') as logged:
+   archiver.start();archiver.thread.join(5)
+  self.assertEqual(order,['recover']);logged.assert_called_once_with('Archive activation failed')
+
 if __name__=='__main__':unittest.main()

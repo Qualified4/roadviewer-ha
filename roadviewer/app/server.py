@@ -428,6 +428,20 @@ def additional_videos(p,meta,incoming,known):
   added.append(kind)
  return added
 
+def archived_matches(wanted):
+ # States of the archived files of recordings whose log has one of these hashes, resolved before any lock.
+ # The hash comes from the index (or the cached local hash): nothing is read from the share or hashed here.
+ # A recording missed here has no states, so clear_prepared keeps the MP4s of its archived originals.
+ states={}
+ for p in recording_paths():
+  try:m=read_meta(p)
+  except (OSError,ValueError):continue
+  if not isinstance(m,dict) or not archived(m):continue
+  e=media_store.entry(m,'rlog.zst');cached=m.get('content_hashes',{}).get('rlog.zst')
+  digest=e.get('sha256') if e['location']=='nas' else cached.get('sha256') if isinstance(cached,dict) else None
+  if digest in wanted:states[m['id']]=archived_states(p,m)
+ return states
+
 def register_files(files):
  if not files or len(files)>(200 if request.path.startswith('/api/device/') else 100):return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
  if shutil.disk_usage(ROOT).free<(request.content_length or 0)+100*1024*1024:return upload_error('insufficient_disk_space','로그를 저장할 디스크 공간이 부족합니다.',507)
@@ -458,6 +472,9 @@ def register_files(files):
     if 'rlog.zst' not in g['files']:raise ValueError(g['label']+': 영상과 짝이 되는 rlog.zst를 함께 올려주세요.')
     if (g['dir']/'rlog.zst').stat().st_size==0:raise ValueError('로그 파일이 비어 있습니다.')
     g['hashes']={kind:g.get('known',{}).get(kind) or file_digest(g['dir']/kind) for kind in g['files']}
+   # The share is probed before any lock, and only for re-uploads of archived recordings: it may be slow.
+   # Admission and the checks below then read the result without probing (last_state).
+   store.state();states=archived_matches({g['hashes']['rlog.zst'] for g in groups.values()})
    with registration_lock:
     # Hash old recordings without blocking upload chunks or conversion progress.
     existing={};hash_updates=[]
@@ -468,11 +485,8 @@ def register_files(files):
      if hashes.get('rlog.zst') in wanted:hashes=stored_digests(path,meta)
      hash_updates.append((path,meta['content_hashes']))
      if 'rlog.zst' in hashes:existing.setdefault(hashes['rlog.zst'],(meta,hashes))
-    # Probed before taking the lock, and only for re-uploads of archived recordings: the share may be slow.
     found=[match[0] for match in (existing.get(g['hashes']['rlog.zst']) for g in groups.values()) if match and archived(match[0])]
-    # Also refreshes the state admission reads under the lock.
-    reachable=store.available() or not found
-    states={meta['id']:archived_states(ROOT/meta['id'],meta) for meta in found}
+    reachable=not found or store.last_state()=='connected'
     with lock:
      # Recheck device revocation/expiry after slow copying and hashing, before deletion.
      if request.path.startswith('/api/device/'):
@@ -1146,11 +1160,9 @@ def migrate_prepared():
    app.logger.exception('Replay data migration failed for %s',p.name)
 
 archive_settings=media_store.ArchiveSettings.from_options(options)
+# Only constructed here: the share is first touched by the archiver thread (Archiver.activate), so a hung mount cannot stall startup.
 store=media_store.ArchiveStore(archive_settings,ROOT)
-if archive_settings.enabled:
- store.activate()
- if not store.available():app.logger.warning('Video archive is not connected: %s',store.reason())
-elif archive_settings.error:app.logger.warning('Video archive is disabled: %s',archive_settings.error)
+if archive_settings.error:app.logger.warning('Video archive is disabled: %s',archive_settings.error)
 archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings)
 @app.route('/api/settings/archive/run',methods=['POST'])
 def run_archive():

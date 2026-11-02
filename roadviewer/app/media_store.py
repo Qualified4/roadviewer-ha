@@ -303,8 +303,16 @@ class Archiver:
         self.thread = threading.Thread(target=self._loop, name='archiver', daemon=True)
         self.thread.start()
 
+    def activate(self):
+        # The first contact with the share (sentinel check, first-time setup) happens here rather than at import.
+        self.store.activate()
+        if not self.store.available(): self.server.app.logger.warning('Video archive is not connected: %s', self.store.reason())
+
     def _loop(self):
-        # Recovery runs here rather than at import: hashing copies on a slow share must not delay startup.
+        # Activation and recovery run here rather than at import: a hung mount or hashing copies on a
+        # slow share must not delay startup.
+        try: self.activate()
+        except Exception: self.server.app.logger.exception('Archive activation failed')
         try: self.recover_startup()
         except Exception: self.server.app.logger.exception('Archive recovery failed')
         while not self.server.cleanup_stop.wait(self.settings.interval_seconds):

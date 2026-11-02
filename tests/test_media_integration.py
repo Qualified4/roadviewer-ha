@@ -589,7 +589,8 @@ class MediaIntegrationTests(unittest.TestCase):
   # The merge happens at import, so a fresh interpreter imports the server with the variable set.
   import subprocess
   app=Path(__file__).resolve().parents[1]/'roadviewer/app';nas=Path(tempfile.mkdtemp(prefix='rv-nas-'))
-  code='import server;print(server.archive_settings.enabled,server.archive_settings.batch,server.store.state())'
+  # The share is first touched by the archiver thread's activation, not by the import.
+  code='import server;server.archiver.activate();print(server.archive_settings.enabled,server.archive_settings.batch,server.store.state())'
   def run(**env):
    data=tempfile.mkdtemp(prefix='rv-data-')
    base={k:v for k,v in os.environ.items() if k not in ('RV_ARCHIVE_OPTIONS_JSON','RV_MIGRATE_PREPARED','RV_ARCHIVE_ALLOW_ANY_PATH')}
@@ -598,6 +599,62 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertEqual(run(),['False','4','disabled'])
   options=json.dumps({'archive_enabled':True,'archive_path':str(nas),'archive_batch':7})
   self.assertEqual(run(RV_ARCHIVE_OPTIONS_JSON=options,RV_ARCHIVE_ALLOW_ANY_PATH='1'),['True','7','connected'])
+
+ def test_import_never_probes_the_share(self):
+  # A hung mount at startup: importing the server (which also runs requeue_startup) must not touch the share.
+  import subprocess
+  app=Path(__file__).resolve().parents[1]/'roadviewer/app';nas=Path(tempfile.mkdtemp(prefix='rv-nas-'));data=Path(tempfile.mkdtemp(prefix='rv-data-'))
+  p=make_log(data,'a'*32,['rlog.zst'],['fcamera.mp4'],nas=nas);self.ready(p)
+  code=('import media_store;calls=[];media_store.ArchiveStore._probe=lambda self:calls.append(1) or ("unavailable","os_error");import server;'
+        'print(len(calls),server.store.last_state(),server.read_meta(server.ROOT/"'+p.name+'")["status"])')
+  base={k:v for k,v in os.environ.items() if k not in ('RV_ARCHIVE_OPTIONS_JSON','RV_MIGRATE_PREPARED','RV_ARCHIVE_ALLOW_ANY_PATH')}
+  options=json.dumps({'archive_enabled':True,'archive_path':str(nas)})
+  done=subprocess.run([sys.executable,'-c',code],cwd=app,env={**base,'RV_DATA':str(data),'RV_ARCHIVE_OPTIONS_JSON':options,'RV_ARCHIVE_ALLOW_ANY_PATH':'1'},capture_output=True,text=True,timeout=60)
+  self.assertEqual(done.returncode,0,done.stderr);self.assertEqual(done.stdout.split(),['0','None','ready'])
+  self.assertFalse((nas/media_store.SENTINEL).exists());self.assertTrue((p/'prepared'/'data.json').is_file())
+
+ def test_requeue_startup_does_not_probe(self):
+  nas,store=make_nas(self.root);self.use(store)
+  p=make_log(self.root,'a'*32,['rlog.zst'],['fcamera.hevc'],nas=nas);self.ready(p,decoder_version='old')
+  q=make_log(self.root,'b'*32,['rlog.zst'],['fcamera.hevc'],status='processing',nas=nas)
+  store.invalidate()  # No recent result, as at startup.
+  with patch.object(store,'_probe',side_effect=AssertionError('probed at startup')) as probe,patch.object(server,'auto_convert',True),patch.object(server,'submit') as submit:
+   server.requeue_startup()
+  probe.assert_not_called()
+  # Held while the share is unchecked: the outdated result stays.
+  self.assertEqual(server.read_meta(p)['status'],'ready');self.assertTrue((p/'prepared'/'data.json').is_file())
+  # The interrupted conversion is queued again (run_job defers it until the share answers).
+  self.assertEqual(server.read_meta(q)['status'],'queued');submit.assert_called_once_with(q.name)
+  self.assertTrue((nas/q.name/'fcamera.hevc').is_file())
+
+ def test_reupload_does_not_probe_under_registration_lock(self):
+  # Re-uploading an archived recording with a new camera: the share is probed before the registration lock.
+  nas,store=make_nas(self.root);self.use(store)
+  p=make_log(self.root,'a'*32,[],['rlog.zst','fcamera.mp4'],nas=nas)
+  m=server.read_meta(p);m['storage']['rlog.zst']['sha256']=hashlib.sha256(b'rlog.zst'*20).hexdigest();self.ready(p,storage=m['storage'])
+  # The share answers the upload's own check, then hangs once registration starts: the received files are
+  # hashed for longer than the cached result lives.
+  now=[1000.0];probe=store._probe;started,release=threading.Event(),threading.Event();calls=[];results={}
+  def hung():
+   calls.append(1)
+   if len(calls)>1:started.set();release.wait(10)
+   return probe()
+  def digest(path):now[0]+=media_store.CACHE_SECONDS+1;return real_digest(path)
+  real_digest=server.file_digest;store.invalidate()
+  with patch.object(store,'clock',lambda:now[0]),patch.object(store,'_probe',side_effect=hung),patch.object(server,'file_digest',digest),patch.object(server,'submit'):
+   def upload():
+    r=server.app.test_client().post('/api/upload',environ_overrides=PEER,headers=HEADERS,data={'files':[(io.BytesIO(b'rlog.zst'*20),'rlog.zst'),(io.BytesIO(b'video'),'qcamera.ts')]})
+    results['upload']=(r.status_code,r.json)
+   worker=threading.Thread(target=upload);worker.start()
+   try:
+    self.assertTrue(started.wait(5))
+    self.assertTrue(server.registration_lock.acquire(timeout=1),'registration lock held during the NAS probe');server.registration_lock.release()
+    self.assertTrue(server.lock.acquire(timeout=1),'lock held during the NAS probe');server.lock.release()
+    self.assertTrue(worker.is_alive())
+   finally:release.set();worker.join(10)
+  # Once the share answered, the camera was added and the recording queued for reconversion.
+  self.assertEqual(results['upload'][0],201,results['upload']);self.assertEqual([u['id'] for u in results['upload'][1]['updated']],[p.name])
+  self.assertEqual((p/'qcamera.ts').read_bytes(),b'video');self.assertEqual(server.read_meta(p)['status'],'queued')
 
  def test_decoder_reads_paths_from_environment(self):
   import importlib,decoder
