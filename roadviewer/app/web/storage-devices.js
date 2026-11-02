@@ -14,6 +14,23 @@ function showStorage(s){
  $('storageMaximum').textContent=s.max_bytes?storageSize(s.max_bytes):'제한 없음';
  $('storageFree').textContent=storageSize(s.free_bytes);
  $('storageReserved').textContent=storageSize(s.reserved_bytes);
+ showArchive(s.archive);
+}
+const ARCHIVE_STATES={connected:'연결됨',unavailable:'연결 불가',checking:'확인 중'},ARCHIVE_ERRORS={storage_unavailable:'NAS에 연결할 수 없습니다.',nas_full:'NAS 공간이 부족합니다.',hash_mismatch:'NAS 사본 검증에 실패했습니다.',os_error:'NAS에 파일을 복사하지 못했습니다.'};
+function showArchive(a){
+ // Archiving off: the panel keeps exactly its four local metrics. The share's path is never shown.
+ for(const row of document.querySelectorAll('#storageUsage>.archive-metric'))row.remove();
+ $('archiveRun')?.remove();
+ if(!a?.enabled)return;
+ const rows=[['NAS 상태',ARCHIVE_STATES[a.state]||'확인 중'],['NAS 사용 중',storageSize(a.used_bytes)],['NAS 여유',storageSize(a.free_bytes)],['마지막 아카이브',a.last_cycle_at?new Date(a.last_cycle_at*1000).toLocaleString():'—']];
+ $('storageUsage').append(...rows.map(([label,value])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');row.className='archive-metric';dt.textContent=label;dd.textContent=value;row.append(dt,dd);return row}));
+ const button=document.createElement('button');button.id='archiveRun';button.type='button';button.textContent='지금 아카이브';button.disabled=!!a.running;button.onclick=runArchive;$('storageUsage').after(button);
+ if(a.last_error)$('storageStatus').textContent='마지막 아카이브 오류: '+(ARCHIVE_ERRORS[a.last_error]||a.last_error);
+}
+async function runArchive(){
+ $('archiveRun').disabled=true;
+ try{await settingsRequest('api/settings/archive/run');$('storageStatus').textContent='아카이브를 시작했습니다.'}
+ catch(e){$('storageStatus').textContent=e.message;$('archiveRun').disabled=false}
 }
 storageDetails.addEventListener('toggle',async()=>{
  if(!storageDetails.open)return;
