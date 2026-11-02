@@ -94,6 +94,30 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertEqual(row['bytes'],size+len(b'rlog.zst')*10+len(b'camera.mp4')*10);self.assertEqual(row['log_bytes'],len(b'rlog.zst')*10)
   self.assertNotIn(str(nas),r.get_data(as_text=True))
 
+ def test_logs_list_does_not_stat_archived_files(self):
+  # The library polls the list: archived files are judged by the index and one share check per request.
+  nas,store=make_nas(self.root);self.use(store)
+  p=make_log(self.root,'a'*32,['rlog.zst','camera.mp4'],['fcamera.mp4','ecamera.mp4'],nas=nas)
+  q=make_log(self.root,'b'*32,['rlog.zst'],['fcamera.hevc'],nas=nas);m=server.read_meta(q);m['storage']['fcamera.hevc']['error']='recovery_mismatch';server.save_meta(q,m)
+  (nas/p.name/'ecamera.mp4').unlink()  # Gone from the share: only playback finds out (404), the list trusts the index.
+  real=Path.is_file;seen=[]
+  def is_file(path):
+   if str(path).startswith(str(nas)):seen.append(path)
+   return real(path)
+  def rows():
+   with patch.object(Path,'is_file',is_file),patch.object(store,'_probe',wraps=store._probe) as probe:
+    r=self.get('/api/logs');self.assertEqual(r.status_code,200)
+   return {row['id']:row['video_state'] for row in r.json['logs']},probe.call_count
+  store.invalidate()
+  states,probes=rows();self.assertEqual(seen,[]);self.assertEqual(probes,1)
+  self.assertEqual(states,{p.name:{'front':'available','wide':'available','qcamera':'available'},q.name:{'front':'corrupt'}})
+  self.lose_nas(nas,store);states,_=rows()
+  self.assertEqual(states,{p.name:{'front':'storage_unavailable','wide':'storage_unavailable','qcamera':'available'},q.name:{'front':'storage_unavailable'}})
+  with patch.object(store,'state',return_value='checking'):states,_=rows()
+  self.assertEqual(states[p.name]['front'],'checking');self.assertEqual(seen,[])
+  # Playback still checks the file itself.
+  self.restore_nas(nas,store);self.assertEqual(self.get(f'/api/logs/{p.name}/video?source=wide').status_code,404)
+
  def test_logs_omit_new_fields_for_local_only_logs(self):
   nas,store=make_nas(self.root);self.use(store)
   make_log(self.root,'a'*32,['rlog.zst','camera.mp4'],[])

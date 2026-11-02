@@ -63,11 +63,12 @@ def media_path(p,m,kind):
  return path
 STATE_RANK=('available','corrupt','checking','storage_unavailable','missing')
 def registered(p,m,kind):return stored(p,m,kind) or media_store.location(m,kind)=='removed'
-def video_states(p,m):
+def video_states(p,m,share):
  # Per camera, the best state among its registered files (original or kept MP4); removed ones count as missing.
+ # share: the archive's state, checked once per list request (archived files are judged by the index).
  states={}
  for source,(original,mp4,_) in SOURCES.items():
-  found=[media_store.resolve(p,m,kind,store)[1] for kind in (original,mp4) if registered(p,m,kind)]
+  found=[media_store.indexed_state(p,m,kind,share) for kind in (original,mp4) if registered(p,m,kind)]
   if found:states[source]=min(found,key=STATE_RANK.index)
  return states
 def storage_locations(p,m):
@@ -357,8 +358,13 @@ def logs():
   m['warnings']=[w for w in m.get('warnings') or [] if not str(w).startswith(SKIPPED_EVENTS_WARNING)]
   row=dict(m,pinned=pinned,bytes=original_bytes(p,m),video=has_video(p,m),video_download=video_download_kind(p,m),video_downloads=video_downloads(p,m),download_options=download_options(p,m),log_bytes=media_store.media_size(p,m,'rlog.zst',store) if stored(p,m,'rlog.zst') else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
   # Only recordings touched by the archive carry the new fields; local-only rows stay as before.
-  if any(media_store.location(m,kind)!='local' for kind in media_store.MEDIA_KINDS):row.update(video_state=video_states(p,m),storage_locations=storage_locations(p,m))
+  if any(media_store.location(m,kind)!='local' for kind in media_store.MEDIA_KINDS):row.update(video_state=video_states(p,m,share_state()),storage_locations=storage_locations(p,m))
   return row
+ share=[]
+ def share_state():
+  # Once per request and only when a row has archived files; never under the lock.
+  if not share:share.append(store.state())
+  return share[0]
  items=[]
  for p in recording_paths():
   try:items.append(item(p))

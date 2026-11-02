@@ -184,6 +184,15 @@ def resolve(p, meta, kind, store):
         return (None, 'storage_unavailable') if where == 'nas' else (None, 'missing')
     return (path, 'corrupt') if e.get('error') else (path, 'available')
 
+def indexed_state(p, meta, kind, share):
+    # The state for the library list: archived files by their index and the share's state (one check per
+    # request), so the list never stats the share per file. Playback and downloads use resolve().
+    e = entry(meta, _kind(kind))
+    if e['location'] == 'removed': return 'missing'
+    if e['location'] != 'nas': return resolve(p, meta, kind, None)[1]
+    if share == 'connected': return 'corrupt' if e.get('error') else 'available'
+    return 'storage_unavailable' if share in ('unavailable', 'disabled') else 'checking'
+
 def media_size(p, meta, kind, store):
     e = entry(meta, kind)
     if e['location'] == 'nas': return _bytes(e)
