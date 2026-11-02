@@ -115,9 +115,10 @@ def run_job(id):
      m.update(status='unconverted');save_meta(p,m);return
     if any(state in ('storage_unavailable','checking') for _,state in inputs.values()):
      # Converting without the archived files would replace a good result with one lacking its videos.
-     m.update(status='unconverted',error='저장소에 연결할 수 없어 변환을 미뤘습니다.');save_meta(p,m);return
+     # 'deferred' marks it for requeueing once the share is back (archiver), independent of the message text.
+     m.update(status='unconverted',error='저장소에 연결할 수 없어 변환을 미뤘습니다.',deferred='storage');save_meta(p,m);return
     revision=m.get('conversion_revision',0)
-    m.update(status='processing');save_meta(p,m)
+    m.pop('deferred',None);m.update(status='processing');save_meta(p,m)
     job_progress[id]={'stage':'log_prepare','percent':0}
     # Archived files are read where they are; replay output and meta.json stay in the local folder (decoder.py).
     options=channel.options()
@@ -154,11 +155,13 @@ def run_job(id):
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
  except Exception as e:
+  try:states=archived_states(p,read_meta(p)) if revision is not None else {}
+  except (OSError,ValueError):states={}
   with lock:
    if (p/'meta.json').exists():
     m=read_meta(p)
     if revision is not None and m.get('conversion_revision',0)==revision:
-     clear_prepared(p,m);m.update(status='error',error=str(e));save_meta(p,m)
+     clear_prepared(p,m,states);m.update(status='error',error=str(e));save_meta(p,m)
  finally:
   with lock:
    if processes.get(id) is proc:
@@ -184,11 +187,18 @@ def submit(id):pool.submit(id)
 def recording_paths():
  return [p for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
 
-def clear_prepared(p,m):
+def archived_states(p,m,kinds=STORED_KINDS):
+ # Resolve the archived kinds BEFORE taking the lock (the share may be slow); local kinds are checked later.
+ return {kind:media_store.resolve(p,m,kind,store)[1] for kind in kinds if media_store.location(m,kind)=='nas'}
+
+def clear_prepared(p,m,states=None):
  if (p/'prepared').exists():shutil.rmtree(p/'prepared')
  # Never remove the only retained copy of any camera: an unreachable or unreadable original keeps its MP4.
+ # Archived originals count only by states resolved beforehand (archived_states); without one, the MP4 stays.
  for original,mp4 in DERIVED.items():
-  if media_store.resolve(p,m,original,store)[1]=='available':(p/mp4).unlink(missing_ok=True)
+  where=media_store.location(m,original)
+  readable=(p/original).is_file() if where=='local' else where=='nas' and (states or {}).get(original)=='available'
+  if readable:(p/mp4).unlink(missing_ok=True)
  m['bytes']=original_bytes(p,m)
  m.update(duration=None,model_frames=None,warnings=[],error=None,conversion_revision=m.get('conversion_revision',0)+1)
 
@@ -351,6 +361,7 @@ def upload():
  # Legacy multipart uploads use the same admission reservation. Browsers use chunks.
  if not request.content_length:return jsonify(error='content_length_required'),411
  files=request.files.getlist('files')
+ store.state()  # Refreshed before locking: admission reads it without probing the share.
  with registration_lock,lock:
   amount=storage_policy.admit(request.content_length,[{'name':f.filename or ''} for f in files],staging=True)
   id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir();atomic_json(p/'reservation.json',{'bytes':amount});active_uploads[id]+=1
@@ -450,7 +461,10 @@ def register_files(files):
      hash_updates.append((path,meta['content_hashes']))
      if 'rlog.zst' in hashes:existing.setdefault(hashes['rlog.zst'],(meta,hashes))
     # Probed before taking the lock, and only for re-uploads of archived recordings: the share may be slow.
-    reachable=not any(match and archived(match[0]) for match in (existing.get(g['hashes']['rlog.zst']) for g in groups.values())) or store.available()
+    found=[match[0] for match in (existing.get(g['hashes']['rlog.zst']) for g in groups.values()) if match and archived(match[0])]
+    # Also refreshes the state admission reads under the lock.
+    reachable=store.available() or not found
+    states={meta['id']:archived_states(ROOT/meta['id'],meta) for meta in found}
     with lock:
      # Recheck device revocation/expiry after slow copying and hashing, before deletion.
      if request.path.startswith('/api/device/'):
@@ -496,7 +510,7 @@ def register_files(files):
          meta.setdefault('content_hashes',{})[kind]={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':g['hashes'][kind]}
          hashes={**hashes,kind:g['hashes'][kind]}
         if not restored:
-         clear_prepared(p,meta)
+         clear_prepared(p,meta,states.get(meta['id']))
          meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted')
         meta.update(video=True,bytes=original_bytes(p,meta));save_meta(p,meta)
         existing[g['hashes']['rlog.zst']]=(meta,hashes)
@@ -507,6 +521,7 @@ def register_files(files):
        continue
       id=uuid.uuid4().hex;p=g['dir']
       m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':any(kind in g['files'] for kind in VIDEO_KINDS),'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None,'content_hashes':{kind:{'size':(p/kind).stat().st_size,'mtime_ns':(p/kind).stat().st_mtime_ns,'sha256':digest} for kind,digest in g['hashes'].items()}};save_meta(p,m);p.rename(ROOT/id);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
+  process_pending()  # Archived files of recordings evicted by admission, now that the locks are released.
   return jsonify(logs=staged,duplicates=duplicates,updated=updated),201
  except ValueError as e:return jsonify(error=str(e)),400
  finally:
@@ -592,6 +607,7 @@ def begin_upload():
  cleanup_uploads()
  body=request.get_json(silent=True)
  if not isinstance(body,dict):return jsonify(error='invalid_upload'),400
+ store.state()  # Refreshed before locking: admission reads it without probing the share.
  with registration_lock,lock:return create_upload(body.get('files'))
 
 def create_upload(files,max_bytes=None,max_files=100):
@@ -712,7 +728,13 @@ def delete(id):
  with registration_lock,lock:
   if request.args.get('skip_pinned')=='1' and storage_policy.pinned(read_meta(folder(id))):return jsonify(skipped='pinned')
   delete_recording(id)
+ process_pending()
  return jsonify(deleted=id)
+
+def process_pending():
+ # Outside the locks: the share may be slow. Archived files of deleted recordings go once it answers.
+ pending=media_store.PendingDeletes(ROOT)
+ if pending.path.exists():pending.process(store)
 
 def delete_recording(id):
  # Shared deletion unit for explicit deletion and route-level storage cleanup.
@@ -722,12 +744,13 @@ def delete_recording(id):
   try:proc.wait(timeout=3)
   except subprocess.TimeoutExpired:proc.kill();proc.wait()
  pool.discard(id)
- # Archived files go first. An unreachable share does not block an explicit deletion: what is left there
- # is recorded and removed once it is back (media_store.PendingDeletes).
- m=read_meta(p);kinds=[kind for kind in media_store.MEDIA_KINDS if media_store.location(m,kind)=='nas']
- if kinds:
-  failed=media_store.delete_archived(store,id,kinds)[1]
-  if failed:media_store.PendingDeletes(ROOT).add(id,failed)
+ # The caller holds the locks, so the share is not touched here: archived files are only recorded, and
+ # removed after the locks are released (process_pending) or by the archiver, whenever the share answers.
+ try:m=read_meta(p)
+ except (OSError,ValueError):m={}  # A broken meta.json is still deletable; it records no archived files.
+ if not isinstance(m,dict):m={}
+ kinds=[kind for kind in media_store.MEDIA_KINDS if media_store.location(m,kind)=='nas']
+ if kinds:media_store.PendingDeletes(ROOT).add(id,kinds)
  shutil.rmtree(p)
 
 # Tags belong to the recording, never to disposable prepared data.
@@ -794,30 +817,35 @@ def recording_tags(id):
 
 @app.route('/api/logs/<id>/convert',methods=['POST'])
 def convert(id):
- # Outside the lock: an archived log may wait on the NAS (this also refreshes the state clear_prepared reads).
+ # Outside the lock: archived files may wait on the NAS.
  with lock:p=folder(id);m=read_meta(p)
- state=media_store.resolve(p,m,'rlog.zst',store)[1]
- if archived(m):store.state()
+ states=archived_states(p,m)
  with lock:
   p=folder(id);m=read_meta(p)
   if m['status'] in ('queued','processing','ready'):
    return jsonify(status=m['status'])
-  if state in ('storage_unavailable','checking'):return jsonify(error='storage_unavailable',message='저장소 연결 후 다시 시도하세요.'),409
-  if state=='corrupt':return jsonify(error='media_corrupt',message=MEDIA_ERRORS['media_corrupt'][1]),409
-  if state=='missing':return jsonify(error='원본 로그가 없습니다.'),409
-  clear_prepared(p,m)
+  # Local files are checked here; an archived one not resolved beforehand counts as unreachable.
+  def state(kind):return states.get(kind,'storage_unavailable') if media_store.location(m,kind)=='nas' else media_store.resolve(p,m,kind,store)[1]
+  # A conversion needs every archived input, videos included: refused now rather than queued and deferred.
+  if any(state(kind) in ('storage_unavailable','checking') for kind in STORED_KINDS):return jsonify(error='storage_unavailable',message='저장소 연결 후 다시 시도하세요.'),409
+  if state('rlog.zst')=='corrupt':return jsonify(error='media_corrupt',message=MEDIA_ERRORS['media_corrupt'][1]),409
+  if state('rlog.zst')=='missing':return jsonify(error='원본 로그가 없습니다.'),409
+  clear_prepared(p,m,states)
   m.update(status='queued',manual_conversion=True,auto_excluded=False)
   save_meta(p,m);submit(id)
  return jsonify(status='queued')
 
 @app.route('/api/logs/<id>/prepared',methods=['DELETE'])
 def remove_prepared(id):
+ # Outside the lock: whether an archived original is readable may wait on the NAS.
+ with lock:p=folder(id);m=read_meta(p)
+ states=archived_states(p,m,ORIGINALS)
  with lock:
   p=folder(id);m=read_meta(p)
   if request.args.get('skip_pinned')=='1' and storage_policy.pinned(m):return jsonify(skipped='pinned')
   if m['status']=='processing':return jsonify(error='처리 중에는 변환 데이터를 제거할 수 없습니다.'),409
   pool.discard(id)
-  clear_prepared(p,m)
+  clear_prepared(p,m,states)
   m.update(status='unconverted',manual_conversion=False,auto_excluded=True)
   save_meta(p,m)
  return jsonify(status='unconverted')
@@ -1069,7 +1097,7 @@ def requeue_startup():
   held=archived(m) and store.state()!='connected'
   stale=m['status']=='ready' and not held and (m.get('decoder_version')!='v28-runtime-geometry' or bool(m.get('video'))!=has_video(p,m) or prepared_file(p,'data.json')[0] is None)
   if m['status'] in ('queued','processing') or stale:
-   clear_prepared(p,m)
+   clear_prepared(p,m,archived_states(p,m,ORIGINALS))
    m.update(status='unconverted',video=has_video(p,m))
    save_meta(p,m)
   if m['status']=='unconverted' and not m.get('auto_excluded') and (auto_convert or m.get('manual_conversion')):pending.append((p,m))

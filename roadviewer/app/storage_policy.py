@@ -110,12 +110,13 @@ class StoragePolicy:
             groups.setdefault(key, []).append((p, m))
         candidates = []
         # A recording with archived files is not evicted while the share is unreachable: its files there
-        # could not be removed with it. Probed only if such a recording exists.
+        # could not be removed with it. The lock is held, so the share is not probed: only a recent
+        # "connected" result (callers refresh it before locking) makes such a recording evictable.
         reachable = None
         def evictable(m):
             nonlocal reachable
             if not self.s.archived(m): return True
-            if reachable is None: reachable = self.s.store.available()
+            if reachable is None: reachable = self.s.store.last_state() == 'connected'
             return reachable
         for key, rows in groups.items():
             if key in protected or any(m['id'] in protected_ids or m['status'] in ('queued', 'processing') for _, m in rows): continue

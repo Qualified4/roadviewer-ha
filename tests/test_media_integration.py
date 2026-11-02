@@ -202,11 +202,21 @@ class MediaIntegrationTests(unittest.TestCase):
   with patch.object(server,'submit') as submit:r=self.send('post',f'/api/logs/{p.name}/convert')
   self.assertEqual(r.json,{'status':'queued'});submit.assert_called_once_with(p.name)
 
+ def test_convert_409_when_video_on_unavailable_nas(self):
+  # The log is local, a camera is archived: refused up front instead of being queued and deferred.
+  nas,store=make_nas(self.root);self.use(store)
+  p=make_log(self.root,'a'*32,['rlog.zst'],['fcamera.hevc'],status='unconverted',nas=nas);(p/'prepared'/'data.json').write_text('{}')
+  before=server.read_meta(p);self.lose_nas(nas,store)
+  with patch.object(server,'submit') as submit:r=self.send('post',f'/api/logs/{p.name}/convert')
+  self.assertEqual(r.status_code,409);self.assertEqual(r.json['error'],'storage_unavailable');submit.assert_not_called()
+  self.assertEqual(server.read_meta(p),before);self.assertTrue((p/'prepared'/'data.json').is_file())
+
  def test_run_job_passes_media_paths_env(self):
   nas,store=make_nas(self.root);self.use(store)
   p=make_log(self.root,'a'*32,['camera.mp4'],['rlog.zst','fcamera.hevc'],status='queued',nas=nas)
-  m=server.read_meta(p);m['manual_conversion']=True;server.save_meta(p,m)
+  m=server.read_meta(p);m.update(manual_conversion=True,deferred='storage');server.save_meta(p,m)
   popen=self.run_job(p,returncode=1)
+  self.assertNotIn('deferred',server.read_meta(p))  # Cleared once the job really starts.
   args,kw=popen.call_args;env=kw['env']
   self.assertEqual(args[0][-2],str(nas/p.name/'rlog.zst'))
   paths=json.loads(env['RV_MEDIA_PATHS'])
@@ -249,7 +259,7 @@ class MediaIntegrationTests(unittest.TestCase):
   for state in (None,'checking'):
    with patch.object(store,'state',**({'return_value':state} if state else {'wraps':store.state})):popen=self.run_job(p)
    popen.assert_not_called()
-   m=server.read_meta(p);self.assertEqual((m['status'],m['error']),('unconverted','저장소에 연결할 수 없어 변환을 미뤘습니다.'))
+   m=server.read_meta(p);self.assertEqual((m['status'],m['error'],m['deferred']),('unconverted','저장소에 연결할 수 없어 변환을 미뤘습니다.','storage'))
    self.assertEqual(m.get('conversion_revision',0),0);self.assertTrue((p/'prepared'/'data.json').is_file())
    m['status']='queued';server.save_meta(p,m)
 
@@ -309,7 +319,7 @@ class MediaIntegrationTests(unittest.TestCase):
   new=make_log(self.root,'b'*32,['rlog.zst'],[]);(new/'qcamera.ts').write_bytes(b'x'*200000)
   m=server.read_meta(new);m.update(uploaded=2,name='0000041c--c6f39793a8--1');server.save_meta(new,m)
   def admit():
-   limit=server.storage_used_bytes()+65536-1
+   limit=server.storage_used_bytes()+65536-1;store.state()
    with patch.dict(server.storage_policy.settings,{'max_bytes':limit,'policy':'delete_oldest','pinned_logs':[]}),server.registration_lock,server.lock:
     server.storage_policy.admit(0,[],commit=True)
   self.lose_nas(nas,store);admit()
@@ -318,7 +328,16 @@ class MediaIntegrationTests(unittest.TestCase):
   # Connected again, the oldest recording goes first, archived files included.
   new=make_log(self.root,'b'*32,['rlog.zst'],[]);m=server.read_meta(new);m.update(uploaded=2,name='0000041c--c6f39793a8--1');server.save_meta(new,m)
   self.restore_nas(nas,store);admit()
-  self.assertFalse(old.exists());self.assertFalse((nas/old.name).exists());self.assertTrue(new.exists())
+  self.assertFalse(old.exists());self.assertTrue(new.exists())
+  # Under the locks the share is not touched: the files wait in the pending list until it is processed.
+  self.assertEqual(json.loads((self.root/'.pending-nas-deletes.json').read_text()),[{'id':old.name,'kinds':['fcamera.mp4']}])
+  server.process_pending();self.assertFalse((nas/old.name).exists());self.assertFalse((self.root/'.pending-nas-deletes.json').exists())
+  # Without a recent probe result, archived recordings are not evicted (the share is never probed under the lock).
+  old=make_log(self.root,'a'*32,['rlog.zst'],['fcamera.mp4'],nas=nas);store.invalidate()
+  limit=server.storage_used_bytes()+65536-1
+  with patch.object(store,'_probe',side_effect=AssertionError('probed under the lock')),patch.dict(server.storage_policy.settings,{'max_bytes':limit,'policy':'delete_oldest','pinned_logs':[]}),server.registration_lock,server.lock:
+   server.storage_policy.admit(0,[],commit=True)
+  self.assertTrue(old.exists());self.assertFalse(new.exists())
 
  def test_clear_prepared_keeps_mp4_when_original_unavailable(self):
   nas,store=make_nas(self.root);self.use(store)
@@ -327,8 +346,90 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertFalse((p/'prepared').exists());self.assertEqual((p/'fcamera.mp4').read_bytes(),b'fcamera.mp4'*10)
   self.assertTrue((nas/p.name/'fcamera.hevc').is_file());self.assertEqual(media_store.location(server.read_meta(p),'fcamera.hevc'),'nas')
   # Connected, the original is readable again and the MP4 is disposable output as before.
-  self.restore_nas(nas,store);server.clear_prepared(p,server.read_meta(p))
+  # Without states resolved beforehand an archived original never counts as readable.
+  self.restore_nas(nas,store);m=server.read_meta(p);server.clear_prepared(p,m);self.assertTrue((p/'fcamera.mp4').exists())
+  server.clear_prepared(p,m,server.archived_states(p,m))
   self.assertFalse((p/'fcamera.mp4').exists());self.assertTrue((nas/p.name/'fcamera.hevc').is_file())
+
+ def hung_probe(self,store):
+  # The share stops answering: probes block until released, then report connected.
+  started,release=threading.Event(),threading.Event();probe=store._probe
+  def hung():
+   started.set();release.wait(10);return probe()
+  store.invalidate()
+  return patch.object(store,'_probe',side_effect=hung),started,release
+
+ def assert_lock_free(self,label):
+  results={}
+  def listing():
+   c=server.app.test_client();results['logs']=c.get('/api/logs',environ_overrides=PEER).status_code;results['progress']=c.get('/api/progress',environ_overrides=PEER).status_code
+  other=threading.Thread(target=listing);other.start();other.join(2)
+  self.assertFalse(other.is_alive(),label);self.assertEqual((results['logs'],results['progress']),(200,200),label)
+
+ def test_delete_does_not_hold_lock_on_hung_nas(self):
+  nas,store=make_nas(self.root);self.use(store)
+  p=make_log(self.root,'a'*32,['rlog.zst'],['fcamera.mp4'],nas=nas);results={}
+  patcher,started,release=self.hung_probe(store)
+  with patcher:
+   def delete():results['delete']=server.app.test_client().delete(f'/api/logs/{p.name}',environ_overrides=PEER,headers=HEADERS).status_code
+   worker=threading.Thread(target=delete);worker.start()
+   try:
+    self.assertTrue(started.wait(5));self.assertFalse(p.exists())
+    self.assertEqual(json.loads((self.root/'.pending-nas-deletes.json').read_text()),[{'id':p.name,'kinds':['fcamera.mp4']}])
+    self.assertTrue(worker.is_alive());self.assertTrue((nas/p.name/'fcamera.mp4').is_file())
+    self.assertTrue(server.lock.acquire(timeout=2),'lock held during the NAS probe');server.lock.release()
+    self.assertTrue(server.registration_lock.acquire(timeout=2),'registration lock held during the NAS probe');server.registration_lock.release()
+    self.assert_lock_free('delete')
+   finally:release.set();worker.join(10)
+  # Once the share answered, the same request removed the archived files.
+  self.assertEqual(results['delete'],200);self.assertFalse((nas/p.name).exists());self.assertFalse((self.root/'.pending-nas-deletes.json').exists())
+
+ def test_prepared_removal_and_convert_do_not_hold_lock_on_hung_nas(self):
+  nas,store=make_nas(self.root);self.use(store)
+  p=make_log(self.root,'a'*32,['rlog.zst','fcamera.mp4'],['fcamera.hevc'],nas=nas);self.ready(p)
+  for method,url,expected in (('delete',f'/api/logs/{p.name}/prepared',200),('post',f'/api/logs/{p.name}/convert',200)):
+   patcher,started,release=self.hung_probe(store);results={}
+   with patcher,patch.object(server,'submit'):
+    def call():results['status']=getattr(server.app.test_client(),method)(url,environ_overrides=PEER,headers=HEADERS).status_code
+    worker=threading.Thread(target=call);worker.start()
+    try:
+     self.assertTrue(started.wait(5),url)
+     self.assertTrue(server.lock.acquire(timeout=2),url);server.lock.release()
+     self.assert_lock_free(url)
+    finally:release.set();worker.join(10)
+   self.assertEqual(results['status'],expected,url)
+  # Connected after the probe: the original is readable, so its MP4 was disposable output.
+  self.assertFalse((p/'fcamera.mp4').exists());self.assertEqual(server.read_meta(p)['status'],'queued')
+
+ def test_delete_with_broken_meta(self):
+  nas,store=make_nas(self.root);self.use(store)
+  p=make_log(self.root,'a'*32,['rlog.zst'],[]);(p/'meta.json').write_text('{broken')
+  self.assertEqual(self.send('delete',f'/api/logs/{p.name}').status_code,200);self.assertFalse(p.exists())
+  self.assertFalse((self.root/'.pending-nas-deletes.json').exists())
+
+ def test_pending_deletes_keep_corrupt_file_and_merge_concurrent_adds(self):
+  nas,store=make_nas(self.root);self.use(store)
+  pending=media_store.PendingDeletes(self.root);path=self.root/'.pending-nas-deletes.json'
+  path.write_text('{not json');pending.add('a'*32,['fcamera.mp4'])
+  aside=list(self.root.glob('.pending-nas-deletes.corrupt-*.json'))
+  self.assertEqual(len(aside),1);self.assertEqual(aside[0].read_text(),'{not json')
+  self.assertEqual(json.loads(path.read_text()),[{'id':'a'*32,'kinds':['fcamera.mp4']}])
+  # Partly malformed content is also kept aside; the valid entries stay pending.
+  for f in aside:f.unlink()
+  path.write_text(json.dumps([{'id':'a'*32,'kinds':['fcamera.mp4']},{'id':'../x','kinds':['rlog.zst']}]))
+  pending.add('b'*32,['rlog.zst'])
+  self.assertEqual(len(list(self.root.glob('.pending-nas-deletes.corrupt-*.json'))),1)
+  self.assertEqual(json.loads(path.read_text()),[{'id':'a'*32,'kinds':['fcamera.mp4']},{'id':'b'*32,'kinds':['rlog.zst']}])
+  # A deletion recorded while the share is being cleaned is not lost by the merge.
+  for id,kind in (('a'*32,'fcamera.mp4'),('b'*32,'rlog.zst')):
+   target=nas/id/kind;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(b'x')
+  real=media_store.delete_archived
+  def racing(store,id,kinds):
+   if id=='a'*32:pending.add('c'*32,['camera.mp4'])
+   return real(store,id,kinds)
+  with patch.object(media_store,'delete_archived',side_effect=racing):self.assertEqual(pending.process(store),2)
+  self.assertEqual(json.loads(path.read_text()),[{'id':'c'*32,'kinds':['camera.mp4']}])
+  self.assertFalse((nas/('a'*32)).exists());self.assertFalse((nas/('b'*32)).exists())
 
  def test_decoder_reads_paths_from_environment(self):
   import importlib,decoder

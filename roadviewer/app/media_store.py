@@ -101,6 +101,11 @@ class ArchiveStore:
         finally: self.lock.release()
 
     def state(self): return self._check()[0]
+    def last_state(self):
+        # The latest probe result without probing, for callers holding the server lock; None when stale.
+        if not self.settings.enabled: return 'disabled'
+        cached = self.cached
+        return cached[1] if cached and self.clock() - cached[0] < CACHE_SECONDS else None
     def reason(self): return self._check()[1]
     def available(self): return self.state() == 'connected'
     def invalidate(self): self.cached = None
@@ -192,12 +197,18 @@ class PendingDeletes:
     def __init__(self, root): self.path = Path(root) / PENDING_DELETES
 
     def _load(self):
+        # Caller holds self.lock. Any other read error propagates: the list must never be overwritten blind.
         try: rows = json.loads(self.path.read_text(encoding='utf-8'))
-        except (OSError, ValueError): return []
-        if not isinstance(rows, list): return []
+        except FileNotFoundError: return []
+        except ValueError: rows = None
         # Only well-formed entries: the id and kinds become paths on the share.
-        return [{'id': r['id'], 'kinds': [k for k in r['kinds'] if k in MEDIA_KINDS]} for r in rows
-                if isinstance(r, dict) and isinstance(r.get('id'), str) and RECORDING_ID.fullmatch(r['id']) and isinstance(r.get('kinds'), list)]
+        valid = [{'id': r['id'], 'kinds': [k for k in r['kinds'] if k in MEDIA_KINDS]} for r in rows
+                 if isinstance(r, dict) and isinstance(r.get('id'), str) and RECORDING_ID.fullmatch(r['id']) and isinstance(r.get('kinds'), list)] if isinstance(rows, list) else []
+        if not isinstance(rows, list) or valid != rows:
+            # Unreadable content is kept aside for inspection instead of being replaced by the next save.
+            self.path.replace(self.path.with_name(f'.pending-nas-deletes.corrupt-{int(time.time())}.json'))
+            if valid: atomic_json(self.path, valid)
+        return valid
 
     def _save(self, rows):
         if rows: atomic_json(self.path, rows)
@@ -213,13 +224,18 @@ class PendingDeletes:
 
     def process(self, store):
         # Returns the number of archived files removed. An entry stays until all its files are gone.
+        # The share is touched outside the lock; entries added meanwhile are kept by the merge.
         if not store.available(): return 0
-        total = 0
-        with self.lock:
-            rows, left = self._load(), []
-            for row in rows:
-                removed, failed = delete_archived(store, row['id'], row['kinds'])
-                total += removed
-                if failed: left.append({'id': row['id'], 'kinds': failed})
-            if left != rows: self._save(left)
+        with self.lock: rows = self._load()
+        total, done = 0, {}
+        for row in rows:
+            removed, failed = delete_archived(store, row['id'], row['kinds'])
+            total += removed
+            done[row['id']] = set(row['kinds']) - set(failed)
+        if done:
+            with self.lock:
+                current = self._load()
+                left = [{'id': r['id'], 'kinds': [k for k in r['kinds'] if k not in done.get(r['id'], ())]} for r in current]
+                left = [r for r in left if r['kinds']]
+                if left != current: self._save(left)
         return total
