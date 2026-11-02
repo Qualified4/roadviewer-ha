@@ -494,6 +494,8 @@ class Archiver:
             current = self._removable(p, kind, e, guarded=False)
             if current is None: return False  # Changed meanwhile: its new entry is not recorded as removed.
             set_location(current, kind, location='removed', removed_at=time.time(), reason='nas_full')
+            # Committed together: a video flag left True would make the restart check see a stale result.
+            current['video'] = s.has_video(p, current)
             try: s.save_meta(p, current)
             except OSError:
                 s.app.logger.exception('Index of %s not saved', p.name)

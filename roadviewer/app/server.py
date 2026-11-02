@@ -162,7 +162,8 @@ def run_job(id):
    if (p/'meta.json').exists():
     m=read_meta(p)
     if revision is not None and m.get('conversion_revision',0)==revision:
-     clear_prepared(p,m,states);m.update(status='error',error=str(e));save_meta(p,m)
+     if reconvertible(m,states):clear_prepared(p,m,states)
+     m.update(status='error',error=str(e));save_meta(p,m)
  finally:
   with lock:
    if processes.get(id) is proc:
@@ -191,6 +192,12 @@ def recording_paths():
 def archived_states(p,m,kinds=STORED_KINDS):
  # Resolve the archived kinds BEFORE taking the lock (the share may be slow); local kinds are checked later.
  return {kind:media_store.resolve(p,m,kind,store)[1] for kind in kinds if media_store.location(m,kind)=='nas'}
+
+def reconvertible(m,states=None):
+ # Replay data may be discarded for a reconversion only while its log can be read: an archived log by its state
+ # resolved beforehand (archived_states), never one removed by NAS cleanup. A local log is handled as before.
+ where=media_store.location(m,'rlog.zst')
+ return where=='local' or where=='nas' and (states or {}).get('rlog.zst')=='available'
 
 def clear_prepared(p,m,states=None):
  if (p/'prepared').exists():shutil.rmtree(p/'prepared')
@@ -829,8 +836,9 @@ def convert(id):
   def state(kind):return states.get(kind,'storage_unavailable') if media_store.location(m,kind)=='nas' else media_store.resolve(p,m,kind,store)[1]
   # A conversion needs every archived input, videos included: refused now rather than queued and deferred.
   if any(state(kind) in ('storage_unavailable','checking') for kind in STORED_KINDS):return jsonify(error='storage_unavailable',message='저장소 연결 후 다시 시도하세요.'),409
-  if state('rlog.zst')=='corrupt':return jsonify(error='media_corrupt',message=MEDIA_ERRORS['media_corrupt'][1]),409
-  if state('rlog.zst')=='missing':return jsonify(error='원본 로그가 없습니다.'),409
+  # An unreadable archived camera could not be converted again: its MP4 in prepared/ is the only playable copy.
+  if any(state(kind)=='corrupt' for kind in STORED_KINDS):return jsonify(error='media_corrupt',message=MEDIA_ERRORS['media_corrupt'][1]),409
+  if state('rlog.zst')=='missing' or not reconvertible(m,states):return jsonify(error='원본 로그가 없습니다.'),409
   clear_prepared(p,m,states)
   m.update(status='queued',manual_conversion=True,auto_excluded=False)
   save_meta(p,m);submit(id)
@@ -1091,14 +1099,22 @@ def video(id):
 def requeue_startup():
  # Invalidate all stale results before admitting work, oldest first.
  pending=[]
+ # The share is never probed here (a hung mount must not stall startup): only a recent result counts.
+ connected=store.last_state()=='connected'
  for p in recording_paths():
   m=read_meta(p)
   # Results of a recording with archived files are kept while the share cannot be checked: reconverting
   # without them would replace a good result with one lacking its videos.
-  held=archived(m) and store.state()!='connected'
-  stale=m['status']=='ready' and not held and (m.get('decoder_version')!='v28-runtime-geometry' or bool(m.get('video'))!=has_video(p,m) or prepared_file(p,'data.json')[0] is None)
+  held=archived(m) and not connected
+  states=archived_states(p,m,(*ORIGINALS,'rlog.zst')) if archived(m) and connected else {}
+  # Videos removed by NAS cleanup are gone for good: the result recorded with them is not stale for it.
+  removed=not has_video(p,m) and any(media_store.location(m,kind)=='removed' for kind in VIDEO_KINDS)
+  stale=m['status']=='ready' and not held and (m.get('decoder_version')!='v28-runtime-geometry' or bool(m.get('video'))!=has_video(p,m) and not removed or prepared_file(p,'data.json')[0] is None)
   if m['status'] in ('queued','processing') or stale:
-   clear_prepared(p,m,archived_states(p,m,ORIGINALS))
+   # Without a readable log the replay data cannot be made again: a ready result stays as it is.
+   if not reconvertible(m,states):
+    if m['status']=='ready':continue
+   else:clear_prepared(p,m,states)
    m.update(status='unconverted',video=has_video(p,m))
    save_meta(p,m)
   if m['status']=='unconverted' and not m.get('auto_excluded') and (auto_convert or m.get('manual_conversion')):pending.append((p,m))

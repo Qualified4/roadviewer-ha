@@ -211,6 +211,36 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertEqual(r.status_code,409);self.assertEqual(r.json['error'],'storage_unavailable');submit.assert_not_called()
   self.assertEqual(server.read_meta(p),before);self.assertTrue((p/'prepared'/'data.json').is_file())
 
+ def test_convert_refuses_corrupt_archived_camera(self):
+  # A camera whose archived original cannot be read would not come back from a reconversion: its MP4 is kept.
+  nas,store=make_nas(self.root);self.use(store)
+  p=make_log(self.root,'a'*32,['rlog.zst'],['fcamera.hevc'],status='error',nas=nas)
+  m=server.read_meta(p);m['storage']['fcamera.hevc']['error']='recovery_mismatch';server.save_meta(p,m)
+  (p/'prepared'/'fcamera.mp4').write_bytes(b'verified');(p/'prepared'/'data.json').write_text('{}');before=server.read_meta(p)
+  with patch.object(server,'submit') as submit:r=self.send('post',f'/api/logs/{p.name}/convert')
+  self.assertEqual(r.status_code,409);self.assertEqual(r.json,{'error':'media_corrupt','message':'영상 파일을 읽을 수 없습니다. 손상되었을 수 있습니다.'})
+  submit.assert_not_called();self.assertEqual(server.read_meta(p),before)
+  self.assertEqual((p/'prepared'/'fcamera.mp4').read_bytes(),b'verified');self.assertTrue((p/'prepared'/'data.json').is_file())
+
+ def test_run_job_failure_keeps_prepared_when_log_unreadable(self):
+  # A failed conversion normally discards the old result; not when its log cannot be read to make it again.
+  nas,store=make_nas(self.root);self.use(store)
+  removed=make_log(self.root,'a'*32,[],[],status='queued');m=server.read_meta(removed);m['manual_conversion']=True
+  media_store.set_location(m,'rlog.zst',location='removed',removed_at=1.0,reason='nas_full');server.save_meta(removed,m)
+  lost=make_log(self.root,'b'*32,[],['rlog.zst'],status='queued',nas=nas);m=server.read_meta(lost);m['manual_conversion']=True;server.save_meta(lost,m)
+  for p,during in ((removed,None),(lost,lambda:self.lose_nas(nas,store))):
+   (p/'prepared'/'data.json').write_text('{}');(p/'prepared'/'fcamera.mp4').write_bytes(b'verified')
+   with patch.object(server,'ProgressChannel') as channel,patch.object(server.subprocess,'Popen') as popen:
+    channel.return_value.__enter__.return_value.options.return_value={}
+    def communicate(**kw):
+     if during:during()  # The share goes away while the decoder runs.
+     return '','failed'
+    popen.return_value.communicate.side_effect=communicate;popen.return_value.returncode=1;popen.return_value.poll.return_value=1
+    server.run_job(p.name)
+   popen.assert_called_once()
+   m=server.read_meta(p);self.assertEqual((m['status'],m['error']),('error','failed'),p.name);self.assertEqual(m.get('conversion_revision',0),0,p.name)
+   self.assertEqual(sorted(f.name for f in (p/'prepared').iterdir()),['data.json','fcamera.mp4'],p.name)
+
  def test_run_job_passes_media_paths_env(self):
   nas,store=make_nas(self.root);self.use(store)
   p=make_log(self.root,'a'*32,['camera.mp4'],['rlog.zst','fcamera.hevc'],status='queued',nas=nas)

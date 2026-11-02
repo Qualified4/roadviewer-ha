@@ -339,6 +339,29 @@ class ArchiverTests(unittest.TestCase):
   self.assertEqual((p/'qcamera.ts').read_bytes(),b'qcamera.ts'*10)  # Local files are never touched.
   self.assertEqual(media_store.resolve(p,m,'fcamera.mp4',self.store),(None,'missing'))
 
+ def test_restart_after_cleanup_keeps_replay_data(self):
+  # Cleanup removes the archived videos, then the log; a restart must not see a stale result and wipe prepared/.
+  p=self.log('a'*32,['rlog.zst','fcamera.mp4'],decoder_version='v28-runtime-geometry',video=True)
+  (p/'prepared'/'data.json').write_text('{}');(p/'prepared'/'telemetry.json').write_text('{}')
+  def restart(label):
+   self.store.state()  # A recent "connected" result: the archived recording is not held back.
+   with patch.object(server,'store',self.store),patch.object(server,'auto_convert',True):server.requeue_startup()
+   m=server.read_meta(p);self.assertEqual(m['status'],'ready',label);self.submit.assert_not_called()
+   self.assertEqual(sorted(f.name for f in (p/'prepared').iterdir()),['data.json','telemetry.json'],label)
+   return m
+  self.assertEqual(self.archiver(min_age_seconds=0).run_cycle()['archived'],2)
+  log=len(b'rlog.zst'*10)
+  with self.share_usage():self.assertEqual(self.archiver(nas_max_bytes=log).cleanup_nas(),1)
+  m=server.read_meta(p);self.assertEqual(self.locations(p),{'fcamera.mp4':'removed','rlog.zst':'nas'})
+  self.assertIs(m['video'],False)  # Committed with the removal.
+  restart('videos removed')
+  # An index written before the flag was kept in step: the removal alone does not make the result stale.
+  m['video']=True;server.save_meta(p,m);restart('legacy video flag')
+  # The log removed too: nothing could reconvert it, so even an outdated result stays.
+  with self.share_usage():self.assertEqual(self.archiver(nas_max_bytes=1).cleanup_nas(),1)
+  m=server.read_meta(p);m['decoder_version']='old';server.save_meta(p,m)
+  self.assertEqual(restart('log removed')['decoder_version'],'old')
+
  def test_cleanup_stops_on_oserror_without_marking_removed(self):
   a=self.log('a'*32,[],uploaded=1,nas_kinds=['fcamera.mp4']);b=self.log('b'*32,[],uploaded=2,nas_kinds=['fcamera.mp4'])
   target=self.nas/a.name/'fcamera.mp4';real=Path.unlink

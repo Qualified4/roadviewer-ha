@@ -345,7 +345,7 @@ With archiving on, the library's video label has these states.
 | 저장소 연결 불가 (storage unavailable) | The video is on the NAS, which cannot be reached now | Playback switches to another camera or, if none, shows “영상 저장소에 연결할 수 없습니다. NAS 연결을 확인하세요.” and continues without video. Downloads fail; ZIPs are never built partially. Conversion is refused with “저장소 연결 후 다시 시도하세요.” |
 | 영상 없음 (no video) | No video registered, removed by NAS cleanup, or its NAS copy is missing while the NAS is reachable | Replay without video |
 | 영상 확인 중 (checking) | The NAS connection is being checked | Retry shortly |
-| 영상 읽기 오류 (read error) | The stored copy failed verification during recovery: neither the NAS copy nor the leftover local file matches the record | Cannot be played or downloaded |
+| 영상 읽기 오류 (read error) | The stored copy failed verification during recovery: neither the NAS copy nor the leftover local file matches the record | Cannot be played or downloaded. Conversion of the recording is refused so its converted video is kept. |
 
 ### When the NAS is unreachable
 
@@ -364,7 +364,7 @@ When the NAS folder exceeds `archive_nas_max_mb` or NAS free space falls below `
 1. Videos of unpinned recordings, oldest upload first.
 2. If still short, `rlog.zst` of unpinned recordings, oldest first.
 
-Files of pinned segments and of recordings being converted are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). While space stays short, runs continue on every interval and retry cleanup; only moving files pauses until space is freed, and Storage management shows the error.
+Files of pinned segments and of recordings being converted are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. Restarting the app keeps the converted data of such recordings. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). While space stays short, runs continue on every interval and retry cleanup; only moving files pauses until space is freed, and Storage management shows the error.
 
 ### Backups
 
