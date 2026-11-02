@@ -325,6 +325,96 @@ class ArchiverTests(unittest.TestCase):
   self.submit.assert_not_called();m=server.read_meta(p);self.assertEqual((m['status'],m['deferred']),('unconverted','storage'))
   self.assertEqual(archiver.status()['requeued_deferred'],0)
 
+ def held(self,id,local,nas,**fields):
+  # A converted recording with archived files, held at startup because the share had not been checked yet.
+  p=self.log(id,local,nas_kinds=nas,**{'decoder_version':'v28-runtime-geometry','video':True,**fields})
+  (p/'prepared'/'data.json').write_text('{}');(p/'prepared'/'telemetry.json').write_text('{}')
+  return p
+ def startup(self):
+  # Import time: no share result yet, so requeue_startup holds every recording with archived files.
+  with patch.object(server,'store',self.store),patch.object(self.store,'last_state',return_value=None):server.requeue_startup()
+
+ def test_recheck_requeues_stale_archived_recording_once_connected(self):
+  p=self.held('a'*32,[],['rlog.zst','fcamera.hevc'],decoder_version='old')
+  (p/'fcamera.mp4').write_bytes(b'mp4 of the archived original')
+  excluded=self.held('b'*32,['rlog.zst'],['fcamera.hevc'],decoder_version='old',auto_excluded=True)
+  missing=self.held('c'*32,['rlog.zst'],['fcamera.hevc']);(missing/'prepared'/'data.json').unlink()
+  fresh=self.held('d'*32,['rlog.zst'],['fcamera.hevc'])
+  with patch.object(server,'auto_convert',True):
+   self.startup()
+   for q in (p,excluded,missing,fresh):self.assertEqual(server.read_meta(q)['status'],'ready');self.assertTrue((q/'prepared'/'telemetry.json').is_file())
+   self.submit.assert_not_called()
+   archiver=self.archiver()
+   with patch.object(server,'store',self.store):archiver.run_cycle()
+  for q in (p,missing):
+   m=server.read_meta(q);self.assertEqual((m['status'],m['conversion_revision']),('queued',1));self.assertFalse((q/'prepared').exists())
+   self.assertTrue((self.nas/q.name/'fcamera.hevc').is_file());self.assertEqual(media_store.location(m,'fcamera.hevc'),'nas')
+  self.assertFalse((p/'fcamera.mp4').exists())  # Made again from its readable archived original.
+  self.assertEqual(server.read_meta(excluded)['status'],'unconverted');self.assertFalse((excluded/'prepared').exists())
+  self.assertEqual(server.read_meta(fresh)['status'],'ready');self.assertTrue((fresh/'prepared'/'data.json').is_file())
+  self.assertEqual(sorted(call.args[0] for call in self.submit.call_args_list),[p.name,missing.name])
+  self.assertEqual(archiver.status()['rechecked_held'],3)
+  # Once only: a later cycle does not look again.
+  self.submit.reset_mock();m=server.read_meta(fresh);m['decoder_version']='old';server.save_meta(fresh,m)
+  with patch.object(server,'store',self.store),patch.object(server,'auto_convert',True):archiver.run_cycle()
+  self.submit.assert_not_called();self.assertEqual(server.read_meta(fresh)['status'],'ready')
+
+ def test_recheck_respects_automatic_conversion_off(self):
+  p=self.held('a'*32,['rlog.zst'],['fcamera.hevc'],decoder_version='old')
+  q=self.held('b'*32,['rlog.zst'],['fcamera.hevc'],decoder_version='old',manual_conversion=True)
+  with patch.object(server,'auto_convert',False):
+   self.startup()
+   with patch.object(server,'store',self.store):self.archiver().run_cycle()
+  self.assertEqual(server.read_meta(p)['status'],'unconverted');self.assertEqual(server.read_meta(q)['status'],'queued')
+  self.submit.assert_called_once_with(q.name)
+
+ def test_recheck_waits_while_share_unavailable(self):
+  p=self.held('a'*32,[],['rlog.zst','fcamera.hevc'],decoder_version='old')
+  with patch.object(server,'auto_convert',True):
+   self.startup();before=server.read_meta(p)
+   (self.nas/media_store.SENTINEL).rename(self.nas/'sentinel');self.store.invalidate()
+   archiver=self.archiver()
+   with patch.object(server,'store',self.store):
+    archiver.recover_startup();self.assertEqual(archiver.run_cycle()['stopped'],'storage_unavailable')
+   self.assertEqual(server.read_meta(p),before);self.assertTrue((p/'prepared'/'data.json').is_file());self.submit.assert_not_called()
+   self.assertEqual(archiver.status()['rechecked_held'],0)
+   # Connected again: checked then.
+   (self.nas/'sentinel').rename(self.nas/media_store.SENTINEL);self.store.invalidate()
+   with patch.object(server,'store',self.store):archiver.run_cycle()
+  self.assertEqual(server.read_meta(p)['status'],'queued');self.submit.assert_called_once_with(p.name)
+
+ def test_recheck_keeps_result_when_log_removed_or_input_unreadable(self):
+  gone=self.held('a'*32,[],['fcamera.hevc'],decoder_version='old')
+  m=server.read_meta(gone);media_store.set_location(m,'rlog.zst',location='removed',removed_at=1.0,reason='nas_full');server.save_meta(gone,m)
+  corrupt=self.held('b'*32,[],['rlog.zst','fcamera.hevc'],decoder_version='old')
+  m=server.read_meta(corrupt);m['storage']['rlog.zst']['error']='recovery_mismatch';server.save_meta(corrupt,m)
+  lost=self.held('c'*32,['rlog.zst'],['fcamera.hevc'],decoder_version='old');(self.nas/lost.name/'fcamera.hevc').unlink()
+  with patch.object(server,'auto_convert',True):
+   self.startup();before={q:server.read_meta(q) for q in (gone,corrupt,lost)}
+   archiver=self.archiver(local_threshold_bytes=10**9)  # Nothing is moved meanwhile.
+   with patch.object(server,'store',self.store):archiver.run_cycle()
+  for q,m in before.items():
+   self.assertEqual(server.read_meta(q),m,q.name);self.assertEqual(sorted(f.name for f in (q/'prepared').iterdir()),['data.json','telemetry.json'])
+  self.submit.assert_not_called();self.assertEqual(archiver.status()['rechecked_held'],0)
+
+ def test_recheck_leaves_local_only_recordings_to_startup(self):
+  p=self.log('a'*32,['rlog.zst','qcamera.ts'],decoder_version='old',video=True);(p/'prepared'/'data.json').write_text('{}')
+  with patch.object(server,'auto_convert',True):
+   with patch.object(server,'store',self.store):archiver=self.archiver(local_threshold_bytes=10**9);archiver.run_cycle()
+   self.assertEqual(server.read_meta(p)['status'],'ready');self.assertTrue((p/'prepared'/'data.json').is_file());self.submit.assert_not_called()
+   self.assertEqual(archiver.status()['rechecked_held'],0)
+   self.startup()
+  self.assertEqual(server.read_meta(p)['status'],'queued');self.assertFalse((p/'prepared').exists());self.submit.assert_called_once_with(p.name)
+
+ def test_recheck_does_no_share_io_under_server_lock(self):
+  p=self.held('a'*32,[],['rlog.zst','fcamera.hevc'],decoder_version='old');self.startup()
+  real=media_store.resolve
+  def checked(*args):
+   self.assertFalse(server.lock._is_owned(),'share probed under the server lock');return real(*args)
+  with patch.object(server,'store',self.store),patch.object(server,'auto_convert',True),patch.object(media_store,'resolve',side_effect=checked) as resolve:
+   self.archiver().recheck_held()
+  self.assertTrue(resolve.called);self.assertEqual(server.read_meta(p)['status'],'queued')
+
  def share_usage(self,calls=None):
   # The share's used bytes from its files (the sentinel aside); free space is ample unless a test says otherwise.
   def usage():

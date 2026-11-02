@@ -1116,6 +1116,21 @@ def video(id):
  file=media_file(p,m,name) or p/'prepared'/name
  if not file.exists():abort(404)
  return send_file(file,mimetype='video/mp4',conditional=True)
+def stale_recording(p,m):
+ # A ready result made by an older decoder, without its replay data, or recorded with other videos than stored now.
+ # Videos removed by NAS cleanup are gone for good: the result recorded with them is not stale for it.
+ removed=not has_video(p,m) and any(media_store.location(m,kind)=='removed' for kind in VIDEO_KINDS)
+ return m['status']=='ready' and (m.get('decoder_version')!='v28-runtime-geometry' or bool(m.get('video'))!=has_video(p,m) and not removed or prepared_file(p,'data.json')[0] is None)
+
+def invalidate_recording(p,m,states):
+ # Marks the recording for conversion again; the caller saves it. Archived inputs count only by states resolved
+ # beforehand (archived_states). False when a ready result is kept because its log cannot be read.
+ if not reconvertible(m,states):
+  if m['status']=='ready':return False
+ else:clear_prepared(p,m,states)
+ m.update(status='unconverted',video=has_video(p,m))
+ return True
+
 def requeue_startup():
  # Invalidate all stale results before admitting work, oldest first.
  pending=[]
@@ -1124,18 +1139,12 @@ def requeue_startup():
  for p in recording_paths():
   m=read_meta(p)
   # Results of a recording with archived files are kept while the share cannot be checked: reconverting
-  # without them would replace a good result with one lacking its videos.
+  # without them would replace a good result with one lacking its videos. The archiver checks them once
+  # the share is connected (Archiver.recheck_held).
   held=archived(m) and not connected
   states=archived_states(p,m,(*ORIGINALS,'rlog.zst')) if archived(m) and connected else {}
-  # Videos removed by NAS cleanup are gone for good: the result recorded with them is not stale for it.
-  removed=not has_video(p,m) and any(media_store.location(m,kind)=='removed' for kind in VIDEO_KINDS)
-  stale=m['status']=='ready' and not held and (m.get('decoder_version')!='v28-runtime-geometry' or bool(m.get('video'))!=has_video(p,m) and not removed or prepared_file(p,'data.json')[0] is None)
-  if m['status'] in ('queued','processing') or stale:
-   # Without a readable log the replay data cannot be made again: a ready result stays as it is.
-   if not reconvertible(m,states):
-    if m['status']=='ready':continue
-   else:clear_prepared(p,m,states)
-   m.update(status='unconverted',video=has_video(p,m))
+  if m['status'] in ('queued','processing') or not held and stale_recording(p,m):
+   if not invalidate_recording(p,m,states):continue
    save_meta(p,m)
   if m['status']=='unconverted' and not m.get('auto_excluded') and (auto_convert or m.get('manual_conversion')):pending.append((p,m))
  pending.sort(key=lambda row:(row[1].get('uploaded',0),row[0].name))

@@ -307,6 +307,8 @@ class Archiver:
         # What triggered the last share cleanup (None, 'nas_max', 'nas_margin') and why it could not finish.
         self.cleanup_last_reason, self.cleanup_error = None, None
         self.recovered = False  # Crash recovery completed once with the share reachable.
+        # Recordings held by requeue_startup were checked once with the share reachable (recheck_held).
+        self.held_checked, self.rechecked_held = False, 0
         # Why the last archive_file returned False; None when the recording changed meanwhile.
         # Shared state: archive_file must only be called from run_cycle (which holds self.cycle).
         self.reason = None
@@ -314,7 +316,8 @@ class Archiver:
     def status(self):
         return {'last_cycle_at': self.last_cycle_at, 'last_error': self.last_error, 'consecutive_failures': self.consecutive_failures,
                 'running': self.running, 'archived_files_total': self.archived_files_total, 'requeued_deferred': self.requeued_deferred,
-                'removed_files_total': self.removed_files_total, 'cleanup_last_reason': self.cleanup_last_reason}
+                'removed_files_total': self.removed_files_total, 'cleanup_last_reason': self.cleanup_last_reason,
+                'rechecked_held': self.rechecked_held}
 
     def start(self):
         if not self.settings.enabled or self.thread: return
@@ -377,8 +380,7 @@ class Archiver:
         s = self.server
         if not self.store.available(): return self._failed('storage_unavailable')
         self.last_cycle_at = time.time()
-        # Recovery skipped at startup (share down) or requested by a commit whose local unlink failed.
-        if not self.recovered: self._recover()
+        self._startup()
         try: PendingDeletes(s.ROOT).process(self.store)
         except (OSError, ValueError): s.app.logger.exception('Pending archive deletions failed')
         self.cleanup_nas()
@@ -672,7 +674,45 @@ class Archiver:
         # a copy without its index stays for the next cycle. Nothing is done while the share is unreachable.
         # Until it completes once, every connected cycle runs it first.
         if not self.settings.enabled: return
-        with self.cycle: self._recover()
+        with self.cycle: self._startup()
+
+    def _startup(self):
+        # Caller holds self.cycle. Both run at the first connected cycle when skipped at startup (share down);
+        # recovery also when requested by a commit whose local unlink failed.
+        if not self.store.available(): return
+        if not self.held_checked: self.recheck_held()
+        if not self.recovered: self._recover()
+
+    def recheck_held(self):
+        # requeue_startup cannot check the share, so it keeps the results of recordings with archived files. Once
+        # the share is connected the same stale rule applies to them, once: only when every archived input
+        # resolves as available (a ready result is never discarded for a reconversion that could lose data).
+        # The share is resolved outside the server lock; the index is re-read under it.
+        s, rows, ids, unsure = self.server, [], [], False
+        for p in s.recording_paths():
+            try: m = s.read_meta(p)
+            except (OSError, ValueError): continue
+            if not isinstance(m, dict) or m.get('status') != 'ready' or not s.archived(m): continue
+            states = s.archived_states(p, m)
+            unsure = unsure or any(state in ('storage_unavailable', 'checking') for state in states.values())
+            if all(state == 'available' for state in states.values()) and s.reconvertible(m, states): rows.append((p, m, states))
+        with s.lock:
+            for p, before, states in rows:
+                try: m = s.read_meta(p)
+                except (OSError, ValueError): continue
+                # The states belong to the index read above: a recording changed meanwhile waits for the next start.
+                if (not isinstance(m, dict) or p.name in s.processes or m.get('storage') != before.get('storage')
+                        or m.get('conversion_revision', 0) != before.get('conversion_revision', 0) or not s.stale_recording(p, m)): continue
+                if not s.invalidate_recording(p, m, states): continue
+                if not m.get('auto_excluded') and (s.auto_convert or m.get('manual_conversion')):
+                    m['status'] = 'queued'
+                    ids.append(p.name)
+                s.save_meta(p, m)
+                self.rechecked_held += 1
+        for id in ids: s.submit(id)
+        # A share lost meanwhile left some unchecked: they are looked at again by the next connected cycle.
+        if not unsure: self.held_checked = True
+        return len(ids)
 
     def _recover(self):
         # Caller holds self.cycle. Sets self.recovered only when every recording was checked with the share reachable.
