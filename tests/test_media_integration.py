@@ -1,5 +1,5 @@
 """Read paths (list, playback, downloads) serve media from the archive store through the same URLs."""
-import io,json,os,sys,tempfile,unittest,zipfile
+import io,json,os,sys,tempfile,threading,unittest,zipfile
 from pathlib import Path
 from unittest.mock import patch
 os.environ['RV_DATA']=tempfile.mkdtemp()
@@ -116,6 +116,29 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertEqual(self.get(f'/api/logs/{p.name}/video?source=front').status_code,404)
   self.assertEqual(self.get(f'/api/logs/{p.name}/original/fcamera.mp4').status_code,404)
   self.assertEqual(self.get(f'/api/logs/{p.name}/download?source=front').status_code,404)
+
+ def test_hung_nas_does_not_block_other_requests(self):
+  # A download stuck on an unresponsive share must not hold the lock shared by the list, progress and uploads.
+  nas,store=make_nas(self.root);self.use(store)
+  p=make_log(self.root,'a'*32,['rlog.zst'],['fcamera.mp4'],nas=nas)
+  for url in (f'/api/logs/{p.name}/download/video',f'/api/logs/{p.name}/download?source=front',f'/api/logs/download.zip?ids={p.name}&parts=rlog,front',f'/api/logs/download.zip?ids={p.name}&parts=rlog,front&format=mp4'):
+   started,release=threading.Event(),threading.Event();results={}
+   def probe():
+    started.set();release.wait(10);return 'connected',None
+   def download():
+    r=server.app.test_client().get(url,environ_overrides=PEER);results['download']=(r.status_code,len(r.data));r.close()
+   def listing():
+    c=server.app.test_client();results['logs']=c.get('/api/logs',environ_overrides=PEER).status_code;results['progress']=c.get('/api/progress',environ_overrides=PEER).status_code
+   store.invalidate()
+   with patch.object(store,'_probe',side_effect=probe):
+    worker=threading.Thread(target=download);worker.start()
+    try:
+     self.assertTrue(started.wait(5),url)
+     other=threading.Thread(target=listing);other.start();other.join(2)
+     self.assertFalse(other.is_alive(),url);self.assertEqual((results['logs'],results['progress']),(200,200),url)
+     self.assertTrue(worker.is_alive(),url)
+    finally:release.set();worker.join(10)
+   self.assertEqual(results['download'][0],200,url);self.assertGreater(results['download'][1],0,url)
 
  def test_archiving_off_serves_local_files(self):
   store=media_store.ArchiveStore(media_store.ArchiveSettings(),self.root);self.use(store)

@@ -786,8 +786,9 @@ def remove_prepared(id):
 def download_video(id):
  with lock:
   p=folder(id);kind=video_download_kind(p,read_meta(p))
-  if kind is None:abort(404)
-  return original(id,kind)
+ if kind is None:abort(404)
+ # Outside the lock: resolving an archived file may wait on the NAS.
+ return original(id,kind)
 
 def download_name(m,kind):
  # The uploaded filename (e.g. 000003fe--d524dc1e0b--8--rlog.zst); a kept MP4 takes its original's name.
@@ -861,31 +862,48 @@ def export_chunks(source,kind,offset):
   if proc.poll() is None:proc.terminate()
   proc.wait();proc.stdout.close();proc.stderr.close()
 
+def plan_downloads(ids,parts,format):
+ # Without the lock: metadata is replaced atomically, and resolving archived files may wait on the NAS.
+ plans,names=[],set()
+ for id in ids:
+  p=folder(id);m=read_meta(p);rows=[]
+  if 'rlog' in parts and (log:=media_file(p,m,'rlog.zst')):rows.append((log,'rlog.zst',None,0))
+  for source in ('front','wide','qcamera'):
+   if source in parts and (plan:=planned_video(p,m,source,format)):rows.append(plan)
+  for path,kind,export,offset in rows:
+   name=download_name(m,kind)
+   if name in names:name=f'{id[:8]}-{name}'
+   names.add(name);plans.append((path,name,export,offset))
+ return plans
+
+def open_downloads(ids,plans):
+ # Archived files are opened outside the lock (a local deletion cannot affect them); local files under it,
+ # after rechecking each recording, so a concurrent deletion answers 404 as before.
+ sources=[None]*len(plans)
+ try:
+  for i,(path,*_) in enumerate(plans):
+   if path.is_relative_to(ROOT):continue
+   try:sources[i]=path.open('rb')
+   except OSError:abort(503,description='storage_unavailable')  # The archive went away after resolving.
+  with lock:
+   for id in ids:folder(id)
+   for i,(path,*_) in enumerate(plans):
+    if sources[i] is None:sources[i]=path.open('rb')
+ except BaseException:
+  for source in sources:
+   if source:source.close()
+  raise
+ return [(source,*plan[1:]) for source,plan in zip(sources,plans)]
+
 def download_selected(ids,parts,format,single=False):
  if format not in ('mp4','original'):abort(400)
- entries=[]
- try:
-  with lock:
-   for id in ids:
-    p=folder(id);m=read_meta(p)
-    plans=[]
-    if 'rlog' in parts and (log:=media_file(p,m,'rlog.zst')):plans.append((log,'rlog.zst',None,0))
-    for source in ('front','wide','qcamera'):
-     if source not in parts:continue
-     plan=planned_video(p,m,source,format)
-     if plan:plans.append(plan)
-    for path,kind,export,offset in plans:
-     name=download_name(m,kind)
-     if any(entry[1]==name for entry in entries):name=f'{id[:8]}-{name}'
-     try:entries.append((path.open('rb'),name,export,offset))
-     except OSError:
-      # The archive went away between resolving and opening: refuse the whole download.
-      if not path.is_relative_to(ROOT):abort(503,description='storage_unavailable')
-      raise
-  if not entries:abort(404)
- except BaseException:
-  for source,*_ in entries:source.close()
-  raise
+ for attempt in range(3):
+  plans=plan_downloads(ids,parts,format)
+  if not plans:abort(404)
+  try:entries=open_downloads(ids,plans);break
+  except FileNotFoundError:
+   # A conversion replaced a local file (original -> kept MP4) after planning: plan again.
+   if attempt==2:raise
  def stream():
   try:
    if single:
@@ -931,17 +949,19 @@ def download_many():
  if not ids or len(ids)>150 or not parts or not parts<=set(DOWNLOAD_PARTS):abort(400)
  if request.args.get('format') is not None:return download_selected(ids,parts,request.args['format'])
  entries,names=[],set()
+ # Without the lock: resolving archived files may wait on the NAS. Files are opened while streaming.
+ for id in ids:
+  p=folder(id);m=read_meta(p)
+  kinds=(['rlog.zst'] if 'rlog' in parts else [])+[row['kind'] for row in video_downloads(p,m) if row['source'] in parts]
+  for kind in kinds:
+   # Every file is resolved before streaming: one unreachable file refuses the whole ZIP.
+   path=media_file(p,m,kind)
+   if path is None:continue
+   name=download_name(m,kind)
+   if name in names:name=f'{id[:8]}-{name}'
+   names.add(name);entries.append((path,name))
  with lock:
-  for id in ids:
-   p=folder(id);m=read_meta(p)
-   kinds=(['rlog.zst'] if 'rlog' in parts else [])+[row['kind'] for row in video_downloads(p,m) if row['source'] in parts]
-   for kind in kinds:
-    # Every file is resolved before streaming: one unreachable file refuses the whole ZIP.
-    path=media_file(p,m,kind)
-    if path is None:continue
-    name=download_name(m,kind)
-    if name in names:name=f'{id[:8]}-{name}'
-    names.add(name);entries.append((path,name))
+  for id in ids:folder(id)
  if not entries:abort(404)
  response=app.response_class(zip_stream(entries),mimetype='application/zip',direct_passthrough=True)
  response.headers['Content-Disposition']=f'attachment; filename="roadviewer-{len(ids)}-segments-{time.strftime("%Y%m%d-%H%M%S")}.zip"'
