@@ -1,5 +1,5 @@
 from pathlib import Path
-import sys,json,hashlib,bisect,collections,math,struct
+import os,sys,json,hashlib,bisect,collections,math,struct
 import av,zstandard,capnp
 from steering import SteeringReplay
 from timeline import align_timeline
@@ -12,6 +12,14 @@ from telemetry import extract_telemetry,FIELDS
 from compact import compact_data,write_gzip_json
 BASE=Path(__file__).resolve().parent
 log=capnp.load(str(BASE.parent/'schema/cereal/log.capnp'))
+
+# server.run_job says where each file is: archived camera files (and the log, given as argv[1]) may be on
+# the NAS, while the replay output (RV_PREPARED_DIR) and meta.json (RV_RECORDING_DIR) stay in the local
+# recording folder. Without these variables (manual runs) everything is next to the log, as before.
+MEDIA_PATHS={k:Path(v) for k,v in json.loads(os.environ.get('RV_MEDIA_PATHS','{}')).items()}
+def media(src,name):return MEDIA_PATHS.get(name,src.parent/name)
+def prepared_dir(src):return Path(os.environ['RV_PREPARED_DIR']) if os.environ.get('RV_PREPARED_DIR') else src.parent/'prepared'
+def recording_dir(src):return Path(os.environ['RV_RECORDING_DIR']) if os.environ.get('RV_RECORDING_DIR') else src.parent
 
 # to_dict() converts every field of every message, which dominated conversion time and memory.
 # pick() returns the same values for only the fields used here, with to_dict()'s rules:
@@ -134,14 +142,14 @@ def first_y(line):
 def prepare(value,route=None):
  progress=Reporter();progress.update('log_prepare',percent=0)
  def report(stage,percent):progress.update(stage,percent=percent,force=percent in (0,100))
- src=Path(value).resolve();video=src.parent/'qcamera.ts'
- if not video.is_file():video=src.parent/'camera.mp4'
+ src=Path(value).resolve();video=media(src,'qcamera.ts')
+ if not video.is_file():video=media(src,'camera.mp4')
  log_entry={'label':route or src.parent.name};choices=[]
  def attach(data):
   data.update(path=str(src),route=log_entry['label'],choices=choices)
   return data
- key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str((src.parent/name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if (src.parent/name).is_file())+'v28-runtime-geometry-rear1').encode()).hexdigest()[:20]
- dest=src.parent/'prepared';dest.mkdir(parents=True,exist_ok=True)
+ key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str(media(src,name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if media(src,name).is_file())+'v28-runtime-geometry-rear1').encode()).hexdigest()[:20]
+ dest=prepared_dir(src);dest.mkdir(parents=True,exist_ok=True)
  def save_summary(data):
   (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{})},ensure_ascii=False))
  print('로그 읽는 중:',src,flush=True)
@@ -250,7 +258,7 @@ def prepare(value,route=None):
  video_info=None;warnings=[]
  # Events newer than our schema are skipped silently (counted in counts['unknownEvent']): they never affect
  # what is shown, and a fork adding its own events must not make every log look broken.
- video_inputs={key:next((src.parent/name for name in names[:2] if (src.parent/name).is_file()),None) for key,names in SOURCES.items()}
+ video_inputs={key:next((media(src,name) for name in names[:2] if media(src,name).is_file()),None) for key,names in SOURCES.items()}
  camera_progress=VideoProgress(progress,sum(path is not None for path in video_inputs.values()))
  try:
   if video.exists() and cameras:
@@ -285,7 +293,7 @@ def prepare(value,route=None):
      camera_progress.update('video_convert',percent=100,force=True)
      camera_progress.update('video_verify',percent=0)
      verified=inspect_mp4(output_video,[p-pts[0] for p in pts] if video.suffix=='.ts' else pts,camera_progress,signature)
-     video_info={**verified,'start':qs[0]['timestampEof']/1e9-origin-(0 if video.suffix=='.ts' else pts[0]),'timestampSpreadMs':(max(offsets)-min(offsets))*1000,'sourcePts':pts[0] if video.suffix=='.ts' else json.loads((src.parent/'meta.json').read_text()).get('video_origins',{}).get('qcamera',0) if (src.parent/'meta.json').is_file() else 0}
+     video_info={**verified,'start':qs[0]['timestampEof']/1e9-origin-(0 if video.suffix=='.ts' else pts[0]),'timestampSpreadMs':(max(offsets)-min(offsets))*1000,'sourcePts':pts[0] if video.suffix=='.ts' else json.loads((recording_dir(src)/'meta.json').read_text()).get('video_origins',{}).get('qcamera',0) if (recording_dir(src)/'meta.json').is_file() else 0}
     else:warnings.append('영상과 로그의 프레임 시간이 일치하지 않아 영상 동기화를 중단했습니다.')
    else:warnings.append('영상과 로그의 프레임 수가 일치하지 않아 영상 동기화를 중단했습니다.')
   elif video.exists():warnings.append('카메라 프레임 정보가 없어 영상 동기화를 사용할 수 없습니다.')

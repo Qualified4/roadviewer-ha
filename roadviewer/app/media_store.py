@@ -166,3 +166,60 @@ def media_size(p, meta, kind, store):
     if e['location'] == 'removed': return 0
     try: return (Path(p) / kind).stat().st_size
     except OSError: return 0
+
+def delete_archived(store, id, kinds):
+    # Removes the recording's files from the share. Returns (removed count, kinds that could not be removed).
+    if not store.available(): return 0, list(kinds)
+    removed, failed = 0, []
+    for kind in kinds:
+        try:
+            path = store.path_for(id, kind)
+            if path.is_file(): path.unlink(); removed += 1
+        except OSError: failed.append(kind)
+    if not failed:
+        # The recording's folder, once empty; anything else left there is kept rather than guessed at.
+        try: (store.settings.path / id).rmdir()
+        except OSError: pass
+    return removed, failed
+
+PENDING_DELETES = '.pending-nas-deletes.json'
+RECORDING_ID = re.compile(r'^[a-f0-9]{32}$')
+
+class PendingDeletes:
+    """Archived files of deleted recordings that could not be removed yet because the share was unreachable."""
+    lock = threading.Lock()  # One file shared by deletion requests and the archiver.
+
+    def __init__(self, root): self.path = Path(root) / PENDING_DELETES
+
+    def _load(self):
+        try: rows = json.loads(self.path.read_text(encoding='utf-8'))
+        except (OSError, ValueError): return []
+        if not isinstance(rows, list): return []
+        # Only well-formed entries: the id and kinds become paths on the share.
+        return [{'id': r['id'], 'kinds': [k for k in r['kinds'] if k in MEDIA_KINDS]} for r in rows
+                if isinstance(r, dict) and isinstance(r.get('id'), str) and RECORDING_ID.fullmatch(r['id']) and isinstance(r.get('kinds'), list)]
+
+    def _save(self, rows):
+        if rows: atomic_json(self.path, rows)
+        else: self.path.unlink(missing_ok=True)
+
+    def add(self, id, kinds):
+        with self.lock:
+            rows = self._load()
+            row = next((r for r in rows if r['id'] == id), None)
+            if row is None: rows.append({'id': id, 'kinds': list(kinds)})
+            else: row['kinds'] += [k for k in kinds if k not in row['kinds']]
+            self._save(rows)
+
+    def process(self, store):
+        # Returns the number of archived files removed. An entry stays until all its files are gone.
+        if not store.available(): return 0
+        total = 0
+        with self.lock:
+            rows, left = self._load(), []
+            for row in rows:
+                removed, failed = delete_archived(store, row['id'], row['kinds'])
+                total += removed
+                if failed: left.append({'id': row['id'], 'kinds': failed})
+            if left != rows: self._save(left)
+        return total
