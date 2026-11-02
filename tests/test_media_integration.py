@@ -4,6 +4,7 @@ import hashlib,io,json,os,sys,tempfile,threading,unittest,zipfile
 from pathlib import Path
 from unittest.mock import patch
 os.environ['RV_DATA']=tempfile.mkdtemp()
+os.environ['RV_ARCHIVE_ALLOW_ANY_PATH']='1'  # Temporary directories stand in for the share (also for its first activation).
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
 import server,media_store
 

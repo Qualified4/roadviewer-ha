@@ -128,6 +128,31 @@ class ArchiverTests(unittest.TestCase):
   with patch.object(media_store,'_sha256',side_effect=spy):self.assertEqual(self.archiver().run_cycle()['archived'],1)
   self.assertEqual(hashed,[self.nas/p.name/'rlog.zst.part'])  # Only the copy is re-read.
 
+ def test_copy_drops_cached_pages_before_reread(self):
+  # The comparison must read the share, not the client's page cache holding the bytes just written.
+  p=self.log('a'*32,['rlog.zst']);order=[];real=media_store._sha256
+  def spy(path):order.append(('hash',path.name));return real(path)
+  def fadvise(fd,offset,length,advice):order.append(('fadvise',type(fd),offset,length,advice))
+  with patch.object(media_store,'_sha256',side_effect=spy),patch.object(media_store.os,'posix_fadvise',side_effect=fadvise,create=True):
+   self.assertEqual(self.archiver().run_cycle()['archived'],1)
+  self.assertEqual(order[-2:],[('fadvise',int,0,0,media_store.os.POSIX_FADV_DONTNEED),('hash','rlog.zst.part')])
+  # Advice the share refuses changes nothing.
+  q=self.log('b'*32,['rlog.zst'])
+  with patch.object(media_store.os,'posix_fadvise',side_effect=OSError(22,'Invalid argument'),create=True) as fadvise:
+   self.assertEqual(self.archiver().run_cycle()['archived'],1)
+  fadvise.assert_called_once();self.assertEqual(media_store.location(server.read_meta(q),'rlog.zst'),'nas')
+
+ def test_index_commit_is_flushed_before_local_unlink(self):
+  p=self.log('a'*32,['rlog.zst','fcamera.mp4']);calls=[];real=media_store.atomic_json
+  def commit(path,value):
+   kinds=[k for k in ('fcamera.mp4','rlog.zst') if media_store.location(value,k)=='nas']
+   calls.append((path,kinds[-1],(p/kinds[-1]).exists()));real(path,value)
+  with patch.object(media_store,'atomic_json',side_effect=commit),patch.object(server,'save_meta',side_effect=AssertionError('unflushed commit')):
+   self.assertEqual(self.archiver().run_cycle()['archived'],2)
+  # One fsync'd write per file, each while its local copy still existed.
+  self.assertEqual(calls,[(p/'meta.json','fcamera.mp4',True),(p/'meta.json','rlog.zst',True)])
+  self.assertEqual(self.locations(p),{'fcamera.mp4':'nas','rlog.zst':'nas'});self.assertFalse((p/'rlog.zst').exists())
+
  def test_stops_when_nas_full(self):
   p=self.log('a'*32,['rlog.zst','fcamera.mp4'])
   usage=media_store.shutil.disk_usage(self.nas)._replace(free=100*media_store.MB+50)
@@ -208,6 +233,26 @@ class ArchiverTests(unittest.TestCase):
   m['content_hashes']={'rlog.zst':{'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':sha(b'rlog.zst'*10)}};server.save_meta(p,m)
   self.archiver().recover_startup()
   self.assert_untouched(p,['rlog.zst','fcamera.mp4']);self.assertNotIn('storage',server.read_meta(p))
+
+ def test_recover_adopts_copy_whose_index_was_lost(self):
+  # Power loss after the local unlink but before the index reached the disk: index local, local file gone,
+  # the share holds the recorded content. Recovery points the index at that copy.
+  p=self.log('a'*32,['rlog.zst','fcamera.mp4']);q=self.log('b'*32,['rlog.zst','fcamera.mp4'])
+  for r in (p,q):
+   m=server.read_meta(r);server.stored_digests(r,m);server.save_meta(r,m)
+   (self.nas/r.name).mkdir();shutil.copyfile(r/'fcamera.mp4',self.nas/r.name/'fcamera.mp4');(r/'fcamera.mp4').unlink()
+  (self.nas/q.name/'fcamera.mp4').write_bytes(b'other bytes')  # Not the recorded content: left alone.
+  archiver=self.archiver();archiver.recover_startup();self.assertTrue(archiver.recovered)
+  data=b'fcamera.mp4'*10;e=media_store.entry(server.read_meta(p),'fcamera.mp4')
+  self.assertEqual((e['location'],e['bytes'],e['sha256']),('nas',len(data),sha(data)));self.assertIsInstance(e['archived_at'],float)
+  self.assertEqual(media_store.resolve(p,server.read_meta(p),'fcamera.mp4',self.store),(self.nas/p.name/'fcamera.mp4','available'))
+  self.assertEqual(media_store.location(server.read_meta(q),'fcamera.mp4'),'local');self.assertEqual((self.nas/q.name/'fcamera.mp4').read_bytes(),b'other bytes')
+  self.assertTrue((p/'rlog.zst').is_file());self.assertEqual(media_store.location(server.read_meta(p),'rlog.zst'),'local')
+  # A read error on the share stops recovery without changing the index.
+  (self.nas/q.name/'fcamera.mp4').write_bytes(b'fcamera.mp4'*10);before=server.read_meta(q)
+  with patch.object(media_store,'_sha256',side_effect=OSError(5,'EIO')):archiver=self.archiver();archiver.recover_startup()
+  self.assertFalse(archiver.recovered);self.assertEqual(server.read_meta(q),before)
+  archiver.recover_startup();self.assertTrue(archiver.recovered);self.assertEqual(media_store.location(server.read_meta(q),'fcamera.mp4'),'nas')
 
  def test_recover_marks_corrupt_when_nothing_matches(self):
   p=self.log('a'*32,['rlog.zst','fcamera.mp4']);self.index_on_nas(p,'fcamera.mp4',sha(b'other'))
@@ -361,6 +406,22 @@ class ArchiverTests(unittest.TestCase):
   with self.share_usage():self.assertEqual(self.archiver(nas_max_bytes=1).cleanup_nas(),1)
   m=server.read_meta(p);m['decoder_version']='old';server.save_meta(p,m)
   self.assertEqual(restart('log removed')['decoder_version'],'old')
+
+ def test_cleanup_skips_queued_and_converting_recordings(self):
+  # A queued conversion reads its archived inputs when it starts: they are not cleanup candidates.
+  queued=self.log('a'*32,[],uploaded=1,nas_kinds=['fcamera.mp4','rlog.zst'],status='queued')
+  converting=self.log('b'*32,[],uploaded=2,nas_kinds=['fcamera.mp4','rlog.zst'],status='processing')
+  ready=self.log('c'*32,[],uploaded=3,nas_kinds=['fcamera.mp4','rlog.zst'])
+  archiver=self.archiver(nas_max_bytes=1)
+  with self.share_usage():self.assertEqual(archiver.cleanup_nas(),2)
+  for p in (queued,converting):
+   self.assertEqual(self.locations(p),{'fcamera.mp4':'nas','rlog.zst':'nas'});self.assertTrue((self.nas/p.name/'fcamera.mp4').is_file())
+  self.assertEqual(self.locations(ready),{'fcamera.mp4':'removed','rlog.zst':'removed'})
+  # Queued after the candidates were listed: the check before the unlink skips it.
+  later=self.log('d'*32,[],uploaded=4,nas_kinds=['fcamera.mp4'])
+  rows=[(later,server.read_meta(later))];m=server.read_meta(later);m['status']='queued';server.save_meta(later,m)
+  with self.share_usage(),patch.object(archiver,'_cleanup_candidates',return_value=rows):archiver.cleanup_nas()
+  self.assertEqual(self.locations(later),{'fcamera.mp4':'nas'});self.assertTrue((self.nas/later.name/'fcamera.mp4').is_file())
 
  def test_cleanup_stops_on_oserror_without_marking_removed(self):
   a=self.log('a'*32,[],uploaded=1,nas_kinds=['fcamera.mp4']);b=self.log('b'*32,[],uploaded=2,nas_kinds=['fcamera.mp4'])

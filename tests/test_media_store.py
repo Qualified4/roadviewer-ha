@@ -3,6 +3,7 @@ import json, os, sys, tempfile, threading, unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
+os.environ['RV_ARCHIVE_ALLOW_ANY_PATH'] = '1'  # Temporary directories stand in for the share.
 import media_store as m
 from video_sources import STORED_KINDS
 
@@ -35,10 +36,12 @@ class MediaStoreTests(unittest.TestCase):
 
  def test_from_options_rejects_bad_path(self):
   with patch.dict(os.environ, {'RV_ARCHIVE_ALLOW_ANY_PATH': ''}):
-   for path in ['/data/x', '/share', '/share/', '/share/nas/../data', '/share/nas/./x', 'share/nas', '/share/n as', '', str(self.nas)]:
+   # The share's root itself is refused: a sub-folder is required.
+   for path in ['/data/x', '/share', '/share/', '/share/nas', '/share/nas/', '/share/nas/../data', '/share/nas/./x', 'share/nas', '/share/n as', '/share/nas/a b', '', str(self.nas)]:
     s = m.ArchiveSettings.from_options({'archive_enabled': True, 'archive_path': path})
     self.assertFalse(s.enabled, path); self.assertIsNone(s.path, path); self.assertTrue(s.error, path)
    self.assertTrue(m.ArchiveSettings.from_options({'archive_enabled': True, 'archive_path': '/share/nas_1/road.viewer-2'}).enabled)
+   self.assertTrue(m.ArchiveSettings.from_options({'archive_enabled': True, 'archive_path': '/share/nas/a/b'}).enabled)
   with patch.dict(os.environ, {'RV_ARCHIVE_ALLOW_ANY_PATH': '1'}):
    s = m.ArchiveSettings.from_options({'archive_enabled': True, 'archive_path': str(self.nas)})
    self.assertEqual((s.enabled, s.path, s.error), (True, self.nas, None))
@@ -71,6 +74,28 @@ class MediaStoreTests(unittest.TestCase):
   self.assertEqual((store.state(), store.reason()), ('unavailable', 'sentinel_invalid'))
   with patch.object(m.Path, 'is_dir', side_effect=OSError(5, 'EIO')):
    store.invalidate(); self.assertEqual((store.state(), store.reason()), ('unavailable', 'os_error'))
+
+ def test_first_activation_requires_mounted_share(self):
+  # A fresh setup claims the folder only while /share/<name> is a mount point: an unmounted share is an empty directory.
+  settings = m.ArchiveSettings(enabled=True, path=Path('/share/nas/roadviewer'))
+  store = m.ArchiveStore(settings, self.root, clock=self.clock)
+  with patch.dict(os.environ, {'RV_ARCHIVE_ALLOW_ANY_PATH': ''}), patch.object(m.os.path, 'ismount', return_value=False) as ismount:
+   self.assertFalse(store.mounted()); ismount.assert_called_once_with('/share/nas')
+  with patch.dict(os.environ, {'RV_ARCHIVE_ALLOW_ANY_PATH': ''}), patch.object(m.os.path, 'ismount', return_value=True):
+   self.assertTrue(store.mounted())
+  # The same with a real folder: not mounted, nothing is written; mounted, the sentinel and local copy appear.
+  store = self.store()
+  with patch.object(store, 'mounted', return_value=False):
+   store.activate()
+  self.assertFalse((self.nas/m.SENTINEL).exists()); self.assertFalse((self.root/m.LOCAL_COPY).exists())
+  self.assertEqual((store.state(), store.reason()), ('unavailable', 'sentinel_missing'))
+  with patch.object(store, 'mounted', return_value=True):
+   store.activate()
+  self.assertEqual(store.state(), 'connected')
+  # Once set up, the mount is not asked again: verification is by the storage id.
+  with patch.object(store, 'mounted', side_effect=AssertionError('asked again')):
+   store.activate()
+  self.assertEqual(store.state(), 'connected')
 
  def test_storage_id_mismatch_is_unavailable(self):
   store = self.connected()

@@ -295,9 +295,9 @@ Archiving moves original videos and log files of converted recordings to network
 3. In the app options, set `archive_path` to that folder, turn on `archive_enabled`, save and restart the app.
 4. Open **저장공간 관리** (Storage management) and check that **NAS 상태** (NAS status) reads **연결됨** (connected).
 
-`archive_path` must be below `/share/`. The first folder name may use letters, digits and underscores; later names may also use dots and hyphens; `..` is rejected. With an invalid path the app starts with archiving off and logs `invalid_archive_path`.
+`archive_path` must be below `/share/`, and a sub-folder is required, e.g. `/share/<name>/roadviewer`; the share itself (`/share/<name>`) is rejected. The first folder name may use letters, digits and underscores; later names may also use dots and hyphens; `..` is rejected. With an invalid path the app starts with archiving off and logs `invalid_archive_path`.
 
-On first connection the app writes `.roadviewer-storage.json` into the NAS folder and `.archive.json`, holding the same storage ID, into `/data/roadviewer`. The share counts as connected only when both IDs match, so an empty unmounted folder or another installation's folder is never used by mistake. Pointing `archive_path` at a different folder after the first connection shows **연결 불가** (unavailable). Do not delete either file.
+On first connection, and only while `/share/<name>` is actually mounted, the app writes `.roadviewer-storage.json` into the NAS folder and `.archive.json`, holding the same storage ID, into `/data/roadviewer`. The share counts as connected only when both IDs match, so an empty unmounted folder or another installation's folder is never used by mistake. Pointing `archive_path` at a different folder after the first connection shows **연결 불가** (unavailable). Do not delete either file.
 
 ### App options
 
@@ -364,7 +364,7 @@ When the NAS folder exceeds `archive_nas_max_mb` or NAS free space falls below `
 1. Videos of unpinned recordings, oldest upload first.
 2. If still short, `rlog.zst` of unpinned recordings, oldest first.
 
-Files of pinned segments and of recordings being converted are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. Restarting the app keeps the converted data of such recordings. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). While space stays short, runs continue on every interval and retry cleanup; only moving files pauses until space is freed, and Storage management shows the error.
+Files of pinned segments and of recordings waiting for or undergoing conversion are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. Restarting the app keeps the converted data of such recordings. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). While space stays short, runs continue on every interval and retry cleanup; only moving files pauses until space is freed, and Storage management shows the error.
 
 ### Backups
 

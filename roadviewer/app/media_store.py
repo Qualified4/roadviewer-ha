@@ -12,14 +12,17 @@ VIDEO_KINDS = ARCHIVE_ORDER[:-1]
 SENTINEL = '.roadviewer-storage.json'
 LOCAL_COPY = '.archive.json'
 CACHE_SECONDS = 10
-SHARE_PATH = re.compile(r'^/share/[A-Za-z0-9_]+(/[A-Za-z0-9_.-]+)*$')
+# A folder inside a share (/share/<name>/...): the share's root is where an unmounted share leaves an empty directory.
+SHARE_PATH = re.compile(r'^/share/[A-Za-z0-9_]+(/[A-Za-z0-9_.-]+)+$')
 MB = 2**20
+
+def _any_path(): return os.environ.get('RV_ARCHIVE_ALLOW_ANY_PATH') == '1'
 
 def valid_path(value):
     if not isinstance(value, str) or not value: return False
     if any(part in ('.', '..') for part in value.split('/')): return False
     # Tests point the archive at temporary directories; production never sets this.
-    if os.environ.get('RV_ARCHIVE_ALLOW_ANY_PATH') == '1': return os.path.isabs(value)
+    if _any_path(): return os.path.isabs(value)
     return bool(SHARE_PATH.fullmatch(value))
 
 def _int(options, key, default, lo, hi=None):
@@ -139,13 +142,19 @@ class ArchiveStore:
         self.usage_cached = (self.clock(), result)
         return result
 
+    def mounted(self):
+        # The share (/share/<name>) is a mount point. Without it the folder below is a local directory.
+        if _any_path(): return True
+        parts = self.settings.path.parts
+        return len(parts) > 2 and parts[1] == 'share' and os.path.ismount(os.path.join('/share', parts[2]))
+
     def activate(self):
-        # Create the sentinel only on a fresh setup (no local copy, no sentinel). If either
-        # exists, only verify: an empty unmounted directory or another instance's share must
-        # never be claimed.
+        # Create the sentinel only on a fresh setup (no local copy, no sentinel) with the share mounted.
+        # If either file exists, only verify: an empty unmounted directory or another instance's share
+        # must never be claimed.
         if not self.settings.enabled: return
         self.invalidate()
-        if self.local_id() is None and self.reason() == 'sentinel_missing':
+        if self.local_id() is None and self.reason() == 'sentinel_missing' and self.mounted():
             try:
                 storage_id = uuid.uuid4().hex
                 atomic_json(self.settings.path / SENTINEL, {'storage_id': storage_id, 'created_at': time.time(), 'owner': 'roadviewer'})
@@ -475,17 +484,19 @@ class Archiver:
             try: m = s.read_meta(p)
             except (OSError, ValueError): continue
             if isinstance(m, dict) and any(location(m, kind) == 'nas' for kind in ARCHIVE_ORDER): rows.append((p, m))
-        with s.lock: rows = [(p, m) for p, m in rows if not s.storage_policy.pinned(m)]
+        # Pinned recordings are protected; queued or converting ones still need their inputs.
+        with s.lock: rows = [(p, m) for p, m in rows if not s.storage_policy.pinned(m) and m.get('status') not in ('queued', 'processing')]
         uploaded = lambda m: m['uploaded'] if isinstance(m.get('uploaded'), (int, float)) else 0
         return sorted(rows, key=lambda row: (uploaded(row[1]), row[0].name))
 
     def _removable(self, p, kind, e, guarded=True):
         # Caller holds the server lock. The indexed copy is still the one chosen; before the unlink also
-        # nothing protects (pinned) or reads it (conversion).
+        # nothing protects (pinned) or reads it (conversion running or queued).
         s = self.server
         try: current = s.read_meta(p)
         except (OSError, ValueError): return None
-        if not isinstance(current, dict) or guarded and (s.storage_policy.pinned(current) or p.name in s.processes): return None
+        if not isinstance(current, dict) or guarded and (s.storage_policy.pinned(current) or p.name in s.processes
+                                                         or current.get('status') in ('queued', 'processing')): return None
         now = entry(current, kind)
         same = now['location'] == 'nas' and now.get('sha256') == e.get('sha256') and now.get('bytes') == e.get('bytes')
         return current if same else None
@@ -585,6 +596,11 @@ class Archiver:
                     shutil.copyfileobj(src, writer, CHUNK)
                     dst.flush()
                     os.fsync(dst.fileno())
+                    # Drop the cached pages so the comparison below reads the copy back from the share,
+                    # not from this machine's (SMB client) cache. Advisory: a refusal changes nothing.
+                    if hasattr(os, 'posix_fadvise'):
+                        try: os.posix_fadvise(dst.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+                        except OSError: pass
                 digest = writer.h.hexdigest()
                 # The bytes read must match the recorded hash, and the copy on the share the bytes read.
                 if known and digest != known or _sha256(part) != digest:
@@ -605,7 +621,8 @@ class Archiver:
                        or location(current, kind) != 'local' or (now.st_size, now.st_mtime_ns) != (stat.st_size, stat.st_mtime_ns))
             if not changed:
                 set_location(current, kind, location='nas', bytes=stat.st_size, sha256=digest, archived_at=time.time())
-                try: s.save_meta(p, current)
+                # Flushed to disk before the local file goes: after a power loss the index must not still say local.
+                try: atomic_json(p / 'meta.json', current)
                 except OSError:
                     s.app.logger.exception('Index of %s not saved', p.name)
                     return self._fail('os_error')  # The copy on the share is an orphan, reused next time.
@@ -619,6 +636,36 @@ class Archiver:
             try: target.unlink(missing_ok=True)
             except OSError: pass
         return False
+
+    def _adopt(self, p, m):
+        # A copy committed to the share whose index write was lost (power loss after the local unlink): the
+        # index still says local, the local file is gone, and the share holds the recorded content. The index
+        # is pointed at that copy. Returns False when the share failed (recovery stops).
+        s, hashes = self.server, m.get('content_hashes')
+        for kind in MEDIA_KINDS:
+            known = hashes.get(kind) if isinstance(hashes, dict) else None
+            if location(m, kind) != 'local' or not isinstance(known, dict) or not isinstance(known.get('sha256'), str): continue
+            # An original replaced by its MP4 keeps its hash on purpose; it is not looked for.
+            if kind in s.DERIVED and s.stored(p, m, s.DERIVED[kind]): continue
+            if (p / kind).exists(): continue
+            target = self.store.path_for(p.name, kind)
+            try:
+                if not target.is_file(): continue
+                size = target.stat().st_size
+                if known.get('size') not in (None, size) or _sha256(target) != known['sha256']: continue
+            except OSError:
+                self.store.invalidate()
+                return False
+            with s.lock:
+                try:
+                    current = s.read_meta(p)
+                    if location(current, kind) != 'local' or (p / kind).exists(): continue
+                    set_location(current, kind, location='nas', bytes=size, sha256=known['sha256'], archived_at=time.time())
+                    s.save_meta(p, current)
+                    m.clear(); m.update(current)
+                except (OSError, ValueError): continue
+            s.app.logger.warning('Archived %s/%s was not in the index; the copy on the share is used', p.name, kind)
+        return True
 
     def recover_startup(self):
         # After a crash: half-written copies go; a local file whose verified copy is indexed goes;
@@ -646,6 +693,7 @@ class Archiver:
             try: m = s.read_meta(p)
             except (OSError, ValueError): continue
             if not isinstance(m, dict): continue
+            if not self._adopt(p, m): return
             for kind in MEDIA_KINDS:
                 e = entry(m, kind)
                 if e['location'] != 'nas' or e.get('error') or not isinstance(e.get('sha256'), str) or not (p / kind).is_file(): continue

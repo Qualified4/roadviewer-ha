@@ -30,7 +30,8 @@ schema:
   max_upload_mb: int(16,2048)
   device_certfile: str
   device_keyfile: str
-  # The app accepts archive_path only under /share/ (validated at startup; an empty default must pass here).
+  # The app accepts archive_path only as a sub-folder of /share/<name>, e.g. /share/<name>/roadviewer
+  # (validated at startup; an empty default must pass here).
   archive_enabled: bool
   archive_path: str
   archive_local_threshold_mb: int(0,)
