@@ -21,6 +21,22 @@ def valid_path(value):
     if os.environ.get('RV_ARCHIVE_ALLOW_ANY_PATH') == '1': return os.path.isabs(value)
     return bool(SHARE_PATH.fullmatch(value))
 
+def _int(options, key, default, lo, hi=None):
+    # Supervisor validates the schema, but a hand-edited options.json must not crash startup.
+    try: value = int(options.get(key, default))
+    except (TypeError, ValueError): value = default
+    return max(lo, value if hi is None else min(hi, value))
+
+def _bool(value): return value is True or isinstance(value, str) and value.lower() in ('true', '1')
+
+def _kind(kind):
+    if kind not in MEDIA_KINDS: raise ValueError(f'unknown media kind: {kind!r}')
+    return kind
+
+def _bytes(e):
+    value = e.get('bytes', 0)
+    return value if type(value) is int and value >= 0 else 0
+
 @dataclass(frozen=True)
 class ArchiveSettings:
     enabled: bool = False
@@ -35,16 +51,16 @@ class ArchiveSettings:
 
     @classmethod
     def from_options(cls, options):
-        enabled, raw = bool(options.get('archive_enabled', False)), options.get('archive_path', '')
+        enabled, raw = _bool(options.get('archive_enabled', False)), options.get('archive_path', '')
         ok, error = valid_path(raw), None
         if raw and not ok or enabled and not ok: enabled, error = False, 'invalid_archive_path'
         return cls(enabled=enabled, path=Path(raw) if ok else None, error=error,
-                   local_threshold_bytes=int(options.get('archive_local_threshold_mb', 0)) * MB,
-                   min_age_seconds=int(options.get('archive_min_age_hours', 24)) * 3600,
-                   interval_seconds=int(options.get('archive_interval_minutes', 10)) * 60,
-                   batch=int(options.get('archive_batch', 4)),
-                   nas_max_bytes=int(options.get('archive_nas_max_mb', 0)) * MB,
-                   nas_margin_bytes=int(options.get('archive_nas_margin_mb', 1024)) * MB)
+                   local_threshold_bytes=_int(options, 'archive_local_threshold_mb', 0, 0) * MB,
+                   min_age_seconds=_int(options, 'archive_min_age_hours', 24, 0, 8760) * 3600,
+                   interval_seconds=_int(options, 'archive_interval_minutes', 10, 1, 1440) * 60,
+                   batch=_int(options, 'archive_batch', 4, 1, 64),
+                   nas_max_bytes=_int(options, 'archive_nas_max_mb', 0, 0) * MB,
+                   nas_margin_bytes=_int(options, 'archive_nas_margin_mb', 1024, 0) * MB)
 
 class ArchiveStore:
     def __init__(self, settings, root, clock=time.monotonic):
@@ -73,8 +89,9 @@ class ArchiveStore:
         if not self.settings.enabled: return 'disabled', self.settings.error
         cached = self.cached
         if cached and self.clock() - cached[0] < CACHE_SECONDS: return cached[1:]
-        # Never block requests on a hung mount: answer with the last result, or "checking".
-        if not self.lock.acquire(blocking=False): return cached[1:] if cached else ('checking', None)
+        # Never block requests on a hung mount. A stale result is not trusted while the
+        # probe is stuck: "connected" from minutes ago must not outlive a dead mount.
+        if not self.lock.acquire(blocking=False): return 'checking', 'probe_pending'
         try:
             cached = self.cached
             if cached and self.clock() - cached[0] < CACHE_SECONDS: return cached[1:]
@@ -87,7 +104,7 @@ class ArchiveStore:
     def reason(self): return self._check()[1]
     def available(self): return self.state() == 'connected'
     def invalidate(self): self.cached = None
-    def path_for(self, id, kind): return self.settings.path / id / kind
+    def path_for(self, id, kind): return self.settings.path / id / _kind(kind)
 
     def usage(self):
         if not self.available(): return 0, 0
@@ -126,10 +143,10 @@ def set_location(meta, kind, **fields):
     meta['storage'][kind] = fields
 
 def archived_bytes(meta):
-    return sum(e.get('bytes', 0) for e in (entry(meta, k) for k in MEDIA_KINDS) if e['location'] == 'nas')
+    return sum(_bytes(e) for e in (entry(meta, k) for k in MEDIA_KINDS) if e['location'] == 'nas')
 
 def resolve(p, meta, kind, store):
-    e = entry(meta, kind)
+    e = entry(meta, _kind(kind))
     where = e['location']
     if where == 'removed': return None, 'missing'
     if where == 'nas':
@@ -145,7 +162,7 @@ def resolve(p, meta, kind, store):
 
 def media_size(p, meta, kind, store):
     e = entry(meta, kind)
-    if e['location'] == 'nas': return int(e.get('bytes', 0))
+    if e['location'] == 'nas': return _bytes(e)
     if e['location'] == 'removed': return 0
     try: return (Path(p) / kind).stat().st_size
     except OSError: return 0

@@ -128,6 +128,40 @@ class MediaStoreTests(unittest.TestCase):
    release.set(); t.join(5)
   self.assertEqual(store.state(), 'connected')
 
+ def test_stale_connected_not_served_while_probe_hangs(self):
+  store = self.connected()
+  self.clock.t += 10
+  entered, release = threading.Event(), threading.Event()
+  probe = store._probe
+  def hung(): entered.set(); release.wait(5); return probe()
+  with patch.object(store, '_probe', side_effect=hung):
+   t = threading.Thread(target=store.available); t.start(); entered.wait(5)
+   self.assertEqual((store.state(), store.reason()), ('checking', 'probe_pending')); self.assertFalse(store.available())
+   release.set(); t.join(5)
+  self.assertTrue(store.available())
+
+ def test_from_options_coerces_and_clamps(self):
+  for value, expected in [(True, True), ('true', True), ('TRUE', True), ('1', True), ('false', False), ('0', False), ('', False), (None, False), (1, False), ('yes', False)]:
+   self.assertEqual(m.ArchiveSettings.from_options({'archive_enabled': value, 'archive_path': '/share/nas/rv'}).enabled, expected, value)
+  s = m.ArchiveSettings.from_options({'archive_local_threshold_mb': 'abc', 'archive_min_age_hours': None, 'archive_interval_minutes': '0', 'archive_batch': 0, 'archive_nas_max_mb': -5, 'archive_nas_margin_mb': [1]})
+  self.assertEqual((s.local_threshold_bytes, s.min_age_seconds, s.interval_seconds, s.batch, s.nas_max_bytes, s.nas_margin_bytes), (0, 86400, 60, 1, 0, 1024*2**20))
+  s = m.ArchiveSettings.from_options({'archive_local_threshold_mb': '7', 'archive_min_age_hours': 9999, 'archive_interval_minutes': 5000, 'archive_batch': '100', 'archive_nas_margin_mb': -1})
+  self.assertEqual((s.local_threshold_bytes, s.min_age_seconds, s.interval_seconds, s.batch, s.nas_margin_bytes), (7*2**20, 8760*3600, 1440*60, 64, 0))
+
+ def test_unknown_kind_rejected(self):
+  store = self.connected(); meta = {'id': ID}
+  for kind in ['../x', 'meta.json', '']:
+   with self.assertRaises(ValueError): store.path_for(ID, kind)
+   with self.assertRaises(ValueError): m.resolve(self.rec, meta, kind, store)
+
+ def test_bad_index_bytes_count_as_zero(self):
+  store = self.store(); meta = {'id': ID}
+  for value in ['abc', None, True, -3, [1]]:
+   m.set_location(meta, 'fcamera.mp4', location='nas', bytes=value); m.set_location(meta, 'ecamera.mp4', location='nas', bytes=4)
+   self.assertEqual(m.media_size(self.rec, meta, 'fcamera.mp4', store), 0, value); self.assertEqual(m.archived_bytes(meta), 4, value)
+  m.set_location(meta, 'fcamera.mp4', location='nas')
+  self.assertEqual(m.media_size(self.rec, meta, 'fcamera.mp4', store), 0); self.assertEqual(m.archived_bytes(meta), 4)
+
  def test_removed_is_missing(self):
   store = self.connected(); meta = {'id': ID}
   (self.rec/'fcamera.mp4').write_bytes(b'stale')
