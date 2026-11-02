@@ -14,6 +14,7 @@ from video_sources import SOURCES,ORIGINALS,DERIVED,VIDEO_KINDS,CAMERA_KINDS,UPL
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
 options_path=Path('/data/options.json');options=json.loads(options_path.read_text()) if options_path.exists() else {}
+options.update(json.loads(os.environ.get('RV_ARCHIVE_OPTIONS_JSON','{}')))  # Archive options for tests only; production never sets it.
 DEVICE_HOST_PORT=int(os.environ.get('RV_DEVICE_HOST_PORT','0')) or None
 app=Flask(__name__,static_folder=None)
 app.config.update(MAX_CONTENT_LENGTH=int(options.get('max_upload_mb',512))*1024*1024,MAX_FORM_PARTS=220)
@@ -1135,6 +1136,13 @@ if archive_settings.enabled:
  if not store.available():app.logger.warning('Video archive is not connected: %s',store.reason())
 elif archive_settings.error:app.logger.warning('Video archive is disabled: %s',archive_settings.error)
 archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings)
+@app.route('/api/settings/archive/run',methods=['POST'])
+def run_archive():
+ # One cycle now, in this request; the background loop's cycle is never run twice at once.
+ if not archiver.settings.enabled:return jsonify(error='archive_disabled'),409
+ result=archiver.run_cycle()
+ if result['stopped']=='busy':return jsonify(error='archive_running'),409
+ return jsonify(result)
 storage_policy=StoragePolicy(sys.modules[__name__])
 devices=DeviceAPI(sys.modules[__name__])
 device_network=DeviceNetwork(sys.modules[__name__])

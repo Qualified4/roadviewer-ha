@@ -431,6 +431,94 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertEqual(json.loads(path.read_text()),[{'id':'c'*32,'kinds':['camera.mp4']}])
   self.assertFalse((nas/('a'*32)).exists());self.assertFalse((nas/('b'*32)).exists())
 
+ ARCHIVE_KEYS={'enabled','state','reason','path_configured','used_bytes','free_bytes','max_bytes','margin_bytes','last_cycle_at','last_error','consecutive_failures','pending_deletes','archived_files','archived_bytes'}
+ def test_storage_snapshot_has_archive_block_without_path(self):
+  # Archiving off: the block reports "disabled" and the existing fields are unchanged.
+  body=self.get('/api/settings/storage').json
+  self.assertTrue({'max_bytes','policy','used_bytes','free_bytes','reserved_bytes'}<=set(body))
+  self.assertEqual(set(body['archive']),self.ARCHIVE_KEYS)
+  self.assertEqual({k:body['archive'][k] for k in ('enabled','state','path_configured','used_bytes','free_bytes','pending_deletes','archived_files','archived_bytes')},
+                   {'enabled':False,'state':'disabled','path_configured':False,'used_bytes':0,'free_bytes':0,'pending_deletes':0,'archived_files':0,'archived_bytes':0})
+  nas,store=make_nas(self.root);self.use(store)
+  make_log(self.root,'a'*32,['rlog.zst'],['fcamera.mp4','qcamera.ts'],nas=nas);make_log(self.root,'b'*32,['rlog.zst'],[])
+  media_store.PendingDeletes(self.root).add('c'*32,['fcamera.mp4','rlog.zst'])
+  r=self.get('/api/settings/storage');archive=r.json['archive']
+  self.assertEqual(r.headers['Cache-Control'],'no-store')
+  self.assertEqual(set(archive),self.ARCHIVE_KEYS)
+  self.assertEqual((archive['enabled'],archive['state'],archive['reason'],archive['path_configured']),(True,'connected',None,True))
+  self.assertEqual((archive['archived_files'],archive['archived_bytes'],archive['pending_deletes']),(2,len(b'fcamera.mp4')*20+len(b'qcamera.ts')*20,2))
+  self.assertGreater(archive['used_bytes'],0);self.assertGreater(archive['free_bytes'],0)
+  self.assertEqual((archive['max_bytes'],archive['margin_bytes']),(store.settings.nas_max_bytes,store.settings.nas_margin_bytes))
+  self.assertNotIn(str(nas),r.get_data(as_text=True));self.assertNotIn('archive_path',r.get_data(as_text=True))
+  # Unreachable: the state says so and no share usage is reported.
+  self.lose_nas(nas,store);archive=self.get('/api/settings/storage').json['archive']
+  self.assertEqual((archive['state'],archive['reason'],archive['used_bytes'],archive['free_bytes'],archive['archived_files']),('unavailable','sentinel_missing',0,0,2))
+  # A POST returns the same block.
+  r=self.send('post','/api/settings/storage',json={'max_bytes':0,'policy':'reject_new'})
+  self.assertEqual(r.status_code,200);self.assertEqual(set(r.json['archive']),self.ARCHIVE_KEYS)
+
+ def test_storage_snapshot_computes_archive_outside_lock(self):
+  nas,store=make_nas(self.root);self.use(store)
+  started,release=threading.Event(),threading.Event()
+  def slow():started.set();release.wait(5);return 1,2
+  results=[]
+  with patch.object(store,'usage',side_effect=slow):
+   worker=threading.Thread(target=lambda:results.append(self.get('/api/settings/storage')));worker.start()
+   try:
+    self.assertTrue(started.wait(5))
+    acquired=[]
+    def take():
+     for held in (server.lock,server.registration_lock):
+      if held.acquire(timeout=1):acquired.append(1);held.release()
+    other=threading.Thread(target=take);other.start();other.join(3)
+    self.assertEqual(acquired,[1,1])
+   finally:release.set();worker.join(5)
+  self.assertEqual(results[0].status_code,200);self.assertEqual((results[0].json['archive']['used_bytes'],results[0].json['archive']['free_bytes']),(1,2))
+
+ def test_archive_run_requires_header_and_enabled(self):
+  self.assertEqual(self.client.post('/api/settings/archive/run',environ_overrides=PEER).status_code,403)
+  self.assertEqual(self.client.post('/api/settings/archive/run',headers=HEADERS).status_code,403)  # Not from the Supervisor.
+  r=self.send('post','/api/settings/archive/run')
+  self.assertEqual((r.status_code,r.json),(409,{'error':'archive_disabled'}));self.assertEqual(r.headers['Cache-Control'],'no-store')
+  nas,store=make_nas(self.root);self.use(store)
+  archiver=media_store.Archiver(server,store,store.settings)
+  with patch.object(server,'archiver',archiver):
+   result={'archived':1,'bytes':5,'stopped':None}
+   with patch.object(archiver,'run_cycle',return_value=result) as cycle:r=self.send('post','/api/settings/archive/run')
+   cycle.assert_called_once_with();self.assertEqual((r.status_code,r.json),(200,result));self.assertEqual(r.headers['Cache-Control'],'no-store')
+   # A cycle already running (the background loop) is not started twice.
+   with archiver.cycle:r=self.send('post','/api/settings/archive/run')
+   self.assertEqual((r.status_code,r.json),(409,{'error':'archive_running'}))
+   self.assertNotIn(str(nas),r.get_data(as_text=True))
+
+ def test_config_yaml_has_share_map_and_archive_options(self):
+  import re
+  text=(Path(__file__).resolve().parents[1]/'roadviewer/config.yaml').read_text(encoding='utf-8')
+  self.assertRegex(text,r'(?m)^map:\n  - type: ssl\n    read_only: true\n  - type: share\n    read_only: false$')
+  options=text.split('\noptions:\n',1)[1].split('\nschema:\n',1)[0];schema=text.split('\nschema:\n',1)[1].split('\nurl:',1)[0]
+  expected={'archive_enabled':('false','bool'),'archive_path':('""','str'),'archive_local_threshold_mb':('0','int(0,)'),'archive_min_age_hours':('24','int(0,8760)'),
+            'archive_interval_minutes':('10','int(1,1440)'),'archive_batch':('4','int(1,64)'),'archive_nas_max_mb':('0','int(0,)'),'archive_nas_margin_mb':('1024','int(0,)')}
+  for key,(default,rule) in expected.items():
+   self.assertRegex(options,rf'(?m)^  {key}: {re.escape(default)}$',key);self.assertRegex(schema,rf'(?m)^  {key}: {re.escape(rule)}$',key)
+  self.assertEqual(len(re.findall(r'(?m)^  archive_',options)),8);self.assertEqual(len(re.findall(r'(?m)^  archive_',schema)),8)
+  # Existing options stay; the add-on version is not bumped by this change.
+  for line in ('  max_upload_mb: 512','  max_upload_mb: int(16,2048)','hassio_api: true'):self.assertIn(line+'\n',text)
+  self.assertRegex(text,r'(?m)^version: "0\.12\.2"$')
+
+ def test_archive_options_json_env_merges(self):
+  # The merge happens at import, so a fresh interpreter imports the server with the variable set.
+  import subprocess
+  app=Path(__file__).resolve().parents[1]/'roadviewer/app';nas=Path(tempfile.mkdtemp(prefix='rv-nas-'))
+  code='import server;print(server.archive_settings.enabled,server.archive_settings.batch,server.store.state())'
+  def run(**env):
+   data=tempfile.mkdtemp(prefix='rv-data-')
+   base={k:v for k,v in os.environ.items() if k not in ('RV_ARCHIVE_OPTIONS_JSON','RV_MIGRATE_PREPARED','RV_ARCHIVE_ALLOW_ANY_PATH')}
+   done=subprocess.run([sys.executable,'-c',code],cwd=app,env={**base,'RV_DATA':data,**env},capture_output=True,text=True,timeout=60)
+   self.assertEqual(done.returncode,0,done.stderr);return done.stdout.split()
+  self.assertEqual(run(),['False','4','disabled'])
+  options=json.dumps({'archive_enabled':True,'archive_path':str(nas),'archive_batch':7})
+  self.assertEqual(run(RV_ARCHIVE_OPTIONS_JSON=options,RV_ARCHIVE_ALLOW_ANY_PATH='1'),['True','7','connected'])
+
  def test_decoder_reads_paths_from_environment(self):
   import importlib,decoder
   src=self.root/'nas'/'rlog.zst'

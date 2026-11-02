@@ -170,5 +170,20 @@ class MediaStoreTests(unittest.TestCase):
   self.assertEqual(m.media_size(self.rec, meta, 'fcamera.mp4', store), 0)
   self.assertEqual(m.archived_bytes(meta), 0)
 
+ def test_usage_is_cached_and_invalidated(self):
+  # The settings panel polls every few seconds; the share's tree is walked at most every 10 s.
+  store = self.connected(); first = store.usage()
+  (self.nas/ID).mkdir(); (self.nas/ID/'fcamera.mp4').write_bytes(b'video')
+  self.clock.t += 9.9; self.assertEqual(store.usage(), first)
+  self.clock.t += 0.1; self.assertEqual(store.usage()[0], first[0] + 5)
+  (self.nas/ID/'fcamera.mp4').write_bytes(b'videovideo')
+  store.forget_usage(); self.assertEqual(store.usage()[0], first[0] + 10)
+  (self.nas/ID/'fcamera.mp4').unlink(); store.invalidate(); self.assertEqual(store.usage()[0], first[0])
+  # Never served from the cache once the share is gone, and a read error is not cached.
+  (self.nas/m.SENTINEL).rename(self.nas/'aside'); store.invalidate(); self.assertEqual(store.usage(), (0, 0))
+  (self.nas/'aside').rename(self.nas/m.SENTINEL); store.invalidate()
+  with patch.object(m.os, 'walk', side_effect=OSError(5, 'EIO')): self.assertEqual(store.usage(), (0, 0))
+  self.assertEqual(store.usage()[0], first[0])
+
 if __name__ == '__main__':
  unittest.main()

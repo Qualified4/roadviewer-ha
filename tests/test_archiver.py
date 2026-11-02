@@ -1,6 +1,6 @@
 """The archiver moves eligible recordings' files to the share (videos first, the log last), verified
 before the local copy goes; any failure leaves the source and the index as they were."""
-import hashlib,os,sys,tempfile,threading,time,unittest
+import hashlib,os,shutil,sys,tempfile,threading,time,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parent))
@@ -380,6 +380,37 @@ class ArchiverTests(unittest.TestCase):
   archiver=self.archiver(nas_max_bytes=1)
   with self.share_usage(),patch.object(media_store.Path,'unlink',rearchive):self.assertEqual(archiver.cleanup_nas(),0)
   e=media_store.entry(server.read_meta(p),'fcamera.mp4');self.assertEqual((e['location'],e['sha256']),('nas','1'*64))
+
+ def test_cleanup_measures_unindexed_size_and_remeasures_before_logs(self):
+  # The estimate after each removal never overstates what was freed, and the share is measured
+  # again before any original log (irreplaceable) is considered.
+  for index_bytes in (0,1):
+   with self.subTest(index_bytes=index_bytes):
+    for id in ('a'*32,'b'*32):shutil.rmtree(self.root/id,ignore_errors=True);shutil.rmtree(self.nas/id,ignore_errors=True)
+    old=self.log('a'*32,[],uploaded=1,nas_kinds=['fcamera.mp4','rlog.zst']);new=self.log('b'*32,[],uploaded=2,nas_kinds=['fcamera.mp4','rlog.zst'])
+    for p in (old,new):m=server.read_meta(p);m['storage']['fcamera.mp4']['bytes']=index_bytes;server.save_meta(p,m)
+    total=2*(self.nas_size('fcamera.mp4')+self.nas_size('rlog.zst'))
+    archiver=self.archiver(nas_max_bytes=total-self.nas_size('fcamera.mp4'))
+    with self.share_usage():removed=archiver.cleanup_nas()
+    # Unknown size: the file is measured, so one video suffices. Understated size: both videos go, never a log.
+    self.assertEqual(removed,1 if index_bytes==0 else 2)
+    self.assertEqual(self.locations(old),{'fcamera.mp4':'removed','rlog.zst':'nas'})
+    self.assertEqual(self.locations(new),{'fcamera.mp4':'nas' if index_bytes==0 else 'removed','rlog.zst':'nas'})
+    self.assertIsNone(archiver.cleanup_error)
+
+ def test_cleanup_usage_error_is_counted(self):
+  # Reachable share whose usage cannot be read: a counted failure, not a silent skip.
+  p=self.log('a'*32,['rlog.zst','fcamera.mp4'])
+  archiver=self.archiver(nas_max_bytes=1)
+  with patch.object(self.store,'usage',return_value=(0,0)):
+   self.assertEqual(archiver.cleanup_nas(),0);self.assertEqual(archiver.cleanup_error,'os_error')
+   result=archiver.run_cycle()
+  self.assertEqual(result,{'archived':0,'bytes':0,'stopped':'os_error'})
+  status=archiver.status();self.assertEqual((status['last_error'],status['consecutive_failures']),('os_error',1))
+  self.assert_untouched(p,['rlog.zst','fcamera.mp4'])
+  # An empty but readable share is not an error.
+  with patch.object(self.store,'usage',return_value=(0,10**12)):self.assertEqual(archiver.cleanup_nas(),0)
+  self.assertIsNone(archiver.cleanup_error)
 
  def test_cleanup_does_no_nas_io_under_server_lock(self):
   p=self.log('a'*32,[],nas_kinds=['fcamera.mp4']);target=self.nas/p.name/'fcamera.mp4';real=Path.unlink

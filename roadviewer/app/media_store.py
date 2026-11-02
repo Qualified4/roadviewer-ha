@@ -68,6 +68,7 @@ class ArchiveStore:
         self.settings, self.root, self.clock = settings, Path(root), clock
         self.lock = threading.Lock()
         self.cached = None  # (checked_at, state, reason)
+        self.usage_cached = None  # (measured_at, (used, free))
 
     def local_id(self):
         try: return json.loads((self.root / LOCAL_COPY).read_text())['storage_id']
@@ -109,17 +110,24 @@ class ArchiveStore:
         return cached[1] if cached and self.clock() - cached[0] < CACHE_SECONDS else None
     def reason(self): return self._check()[1]
     def available(self): return self.state() == 'connected'
-    def invalidate(self): self.cached = None
+    def invalidate(self): self.cached = self.usage_cached = None
+    def forget_usage(self): self.usage_cached = None
     def path_for(self, id, kind): return self.settings.path / id / _kind(kind)
 
     def usage(self):
+        # Walks the share's tree, so a result is reused for CACHE_SECONDS (the settings panel polls it).
+        # Callers deciding on removals call forget_usage() first. A read error returns (0, 0) and is not cached.
         if not self.available(): return 0, 0
+        cached = self.usage_cached
+        if cached and self.clock() - cached[0] < CACHE_SECONDS: return cached[1]
         try:
             used = 0
             for top, dirs, files in os.walk(self.settings.path, onerror=_raise):
                 used += sum(os.lstat(os.path.join(top, name)).st_size for name in files)
-            return used, shutil.disk_usage(self.settings.path).free
+            result = used, shutil.disk_usage(self.settings.path).free
         except OSError: return 0, 0
+        self.usage_cached = (self.clock(), result)
+        return result
 
     def activate(self):
         # Create the sentinel only on a fresh setup (no local copy, no sentinel). If either
@@ -222,6 +230,10 @@ class PendingDeletes:
             if row is None: rows.append({'id': id, 'kinds': list(kinds)})
             else: row['kinds'] += [k for k in kinds if k not in row['kinds']]
             self._save(rows)
+
+    def count(self):
+        # Archived files still waiting to be removed.
+        with self.lock: return sum(len(r['kinds']) for r in self._load())
 
     def process(self, store):
         # Returns the number of archived files removed. An entry stays until all its files are gone.
@@ -358,12 +370,26 @@ class Archiver:
         # stays over its limit. The share is touched outside the server lock. Caller holds self.cycle.
         self.cleanup_last_reason, self.cleanup_error = None, None
         if not self.settings.enabled: return 0
+        self.store.forget_usage()
         used, free = self.store.usage()
-        if not used: return 0  # Unreachable or unreadable share (or nothing on it): nothing to decide on.
+        if not used and not free:
+            # (0, 0) from a reachable share is a read error (a real share holds at least the sentinel).
+            if self.store.available(): self.cleanup_error = 'os_error'
+            return 0
+        if not used: return 0  # Nothing on it: nothing to decide on.
         self.cleanup_last_reason = self._over(used, free)
         if not self.cleanup_last_reason: return 0
-        rows, removed, left = self._cleanup_candidates(), 0, False
+        rows, removed, left, measured = self._cleanup_candidates(), 0, False, True
         for kinds in (VIDEO_KINDS, ('rlog.zst',)):
+            if not measured:
+                # The estimate below may be off (sizes from the index): the irreplaceable logs are only
+                # considered against a fresh measurement.
+                self.store.forget_usage()
+                used, free = self.store.usage()
+                measured = True
+                if not used and not free:
+                    self.cleanup_error = 'os_error' if self.store.available() else 'storage_unavailable'
+                    return removed
             for p, m in rows:
                 if not self._over(used, free):
                     left = True
@@ -371,16 +397,25 @@ class Archiver:
                 for kind in kinds:
                     e = entry(m, kind)
                     if e['location'] != 'nas': continue
+                    # An index without a size would leave the estimate unchanged: measure the file instead.
+                    size = _bytes(e) or self._nas_size(p, kind)
                     done = self._remove_archived(p, kind, e)
                     if done is None: return removed  # cleanup_error is set.
                     if done:
                         removed += 1
                         self.removed_files_total += 1
-                        used, free = used - _bytes(e), free + _bytes(e)
+                        used, free, measured = used - size, free + size, False
             if left: break
-        if removed: used, free = self.store.usage()
+        if not measured:
+            self.store.forget_usage()
+            used, free = self.store.usage()
         if used and self._over(used, free): self.cleanup_error = 'nas_full' if left else 'nas_full_no_candidates'
         return removed
+
+    def _nas_size(self, p, kind):
+        # Outside the server lock: the share may be slow.
+        try: return self.store.path_for(p.name, kind).stat().st_size
+        except OSError: return 0
 
     def _cleanup_candidates(self):
         s, rows = self.server, []
