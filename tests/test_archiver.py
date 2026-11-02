@@ -1,6 +1,6 @@
 """The archiver moves eligible recordings' files to the share (videos first, the log last), verified
 before the local copy goes; any failure leaves the source and the index as they were."""
-import dataclasses,hashlib,os,shutil,sys,tempfile,threading,time,unittest
+import dataclasses,errno,hashlib,os,shutil,sys,tempfile,threading,time,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parent))
@@ -393,9 +393,9 @@ class ArchiverTests(unittest.TestCase):
    self.startup();before={q:server.read_meta(q) for q in (gone,corrupt,lost)}
    archiver=self.archiver(local_threshold_bytes=10**9)  # Nothing is moved meanwhile.
    with patch.object(server,'store',self.store):archiver.run_cycle()
-  # The copy gone from the share is recorded as removed by recovery; the result itself stays.
-  m=before[lost];media_store.set_location(m,'fcamera.hevc',**media_store.entry(server.read_meta(lost),'fcamera.hevc'));m['video']=False
-  self.assertEqual(media_store.entry(m,'fcamera.hevc')['location'],'removed')
+  # The copy gone from a reachable share without a cleanup intent: the index keeps it, it is reported missing.
+  self.assertEqual(archiver.status()['missing_archived'],1)
+  self.assertEqual(media_store.resolve(lost,before[lost],'fcamera.hevc',self.store),(None,'missing'))
   for q,m in before.items():
    self.assertEqual(server.read_meta(q),m,q.name);self.assertEqual(sorted(f.name for f in (q/'prepared').iterdir()),['data.json','telemetry.json'])
   self.submit.assert_not_called();self.assertEqual(archiver.status()['rechecked_held'],0)
@@ -510,7 +510,9 @@ class ArchiverTests(unittest.TestCase):
   archiver=self.archiver(nas_max_bytes=1)
   with patch.object(self.store,'usage',return_value=(500,10**12)):self.assertEqual(archiver.cleanup_nas(),2)
   m=server.read_meta(p);e=media_store.entry(m,'fcamera.mp4')
-  self.assertEqual((e['location'],e['reason']),('removed','nas_full'));self.assertIsInstance(e['removed_at'],float);self.assertNotIn('sha256',e)
+  self.assertEqual((e['location'],e['reason']),('removed','nas_full'));self.assertIsInstance(e['removed_at'],float)
+  # The verified content is kept with the removal, without the cleanup's intent flag.
+  self.assertEqual((e['sha256'],e['bytes']),('0'*64,self.nas_size('fcamera.mp4')));self.assertNotIn('removing',e)
   self.assertEqual(media_store.entry(server.read_meta(gone),'ecamera.mp4')['location'],'removed')
   self.assertFalse((self.nas/p.name/'fcamera.mp4').exists())
   self.assertTrue((p/'meta.json').is_file());self.assertEqual((p/'prepared'/'data.json').read_text(),'{}')
@@ -567,6 +569,7 @@ class ArchiverTests(unittest.TestCase):
   self.assertEqual(result,{'archived':0,'bytes':0,'stopped':'os_error'})
   self.assertEqual(self.locations(a),{'fcamera.mp4':'nas'});self.assertTrue(target.is_file())
   self.assertEqual(self.locations(b),{'fcamera.mp4':'nas'})  # Cleanup stops for this cycle.
+  self.assertNotIn('removing',media_store.entry(server.read_meta(a),'fcamera.mp4'))  # The intent is withdrawn.
   status=archiver.status();self.assertEqual((status['last_error'],status['consecutive_failures'],status['removed_files_total']),('os_error',1,0))
 
  def test_cleanup_missing_file_on_lost_share_is_not_recorded(self):
@@ -577,6 +580,7 @@ class ArchiverTests(unittest.TestCase):
   archiver=self.archiver(nas_max_bytes=1)
   with self.share_usage(),patch.object(media_store.Path,'unlink',unmounted):self.assertEqual(archiver.cleanup_nas(),0)
   self.assertEqual(archiver.cleanup_error,'storage_unavailable');self.assertEqual(self.locations(p),{'fcamera.mp4':'nas'})
+  self.assertNotIn('removing',media_store.entry(server.read_meta(p),'fcamera.mp4'))
 
  def test_cleanup_no_candidates_sets_error_and_skips_archiving(self):
   p=self.log('a'*32,['rlog.zst','fcamera.mp4'])
@@ -683,5 +687,136 @@ class ArchiverTests(unittest.TestCase):
   with patch.object(server,'cleanup_stop',stop),patch.object(self.store,'activate',side_effect=OSError('hung')),       patch.object(archiver,'recover_startup',side_effect=lambda:order.append('recover')),patch.object(server.app.logger,'exception') as logged:
    archiver.start();archiver.thread.join(5)
   self.assertEqual(order,['recover']);logged.assert_called_once_with('Archive activation failed')
+
+ # Inconclusive signals from the share (a lookup that misses, a stale handle, a share lost mid-check) never
+ # record a file as removed or corrupt: only cleanup's recorded intent confirms a removal.
+ def flaky_is_file(self,target,misses=1,effect=None):
+  real,state=Path.is_file,{'left':misses}
+  def is_file(path,*args,**kw):
+   if path==target and state['left']:
+    state['left']-=1
+    if effect:effect()
+    return False
+   return real(path,*args,**kw)
+  return patch.object(media_store.Path,'is_file',is_file)
+
+ def test_transient_missing_archived_file_keeps_index(self):
+  """Reproducible with a mock filesystem: one lookup of an archived file misses (ENOENT right after an SMB
+  reconnect) while the share answers. Real SMB caching (negative dentries, actimeo) requires a real SMB mount."""
+  p=self.log('a'*32,[],nas_kinds=['fcamera.mp4','rlog.zst']);target=self.nas/p.name/'fcamera.mp4';before=server.read_meta(p)
+  archiver=self.archiver(local_threshold_bytes=10**9);archiver.held_checked=True
+  with self.flaky_is_file(target):archiver.recover_startup()
+  self.assertTrue(archiver.recovered);self.assertEqual(server.read_meta(p),before)
+  self.assertEqual(archiver.status()['missing_archived'],1)
+  with self.flaky_is_file(target):self.assertEqual(media_store.resolve(p,before,'fcamera.mp4',self.store),(None,'missing'))
+  # Still missing at the next cycle: still counted, never recorded as removed.
+  with self.flaky_is_file(target):archiver.run_cycle()
+  self.assertEqual(server.read_meta(p),before);self.assertEqual(archiver.status()['missing_archived'],1)
+  # The file is visible again: it resolves as available and the next cycle no longer counts it.
+  self.assertEqual(media_store.resolve(p,before,'fcamera.mp4',self.store),(target,'available'))
+  archiver.run_cycle();self.assertEqual(archiver.status()['missing_archived'],0)
+  m=server.read_meta(p);self.assertEqual(m,before)
+  for kind in ('fcamera.mp4','rlog.zst'):
+   e=media_store.entry(m,kind);self.assertEqual(e['location'],'nas');self.assertNotIn('error',e)
+
+ def test_stale_handle_stops_recovery_without_index_change(self):
+  """Reproducible with a mock filesystem: is_file/stat raise ESTALE. Whether a real CIFS mount raises ESTALE
+  or reports ENOENT after a server restart requires a real SMB mount."""
+  for attr in ('is_file','stat'):
+   with self.subTest(attr):
+    id=('a' if attr=='is_file' else 'b')*32
+    p=self.log(id,[],nas_kinds=['fcamera.mp4']);target=self.nas/p.name/'fcamera.mp4';before=server.read_meta(p)
+    real=getattr(Path,attr)
+    def stale(path,*args,**kw):
+     if path==target:raise OSError(errno.ESTALE,'Stale file handle')
+     return real(path,*args,**kw)
+    archiver=self.archiver();archiver.held_checked=True;self.store.state()
+    with patch.object(media_store.Path,attr,stale):archiver.recover_startup()
+    self.assertFalse(archiver.recovered);self.assertEqual(server.read_meta(p),before);self.assertIsNone(self.store.cached)
+    self.assertEqual(archiver.status()['missing_archived'],0)
+    shutil.rmtree(p);shutil.rmtree(self.nas/id)
+
+ def test_share_lost_mid_check_changes_nothing(self):
+  """Reproducible with a mock filesystem: the lookup misses because the share went away; the sentinel
+  re-check then fails. A real unmount between the two calls requires a real SMB mount."""
+  p=self.log('a'*32,[],nas_kinds=['fcamera.mp4']);target=self.nas/p.name/'fcamera.mp4';before=server.read_meta(p)
+  unmount=lambda:(self.nas/media_store.SENTINEL).rename(self.nas/'sentinel')
+  archiver=self.archiver();archiver.held_checked=True
+  with self.flaky_is_file(target,effect=unmount):result=archiver.run_cycle()
+  self.assertEqual(result['stopped'],'storage_unavailable');self.assertFalse(archiver.recovered)
+  self.assertEqual(server.read_meta(p),before);self.assertEqual(archiver.status()['missing_archived'],0)
+
+ def test_reconnect_clears_intent_flag_when_file_present(self):
+  """Reproducible with a mock filesystem: a cleanup stopped after recording its intent; the file is still
+  on the share when it reconnects. Gone with the intent recorded, the removal is confirmed."""
+  p=self.log('a'*32,[],nas_kinds=['fcamera.mp4']);m=server.read_meta(p);m['storage']['fcamera.mp4']['removing']=True;server.save_meta(p,m)
+  self.archiver().recover_startup()
+  m=server.read_meta(p);e=media_store.entry(m,'fcamera.mp4')
+  self.assertEqual((e['location'],e['sha256'],e['bytes']),('nas','0'*64,self.nas_size('fcamera.mp4')));self.assertNotIn('removing',e)
+  self.assertEqual(media_store.resolve(p,m,'fcamera.mp4',self.store),(self.nas/p.name/'fcamera.mp4','available'))
+  m['storage']['fcamera.mp4']['removing']=True;m['video']=True;server.save_meta(p,m);(self.nas/p.name/'fcamera.mp4').unlink()
+  archiver=self.archiver();archiver.recover_startup()
+  m=server.read_meta(p);e=media_store.entry(m,'fcamera.mp4')
+  self.assertEqual((e['location'],e['reason'],e['sha256'],e['bytes']),('removed','nas_full','0'*64,self.nas_size('fcamera.mp4')))
+  self.assertNotIn('removing',e);self.assertIs(m['video'],False);self.assertEqual(archiver.status()['missing_archived'],0)
+
+ def test_cleanup_commits_intent_before_unlink(self):
+  """Reproducible with a mock filesystem: the intent is flushed to the index before the share's unlink."""
+  p=self.log('a'*32,[],nas_kinds=['fcamera.mp4']);target=self.nas/p.name/'fcamera.mp4';real=Path.unlink;seen=[]
+  def unlink(path,*args,**kw):
+   if path==target:seen.append(media_store.entry(server.read_meta(p),'fcamera.mp4').get('removing'))
+   return real(path,*args,**kw)
+  archiver=self.archiver(nas_max_bytes=1)
+  with self.share_usage(),patch.object(media_store.Path,'unlink',unlink),patch.object(media_store,'atomic_json',wraps=media_store.atomic_json) as commit:
+   self.assertEqual(archiver.cleanup_nas(),1)
+  self.assertEqual(seen,[True]);self.assertTrue(any(c.args[0]==p/'meta.json' for c in commit.call_args_list))
+  e=media_store.entry(server.read_meta(p),'fcamera.mp4')
+  self.assertEqual((e['location'],e['reason'],e['sha256'],e['bytes']),('removed','nas_full','0'*64,self.nas_size('fcamera.mp4')));self.assertNotIn('removing',e)
+  # The intent cannot be recorded: nothing is removed.
+  q=self.log('b'*32,[],uploaded=2,nas_kinds=['fcamera.mp4']);before=server.read_meta(q)
+  with self.share_usage(),patch.object(media_store,'atomic_json',side_effect=OSError(28,'No space')):self.assertEqual(archiver.cleanup_nas(),0)
+  self.assertEqual(archiver.cleanup_error,'os_error');self.assertTrue((self.nas/q.name/'fcamera.mp4').is_file())
+  self.assertEqual(server.read_meta(q),before)
+
+ def test_legacy_missing_removal_is_restored_when_file_present(self):
+  """Reproducible with a mock filesystem: an index written by the earlier recovery (removed, reason missing)
+  for a file that is on the share with its recorded content."""
+  data=b'fcamera.mp4'*20
+  def legacy(id,content,reason='missing'):
+   p=self.log(id,[],nas_kinds=['fcamera.mp4']);(self.nas/id/'fcamera.mp4').write_bytes(content)
+   m=server.read_meta(p);media_store.set_location(m,'fcamera.mp4',location='removed',removed_at=1.0,reason=reason)
+   m.update(video=False,content_hashes={'fcamera.mp4':{'size':len(data),'mtime_ns':1,'sha256':sha(data)}});server.save_meta(p,m)
+   return p
+  p=legacy('a'*32,data);other=legacy('b'*32,b'other bytes');cleaned=legacy('c'*32,data,reason='nas_full')
+  before={q:server.read_meta(q) for q in (other,cleaned)}
+  archiver=self.archiver();archiver.recover_startup();self.assertTrue(archiver.recovered)
+  m=server.read_meta(p);e=media_store.entry(m,'fcamera.mp4')
+  self.assertEqual((e['location'],e['sha256'],e['bytes']),('nas',sha(data),len(data)))
+  self.assertIsInstance(e['archived_at'],float);self.assertIsInstance(e['restored_at'],float);self.assertIs(m['video'],True)
+  self.assertEqual(media_store.resolve(p,m,'fcamera.mp4',self.store),(self.nas/p.name/'fcamera.mp4','available'))
+  for q,m in before.items():self.assertEqual(server.read_meta(q),m,q.name)  # Other content, or a real cleanup.
+  # A read error stops recovery without changing the index.
+  q=legacy('d'*32,data);before=server.read_meta(q)
+  with patch.object(media_store,'_sha256',side_effect=OSError(5,'EIO')):archiver=self.archiver();archiver.recover_startup()
+  self.assertFalse(archiver.recovered);self.assertEqual(server.read_meta(q),before)
+
+ def test_recovery_mismatch_is_cleared_when_share_copy_matches(self):
+  """Reproducible with a mock filesystem: an entry marked corrupt whose copy on the share now matches the index."""
+  p=self.log('a'*32,['rlog.zst','fcamera.mp4']);data=b'fcamera.mp4'*20;self.index_on_nas(p,'fcamera.mp4',sha(data))
+  (self.nas/p.name).mkdir();(self.nas/p.name/'fcamera.mp4').write_bytes(data)
+  m=server.read_meta(p);m['storage']['fcamera.mp4']['error']='recovery_mismatch';server.save_meta(p,m)
+  self.archiver().recover_startup()
+  m=server.read_meta(p);e=media_store.entry(m,'fcamera.mp4')
+  self.assertEqual((e['location'],e['sha256']),('nas',sha(data)));self.assertNotIn('error',e)
+  self.assertEqual(media_store.resolve(p,m,'fcamera.mp4',self.store),(self.nas/p.name/'fcamera.mp4','available'))
+  self.assertTrue((p/'fcamera.mp4').is_file())  # The local copy is not touched in the same pass.
+
+ def test_missing_share_copy_is_never_marked_corrupt(self):
+  """Reproducible with a mock filesystem: the share copy is missing and the local file is not the indexed
+  content. Only a present copy with other bytes is corrupt; a missing one leaves the index as it is."""
+  p=self.log('a'*32,['rlog.zst','fcamera.mp4']);self.index_on_nas(p,'fcamera.mp4',sha(b'other'));before=server.read_meta(p)
+  archiver=self.archiver();archiver.recover_startup()
+  self.assertTrue(archiver.recovered);self.assertEqual(server.read_meta(p),before);self.assertEqual(archiver.status()['missing_archived'],1)
+  self.assertTrue((p/'fcamera.mp4').is_file())
 
 if __name__=='__main__':unittest.main()

@@ -1,5 +1,6 @@
 """Abrupt termination at every step of moving a file to the share (copy, fsync, re-read hash, rename, index
-commit, local unlink), of NAS cleanup (unlink, index commit) and of deleting a recording with archived files.
+commit, local unlink), of NAS cleanup (intent commit, unlink, index commit) and of deleting a recording with archived files.
+Reproducible with a mock filesystem (a temporary directory as the share); power loss on a real SMB share is not.
 After each, a restarted archiver (recover_startup, then one cycle) must leave exactly one verified copy, an index
 that agrees with where the bytes are, no partial copy, and a local file that went only once the index said nas."""
 import hashlib,os,shutil,sys,tempfile,unittest
@@ -112,8 +113,16 @@ class ArchiverCrashTests(unittest.TestCase):
   return patch.object(self.store,'usage',side_effect=lambda:(sum(f.stat().st_size for f in (self.nas/('a'*32)).iterdir()),10**12))
 
  def test_cleanup_crash_matrix(self):
+  """Reproducible with a mock filesystem: the process stops at each step of a cleanup (intent commit, share
+  unlink, final index save). Power loss on a real share (an unlink acknowledged but not persisted) requires a
+  real SMB mount. A removal is confirmed only with the intent recorded and the file gone; otherwise the
+  intent is withdrawn and the index keeps the file."""
   video=lambda path,*a,**k:Path(path)==self.nas/('a'*32)/'fcamera.mp4'
-  rows=[('share unlink before',media_store.Path,'unlink','before',video),
+  intent=lambda path,value:path.name=='meta.json' and media_store.entry(value,'fcamera.mp4').get('removing') is True
+  rows=[('intent commit before',media_store,'atomic_json','before',intent),
+        ('intent commit after (before unlink)',media_store,'atomic_json','after',intent),
+        ('after unlink, before final index save',media_store.Archiver,'_removable','before',lambda self,p,kind,e,guarded=True:not guarded),
+        ('share unlink before',media_store.Path,'unlink','before',video),
         ('share unlink after',media_store.Path,'unlink','after',video),
         ('index commit before',server,'save_meta','before',lambda p,m:media_store.location(m,'fcamera.mp4')=='removed'),
         ('index commit after',server,'save_meta','after',lambda p,m:media_store.location(m,'fcamera.mp4')=='removed')]
@@ -127,7 +136,10 @@ class ArchiverCrashTests(unittest.TestCase):
     self.restart()
     m=server.read_meta(p);e=media_store.entry(m,'fcamera.mp4');share=self.nas/p.name/'fcamera.mp4'
     if share.exists():self.assertEqual((e['location'],e['sha256']),('nas',sha(share.read_bytes())),label)
-    else:self.assertEqual(e['location'],'removed',label);self.assertFalse(m['video'],label)
+    else:
+     self.assertEqual((e['location'],e['reason'],e['sha256'],e['bytes']),('removed','nas_full',sha(DATA['fcamera.mp4']),len(DATA['fcamera.mp4'])),label)
+     self.assertFalse(m['video'],label)
+    self.assertNotIn('removing',e,label)  # Settled either way: no intent is left behind.
     self.assertEqual(media_store.location(m,'rlog.zst'),'nas',label);self.assertEqual((self.nas/p.name/'rlog.zst').read_bytes(),DATA['rlog.zst'])
     self.assertEqual((m['status'],(p/'prepared'/'data.json').is_file()),('ready',True),label)
     self.assertEqual(media_store.indexed_state(p,m,'fcamera.mp4','connected'),

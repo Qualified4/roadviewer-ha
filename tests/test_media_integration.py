@@ -541,7 +541,7 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertEqual(json.loads(path.read_text()),[{'id':'c'*32,'kinds':['camera.mp4']}])
   self.assertFalse((nas/('a'*32)).exists());self.assertFalse((nas/('b'*32)).exists())
 
- ARCHIVE_KEYS={'enabled','state','reason','path_configured','used_bytes','free_bytes','max_bytes','margin_bytes','last_cycle_at','last_error','consecutive_failures','pending_deletes','archived_files','archived_bytes','running'}
+ ARCHIVE_KEYS={'enabled','state','reason','path_configured','used_bytes','free_bytes','max_bytes','margin_bytes','last_cycle_at','last_error','consecutive_failures','pending_deletes','archived_files','archived_bytes','running','missing_archived'}
  def test_storage_snapshot_has_archive_block_without_path(self):
   # Archiving off: the block reports "disabled" and the existing fields are unchanged.
   body=self.get('/api/settings/storage').json
