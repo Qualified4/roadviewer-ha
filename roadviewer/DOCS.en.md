@@ -262,6 +262,7 @@ Home Assistant app backups exclude originals (ZST, TS, HEVC), MP4s, analysis/gra
 | Processing options | `/data/roadviewer/.processing-settings.json` |
 | Storage policy and segment pins | `/data/roadviewer/.storage-settings.json` |
 | Device authentication | `/data/roadviewer/.devices.json` |
+| NAS archive storage ID (files on the NAS are not backed up) | `/data/roadviewer/.archive.json` |
 
 Supervisor manages external port mappings. Browser preferences are not included in app backups. Restoring a backup does not restore recordings: keep originals separately. Previously created backup archives are unchanged.
 
@@ -282,6 +283,92 @@ Reservation requests never delete existing recordings. Chunk uploads reserve dec
 Deletion can occur only after all files have arrived, passed validation/checksums and need registration. Duplicate-only uploads do not trigger eviction. Capacity is preflighted before deleting; locks keep concurrent admission consistent. Completion, cancellation, terminal failure and expiry release reservations. Status polling and device token renewal do not extend idle expiry.
 
 This is an upload-admission budget, not a filesystem quota: conversion output or other disk users can exceed estimates. Lowering the budget does not immediately delete files.
+
+## NAS archiving (experimental)
+
+Archiving moves original videos and log files of converted recordings to network storage (NAS) attached to Home Assistant, freeing local space. It is off by default; while off, nothing changes. There is no feature that moves archived files back to local storage.
+
+### Setup
+
+1. In Home Assistant **Settings → System → Storage**, add network storage with usage **Share**. The app sees it as `/share/<name>`.
+2. Create a folder for Road Viewer on the NAS first, for example `/share/<name>/roadviewer`. The app does not create it.
+3. In the app options, set `archive_path` to that folder, turn on `archive_enabled`, save and restart the app.
+4. Open **저장공간 관리** (Storage management) and check that **NAS 상태** (NAS status) reads **연결됨** (connected).
+
+`archive_path` must be below `/share/`. The first folder name may use letters, digits and underscores; later names may also use dots and hyphens; `..` is rejected. With an invalid path the app starts with archiving off and logs `invalid_archive_path`.
+
+On first connection the app writes `.roadviewer-storage.json` into the NAS folder and `.archive.json`, holding the same storage ID, into `/data/roadviewer`. The share counts as connected only when both IDs match, so an empty unmounted folder or another installation's folder is never used by mistake. Pointing `archive_path` at a different folder after the first connection shows **연결 불가** (unavailable). Do not delete either file.
+
+### App options
+
+Options are changed only in the app configuration and apply after a restart. MB means 1024² bytes.
+
+| Option | Default | Range | Meaning |
+|---|---|---|---|
+| `archive_enabled` | `false` | — | Enable archiving |
+| `archive_path` | empty | below `/share/` | NAS folder |
+| `archive_local_threshold_mb` | `0` | 0 or more | Move files only while Road Viewer's local usage exceeds this. `0` moves whenever there is something eligible. |
+| `archive_min_age_hours` | `24` | 0–8760 | Only recordings uploaded at least this long ago |
+| `archive_interval_minutes` | `10` | 1–1440 | Interval between automatic runs |
+| `archive_batch` | `4` | 1–64 | Maximum files moved per run |
+| `archive_nas_max_mb` | `0` | 0 or more | Usage limit of the NAS folder; `0` means unlimited |
+| `archive_nas_margin_mb` | `1024` | 0 or more | Clean up when NAS free space falls below this |
+
+### What moves, in which order
+
+Converted (playable) recordings older than `archive_min_age_hours` move oldest upload first. Within a recording, videos (MP4, HEVC, TS) move first and `rlog.zst` last. **Pinned segments are archived too:** a pin protects from deletion, not from moving.
+
+`meta.json` and the converted replay/graph data never leave local storage. The library and road/vehicle replay therefore keep working while the NAS is unreachable.
+
+Each file is copied to the NAS, flushed to disk, read back and compared by hash, renamed into place and recorded in the index; only then is the local file deleted. If any step fails or the app stops, the local original stays, and leftover partial copies are cleaned up on the next start.
+
+### When it runs
+
+At startup the app first finishes any interrupted work, then runs every `archive_interval_minutes`. Each run checks the NAS connection and then:
+
+1. Completes deletions postponed because the NAS was unreachable.
+2. Cleans up the NAS if it is over its limit or low on free space (see below).
+3. Requeues conversions postponed because the NAS was unreachable.
+4. Moves files. Nothing is moved this time while an upload is being received, a conversion is running, or local usage is at or below `archive_local_threshold_mb`.
+
+A run stops when the NAS is unreachable, NAS free space is below the file size plus 100MiB, a hash does not match, or copying fails; the next interval retries. An upload starting during a run lets the current file finish and then ends the run.
+
+**저장공간 관리** shows **NAS 상태 / NAS 사용 중 / NAS 여유 / 마지막 아카이브** (status, used, free, last run) and the latest error. **지금 아카이브** (Archive now) runs once without waiting for the interval; the button is disabled while a run is in progress. The NAS path is never shown in the UI.
+
+### Video states
+
+With archiving on, the library's video label has these states.
+
+| Label | Meaning | Playback, download, conversion |
+|---|---|---|
+| 영상 있음 (video available) | Readable locally or on the NAS | As usual |
+| 저장소 연결 불가 (storage unavailable) | The video is on the NAS, which cannot be reached now | Playback switches to another camera or, if none, shows “영상 저장소에 연결할 수 없습니다. NAS 연결을 확인하세요.” and continues without video. Downloads fail; ZIPs are never built partially. Conversion is refused with “저장소 연결 후 다시 시도하세요.” |
+| 영상 없음 (no video) | No video registered, or removed by NAS cleanup | Replay without video |
+| 영상 확인 중 (checking) | The NAS connection is being checked | Retry shortly |
+| 영상 읽기 오류 (read error) | The NAS copy is missing or does not match its record | Cannot be played or downloaded |
+
+### When the NAS is unreachable
+
+An unreachable NAS never causes file deletion, removal of converted data or reconversion. Restarting the app keeps converted data of recordings with files on the NAS. Queued conversions are postponed with “저장소에 연결할 수 없어 변환을 미뤘습니다.” and requeued once the NAS answers. Adding a new camera video to a recording with files on the NAS also waits for the connection.
+
+With the **delete oldest unpinned** storage policy, recordings with files on the NAS are excluded from automatic deletion while it is unreachable; when it is connected, automatic deletion removes their NAS files too. **Reject new** is recommended together with archiving.
+
+### Deletion
+
+**완전 삭제** (Delete permanently) removes local data immediately and the NAS files as well. If the NAS is unreachable, the files to delete are recorded in `/data/roadviewer` and removed by the next run after it reconnects.
+
+### NAS cleanup
+
+When the NAS folder exceeds `archive_nas_max_mb` or NAS free space falls below `archive_nas_margin_mb`, NAS files are removed in this order:
+
+1. Videos of unpinned recordings, oldest upload first.
+2. If still short, `rlog.zst` of unpinned recordings, oldest first.
+
+Files of pinned segments and of recordings being converted are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). If nothing can be removed, archiving stops and reports an error.
+
+### Backups
+
+Files on the NAS are not part of Home Assistant backups. The app options (`archive_*`) and `/data/roadviewer/.archive.json`, holding the storage ID, are backed up with the app configuration. Back up the NAS itself separately.
 
 ## Connecting a comma device
 

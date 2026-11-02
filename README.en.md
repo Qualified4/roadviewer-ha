@@ -199,6 +199,8 @@ Files reside under `/data/roadviewer` inside the app container. **Home Assistant
 
 An update that changes the analysis format may clear prepared data and reprocess recordings. Rendering-only updates do not inherently require reconversion.
 
+The experimental **NAS archiving** option moves original videos and logs of converted recordings to network storage attached to Home Assistant with usage Share, freeing local space. It is off by default. Pinned segments are archived too but never removed by NAS cleanup. The library and converted data stay local, an unreachable NAS never causes deletions, and there is no restore back to local storage. Files on the NAS are not part of Home Assistant backups. See [NAS archiving](roadviewer/DOCS.en.md#nas-archiving-experimental) for setup.
+
 ## Documentation and validation
 
 - [User guide](roadviewer/DOCS.en.md) · [한국어](roadviewer/DOCS.md): installation, playback, conversion, storage, backups and troubleshooting
