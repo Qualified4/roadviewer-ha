@@ -7,6 +7,7 @@ from work_queue import ProcessingQueue
 from flask import Flask,request,jsonify,send_file,send_from_directory,abort
 from werkzeug.exceptions import HTTPException
 from storage_policy import StoragePolicy,atomic_json
+import media_store
 from device_api import DeviceAPI
 from device_network import DeviceNetwork
 from video_sources import SOURCES,ORIGINALS,DERIVED,VIDEO_KINDS,CAMERA_KINDS,UPLOAD_KINDS,STORED_KINDS,validate_hevc,validate_mp4
@@ -29,17 +30,50 @@ def folder(id):
 def read_meta(p):return json.loads((p/'meta.json').read_text())
 def save_meta(p,m):
  temp=p/'meta.tmp';temp.write_text(json.dumps(m,ensure_ascii=False));temp.replace(p/'meta.json')
-def original_bytes(p,kinds=STORED_KINDS):return sum((p/k).stat().st_size for k in kinds if (p/k).is_file())
-def has_video(p):return any((p/k).is_file() for k in (*ORIGINALS,*DERIVED.values()))
-def video_download_kind(p):
- return next((kind for source in ('front','qcamera','wide') for kind in SOURCES[source][:2] if (p/kind).is_file()),None)
-def video_downloads(p):
+def stored(p,m,kind):
+ # Registered for this recording: on the archive by the index (reachable or not), or present locally.
+ where=media_store.location(m,kind)
+ return where=='nas' or where=='local' and (p/kind).is_file()
+def original_bytes(p,m=None,kinds=STORED_KINDS):return sum(media_store.media_size(p,m or {},k,store) for k in kinds if stored(p,m or {},k))
+def has_video(p,m):return any(stored(p,m,k) for k in (*ORIGINALS,*DERIVED.values()))
+def video_download_kind(p,m):
+ return next((kind for source in ('front','qcamera','wide') for kind in SOURCES[source][:2] if stored(p,m,kind)),None)
+def video_downloads(p,m):
  # One entry per stored camera (front f, wide e, low-res q): its original, or the MP4 kept instead of it.
  rows=[]
  for source in ('front','wide','qcamera'):
-  kind=next((kind for kind in SOURCES[source][:2] if (p/kind).is_file()),None)
-  if kind:rows.append({'source':source,'kind':kind,'bytes':(p/kind).stat().st_size})
+  kind=next((kind for kind in SOURCES[source][:2] if stored(p,m,kind)),None)
+  if kind:rows.append({'source':source,'kind':kind,'bytes':media_store.media_size(p,m,kind,store)})
  return rows
+MEDIA_ERRORS={'storage_unavailable':(503,'영상 저장소에 연결할 수 없습니다. NAS 연결을 확인하세요.'),
+ 'storage_checking':(503,'영상 저장소 연결을 확인하는 중입니다. 잠시 후 다시 시도하세요.'),
+ 'media_corrupt':(409,'영상 파일을 읽을 수 없습니다. 손상되었을 수 있습니다.')}
+def media_file(p,m,kind):
+ # The readable file, or None if it does not exist. An unreachable archive or a recorded read error
+ # is answered (503/409) instead: it must never look like a missing file to the caller.
+ path,state=media_store.resolve(p,m,kind,store)
+ if state in ('available','missing'):return path
+ error={'storage_unavailable':'storage_unavailable','checking':'storage_checking','corrupt':'media_corrupt'}[state]
+ abort(MEDIA_ERRORS[error][0],description=error)
+def media_path(p,m,kind):
+ path=media_file(p,m,kind)
+ if path is None:abort(404)
+ return path
+STATE_RANK=('available','corrupt','checking','storage_unavailable','missing')
+def registered(p,m,kind):return stored(p,m,kind) or media_store.location(m,kind)=='removed'
+def video_states(p,m):
+ # Per camera, the best state among its registered files (original or kept MP4); removed ones count as missing.
+ states={}
+ for source,(original,mp4,_) in SOURCES.items():
+  found=[media_store.resolve(p,m,kind,store)[1] for kind in (original,mp4) if registered(p,m,kind)]
+  if found:states[source]=min(found,key=STATE_RANK.index)
+ return states
+def storage_locations(p,m):
+ locations={}
+ for part,kinds in {'rlog':('rlog.zst',),**{source:row[:2] for source,row in SOURCES.items()}}.items():
+  where={media_store.location(m,kind) for kind in kinds if registered(p,m,kind)}
+  if where:locations[part]=next(w for w in ('nas','local','removed') if w in where)
+ return locations
 
 UPLOAD_QUIET_SECONDS=30
 def upload_receiving():
@@ -98,8 +132,8 @@ def run_job(id):
       (p/original).unlink(missing_ok=True)
      m['video_codecs']={**m.get('video_codecs',{}),**{key:info['codec'] for key,info in available.items() if info and info.get('codec')}}
      m['video_origins']={**m.get('video_origins',{}),**{key:info['sourcePts'] for key,info in available.items() if info and 'sourcePts' in info}}
-     m['bytes']=original_bytes(p)
-     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v28-runtime-geometry');save_meta(p,m)
+     m['bytes']=original_bytes(p,m)
+     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p,m),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v28-runtime-geometry');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
@@ -139,7 +173,7 @@ def clear_prepared(p,m):
  # Never remove the only retained copy of any camera.
  for original,mp4 in DERIVED.items():
   if (p/original).is_file():(p/mp4).unlink(missing_ok=True)
- m['bytes']=original_bytes(p)
+ m['bytes']=original_bytes(p,m)
  m.update(duration=None,model_frames=None,warnings=[],error=None,conversion_revision=m.get('conversion_revision',0)+1)
 
 def queue_unconverted():
@@ -196,6 +230,11 @@ def fresh_replay_state(response):
 
 @app.errorhandler(HTTPException)
 def http_error(e):
+ if isinstance(e.description,str) and e.description in MEDIA_ERRORS:
+  code,message=MEDIA_ERRORS[e.description]
+  response=jsonify(error=e.description,message=message)
+  if e.description=='storage_checking':response.headers['Retry-After']='5'
+  return response,code
  if request.path.startswith('/api/device/'):
   message=e.description if isinstance(e.description,str) and re.fullmatch(r'[a-z_]+',e.description) else {400:'invalid_request',401:'unauthorized',403:'forbidden',404:'not_found',405:'method_not_allowed',413:'request_too_large'}.get(e.code,'request_failed')
   return jsonify(error=message),e.code
@@ -282,7 +321,10 @@ def logs():
   with lock:pinned=storage_policy.pinned(m);progress=job_progress.get(p.name)
   # Logs converted before 0.9.6 stored a warning for skipped new event types; it was never a problem.
   m['warnings']=[w for w in m.get('warnings') or [] if not str(w).startswith(SKIPPED_EVENTS_WARNING)]
-  return dict(m,pinned=pinned,bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),video_downloads=video_downloads(p),download_options=download_options(p,m),log_bytes=(p/'rlog.zst').stat().st_size if (p/'rlog.zst').is_file() else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
+  row=dict(m,pinned=pinned,bytes=original_bytes(p,m),video=has_video(p,m),video_download=video_download_kind(p,m),video_downloads=video_downloads(p,m),download_options=download_options(p,m),log_bytes=media_store.media_size(p,m,'rlog.zst',store) if stored(p,m,'rlog.zst') else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
+  # Only recordings touched by the archive carry the new fields; local-only rows stay as before.
+  if any(media_store.location(m,kind)!='local' for kind in media_store.MEDIA_KINDS):row.update(video_state=video_states(p,m),storage_locations=storage_locations(p,m))
+  return row
  items=[]
  for p in recording_paths():
   try:items.append(item(p))
@@ -428,7 +470,7 @@ def register_files(files):
         if not restored:
          clear_prepared(p,meta)
          meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted')
-        meta.update(video=True,bytes=original_bytes(p));save_meta(p,meta)
+        meta.update(video=True,bytes=original_bytes(p,meta));save_meta(p,meta)
         existing[g['hashes']['rlog.zst']]=(meta,hashes)
         updated.append(dict(meta,original_restored=True) if restored else meta)
         continue
@@ -743,7 +785,7 @@ def remove_prepared(id):
 @app.route('/api/logs/<id>/download/video')
 def download_video(id):
  with lock:
-  kind=video_download_kind(folder(id))
+  p=folder(id);kind=video_download_kind(p,read_meta(p))
   if kind is None:abort(404)
   return original(id,kind)
 
@@ -785,21 +827,23 @@ DOWNLOAD_PARTS=('rlog','front','wide','qcamera')
 def download_options(p,m):
  rows=[]
  for source,(original,mp4,_) in SOURCES.items():
-  video=next((path for path in (p/mp4,p/'prepared'/mp4) if path.is_file()),None)
-  raw=p/original
-  if not raw.is_file() and video is None:continue
+  video=stored(p,m,mp4) or (p/'prepared'/mp4).is_file();raw=stored(p,m,original)
+  if not raw and not video:continue
   codec=m.get('video_codecs',{}).get(source)
-  reversible=video is not None and (codec=='hevc' if source!='qcamera' else codec in (None,'h264'))
-  rows.append(dict(source=source,mp4=video is not None,original=raw.is_file() or reversible,
-                   bytes=(video or raw).stat().st_size,original_kind=original))
+  reversible=video and (codec=='hevc' if source!='qcamera' else codec in (None,'h264'))
+  size=media_store.media_size(p,m,mp4,store) if stored(p,m,mp4) else (p/'prepared'/mp4).stat().st_size if video else media_store.media_size(p,m,original,store)
+  rows.append(dict(source=source,mp4=video,original=raw or reversible,bytes=size,original_kind=original))
  return rows
 
 def planned_video(p,m,source,format):
  original,mp4,_=SOURCES[source]
- raw=p/original
- video=next((path for path in (p/mp4,p/'prepared'/mp4) if path.is_file()),None)
- if format=='mp4':return (video,mp4,None,0) if video else None
- if raw.is_file():return raw,original,None,0
+ # Resolve only the file actually sent: an unreachable MP4 must not block its reachable original.
+ def kept():return media_file(p,m,mp4) or ((p/'prepared'/mp4) if (p/'prepared'/mp4).is_file() else None)
+ if format=='mp4':
+  video=kept();return (video,mp4,None,0) if video else None
+ raw=media_file(p,m,original)
+ if raw:return raw,original,None,0
+ video=kept()
  if video is None:return None
  option=next(row for row in download_options(p,m) if row['source']==source)
  if not option['original']:abort(409,description='요청한 원본 형식 파일을 만들 수 없습니다.')
@@ -825,7 +869,7 @@ def download_selected(ids,parts,format,single=False):
    for id in ids:
     p=folder(id);m=read_meta(p)
     plans=[]
-    if 'rlog' in parts and (p/'rlog.zst').is_file():plans.append((p/'rlog.zst','rlog.zst',None,0))
+    if 'rlog' in parts and (log:=media_file(p,m,'rlog.zst')):plans.append((log,'rlog.zst',None,0))
     for source in ('front','wide','qcamera'):
      if source not in parts:continue
      plan=planned_video(p,m,source,format)
@@ -833,7 +877,11 @@ def download_selected(ids,parts,format,single=False):
     for path,kind,export,offset in plans:
      name=download_name(m,kind)
      if any(entry[1]==name for entry in entries):name=f'{id[:8]}-{name}'
-     entries.append((path.open('rb'),name,export,offset))
+     try:entries.append((path.open('rb'),name,export,offset))
+     except OSError:
+      # The archive went away between resolving and opening: refuse the whole download.
+      if not path.is_relative_to(ROOT):abort(503,description='storage_unavailable')
+      raise
   if not entries:abort(404)
  except BaseException:
   for source,*_ in entries:source.close()
@@ -886,11 +934,14 @@ def download_many():
  with lock:
   for id in ids:
    p=folder(id);m=read_meta(p)
-   kinds=(['rlog.zst'] if 'rlog' in parts and (p/'rlog.zst').is_file() else [])+[row['kind'] for row in video_downloads(p) if row['source'] in parts]
+   kinds=(['rlog.zst'] if 'rlog' in parts else [])+[row['kind'] for row in video_downloads(p,m) if row['source'] in parts]
    for kind in kinds:
+    # Every file is resolved before streaming: one unreachable file refuses the whole ZIP.
+    path=media_file(p,m,kind)
+    if path is None:continue
     name=download_name(m,kind)
     if name in names:name=f'{id[:8]}-{name}'
-    names.add(name);entries.append((p/kind,name))
+    names.add(name);entries.append((path,name))
  if not entries:abort(404)
  response=app.response_class(zip_stream(entries),mimetype='application/zip',direct_passthrough=True)
  response.headers['Content-Disposition']=f'attachment; filename="roadviewer-{len(ids)}-segments-{time.strftime("%Y%m%d-%H%M%S")}.zip"'
@@ -900,9 +951,8 @@ def download_many():
 @app.route('/api/logs/<id>/original/<kind>')
 def original(id,kind):
  if kind not in STORED_KINDS:abort(404)
- p=folder(id);file=p/kind
- if not file.is_file():abort(404)
- name=download_name(read_meta(p),kind)
+ p=folder(id);m=read_meta(p);file=media_path(p,m,kind)
+ name=download_name(m,kind)
  mime='video/mp4' if kind.endswith('.mp4') else 'video/hevc' if kind.endswith('.hevc') else 'video/mp2t' if kind=='qcamera.ts' else 'application/zstd'
  return send_file(file,as_attachment=True,download_name=name,mimetype=mime,conditional=True)
 
@@ -938,15 +988,15 @@ def telemetry(id):
 
 @app.route('/api/logs/<id>/video')
 def video(id):
- p=folder(id)
- if read_meta(p)['status']!='ready':return jsonify(error='로그를 준비 중이거나 변환에 실패했습니다.'),409
+ p=folder(id);m=read_meta(p)
+ if m['status']!='ready':return jsonify(error='로그를 준비 중이거나 변환에 실패했습니다.'),409
  summary_file=p/'prepared/summary.json'
  summary=json.loads(summary_file.read_text()) if summary_file.is_file() else {}
  preferred=next((key for key in ('front','qcamera','wide') if summary.get('videos',{}).get(key)),'qcamera')
  source=request.args.get('source',preferred)
  if source not in SOURCES:abort(404)
  name=SOURCES[source][1]
- file=p/name if (p/name).is_file() else p/'prepared'/name
+ file=media_file(p,m,name) or p/'prepared'/name
  if not file.exists():abort(404)
  return send_file(file,mimetype='video/mp4',conditional=True)
 def requeue_startup():
@@ -954,10 +1004,10 @@ def requeue_startup():
  pending=[]
  for p in recording_paths():
   m=read_meta(p)
-  stale=m['status']=='ready' and (m.get('decoder_version')!='v28-runtime-geometry' or bool(m.get('video'))!=has_video(p) or prepared_file(p,'data.json')[0] is None)
+  stale=m['status']=='ready' and (m.get('decoder_version')!='v28-runtime-geometry' or bool(m.get('video'))!=has_video(p,m) or prepared_file(p,'data.json')[0] is None)
   if m['status'] in ('queued','processing') or stale:
    clear_prepared(p,m)
-   m.update(status='unconverted',video=has_video(p))
+   m.update(status='unconverted',video=has_video(p,m))
    save_meta(p,m)
   if m['status']=='unconverted' and not m.get('auto_excluded') and (auto_convert or m.get('manual_conversion')):pending.append((p,m))
  pending.sort(key=lambda row:(row[1].get('uploaded',0),row[0].name))
@@ -987,6 +1037,12 @@ def migrate_prepared():
   except (OSError,ValueError,KeyError,subprocess.SubprocessError):
    app.logger.exception('Replay data migration failed for %s',p.name)
 
+archive_settings=media_store.ArchiveSettings.from_options(options)
+store=media_store.ArchiveStore(archive_settings,ROOT)
+if archive_settings.enabled:
+ store.activate()
+ if not store.available():app.logger.warning('Video archive is not connected: %s',store.reason())
+elif archive_settings.error:app.logger.warning('Video archive is disabled: %s',archive_settings.error)
 storage_policy=StoragePolicy(sys.modules[__name__])
 devices=DeviceAPI(sys.modules[__name__])
 device_network=DeviceNetwork(sys.modules[__name__])
