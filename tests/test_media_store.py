@@ -133,6 +133,24 @@ class MediaStoreTests(unittest.TestCase):
   m.set_location(meta, 'ecamera.mp4', location='nas', bytes=7)
   self.assertEqual(m.resolve(self.rec, meta, 'ecamera.mp4', store), (None, 'missing'))
 
+ def test_lookup_miss_rechecks_the_share(self):
+  """Reproducible with a mock filesystem: an archived file not found is confirmed against the sentinel. A share
+  that dropped during the lookup is unavailable, one being probed is checking; only a reachable share says
+  missing. A real unmount between the two calls requires a real SMB mount."""
+  meta = {'id': ID}; m.set_location(meta, 'ecamera.mp4', location='nas', bytes=7)
+  store = self.connected()  # Sentinel present: the file is really not there.
+  self.assertEqual(m.resolve(self.rec, meta, 'ecamera.mp4', store), (None, 'missing'))
+  (self.nas/m.SENTINEL).rename(self.nas/'sentinel')  # Dropped after the cached "connected".
+  self.assertTrue(store.available())
+  self.assertEqual(m.resolve(self.rec, meta, 'ecamera.mp4', store), (None, 'storage_unavailable'))
+  (self.nas/'sentinel').rename(self.nas/m.SENTINEL); store.invalidate(); self.assertTrue(store.available())
+  real = store.invalidate
+  def probing():
+   real()
+   self.assertTrue(store.lock.acquire(blocking=False)); self.addCleanup(store.lock.release)  # Another probe runs.
+  with patch.object(store, 'invalidate', side_effect=probing):
+   self.assertEqual(m.resolve(self.rec, meta, 'ecamera.mp4', store), (None, 'checking'))
+
  def test_availability_cached_10s(self):
   store = self.connected()
   (self.nas/m.SENTINEL).unlink()

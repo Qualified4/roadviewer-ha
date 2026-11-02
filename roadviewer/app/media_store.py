@@ -187,6 +187,7 @@ def archived_bytes(meta):
     return sum(_bytes(e) for e in (entry(meta, k) for k in MEDIA_KINDS) if e['location'] == 'nas')
 
 def resolve(p, meta, kind, store):
+    # Touches the share: never call it while holding the server lock.
     e = entry(meta, _kind(kind))
     where = e['location']
     if where == 'removed': return None, 'missing'
@@ -196,7 +197,12 @@ def resolve(p, meta, kind, store):
         path = store.path_for(Path(p).name, kind)
     else: path = Path(p) / kind
     try:
-        if not path.is_file(): return None, 'missing'
+        if not path.is_file():
+            if where != 'nas': return None, 'missing'
+            # A share that dropped during the lookup looks the same: only a reachable share confirms missing.
+            store.invalidate()
+            if store.state() == 'checking': return None, 'checking'
+            return (None, 'missing') if store.available() else (None, 'storage_unavailable')
     except OSError:
         return (None, 'storage_unavailable') if where == 'nas' else (None, 'missing')
     return (path, 'corrupt') if e.get('error') else (path, 'available')
@@ -739,7 +745,9 @@ class Archiver:
                 set_location(current, kind, location='removed', removed_at=time.time(), reason='nas_full', **_kept(e))
                 current['video'] = s.has_video(p, current)  # As in _remove_archived.
                 s.save_meta(p, current)
-            except (OSError, ValueError): return True
+            except (OSError, ValueError):
+                s.app.logger.exception('Index of %s not saved', p.name)
+                return True
         s.app.logger.info('Archived %s/%s was removed by an interrupted cleanup; recorded as removed', p.name, kind)
         return True
 
@@ -778,7 +786,9 @@ class Archiver:
                 if entry(current, kind) != e: return True
                 set_location(current, kind, **{k: v for k, v in e.items() if k != 'error'})
                 s.save_meta(p, current)
-            except (OSError, ValueError): return True
+            except (OSError, ValueError):
+                s.app.logger.exception('Index of %s not saved', p.name)
+                return True
         s.app.logger.warning('Archived %s/%s matches its index again; no longer marked corrupt', p.name, kind)
         return True
 
@@ -805,7 +815,9 @@ class Archiver:
                 set_location(current, kind, location='nas', bytes=size, sha256=known['sha256'], archived_at=now, restored_at=now)
                 current['video'] = s.has_video(p, current)  # The removal cleared it; as in _remove_archived.
                 s.save_meta(p, current)
-            except (OSError, ValueError): return True
+            except (OSError, ValueError):
+                s.app.logger.exception('Index of %s not saved', p.name)
+                return True
         s.app.logger.warning('Archived %s/%s was recorded as removed but is on the share; restored', p.name, kind)
         return True
 
