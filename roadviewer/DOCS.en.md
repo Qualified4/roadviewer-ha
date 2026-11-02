@@ -341,7 +341,7 @@ With archiving on, the library's video label has these states.
 
 | Label | Meaning | Playback, download, conversion |
 |---|---|---|
-| 영상 있음 (video available) | Stored locally, or on the connected NAS according to the index. The list does not check each NAS file, so a NAS copy that went missing shows as no video when played. | As usual |
+| 영상 있음 (video available) | Stored locally, or on the connected NAS according to the index. The list does not check each NAS file, so a NAS copy that went missing shows as no video when played; after the next app start it is recorded as removed once the NAS connects. | As usual |
 | 저장소 연결 불가 (storage unavailable) | The video is on the NAS, which cannot be reached now | Playback switches to another camera or, if none, shows “영상 저장소에 연결할 수 없습니다. NAS 연결을 확인하세요.” and continues without video. Downloads fail; ZIPs are never built partially. Conversion is refused with “저장소 연결 후 다시 시도하세요.” |
 | 영상 없음 (no video) | No video registered, or removed by NAS cleanup | Replay without video |
 | 영상 확인 중 (checking) | The NAS connection is being checked | Retry shortly |

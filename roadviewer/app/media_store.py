@@ -270,6 +270,9 @@ class PendingDeletes:
         with self.lock: rows = self._load()
         total, done = 0, {}
         for row in rows:
+            # A deletion stopped between recording the files and removing the recording: it still uses them.
+            # The entry stays until the recording is gone.
+            if (self.path.parent / row['id'] / 'meta.json').exists(): continue
             removed, failed = delete_archived(store, row['id'], row['kinds'])
             total += removed
             done[row['id']] = set(row['kinds']) - set(failed)
@@ -669,6 +672,30 @@ class Archiver:
             s.app.logger.warning('Archived %s/%s was not in the index; the copy on the share is used', p.name, kind)
         return True
 
+    def _settle_missing(self, p, kind, e):
+        # Caller holds self.cycle. The share holds the only copy. Gone from a reachable share (a cleanup stopped
+        # between its unlink and its index commit, or removed outside the app), it is recorded as removed, as
+        # cleanup would have. Returns False when the share failed (recovery stops).
+        s, target = self.server, self.store.path_for(p.name, kind)
+        try:
+            if target.is_file(): return True
+        except OSError:
+            self.store.invalidate()
+            return False
+        # A missing file on an unmounted share looks the same: confirm the share before changing the index.
+        self.store.invalidate()
+        if not self.store.available(): return False
+        with s.lock:
+            try:
+                current = s.read_meta(p)
+                if entry(current, kind) != e or (p / kind).exists(): return True
+                set_location(current, kind, location='removed', removed_at=time.time(), reason='missing')
+                current['video'] = s.has_video(p, current)  # As in _remove_archived.
+                s.save_meta(p, current)
+            except (OSError, ValueError): return True
+        s.app.logger.warning('Archived %s/%s is missing from the share; recorded as removed', p.name, kind)
+        return True
+
     def recover_startup(self):
         # After a crash: half-written copies go; a local file whose verified copy is indexed goes;
         # a copy without its index stays for the next cycle. Nothing is done while the share is unreachable.
@@ -736,7 +763,10 @@ class Archiver:
             if not self._adopt(p, m): return
             for kind in MEDIA_KINDS:
                 e = entry(m, kind)
-                if e['location'] != 'nas' or e.get('error') or not isinstance(e.get('sha256'), str) or not (p / kind).is_file(): continue
+                if e['location'] != 'nas' or e.get('error') or not isinstance(e.get('sha256'), str): continue
+                if not (p / kind).is_file():
+                    if not self._settle_missing(p, kind, e): return
+                    continue
                 target = self.store.path_for(p.name, kind)
                 try: same = target.is_file() and _sha256(target) == e['sha256']
                 except OSError:

@@ -393,6 +393,9 @@ class ArchiverTests(unittest.TestCase):
    self.startup();before={q:server.read_meta(q) for q in (gone,corrupt,lost)}
    archiver=self.archiver(local_threshold_bytes=10**9)  # Nothing is moved meanwhile.
    with patch.object(server,'store',self.store):archiver.run_cycle()
+  # The copy gone from the share is recorded as removed by recovery; the result itself stays.
+  m=before[lost];media_store.set_location(m,'fcamera.hevc',**media_store.entry(server.read_meta(lost),'fcamera.hevc'));m['video']=False
+  self.assertEqual(media_store.entry(m,'fcamera.hevc')['location'],'removed')
   for q,m in before.items():
    self.assertEqual(server.read_meta(q),m,q.name);self.assertEqual(sorted(f.name for f in (q/'prepared').iterdir()),['data.json','telemetry.json'])
   self.submit.assert_not_called();self.assertEqual(archiver.status()['rechecked_held'],0)
