@@ -262,7 +262,10 @@ class Archiver:
         self.thread = None
         self.running, self.last_cycle_at, self.last_error, self.consecutive_failures = False, None, None, 0
         self.archived_files_total, self.requeued_deferred = 0, 0
-        self.reason = None  # Why the last archive_file returned False; None when the recording changed meanwhile.
+        self.recovered = False  # Crash recovery completed once with the share reachable.
+        # Why the last archive_file returned False; None when the recording changed meanwhile.
+        # Shared state: archive_file must only be called from run_cycle (which holds self.cycle).
+        self.reason = None
 
     def status(self):
         return {'last_cycle_at': self.last_cycle_at, 'last_error': self.last_error, 'consecutive_failures': self.consecutive_failures,
@@ -295,8 +298,10 @@ class Archiver:
 
     def _cycle(self, result):
         s = self.server
-        if not self.store.available(): return 'storage_unavailable'
+        if not self.store.available(): return self._failed('storage_unavailable')
         self.last_cycle_at = time.time()
+        # Recovery skipped at startup (share down) or requested by a commit whose local unlink failed.
+        if not self.recovered: self._recover()
         try: PendingDeletes(s.ROOT).process(self.store)
         except (OSError, ValueError): s.app.logger.exception('Pending archive deletions failed')
         self.requeue_deferred()
@@ -305,10 +310,13 @@ class Archiver:
         if busy: return 'processing'
         if s.storage_used_bytes() <= self.settings.local_threshold_bytes: return 'below_threshold'
         reason = self._archive(result)
-        if reason in FAILURES:
-            self.last_error = reason
-            self.consecutive_failures += 1
-        else: self.consecutive_failures, self.last_error = 0, None
+        if reason in FAILURES: return self._failed(reason)
+        self.consecutive_failures, self.last_error = 0, None
+        return reason
+
+    def _failed(self, reason):
+        self.last_error = reason
+        self.consecutive_failures += 1
         return reason
 
     def _archive(self, result):
@@ -357,7 +365,7 @@ class Archiver:
                         and (s.auto_convert or m.get('manual_conversion'))): rows.append((p, m))
             rows.sort(key=lambda row: (row[1].get('uploaded', 0), row[0].name))
             for p, m in rows:
-                m['status'] = 'queued'
+                m.update(status='queued', error=None)  # The deferral message is shown regardless of status.
                 m.pop('deferred', None)
                 s.save_meta(p, m)
                 ids.append(p.name)
@@ -421,7 +429,9 @@ class Archiver:
                     s.app.logger.exception('Index of %s not saved', p.name)
                     return self._fail('os_error')  # The copy on the share is an orphan, reused next time.
                 try: source.unlink()
-                except OSError: s.app.logger.exception('Archived %s/%s stays local until the next recovery', p.name, kind)
+                except OSError:
+                    s.app.logger.exception('Archived %s/%s stays local until the next recovery', p.name, kind)
+                    self.recovered = False  # The next cycle's recovery removes it.
                 return True
         # Converted again, deleted or replaced meanwhile: no index refers to the copy.
         if not isinstance(current, dict) or location(current, kind) != 'nas':
@@ -432,37 +442,66 @@ class Archiver:
     def recover_startup(self):
         # After a crash: half-written copies go; a local file whose verified copy is indexed goes;
         # a copy without its index stays for the next cycle. Nothing is done while the share is unreachable.
-        if not self.settings.enabled or not self.store.available(): return
+        # Until it completes once, every connected cycle runs it first.
+        if not self.settings.enabled: return
+        with self.cycle: self._recover()
+
+    def _recover(self):
+        # Caller holds self.cycle. Sets self.recovered only when every recording was checked with the share reachable.
+        if not self.store.available(): return
         s = self.server
-        with self.cycle:
-            try:
-                with os.scandir(self.settings.path) as tops:
-                    for top in tops:
-                        if not (RECORDING_ID.fullmatch(top.name) and top.is_dir(follow_symlinks=False)): continue
-                        with os.scandir(top.path) as files:
-                            for f in files:
-                                if f.name.endswith('.part') and f.is_file(follow_symlinks=False): os.unlink(f.path)
-            except OSError:
-                s.app.logger.exception('Archive recovery could not remove partial copies')
-                self.store.invalidate()
-                return
-            for p in s.recording_paths():
-                try: m = s.read_meta(p)
-                except (OSError, ValueError): continue
-                if not isinstance(m, dict): continue
-                for kind in MEDIA_KINDS:
-                    e = entry(m, kind)
-                    if e['location'] != 'nas' or not isinstance(e.get('sha256'), str) or not (p / kind).is_file(): continue
-                    target = self.store.path_for(p.name, kind)
-                    try: same = target.is_file() and _sha256(target) == e['sha256']
-                    except OSError:
-                        self.store.invalidate()
-                        return
-                    if not same:
-                        s.app.logger.warning('Archived %s/%s does not match its index; the local file is kept', p.name, kind)
-                        continue
+        try:
+            with os.scandir(self.settings.path) as tops:
+                for top in tops:
+                    if not (RECORDING_ID.fullmatch(top.name) and top.is_dir(follow_symlinks=False)): continue
+                    with os.scandir(top.path) as files:
+                        for f in files:
+                            if f.name.endswith('.part') and f.is_file(follow_symlinks=False): os.unlink(f.path)
+        except OSError:
+            s.app.logger.exception('Archive recovery could not remove partial copies')
+            self.store.invalidate()
+            return
+        for p in s.recording_paths():
+            try: m = s.read_meta(p)
+            except (OSError, ValueError): continue
+            if not isinstance(m, dict): continue
+            for kind in MEDIA_KINDS:
+                e = entry(m, kind)
+                if e['location'] != 'nas' or e.get('error') or not isinstance(e.get('sha256'), str) or not (p / kind).is_file(): continue
+                target = self.store.path_for(p.name, kind)
+                try: same = target.is_file() and _sha256(target) == e['sha256']
+                except OSError:
+                    self.store.invalidate()
+                    return
+                if same:
                     with s.lock:
                         try:
-                            current = entry(s.read_meta(p), kind)
-                            if current.get('location') == 'nas' and current.get('sha256') == e['sha256']: (p / kind).unlink()
+                            if entry(s.read_meta(p), kind) == e: (p / kind).unlink()
                         except (OSError, ValueError): pass
+                    continue
+                # The share copy is missing or differs. A local file identical to the indexed content is the
+                # good copy: the index goes back to local and the next cycle replaces the share copy.
+                try:
+                    local = p / kind
+                    stat, digest = local.stat(), _sha256(local)
+                except OSError: continue
+                hashes = m.get('content_hashes')
+                known = hashes.get(kind) if isinstance(hashes, dict) else None
+                recorded = isinstance(known, dict) and known.get('size') == stat.st_size and known.get('mtime_ns') == stat.st_mtime_ns and known.get('sha256') == digest
+                restore = digest == e['sha256'] or recorded
+                # A missing file on an unmounted share looks the same: confirm the share before changing the index.
+                self.store.invalidate()
+                if not self.store.available(): return
+                s.app.logger.warning('Archived %s/%s is missing or does not match its index; %s', p.name, kind,
+                                     'the local copy is used again' if restore else 'marked corrupt')
+                with s.lock:
+                    try:
+                        current = s.read_meta(p)
+                        if entry(current, kind) != e: continue
+                        if restore:
+                            current['storage'].pop(kind)
+                            if not current['storage']: current.pop('storage')
+                        else: current['storage'][kind]['error'] = 'recovery_mismatch'
+                        s.save_meta(p, current)
+                    except (OSError, ValueError): continue
+        self.recovered = True

@@ -139,7 +139,9 @@ class ArchiverTests(unittest.TestCase):
  def test_stops_when_share_is_lost(self):
   p=self.log('a'*32,['rlog.zst','fcamera.mp4'])
   (self.nas/media_store.SENTINEL).unlink();self.store.invalidate()
-  self.assertEqual(self.archiver().run_cycle()['stopped'],'storage_unavailable');self.assert_untouched(p,['rlog.zst','fcamera.mp4'])
+  archiver=self.archiver()
+  self.assertEqual(archiver.run_cycle()['stopped'],'storage_unavailable');self.assert_untouched(p,['rlog.zst','fcamera.mp4'])
+  status=archiver.status();self.assertEqual((status['last_error'],status['consecutive_failures']),('storage_unavailable',1))
 
  def test_upload_mid_cycle_ends_after_current_file(self):
   p=self.log('a'*32,['rlog.zst','fcamera.mp4'])
@@ -183,12 +185,58 @@ class ArchiverTests(unittest.TestCase):
   p=self.log('a'*32,['rlog.zst','fcamera.mp4']);data=b'fcamera.mp4'*10
   target=self.nas/p.name/'fcamera.mp4';target.parent.mkdir();target.write_bytes(data)
   m=server.read_meta(p);media_store.set_location(m,'fcamera.mp4',location='nas',bytes=len(data),sha256=sha(data),archived_at=1.0);server.save_meta(p,m)
-  # The index records a copy the share does not hold intact: the local file stays.
-  q=self.log('b'*32,['fcamera.mp4']);(self.nas/q.name).mkdir();(self.nas/q.name/'fcamera.mp4').write_bytes(b'broken')
-  m=server.read_meta(q);media_store.set_location(m,'fcamera.mp4',location='nas',bytes=len(data),sha256=sha(data),archived_at=1.0);server.save_meta(q,m)
-  self.archiver().recover_startup()
+  archiver=self.archiver();archiver.recover_startup()
   self.assertFalse((p/'fcamera.mp4').exists());self.assertTrue((p/'rlog.zst').is_file());self.assertEqual(target.read_bytes(),data)
-  self.assertTrue((q/'fcamera.mp4').is_file())
+  self.assertEqual(media_store.location(server.read_meta(p),'fcamera.mp4'),'nas');self.assertTrue(archiver.recovered)
+
+ def index_on_nas(self,p,kind,sha256):
+  m=server.read_meta(p);media_store.set_location(m,kind,location='nas',bytes=len(kind.encode()*10),sha256=sha256,archived_at=1.0);server.save_meta(p,m)
+
+ def test_recover_restores_local_when_share_copy_differs(self):
+  # The share holds wrong bytes but the local file is the indexed content: the index goes back to local.
+  p=self.log('a'*32,['rlog.zst','fcamera.mp4']);self.index_on_nas(p,'fcamera.mp4',sha(b'fcamera.mp4'*10))
+  (self.nas/p.name).mkdir();(self.nas/p.name/'fcamera.mp4').write_bytes(b'broken')
+  self.archiver().recover_startup()
+  self.assert_untouched(p,['rlog.zst','fcamera.mp4']);self.assertNotIn('storage',server.read_meta(p))
+  self.assertEqual((self.nas/p.name/'fcamera.mp4').read_bytes(),b'broken')  # Replaced by the next cycle.
+  self.assertEqual(self.archiver().run_cycle()['archived'],2);self.assertEqual((self.nas/p.name/'fcamera.mp4').read_bytes(),b'fcamera.mp4'*10)
+
+ def test_recover_restores_local_when_share_copy_missing(self):
+  p=self.log('a'*32,['rlog.zst','fcamera.mp4']);self.index_on_nas(p,'fcamera.mp4',sha(b'fcamera.mp4'*10))
+  # Known by its recorded content hash even when the index hash differs.
+  self.index_on_nas(p,'rlog.zst','2'*64);m=server.read_meta(p);stat=(p/'rlog.zst').stat()
+  m['content_hashes']={'rlog.zst':{'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':sha(b'rlog.zst'*10)}};server.save_meta(p,m)
+  self.archiver().recover_startup()
+  self.assert_untouched(p,['rlog.zst','fcamera.mp4']);self.assertNotIn('storage',server.read_meta(p))
+
+ def test_recover_marks_corrupt_when_nothing_matches(self):
+  p=self.log('a'*32,['rlog.zst','fcamera.mp4']);self.index_on_nas(p,'fcamera.mp4',sha(b'other'))
+  (self.nas/p.name).mkdir();(self.nas/p.name/'fcamera.mp4').write_bytes(b'broken')
+  self.archiver().recover_startup()
+  m=server.read_meta(p);e=media_store.entry(m,'fcamera.mp4')
+  self.assertEqual((e['location'],e['error']),('nas','recovery_mismatch'));self.assertTrue((p/'fcamera.mp4').is_file())
+  self.assertEqual(media_store.resolve(p,m,'fcamera.mp4',self.store)[1],'corrupt')
+  self.archiver().recover_startup();self.assertEqual(server.read_meta(p),m)  # Not checked again.
+
+ def test_recovery_runs_at_first_connected_cycle(self):
+  p=self.log('a'*32,['rlog.zst'],status='queued');(self.nas/p.name).mkdir();(self.nas/p.name/'rlog.zst.part').write_bytes(b'half')
+  (self.nas/media_store.SENTINEL).rename(self.nas/'sentinel');self.store.invalidate()
+  archiver=self.archiver();archiver.recover_startup();self.assertFalse(archiver.recovered)
+  self.assertTrue((self.nas/p.name/'rlog.zst.part').is_file())
+  (self.nas/'sentinel').rename(self.nas/media_store.SENTINEL);self.store.invalidate()
+  archiver.run_cycle()
+  self.assertTrue(archiver.recovered);self.assertFalse((self.nas/p.name/'rlog.zst.part').exists())
+
+ def test_failed_local_unlink_is_finished_by_next_cycle(self):
+  p=self.log('a'*32,['rlog.zst']);local=p/'rlog.zst';real=Path.unlink
+  def flaky(path,*args,**kw):
+   if path==local:raise PermissionError(13,'busy')
+   return real(path,*args,**kw)
+  archiver=self.archiver()
+  with patch.object(media_store.Path,'unlink',flaky):self.assertEqual(archiver.run_cycle()['archived'],1)
+  self.assertTrue(local.is_file());self.assertEqual(media_store.location(server.read_meta(p),'rlog.zst'),'nas');self.assertFalse(archiver.recovered)
+  archiver.run_cycle()
+  self.assertFalse(local.exists());self.assertTrue(archiver.recovered);self.assertEqual((self.nas/p.name/'rlog.zst').read_bytes(),b'rlog.zst'*10)
 
  def test_recover_removes_part_files(self):
   p=self.log('a'*32,['rlog.zst']);(self.nas/p.name).mkdir();(self.nas/p.name/'rlog.zst.part').write_bytes(b'half')
@@ -217,7 +265,7 @@ class ArchiverTests(unittest.TestCase):
   (self.nas/'sentinel').rename(self.nas/media_store.SENTINEL);self.store.invalidate()
   with patch.object(server,'auto_convert',True):archiver.run_cycle()
   self.assertEqual([call.args[0] for call in self.submit.call_args_list],[b.name,a.name])
-  for p in (a,b):m=server.read_meta(p);self.assertEqual(m['status'],'queued');self.assertNotIn('deferred',m)
+  for p in (a,b):m=server.read_meta(p);self.assertEqual((m['status'],m['error']),('queued',None));self.assertNotIn('deferred',m)
   self.assertEqual(server.read_meta(plain)['status'],'unconverted');self.assertEqual(archiver.status()['requeued_deferred'],2)
   # With automatic conversion off only a manual request is requeued.
   c=self.log('d'*32,['rlog.zst'],status='unconverted',deferred='storage');d=self.log('e'*32,['rlog.zst'],status='unconverted',deferred='storage',manual_conversion=True)
