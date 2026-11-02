@@ -1,6 +1,6 @@
 """Read paths (list, playback, downloads) serve media from the archive store through the same URLs;
 lifecycle paths (restart, conversion, registration, deletion, eviction) never act on an unreachable archive."""
-import hashlib,io,json,os,sys,tempfile,threading,unittest,zipfile
+import hashlib,io,json,os,shutil,sys,tempfile,threading,unittest,zipfile
 from pathlib import Path
 from unittest.mock import patch
 os.environ['RV_DATA']=tempfile.mkdtemp()
@@ -335,6 +335,61 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertEqual(sorted(x.name for x in self.root.iterdir() if server.ID.fullmatch(x.name)),[p.name])
   after=server.read_meta(p);after.pop('content_hashes',None);before.pop('content_hashes',None);self.assertEqual(after,before)
   self.assertFalse((p/'qcamera.ts').exists());self.assertTrue((p/'prepared'/'data.json').is_file())
+
+ def camera_reupload(self,log=b'rlog.zst'*20):
+  with patch.object(server,'submit') as submit:
+   r=self.send('post','/api/upload',data={'files':[(io.BytesIO(log),'rlog.zst'),(io.BytesIO(b'video'),'qcamera.ts')]})
+  return r,submit
+ def assert_refused(self,p,before,r,submit,error='log_unavailable'):
+  messages={'log_unavailable':'원본 로그가 없어 영상을 추가할 수 없습니다. 로그와 영상을 함께 다시 업로드하세요.','storage_unavailable':'저장소 연결 후 다시 시도하세요.'}
+  self.assertEqual(r.status_code,409,r.json);self.assertEqual(r.json,{'error':error,'message':messages[error]});submit.assert_not_called()
+  after=server.read_meta(p);after.pop('content_hashes',None);before=dict(before);before.pop('content_hashes',None);self.assertEqual(after,before)
+  self.assertFalse((p/'qcamera.ts').exists());self.assertEqual(sorted(f.name for f in (p/'prepared').iterdir()),['data.json','telemetry.json'])
+  self.assertEqual(sorted(x.name for x in self.root.iterdir() if server.ID.fullmatch(x.name)),[p.name])
+  self.assertEqual(list(self.root.glob('.upload-*')),[])  # The staged files are gone as for any refusal.
+ def archived_log(self,nas,**entry):
+  # A converted recording whose log is archived with the hash of the bytes re-uploaded below.
+  p=make_log(self.root,'a'*32,[],['rlog.zst','fcamera.mp4'],nas=nas)
+  m=server.read_meta(p);m['storage']['rlog.zst'].update(sha256=hashlib.sha256(b'rlog.zst'*20).hexdigest(),**entry)
+  self.ready(p,storage=m['storage']);(p/'prepared'/'telemetry.json').write_text('{}')
+  return p
+
+ def test_camera_reupload_refused_when_archived_log_unreadable(self):
+  # A new camera reconverts the recording: without a readable log its replay data would be lost.
+  nas,store=make_nas(self.root);self.use(store)
+  for case in ('corrupt','missing'):
+   with self.subTest(case=case):
+    p=self.archived_log(nas,**({'error':'recovery_mismatch'} if case=='corrupt' else {}))
+    if case=='missing':(nas/p.name/'rlog.zst').unlink()
+    before=server.read_meta(p);r,submit=self.camera_reupload()
+    try:self.assert_refused(p,before,r,submit)
+    finally:shutil.rmtree(p);shutil.rmtree(nas/p.name)
+  # A log archived after the states were resolved (none for it) waits for the share instead of being called missing.
+  p=self.archived_log(nas);before=server.read_meta(p)
+  with patch.object(server,'archived_matches',return_value={}):r,submit=self.camera_reupload()
+  self.assert_refused(p,before,r,submit,'storage_unavailable')
+  # An unreachable share keeps its own answer.
+  self.lose_nas(nas,store)
+  r,submit=self.camera_reupload();self.assert_refused(p,before,r,submit,'storage_unavailable')
+
+ def test_reupload_never_touches_recording_whose_log_was_removed(self):
+  # A log removed by NAS cleanup has no stored hash to match: the upload becomes a new recording and the
+  # old one keeps its replay data (no camera is ever added to it).
+  nas,store=make_nas(self.root);self.use(store)
+  p=make_log(self.root,'a'*32,['rlog.zst'],['fcamera.mp4'],nas=nas);m=server.read_meta(p);server.stored_digests(p,m);(p/'rlog.zst').unlink()
+  media_store.set_location(m,'rlog.zst',location='removed',removed_at=1.0,reason='nas_full');self.ready(p,storage=m['storage'],content_hashes=m['content_hashes'])
+  (p/'prepared'/'telemetry.json').write_text('{}')
+  before=server.read_meta(p);r,submit=self.camera_reupload(b'rlog.zst'*10)
+  self.assertEqual(r.status_code,201);self.assertEqual(r.json['updated'],[]);self.assertEqual(len(r.json['logs']),1)
+  self.assertEqual(server.read_meta(p),before);self.assertFalse((p/'qcamera.ts').exists())
+  self.assertEqual(sorted(f.name for f in (p/'prepared').iterdir()),['data.json','telemetry.json'])
+
+ def test_camera_reupload_accepted_when_archived_log_available(self):
+  nas,store=make_nas(self.root);self.use(store)
+  p=self.archived_log(nas);r,submit=self.camera_reupload()
+  self.assertEqual(r.status_code,201);self.assertEqual([u['id'] for u in r.json['updated']],[p.name]);submit.assert_called_once_with(p.name)
+  m=server.read_meta(p);self.assertEqual(m['status'],'queued');self.assertEqual((p/'qcamera.ts').read_bytes(),b'video')
+  self.assertFalse((p/'prepared').exists());self.assertEqual(media_store.location(m,'rlog.zst'),'nas')
 
  def test_reupload_restores_video_removed_by_cleanup(self):
   nas,store=make_nas(self.root);self.use(store)

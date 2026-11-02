@@ -513,6 +513,12 @@ def register_files(files):
        if additional_videos(path,match[0],g['hashes'],match[1]):
         # A new camera reconverts the recording, which needs every archived file: wait for the share.
         if not reachable and archived(match[0]):return jsonify(error='storage_unavailable',message='저장소 연결 후 다시 시도하세요.'),409
+        # Without a readable log (archived one corrupt or missing, by the states resolved before the locks) the
+        # replay data could not be made again: the recording is left as it is. A state not resolved yet waits for the share.
+        if not reconvertible(match[0],states.get(match[0]['id'])):
+         if media_store.location(match[0],'rlog.zst')=='nas' and (states.get(match[0]['id']) or {}).get('rlog.zst') in (None,'storage_unavailable','checking'):
+          return jsonify(error='storage_unavailable',message='저장소 연결 후 다시 시도하세요.'),409
+         return jsonify(error='log_unavailable',message='원본 로그가 없어 영상을 추가할 수 없습니다. 로그와 영상을 함께 다시 업로드하세요.'),409
         changes=True
      if changes:
       storage_policy.admit(0,[{'name':name} for g in groups.values() for name in g['files'].values()],commit=True,protected_ids={match[0]['id'] for match in matches if match})

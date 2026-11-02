@@ -349,7 +349,7 @@ With archiving on, the library's video label has these states.
 
 ### When the NAS is unreachable
 
-An unreachable NAS never causes file deletion, removal of converted data or reconversion. Restarting the app keeps converted data of recordings with files on the NAS. Queued conversions are postponed with “저장소에 연결할 수 없어 변환을 미뤘습니다.” and requeued once the NAS answers. Adding a new camera video to a recording with files on the NAS is refused while the NAS is unreachable (“저장소 연결 후 다시 시도하세요.”) and is not queued; upload it again once connected.
+An unreachable NAS never causes file deletion, removal of converted data or reconversion. Restarting the app keeps converted data of recordings with files on the NAS. Such recordings are checked once when the NAS first connects after the restart, and are reconverted (after a log analysis format change or with converted data missing) only if all their files on the NAS can be read. Queued conversions are postponed with “저장소에 연결할 수 없어 변환을 미뤘습니다.” and requeued once the NAS answers. Adding a new camera video to a recording with files on the NAS is refused while the NAS is unreachable (“저장소 연결 후 다시 시도하세요.”) and is not queued; upload it again once connected. Adding a camera video to a recording whose original log on the NAS is damaged or missing is refused (“원본 로그가 없어 영상을 추가할 수 없습니다. 로그와 영상을 함께 다시 업로드하세요.”) and its converted data is kept; delete the recording completely, then upload the log and videos together again.
 
 With the **delete oldest unpinned** storage policy, recordings with files on the NAS are excluded from automatic deletion while it is unreachable; when it is connected, automatic deletion removes their NAS files too. **Reject new** is recommended together with archiving.
 
