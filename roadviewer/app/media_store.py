@@ -8,6 +8,7 @@ from video_sources import STORED_KINDS
 MEDIA_KINDS = STORED_KINDS
 # Videos first, the original log last: it is the only input for reconversion.
 ARCHIVE_ORDER = ('fcamera.mp4', 'ecamera.mp4', 'camera.mp4', 'fcamera.hevc', 'ecamera.hevc', 'qcamera.ts', 'rlog.zst')
+VIDEO_KINDS = ARCHIVE_ORDER[:-1]
 SENTINEL = '.roadviewer-storage.json'
 LOCAL_COPY = '.archive.json'
 CACHE_SECONDS = 10
@@ -261,7 +262,9 @@ class Archiver:
         self.cycle = threading.Lock()  # One cycle (or recovery) at a time.
         self.thread = None
         self.running, self.last_cycle_at, self.last_error, self.consecutive_failures = False, None, None, 0
-        self.archived_files_total, self.requeued_deferred = 0, 0
+        self.archived_files_total, self.requeued_deferred, self.removed_files_total = 0, 0, 0
+        # What triggered the last share cleanup (None, 'nas_max', 'nas_margin') and why it could not finish.
+        self.cleanup_last_reason, self.cleanup_error = None, None
         self.recovered = False  # Crash recovery completed once with the share reachable.
         # Why the last archive_file returned False; None when the recording changed meanwhile.
         # Shared state: archive_file must only be called from run_cycle (which holds self.cycle).
@@ -269,7 +272,8 @@ class Archiver:
 
     def status(self):
         return {'last_cycle_at': self.last_cycle_at, 'last_error': self.last_error, 'consecutive_failures': self.consecutive_failures,
-                'running': self.running, 'archived_files_total': self.archived_files_total, 'requeued_deferred': self.requeued_deferred}
+                'running': self.running, 'archived_files_total': self.archived_files_total, 'requeued_deferred': self.requeued_deferred,
+                'removed_files_total': self.removed_files_total, 'cleanup_last_reason': self.cleanup_last_reason}
 
     def start(self):
         if not self.settings.enabled or self.thread: return
@@ -304,7 +308,10 @@ class Archiver:
         if not self.recovered: self._recover()
         try: PendingDeletes(s.ROOT).process(self.store)
         except (OSError, ValueError): s.app.logger.exception('Pending archive deletions failed')
+        self.cleanup_nas()
         self.requeue_deferred()
+        # Nothing more is moved to a share that is still over its limit.
+        if self.cleanup_error: return self._failed(self.cleanup_error)
         if s.upload_receiving(): return 'uploading'
         with s.lock: busy = bool(s.processes)
         if busy: return 'processing'
@@ -338,6 +345,91 @@ class Archiver:
                 if s.upload_receiving(): return 'uploading'
                 if s.cleanup_stop.is_set(): return 'shutdown'
         return None
+
+    def _over(self, used, free):
+        if self.settings.nas_max_bytes and used > self.settings.nas_max_bytes: return 'nas_max'
+        if free < self.settings.nas_margin_bytes: return 'nas_margin'
+        return None
+
+    def cleanup_nas(self):
+        # Design 5.2: when the share is over its limit, archived videos of unpinned recordings go first,
+        # oldest first; the original logs only after every video. Local files, meta.json and prepared/
+        # are never touched. Returns the number of files removed; sets cleanup_error when the share
+        # stays over its limit. The share is touched outside the server lock. Caller holds self.cycle.
+        self.cleanup_last_reason, self.cleanup_error = None, None
+        if not self.settings.enabled: return 0
+        used, free = self.store.usage()
+        if not used: return 0  # Unreachable or unreadable share (or nothing on it): nothing to decide on.
+        self.cleanup_last_reason = self._over(used, free)
+        if not self.cleanup_last_reason: return 0
+        rows, removed, left = self._cleanup_candidates(), 0, False
+        for kinds in (VIDEO_KINDS, ('rlog.zst',)):
+            for p, m in rows:
+                if not self._over(used, free):
+                    left = True
+                    break
+                for kind in kinds:
+                    e = entry(m, kind)
+                    if e['location'] != 'nas': continue
+                    done = self._remove_archived(p, kind, e)
+                    if done is None: return removed  # cleanup_error is set.
+                    if done:
+                        removed += 1
+                        self.removed_files_total += 1
+                        used, free = used - _bytes(e), free + _bytes(e)
+            if left: break
+        if removed: used, free = self.store.usage()
+        if used and self._over(used, free): self.cleanup_error = 'nas_full' if left else 'nas_full_no_candidates'
+        return removed
+
+    def _cleanup_candidates(self):
+        s, rows = self.server, []
+        for p in s.recording_paths():
+            try: m = s.read_meta(p)
+            except (OSError, ValueError): continue
+            if isinstance(m, dict) and any(location(m, kind) == 'nas' for kind in ARCHIVE_ORDER): rows.append((p, m))
+        with s.lock: rows = [(p, m) for p, m in rows if not s.storage_policy.pinned(m)]
+        uploaded = lambda m: m['uploaded'] if isinstance(m.get('uploaded'), (int, float)) else 0
+        return sorted(rows, key=lambda row: (uploaded(row[1]), row[0].name))
+
+    def _removable(self, p, kind, e, guarded=True):
+        # Caller holds the server lock. The indexed copy is still the one chosen; before the unlink also
+        # nothing protects (pinned) or reads it (conversion).
+        s = self.server
+        try: current = s.read_meta(p)
+        except (OSError, ValueError): return None
+        if not isinstance(current, dict) or guarded and (s.storage_policy.pinned(current) or p.name in s.processes): return None
+        now = entry(current, kind)
+        same = now['location'] == 'nas' and now.get('sha256') == e.get('sha256') and now.get('bytes') == e.get('bytes')
+        return current if same else None
+
+    def _remove_archived(self, p, kind, e):
+        # True when removed and indexed as removed, False when skipped, None when cleanup must stop (cleanup_error set).
+        s = self.server
+        with s.lock:
+            if self._removable(p, kind, e) is None: return False
+        try: self.store.path_for(p.name, kind).unlink()
+        except FileNotFoundError:
+            # Already gone counts as removed, but an unmounted share looks the same: confirm it first.
+            self.store.invalidate()
+            if not self.store.available():
+                self.cleanup_error = 'storage_unavailable'
+                return None
+        except OSError:
+            s.app.logger.exception('Removing archived %s/%s failed', p.name, kind)
+            self.store.invalidate()
+            self.cleanup_error = 'os_error'
+            return None
+        with s.lock:
+            current = self._removable(p, kind, e, guarded=False)
+            if current is None: return False  # Changed meanwhile: its new entry is not recorded as removed.
+            set_location(current, kind, location='removed', removed_at=time.time(), reason='nas_full')
+            try: s.save_meta(p, current)
+            except OSError:
+                s.app.logger.exception('Index of %s not saved', p.name)
+                self.cleanup_error = 'os_error'
+                return None
+        return True
 
     def candidates(self):
         s = self.server

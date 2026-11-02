@@ -1,6 +1,6 @@
 """The archiver moves eligible recordings' files to the share (videos first, the log last), verified
 before the local copy goes; any failure leaves the source and the index as they were."""
-import hashlib,os,sys,tempfile,time,unittest
+import hashlib,os,sys,tempfile,threading,time,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parent))
@@ -20,8 +20,8 @@ class ArchiverTests(unittest.TestCase):
  def archiver(self,**fields):
   settings=media_store.ArchiveSettings(**{'enabled':True,'path':self.nas,'min_age_seconds':DAY,**fields})
   return media_store.Archiver(server,self.store,settings)
- def log(self,id,kinds,uploaded=1,**fields):
-  p=make_log(self.root,id,kinds,[],nas=self.nas)
+ def log(self,id,kinds,uploaded=1,nas_kinds=(),**fields):
+  p=make_log(self.root,id,kinds,list(nas_kinds),nas=self.nas)
   m=server.read_meta(p);m.update(uploaded=uploaded,**fields);server.save_meta(p,m)
   return p
  def locations(self,p):
@@ -131,7 +131,7 @@ class ArchiverTests(unittest.TestCase):
  def test_stops_when_nas_full(self):
   p=self.log('a'*32,['rlog.zst','fcamera.mp4'])
   usage=media_store.shutil.disk_usage(self.nas)._replace(free=100*media_store.MB+50)
-  archiver=self.archiver()
+  archiver=self.archiver(nas_margin_bytes=0)  # The copy's own space check, not the cleanup margin.
   with patch.object(media_store.shutil,'disk_usage',return_value=usage):result=archiver.run_cycle()
   self.assertEqual(result,{'archived':0,'bytes':0,'stopped':'nas_full'})
   self.assert_untouched(p,['rlog.zst','fcamera.mp4']);self.assertEqual(archiver.status()['last_error'],'nas_full')
@@ -279,6 +279,141 @@ class ArchiverTests(unittest.TestCase):
   with patch.object(server,'auto_convert',True):archiver.run_cycle()
   self.submit.assert_not_called();m=server.read_meta(p);self.assertEqual((m['status'],m['deferred']),('unconverted','storage'))
   self.assertEqual(archiver.status()['requeued_deferred'],0)
+
+ def share_usage(self,calls=None):
+  # The share's used bytes from its files (the sentinel aside); free space is ample unless a test says otherwise.
+  def usage():
+   if calls is not None:calls.append(1)
+   return sum(f.stat().st_size for f in self.nas.rglob('*') if f.is_file() and f.name!=media_store.SENTINEL),10**12
+  return patch.object(self.store,'usage',side_effect=usage)
+ def nas_size(self,kind):return len(kind.encode()*20)
+
+ def test_cleanup_removes_videos_before_rlog(self):
+  old=self.log('a'*32,[],uploaded=1,nas_kinds=['fcamera.mp4','rlog.zst'])
+  new=self.log('b'*32,[],uploaded=2,nas_kinds=['fcamera.mp4','rlog.zst'])
+  total=2*(self.nas_size('fcamera.mp4')+self.nas_size('rlog.zst'))
+  # Both videos must go; the logs stay.
+  archiver=self.archiver(nas_max_bytes=total-self.nas_size('fcamera.mp4')-1);calls=[]
+  with self.share_usage(calls):self.assertEqual(archiver.cleanup_nas(),2)
+  self.assertEqual(len(calls),2)  # Measured once before and once after, not after every file.
+  self.assertEqual(self.locations(old),{'fcamera.mp4':'removed','rlog.zst':'nas'});self.assertEqual(self.locations(new),{'fcamera.mp4':'removed','rlog.zst':'nas'})
+  self.assertEqual(archiver.status()['cleanup_last_reason'],'nas_max');self.assertEqual(archiver.status()['removed_files_total'],2)
+  # Still over without videos: the oldest log goes, the newer one stays.
+  archiver=self.archiver(nas_max_bytes=2*self.nas_size('rlog.zst')-1)
+  with self.share_usage():self.assertEqual(archiver.cleanup_nas(),1)
+  self.assertEqual(self.locations(old),{'fcamera.mp4':'removed','rlog.zst':'removed'});self.assertEqual(self.locations(new)['rlog.zst'],'nas')
+  self.assertFalse((self.nas/old.name/'rlog.zst').exists());self.assertTrue((self.nas/new.name/'rlog.zst').is_file())
+  # Below the limit nothing is removed.
+  archiver=self.archiver(nas_max_bytes=10**9)
+  with self.share_usage():self.assertEqual(archiver.cleanup_nas(),0)
+  self.assertIsNone(archiver.status()['cleanup_last_reason'])
+
+ def test_cleanup_triggers_on_free_margin(self):
+  p=self.log('a'*32,[],nas_kinds=['fcamera.mp4','rlog.zst'])
+  archiver=self.archiver(nas_margin_bytes=1000)
+  with patch.object(self.store,'usage',side_effect=[(400,1000-self.nas_size('fcamera.mp4')),(200,1000)]):self.assertEqual(archiver.cleanup_nas(),1)
+  self.assertEqual(self.locations(p),{'fcamera.mp4':'removed','rlog.zst':'nas'});self.assertEqual(archiver.status()['cleanup_last_reason'],'nas_margin')
+
+ def test_cleanup_never_touches_pinned(self):
+  pinned=self.log('a'*32,['qcamera.ts'],uploaded=1,nas_kinds=['fcamera.mp4','rlog.zst'])
+  other=self.log('b'*32,[],uploaded=2,nas_kinds=['fcamera.mp4','rlog.zst'])
+  archiver=self.archiver(nas_max_bytes=1)
+  with self.share_usage(),patch.object(server.storage_policy,'pinned',lambda m:m['id']==pinned.name):
+   self.assertEqual(archiver.cleanup_nas(),2)
+  self.assertEqual(self.locations(pinned),{'fcamera.mp4':'nas','rlog.zst':'nas','qcamera.ts':'local'})
+  self.assertTrue((self.nas/pinned.name/'fcamera.mp4').is_file());self.assertTrue((self.nas/pinned.name/'rlog.zst').is_file())
+  self.assertEqual(self.locations(other),{'fcamera.mp4':'removed','rlog.zst':'removed'})
+  self.assertEqual(archiver.cleanup_error,'nas_full_no_candidates')
+
+ def test_cleanup_marks_removed_and_keeps_meta_prepared(self):
+  p=self.log('a'*32,['qcamera.ts'],uploaded=1,nas_kinds=['fcamera.mp4'])
+  gone=self.log('b'*32,[],uploaded=2,nas_kinds=['ecamera.mp4']);(self.nas/gone.name/'ecamera.mp4').unlink()  # Already missing: still recorded.
+  (p/'prepared'/'data.json').write_text('{}')
+  archiver=self.archiver(nas_max_bytes=1)
+  with patch.object(self.store,'usage',return_value=(500,10**12)):self.assertEqual(archiver.cleanup_nas(),2)
+  m=server.read_meta(p);e=media_store.entry(m,'fcamera.mp4')
+  self.assertEqual((e['location'],e['reason']),('removed','nas_full'));self.assertIsInstance(e['removed_at'],float);self.assertNotIn('sha256',e)
+  self.assertEqual(media_store.entry(server.read_meta(gone),'ecamera.mp4')['location'],'removed')
+  self.assertFalse((self.nas/p.name/'fcamera.mp4').exists())
+  self.assertTrue((p/'meta.json').is_file());self.assertEqual((p/'prepared'/'data.json').read_text(),'{}')
+  self.assertEqual((p/'qcamera.ts').read_bytes(),b'qcamera.ts'*10)  # Local files are never touched.
+  self.assertEqual(media_store.resolve(p,m,'fcamera.mp4',self.store),(None,'missing'))
+
+ def test_cleanup_stops_on_oserror_without_marking_removed(self):
+  a=self.log('a'*32,[],uploaded=1,nas_kinds=['fcamera.mp4']);b=self.log('b'*32,[],uploaded=2,nas_kinds=['fcamera.mp4'])
+  target=self.nas/a.name/'fcamera.mp4';real=Path.unlink
+  def broken(path,*args,**kw):
+   if path==target:raise OSError(5,'Input/output error')
+   return real(path,*args,**kw)
+  archiver=self.archiver(nas_max_bytes=1)
+  with self.share_usage(),patch.object(media_store.Path,'unlink',broken):result=archiver.run_cycle()
+  self.assertEqual(result,{'archived':0,'bytes':0,'stopped':'os_error'})
+  self.assertEqual(self.locations(a),{'fcamera.mp4':'nas'});self.assertTrue(target.is_file())
+  self.assertEqual(self.locations(b),{'fcamera.mp4':'nas'})  # Cleanup stops for this cycle.
+  status=archiver.status();self.assertEqual((status['last_error'],status['consecutive_failures'],status['removed_files_total']),('os_error',1,0))
+
+ def test_cleanup_missing_file_on_lost_share_is_not_recorded(self):
+  p=self.log('a'*32,[],nas_kinds=['fcamera.mp4']);target=self.nas/p.name/'fcamera.mp4';real=Path.unlink
+  def unmounted(path,*args,**kw):
+   if path==target:(self.nas/media_store.SENTINEL).rename(self.nas/'sentinel');raise FileNotFoundError(2,'No such file')
+   return real(path,*args,**kw)
+  archiver=self.archiver(nas_max_bytes=1)
+  with self.share_usage(),patch.object(media_store.Path,'unlink',unmounted):self.assertEqual(archiver.cleanup_nas(),0)
+  self.assertEqual(archiver.cleanup_error,'storage_unavailable');self.assertEqual(self.locations(p),{'fcamera.mp4':'nas'})
+
+ def test_cleanup_no_candidates_sets_error_and_skips_archiving(self):
+  p=self.log('a'*32,['rlog.zst','fcamera.mp4'])
+  archiver=self.archiver(nas_max_bytes=10)
+  with patch.object(self.store,'usage',return_value=(100,10**12)):result=archiver.run_cycle()
+  self.assertEqual(result,{'archived':0,'bytes':0,'stopped':'nas_full_no_candidates'})
+  self.assert_untouched(p,['rlog.zst','fcamera.mp4'])
+  status=archiver.status();self.assertEqual((status['last_error'],status['consecutive_failures']),('nas_full_no_candidates',1))
+
+ def test_cleanup_skips_entry_changed_meanwhile(self):
+  p=self.log('a'*32,[],nas_kinds=['fcamera.mp4']);target=self.nas/p.name/'fcamera.mp4';real=Path.unlink
+  def rearchive(path,*args,**kw):
+   result=real(path,*args,**kw)
+   if path==target:
+    # A new copy of the kind is indexed while the old one is being removed.
+    with server.lock:m=server.read_meta(p);m['storage']['fcamera.mp4']['sha256']='1'*64;server.save_meta(p,m)
+   return result
+  archiver=self.archiver(nas_max_bytes=1)
+  with self.share_usage(),patch.object(media_store.Path,'unlink',rearchive):self.assertEqual(archiver.cleanup_nas(),0)
+  e=media_store.entry(server.read_meta(p),'fcamera.mp4');self.assertEqual((e['location'],e['sha256']),('nas','1'*64))
+
+ def test_cleanup_does_no_nas_io_under_server_lock(self):
+  p=self.log('a'*32,[],nas_kinds=['fcamera.mp4']);target=self.nas/p.name/'fcamera.mp4';real=Path.unlink
+  started,release=threading.Event(),threading.Event()
+  def slow(path,*args,**kw):
+   if path==target:started.set();release.wait(5)
+   return real(path,*args,**kw)
+  archiver=self.archiver(nas_max_bytes=1);result=[]
+  with self.share_usage(),patch.object(media_store.Path,'unlink',slow):
+   worker=threading.Thread(target=lambda:result.append(archiver.cleanup_nas()));worker.start()
+   try:
+    self.assertTrue(started.wait(5))
+    acquired=[]
+    def take():
+     if server.lock.acquire(timeout=1):acquired.append(1);server.lock.release()
+    other=threading.Thread(target=take);other.start();other.join(2)
+    self.assertEqual(acquired,[1])
+   finally:release.set();worker.join(5)
+  self.assertEqual(result,[1]);self.assertEqual(self.locations(p),{'fcamera.mp4':'removed'})
+
+ def test_cleanup_noop_when_disabled(self):
+  p=self.log('a'*32,[],nas_kinds=['fcamera.mp4'])
+  with patch.object(self.store,'usage',return_value=(100,0)):self.assertEqual(self.archiver(enabled=False,nas_max_bytes=1).cleanup_nas(),0)
+  self.assertEqual(self.locations(p),{'fcamera.mp4':'nas'});self.assertTrue((self.nas/p.name/'fcamera.mp4').is_file())
+
+ def test_cycle_processes_pending_deletes_first(self):
+  self.log('a'*32,['rlog.zst']);archiver=self.archiver();order=[]
+  def step(name,value):
+   def run(*args,**kw):order.append(name);return value
+   return run
+  with patch.object(media_store.PendingDeletes,'process',step('pending',0)),patch.object(archiver,'cleanup_nas',side_effect=step('cleanup',0)),\
+       patch.object(archiver,'requeue_deferred',side_effect=step('requeue',0)),patch.object(archiver,'_archive',side_effect=step('archive',None)):
+   archiver.run_cycle()
+  self.assertEqual(order,['pending','cleanup','requeue','archive'])
 
  def test_loop_waits_on_cleanup_stop(self):
   archiver=self.archiver(interval_seconds=60)
