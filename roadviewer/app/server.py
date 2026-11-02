@@ -1134,10 +1134,13 @@ if archive_settings.enabled:
  store.activate()
  if not store.available():app.logger.warning('Video archive is not connected: %s',store.reason())
 elif archive_settings.error:app.logger.warning('Video archive is disabled: %s',archive_settings.error)
+archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings)
 storage_policy=StoragePolicy(sys.modules[__name__])
 devices=DeviceAPI(sys.modules[__name__])
 device_network=DeviceNetwork(sys.modules[__name__])
 requeue_startup()
 # start.py enables this for the app; tests and tools importing the module do not migrate in the background.
-if os.environ.get('RV_MIGRATE_PREPARED')=='1':threading.Thread(target=migrate_prepared,name='prepared-migration',daemon=True).start()
+if os.environ.get('RV_MIGRATE_PREPARED')=='1':
+ threading.Thread(target=migrate_prepared,name='prepared-migration',daemon=True).start()
+ archiver.start()  # Crash recovery first (recover_startup), then a cycle every archive interval; nothing when disabled.
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)
