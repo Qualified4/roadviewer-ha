@@ -1,6 +1,6 @@
 """The archiver moves eligible recordings' files to the share (videos first, the log last), verified
 before the local copy goes; any failure leaves the source and the index as they were."""
-import hashlib,os,shutil,sys,tempfile,threading,time,unittest
+import dataclasses,hashlib,os,shutil,sys,tempfile,threading,time,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parent))
@@ -408,6 +408,46 @@ class ArchiverTests(unittest.TestCase):
    self.assertEqual(archiver.status()['rechecked_held'],0)
    self.startup()
   self.assertEqual(server.read_meta(p)['status'],'queued');self.assertFalse((p/'prepared').exists());self.submit.assert_called_once_with(p.name)
+
+ def test_recheck_failure_of_one_recording_does_not_stop_the_others(self):
+  a=self.held('a'*32,['rlog.zst'],['fcamera.hevc'],decoder_version='old',uploaded=1)
+  b=self.held('b'*32,['rlog.zst'],['fcamera.hevc'],decoder_version='old',uploaded=2)
+  c=self.held('c'*32,['rlog.zst'],['fcamera.hevc'],decoder_version='old',uploaded=3)
+  real=server.clear_prepared
+  def broken(p,*args,**kw):
+   if p==b:raise PermissionError(13,'busy')
+   return real(p,*args,**kw)
+  archiver=self.archiver(local_threshold_bytes=10**9)
+  with patch.object(server,'auto_convert',True),patch.object(server,'store',self.store):
+   self.startup()
+   with patch.object(server,'clear_prepared',side_effect=broken),patch.object(server.app.logger,'exception') as logged:
+    self.assertEqual(archiver.run_cycle()['stopped'],'below_threshold')
+   logged.assert_called_once_with('Re-checking %s failed',b.name)
+   self.assertEqual(sorted(call.args[0] for call in self.submit.call_args_list),[a.name,c.name])
+   self.assertEqual(server.read_meta(b)['status'],'ready');self.assertTrue((b/'prepared'/'data.json').is_file())
+   status=archiver.status();self.assertEqual((status['last_error'],status['consecutive_failures'],status['rechecked_held']),('recheck_failed',1,2))
+   self.assertFalse(archiver.held_checked);self.assertTrue(archiver.recovered)  # Recovery still ran.
+   # The error gone, the next cycle finishes the re-check (and, reaching its end, clears the error).
+   archiver.settings=dataclasses.replace(archiver.settings,local_threshold_bytes=0)
+   self.submit.reset_mock();self.assertIsNone(archiver.run_cycle()['stopped'])
+  self.submit.assert_called_once_with(b.name);self.assertEqual(server.read_meta(b)['status'],'queued')
+  status=archiver.status();self.assertEqual((status['last_error'],status['consecutive_failures'],status['rechecked_held']),(None,0,3))
+  self.assertTrue(archiver.held_checked)
+
+ def test_requeue_deferred_failure_of_one_recording_does_not_stop_the_others(self):
+  a=self.log('a'*32,['rlog.zst'],status='unconverted',deferred='storage',uploaded=1)
+  b=self.log('b'*32,['rlog.zst'],status='unconverted',deferred='storage',uploaded=2)
+  c=self.log('c'*32,['rlog.zst'],status='unconverted',deferred='storage',uploaded=3)
+  real=server.save_meta
+  def broken(p,m):
+   if p==b:raise OSError(28,'No space left on device')
+   return real(p,m)
+  archiver=self.archiver()
+  with patch.object(server,'auto_convert',True),patch.object(server,'save_meta',side_effect=broken):
+   self.assertEqual(archiver.requeue_deferred(),2)
+  self.assertEqual([call.args[0] for call in self.submit.call_args_list],[a.name,c.name])
+  m=server.read_meta(b);self.assertEqual((m['status'],m['deferred']),('unconverted','storage'))
+  self.assertEqual(archiver.status()['requeued_deferred'],2)
 
  def test_recheck_does_no_share_io_under_server_lock(self):
   p=self.held('a'*32,[],['rlog.zst','fcamera.hevc'],decoder_version='old');self.startup()

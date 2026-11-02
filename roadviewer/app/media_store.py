@@ -312,6 +312,7 @@ class Archiver:
         self.recovered = False  # Crash recovery completed once with the share reachable.
         # Recordings held by requeue_startup were checked once with the share reachable (recheck_held).
         self.held_checked, self.rechecked_held = False, 0
+        self.cycle_failed = False  # A failure was counted for the current cycle (counted once per cycle).
         # Why the last archive_file returned False; None when the recording changed meanwhile.
         # Shared state: archive_file must only be called from run_cycle (which holds self.cycle).
         self.reason = None
@@ -380,7 +381,7 @@ class Archiver:
         return result
 
     def _cycle(self, result):
-        s = self.server
+        s, self.cycle_failed = self.server, False
         if not self.store.available(): return self._failed('storage_unavailable')
         self.last_cycle_at = time.time()
         self._startup()
@@ -396,12 +397,14 @@ class Archiver:
         if s.storage_used_bytes() <= self.settings.local_threshold_bytes: return 'below_threshold'
         reason = self._archive(result)
         if reason in FAILURES: return self._failed(reason)
-        self.consecutive_failures, self.last_error = 0, None
+        # A recording the startup re-check could not process keeps its error until a cycle has none.
+        if not self.cycle_failed: self.consecutive_failures, self.last_error = 0, None
         return reason
 
     def _failed(self, reason):
         self.last_error = reason
-        self.consecutive_failures += 1
+        if not self.cycle_failed: self.consecutive_failures += 1
+        self.cycle_failed = True
         return reason
 
     def _archive(self, result):
@@ -564,7 +567,11 @@ class Archiver:
             for p, m in rows:
                 m.update(status='queued', error=None)  # The deferral message is shown regardless of status.
                 m.pop('deferred', None)
-                s.save_meta(p, m)
+                # One recording that cannot be saved does not hold back the others; it stays deferred.
+                try: s.save_meta(p, m)
+                except OSError:
+                    s.app.logger.exception('Requeueing deferred %s failed', p.name)
+                    continue
                 ids.append(p.name)
         for id in ids: s.submit(id)
         self.requeued_deferred += len(ids)
@@ -707,15 +714,17 @@ class Archiver:
         # Caller holds self.cycle. Both run at the first connected cycle when skipped at startup (share down);
         # recovery also when requested by a commit whose local unlink failed.
         if not self.store.available(): return
-        if not self.held_checked: self.recheck_held()
+        if not self.held_checked and self.recheck_held() is None: self._failed('recheck_failed')
         if not self.recovered: self._recover()
 
     def recheck_held(self):
         # requeue_startup cannot check the share, so it keeps the results of recordings with archived files. Once
         # the share is connected the same stale rule applies to them, once: only when every archived input
         # resolves as available (a ready result is never discarded for a reconversion that could lose data).
-        # The share is resolved outside the server lock; the index is re-read under it.
-        s, rows, ids, unsure = self.server, [], [], False
+        # The share is resolved outside the server lock; the index is re-read under it. A recording that fails
+        # (local rmtree or meta write) is logged and skipped; the others go on. Returns the number queued, or
+        # None when one failed: then it is tried again by the next connected cycle.
+        s, rows, ids, unsure, failed = self.server, [], [], False, False
         for p in s.recording_paths():
             try: m = s.read_meta(p)
             except (OSError, ValueError): continue
@@ -730,16 +739,21 @@ class Archiver:
                 # The states belong to the index read above: a recording changed meanwhile waits for the next start.
                 if (not isinstance(m, dict) or p.name in s.processes or m.get('storage') != before.get('storage')
                         or m.get('conversion_revision', 0) != before.get('conversion_revision', 0) or not s.stale_recording(p, m)): continue
-                if not s.invalidate_recording(p, m, states): continue
-                if not m.get('auto_excluded') and (s.auto_convert or m.get('manual_conversion')):
-                    m['status'] = 'queued'
-                    ids.append(p.name)
-                s.save_meta(p, m)
+                try:
+                    if not s.invalidate_recording(p, m, states): continue
+                    queued = not m.get('auto_excluded') and (s.auto_convert or m.get('manual_conversion'))
+                    if queued: m['status'] = 'queued'
+                    s.save_meta(p, m)
+                except (OSError, ValueError):
+                    s.app.logger.exception('Re-checking %s failed', p.name)
+                    failed = True
+                    continue
+                if queued: ids.append(p.name)  # Submitted only once saved as queued.
                 self.rechecked_held += 1
         for id in ids: s.submit(id)
-        # A share lost meanwhile left some unchecked: they are looked at again by the next connected cycle.
-        if not unsure: self.held_checked = True
-        return len(ids)
+        # A share lost meanwhile or a failed recording left some unchecked: the next connected cycle looks again.
+        if not unsure and not failed: self.held_checked = True
+        return None if failed else len(ids)
 
     def _recover(self):
         # Caller holds self.cycle. Sets self.recovered only when every recording was checked with the share reachable.
