@@ -41,6 +41,14 @@ def _bytes(e):
     value = e.get('bytes', 0)
     return value if type(value) is int and value >= 0 else 0
 
+def _same(a, b):
+    # The same archived copy: flags added to its entry meanwhile (removing, error) do not make it another one.
+    return all(a.get(k) == b.get(k) for k in ('location', 'sha256', 'bytes'))
+
+def _kept(e):
+    # A removal keeps what identified the copy, so a wrongly recorded removal can be checked against the share.
+    return {k: e[k] for k in ('sha256', 'bytes') if k in e}
+
 @dataclass(frozen=True)
 class ArchiveSettings:
     enabled: bool = False
@@ -511,25 +519,36 @@ class Archiver:
 
     def _remove_archived(self, p, kind, e):
         # True when removed and indexed as removed, False when skipped, None when cleanup must stop (cleanup_error set).
+        # The intent is flushed to the index before the unlink: recovery confirms a removal only for an entry
+        # carrying it whose file is gone. A removal that fails or cannot be confirmed withdraws it.
         s = self.server
         with s.lock:
-            if self._removable(p, kind, e) is None: return False
+            current = self._removable(p, kind, e)
+            if current is None: return False
+            set_location(current, kind, **{**entry(current, kind), 'removing': True})
+            try: atomic_json(p / 'meta.json', current)
+            except OSError:
+                s.app.logger.exception('Index of %s not saved', p.name)
+                self.cleanup_error = 'os_error'
+                return None
         try: self.store.path_for(p.name, kind).unlink()
         except FileNotFoundError:
             # Already gone counts as removed, but an unmounted share looks the same: confirm it first.
             self.store.invalidate()
             if not self.store.available():
+                self._withdraw(p, kind, e)
                 self.cleanup_error = 'storage_unavailable'
                 return None
         except OSError:
             s.app.logger.exception('Removing archived %s/%s failed', p.name, kind)
             self.store.invalidate()
+            self._withdraw(p, kind, e)
             self.cleanup_error = 'os_error'
             return None
         with s.lock:
             current = self._removable(p, kind, e, guarded=False)
             if current is None: return False  # Changed meanwhile: its new entry is not recorded as removed.
-            set_location(current, kind, location='removed', removed_at=time.time(), reason='nas_full')
+            set_location(current, kind, location='removed', removed_at=time.time(), reason='nas_full', **_kept(e))
             # Committed together: a video flag left True would make the restart check see a stale result.
             current['video'] = s.has_video(p, current)
             try: s.save_meta(p, current)
@@ -538,6 +557,23 @@ class Archiver:
                 self.cleanup_error = 'os_error'
                 return None
         return True
+
+    def _withdraw(self, p, kind, e):
+        # A cleanup's intent is withdrawn: the file stays (the removal failed, or the file is still on the share).
+        # Returns the entry without it, or None when the entry changed meanwhile or could not be saved.
+        s = self.server
+        with s.lock:
+            try:
+                current = s.read_meta(p)
+                now = entry(current, kind)
+                if now['location'] != 'nas' or not _same(now, e): return None
+                now = {k: v for k, v in now.items() if k != 'removing'}
+                set_location(current, kind, **now)
+                s.save_meta(p, current)
+            except (OSError, ValueError, AttributeError):
+                s.app.logger.exception('Index of %s not saved', p.name)
+                return None
+        return now
 
     def candidates(self):
         s = self.server
@@ -680,15 +716,10 @@ class Archiver:
         return True
 
     def _settle_missing(self, p, kind, e):
-        # Caller holds self.cycle. The share holds the only copy. Gone from a reachable share (a cleanup stopped
-        # between its unlink and its index commit, or removed outside the app), it is recorded as removed, as
-        # cleanup would have. Returns False when the share failed (recovery stops).
-        s, target = self.server, self.store.path_for(p.name, kind)
-        try:
-            if target.is_file(): return True
-        except OSError:
-            self.store.invalidate()
-            return False
+        # Caller holds self.cycle. The indexed copy was not found on the share and there is no local one. Only a
+        # cleanup that recorded its intent (and stopped before its index commit) is confirmed as removed.
+        # Returns False when the share failed (recovery stops).
+        s, flagged = self.server, e.get('removing') is True
         # A missing file on an unmounted share looks the same: confirm the share before changing the index.
         self.store.invalidate()
         if not self.store.available(): return False
@@ -696,11 +727,13 @@ class Archiver:
             try:
                 current = s.read_meta(p)
                 if entry(current, kind) != e or (p / kind).exists(): return True
-                set_location(current, kind, location='removed', removed_at=time.time(), reason='missing')
+                if flagged: set_location(current, kind, location='removed', removed_at=time.time(), reason='nas_full', **_kept(e))
+                else: set_location(current, kind, location='removed', removed_at=time.time(), reason='missing')
                 current['video'] = s.has_video(p, current)  # As in _remove_archived.
                 s.save_meta(p, current)
             except (OSError, ValueError): return True
-        s.app.logger.warning('Archived %s/%s is missing from the share; recorded as removed', p.name, kind)
+        if flagged: s.app.logger.info('Archived %s/%s was removed by an interrupted cleanup; recorded as removed', p.name, kind)
+        else: s.app.logger.warning('Archived %s/%s is missing from the share; recorded as removed', p.name, kind)
         return True
 
     def recover_startup(self):
@@ -777,12 +810,22 @@ class Archiver:
             if not self._adopt(p, m): return
             for kind in MEDIA_KINDS:
                 e = entry(m, kind)
-                if e['location'] != 'nas' or e.get('error') or not isinstance(e.get('sha256'), str): continue
-                if not (p / kind).is_file():
+                if e['location'] != 'nas' or not isinstance(e.get('sha256'), str): continue
+                if e.get('error') and not e.get('removing'): continue
+                target = self.store.path_for(p.name, kind)
+                try: present = target.is_file()
+                except OSError:
+                    self.store.invalidate()
+                    return
+                if present and e.get('removing'):
+                    # A cleanup stopped before its unlink: the file stays and so does its entry.
+                    e = self._withdraw(p, kind, e)
+                    if e is None: continue
+                if not present and not (p / kind).exists():
                     if not self._settle_missing(p, kind, e): return
                     continue
-                target = self.store.path_for(p.name, kind)
-                try: same = target.is_file() and _sha256(target) == e['sha256']
+                if e.get('error') or not (p / kind).is_file(): continue
+                try: same = present and _sha256(target) == e['sha256']
                 except OSError:
                     self.store.invalidate()
                     return
