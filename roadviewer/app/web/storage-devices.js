@@ -30,7 +30,7 @@ function showArchive(a){
 async function runArchive(){
  $('archiveRun').disabled=true;
  try{await settingsRequest('api/settings/archive/run');$('storageStatus').textContent='아카이브를 시작했습니다.'}
- catch(e){$('storageStatus').textContent=e.message;$('archiveRun').disabled=false}
+ catch(e){$('storageStatus').textContent={archive_running:'아카이빙이 이미 실행 중입니다.',archive_disabled:'아카이빙이 꺼져 있습니다.'}[e.code]||e.message;$('archiveRun').disabled=false}
 }
 storageDetails.addEventListener('toggle',async()=>{
  if(!storageDetails.open)return;

@@ -161,7 +161,7 @@ document.addEventListener('click',e=>{
  try{sessionStorage.setItem('rv-route',JSON.stringify({id:link.getAttribute('href').split('/').filter(Boolean).at(-1),text:name.textContent}))}catch{}
 });
 window.addEventListener('pageshow',()=>document.querySelectorAll('.recording-name-text').forEach(name=>name.style.viewTransitionName=''));
-const MEDIA_STATE_LABELS={corrupt:'영상 읽기 오류',storage_unavailable:'저장소 연결 불가',checking:'영상 확인 중',missing:'영상 없음',available:'영상 있음'};
+const MEDIA_STATE_LABELS={corrupt:'영상 읽기 오류',storage_unavailable:'저장소 연결 불가',checking:'영상 확인 중',available:'영상 있음',missing:'영상 없음'};
 // Only recordings touched by the archive carry video_state (per camera); the row shows the worst one.
 function mediaState(states){const values=Object.values(states||{});return Object.keys(MEDIA_STATE_LABELS).find(state=>values.includes(state))||null}
 // Keep the row/title/state connected when metadata changes so CSS animations retain their live timeline.

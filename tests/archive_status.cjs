@@ -26,11 +26,14 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
 (async()=>{
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'rv-archive-ui-')),onDir=path.join(temp,'on'),offDir=path.join(temp,'off'),nas=path.join(temp,'nas-share-secret');
  for(const dir of [onDir,offDir,nas])fs.mkdirSync(dir);
- const ids=['a'.repeat(32),'b'.repeat(32)];
+ const ids=['a'.repeat(32),'b'.repeat(32),'d'.repeat(32),'e'.repeat(32)];
  for(const dir of [onDir,offDir])fs.writeFileSync(path.join(dir,'.processing-settings.json'),JSON.stringify({auto_convert:false}));
  // A local copy of the storage id but no sentinel on the share: the archive must read as unreachable, never be re-claimed.
  fs.writeFileSync(path.join(onDir,'.archive.json'),JSON.stringify({storage_id:'c'.repeat(32)}));
  recording(onDir,ids[0],0,{storage:{'fcamera.mp4':{location:'nas',bytes:9}}});recording(onDir,ids[1],1);
+ // Mixed (front available locally, low-res removed by NAS cleanup) and all removed.
+ recording(onDir,ids[2],2,{video:true,storage:{'camera.mp4':{location:'removed',removed_at:1,reason:'nas_full'}}});
+ recording(onDir,ids[3],3,{storage:{'fcamera.mp4':{location:'removed',removed_at:1,reason:'nas_full'}}});
  recording(offDir,ids[0],0,{video:true});recording(offDir,ids[1],1);
  let on,off,browser;
  try{
@@ -44,6 +47,8 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.match(await row(ids[0]).textContent(),/ · 저장소 연결 불가$/);
   assert.equal(await row(ids[0]).locator('span.media-state.media-state-storage_unavailable').textContent(),'저장소 연결 불가');
   assert.match(await row(ids[1]).textContent(),/ · 영상 없음$/);assert.equal(await row(ids[1]).locator('.media-state').count(),0,'local-only rows keep the plain text');
+  assert.equal(await row(ids[2]).locator('span.media-state.media-state-available').textContent(),'영상 있음','an available camera outranks a missing one');
+  assert.equal(await row(ids[3]).locator('span.media-state.media-state-missing').textContent(),'영상 없음','every camera missing');
   await page.locator('#storageSettings summary').click();await page.locator('#storageUsage>.archive-metric').nth(3).waitFor();
   const metrics=await page.locator('#storageUsage>div').evaluateAll(rows=>rows.map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent]));
   assert.equal(metrics.length,8);assert.deepEqual(metrics.slice(4).map(([label])=>label),['NAS 상태','NAS 사용 중','NAS 여유','마지막 아카이브']);
@@ -52,6 +57,13 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   await page.getByRole('button',{name:'지금 아카이브',exact:true}).click();
   await page.waitForFunction(()=>document.getElementById('storageStatus').textContent==='아카이브를 시작했습니다.');
   assert.deepEqual(runs,[['POST','1',202]]);
+  // A run already in progress (409) is explained in Korean and the button is usable again.
+  await page.route('**/api/settings/archive/run',route=>route.fulfill({status:409,json:{error:'archive_running'}}));
+  await page.locator('#storageSettings summary').click();await page.locator('#storageSettings summary').click();
+  await page.waitForFunction(()=>document.getElementById('archiveRun')&&!document.getElementById('archiveRun').disabled);
+  await page.locator('#archiveRun').click();
+  await page.waitForFunction(()=>document.getElementById('storageStatus').textContent==='아카이빙이 이미 실행 중입니다.');
+  assert(await page.locator('#archiveRun').isEnabled());await page.unroute('**/api/settings/archive/run');
   assert(!(await page.content()).includes('nas-share-secret'),'the share path never reaches the page');
   // Replay: the front video is on the unreachable share; the notice shows and the log still plays.
   await page.goto(on.base+'view/'+ids[0]+'/');
