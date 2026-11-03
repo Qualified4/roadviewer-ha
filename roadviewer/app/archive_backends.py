@@ -552,13 +552,18 @@ class DriveBackend(_Availability):
                 if (f.get('appProperties') or {}).get('rv_storage_id') == local]
 
     def upload(self, local, id, kind, sha256, md5, size, resume=None, on_progress=None):
-        """Resumable upload in 1 MiB chunks. `resume` ({session, bytes_sent} from an earlier attempt, or {}) is
-        updated in place before every on_progress(bytes_sent) call so the caller can persist it. Returns the
-        completed file's ref; verify() is a separate step."""
+        """Resumable upload in 1 MiB chunks. `resume` ({session, bytes_sent, sha256, size} from an earlier attempt,
+        or {}) is updated in place before every on_progress(bytes_sent) call so the caller can persist it; a
+        session recorded for another sha256/size is discarded. Returns the completed file's ref; verify() is a
+        separate step."""
         folder_id, storage_id = self.auth.folder_id, self.storage_id()
         if not folder_id or not storage_id: raise BackendError('unavailable', reason='folder_missing')
         resume = resume if resume is not None else {}
         session, offset = resume.get('session'), 0
+        # A session's rv_sha256 was fixed when it started: one made for other content is never asked or continued.
+        if session and (resume.get('sha256') != sha256 or resume.get('size', size) != size):
+            session = None
+            resume.update(session=None, bytes_sent=0)
         if session:
             state, value = self.client.session_status(session, size)
             if state == 'done': return self._completed(value, size, resume, on_progress)
@@ -568,10 +573,14 @@ class DriveBackend(_Availability):
         for _ in range(2):  # One fresh session if the current one expires part-way.
             if not session:
                 session, offset = self.client.start_resumable('%s--%s' % (id, kind), [folder_id], props, size), 0
-                resume.update(session=session, bytes_sent=0)
+                resume.update(session=session, bytes_sent=0, sha256=sha256, size=size)
                 if on_progress: on_progress(0)
             try: meta = self._send(local, session, offset, size, sha256, md5, resume, on_progress)
             except _SessionExpired: session = None; continue
+            except BackendError as e:
+                # The session carries the old rv_sha256: drop it so a persisted resume cannot complete it later.
+                if e.reason == 'local_changed': resume.update(session=None, bytes_sent=0)
+                raise
             return self._completed(meta, size, resume, on_progress)
         raise BackendError('unavailable', retryable=True, reason='session_expired')
 

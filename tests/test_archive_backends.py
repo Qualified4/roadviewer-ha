@@ -448,7 +448,7 @@ class DriveBackendTests(BackendTestCase):
         size = 2 * MB + 5
         path, data, sha, md5 = self.media(size)
         old = self.drive.url + '/upload/drive/v3/files?uploadType=resumable&upload_id=gone-secretsession'
-        resume = {'session': old, 'bytes_sent': MB}
+        resume = {'session': old, 'bytes_sent': MB, 'sha256': sha, 'size': size}
         ref = self.backend.upload(path, ID, KIND, sha, md5, size, resume)
         self.assertEqual(self.content(ref.file_id), data)
         self.assertNotEqual(resume['session'], old)
@@ -470,6 +470,60 @@ class DriveBackendTests(BackendTestCase):
         with self.assertRaises(ab.BackendError) as caught: self.backend.upload(path, ID, 'camera.mp4', sha, md5, size, {}, always)
         self.assertEqual((caught.exception.code, caught.exception.reason), ('unavailable', 'session_expired'))
         for text in (str(caught.exception), repr(caught.exception)): self.assertNotIn('secretsession', text)
+
+    def session_puts(self, session, since=0):
+        upload_id = parse_qs(urlsplit(session).query)['upload_id'][0]
+        return [r for r in self.requests('PUT', since) if 'upload_id=' + upload_id in r['path']]
+
+    def files_for(self, kind):
+        with self.drive.lock: return [f for f in self.drive.files.values() if f['appProperties'].get('rv_kind') == kind]
+
+    def test_retry_after_local_changed_starts_new_session(self):
+        self.backend.activate()
+        size = 2 * MB + 9
+        path, data, sha, md5 = self.media(size)
+        resume = {}
+        with self.assertRaises(ab.BackendError) as caught: self.backend.upload(path, ID, KIND, '0' * 64, None, size, resume)
+        self.assertEqual(caught.exception.reason, 'local_changed')
+        with self.drive.lock: old = next(iter(self.drive.sessions))
+        self.assertIsNone(resume['session'])  # A persisted resume cannot bring the old session back.
+        # Even with the old session handed back, a different sha256 never continues it.
+        old_url = self.drive.url + '/upload/drive/v3/files?uploadType=resumable&upload_id=' + old
+        stale = {'session': old_url, 'bytes_sent': 2 * MB, 'sha256': '0' * 64, 'size': size}
+        for retry in (resume, stale):
+            mark = len(self.drive.requests)
+            ref = self.backend.upload(path, ID, KIND, sha, md5, size, retry)
+            self.assertNotIn(old, retry['session'])
+            self.assertEqual(self.session_puts(old_url, mark), [])  # The old session is never PUT again.
+            with self.drive.lock: f = dict(self.drive.files[ref.file_id])
+            self.assertEqual((f['content'], f['appProperties']['rv_sha256'], retry['sha256'], retry['size']), (data, sha, sha, size))
+            with self.drive.lock: self.drive.files.pop(ref.file_id)
+        # A different size is a different upload too (this one then fails on the short file).
+        mark = len(self.drive.requests)
+        with self.assertRaises(ab.BackendError): self.backend.upload(path, ID, KIND, sha, md5, size + 1, {'session': old_url, 'bytes_sent': MB, 'sha256': sha, 'size': size})
+        self.assertEqual(self.session_puts(old_url, mark), [])
+        self.assertEqual(self.files_for(KIND), [])
+
+    def test_local_changed_on_resumed_upload(self):
+        self.backend.activate()
+        size = 3 * MB
+        path, data, sha, md5 = self.media(size)
+        class Stop(Exception): pass
+        def stop(n):
+            if n == MB: raise Stop()
+        resume = {}
+        with self.assertRaises(Stop): self.backend.upload(path, ID, KIND, sha, md5, size, resume, stop)
+        session = resume['session']
+        self.assertEqual(resume['bytes_sent'], MB)
+        # The local file changes after the first chunk went out (same size).
+        with open(path, 'r+b') as f: f.seek(2 * MB); f.write(b'\xff' * 10)
+        mark = len(self.drive.requests)
+        with self.assertRaises(ab.BackendError) as caught: self.backend.upload(path, ID, KIND, sha, md5, size, resume)
+        self.assertEqual((caught.exception.code, caught.exception.reason), ('mismatch', 'local_changed'))
+        # Status asked, the second chunk sent, the last one held back: the session never completes.
+        self.assertEqual([r['headers']['content-range'] for r in self.session_puts(session, mark)], ['bytes */%d' % size, 'bytes 1048576-2097151/%d' % size])
+        self.assertEqual(self.files_for(KIND), [])
+        self.assertIsNone(resume['session'])
 
     def test_verify_falls_back_to_md5_then_unverifiable(self):
         self.backend.activate()
