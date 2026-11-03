@@ -276,7 +276,8 @@ class RemoteFile:
 def _resolve_remote(block, backend_kind, kind, backend, corrupt):
     # Asks the backend once for the file's metadata. Nothing in the index changes: unreachable or gone
     # files are dynamic states.
-    if backend is None: return None, 'storage_unavailable'
+    # Only the backend the file was stored with can answer for it (another kind may be active after a switch).
+    if backend is None or getattr(getattr(backend, 'caps', None), 'kind', None) != backend_kind: return None, 'storage_unavailable'
     state = backend.probe()[0]
     if state == 'checking': return None, 'checking'
     if state != 'connected': return None, 'storage_unavailable'
@@ -288,7 +289,11 @@ def _resolve_remote(block, backend_kind, kind, backend, corrupt):
     try: stat = backend.stat(ref)
     except BackendError: return None, 'storage_unavailable'
     if stat is None or stat.trashed or not stat.exists: return None, 'missing'
-    rf = RemoteFile(backend_kind, ref, kind, stat.bytes, f'"{file_id}:{(ref.sha256 or "")[:16]}"')
+    # The file must still be the one that was verified: a size or hash other than the index's is corrupt
+    # (dynamically; the index is not rewritten). Served sizes are the index's.
+    if ref.bytes > 0 and stat.bytes != ref.bytes: corrupt = True
+    if ref.sha256 and stat.sha256 and stat.sha256 != ref.sha256: corrupt = True
+    rf = RemoteFile(backend_kind, ref, kind, ref.bytes if ref.bytes > 0 else stat.bytes, f'"{file_id}:{(ref.sha256 or "")[:16]}"')
     return rf, 'corrupt' if corrupt else 'available'
 
 def _local_file(p, kind):

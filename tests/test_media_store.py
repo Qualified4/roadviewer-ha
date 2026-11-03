@@ -1,6 +1,7 @@
 """Archive settings, NAS availability via the sentinel, and media path resolution."""
 import json, os, sys, tempfile, threading, unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
 os.environ['RV_ARCHIVE_ALLOW_ANY_PATH'] = '1'  # Temporary directories stand in for the share.
@@ -280,6 +281,13 @@ class MediaStoreTests(unittest.TestCase):
   self.assertEqual(m.resolve(self.rec, meta, 'fcamera.mp4', None, None), (None, 'storage_unavailable'))
   for share, expected in [('connected', 'available'), ('unavailable', 'storage_unavailable'), ('disabled', 'storage_unavailable'), ('checking', 'checking'), (None, 'checking')]:
    self.assertEqual(m.indexed_state(self.rec, meta, 'fcamera.mp4', share), expected, share)
+  # The remote copy is checked against its index too, and only by a backend of its own kind.
+  rf, state = m.resolve(self.rec, meta, 'fcamera.mp4', None, FakeBackend(result=FakeBackend.stat_of(8)))
+  self.assertEqual((state, rf.size), ('corrupt', 7))
+  rf, state = m.resolve(self.rec, meta, 'fcamera.mp4', None, FakeBackend(result=FakeBackend.stat_of(7, sha256='99'*32)))
+  self.assertEqual(state, 'corrupt')
+  smb = FakeBackend(kind='smb')
+  self.assertEqual(m.resolve(self.rec, meta, 'fcamera.mp4', None, smb), (None, 'storage_unavailable')); self.assertEqual(smb.calls, [])
   backend.result = None; self.assertEqual(m.resolve(self.rec, meta, 'fcamera.mp4', None, backend), (None, 'missing'))
   # A local entry without a remote copy stays missing; the backend is not asked.
   calls = len(backend.calls); m.set_location(meta, 'ecamera.mp4', location='local')
@@ -302,7 +310,22 @@ class MediaStoreTests(unittest.TestCase):
   self.assertEqual(state, 'available')
   self.assertEqual(rf, m.RemoteFile('gdrive', RemoteRef('gdrive', 'F2', 12, 'ef'*32, '01'*16), kind, 12, '"F2:' + 'ef'*8 + '"'))
   self.assertEqual(backend.calls, [('probe',), ('stat', RemoteRef('gdrive', 'F2', 12, 'ef'*32, '01'*16))])
-  meta['storage'][kind]['error'] = 'remote_mismatch'
+  # The remote file must be the one the index verified: a different size or hash is corrupt (dynamic only).
+  stored = json.dumps(meta)
+  for result in [FakeBackend.stat_of(13), FakeBackend.stat_of(12, sha256='00'*32)]:
+   rf, state = m.resolve(self.rec, meta, kind, None, FakeBackend(result=result))
+   self.assertEqual((state, rf.size, rf.ref.bytes), ('corrupt', 12, 12), result)
+  self.assertEqual(json.dumps(meta), stored)
+  rf, state = m.resolve(self.rec, meta, kind, None, FakeBackend(result=FakeBackend.stat_of(12, sha256='ef'*32)))
+  self.assertEqual((state, rf.size), ('available', 12))
+  # Index without a size: the remote's size is used and not compared.
+  m.set_location(meta, kind, location='gdrive', file_id='F2', sha256='ef'*32)
+  rf, state = m.resolve(self.rec, meta, kind, None, FakeBackend(result=FakeBackend.stat_of(30)))
+  self.assertEqual((state, rf.size), ('available', 30))
+  # A backend of another kind is never asked about a Drive file.
+  smb = FakeBackend(kind='smb')
+  self.assertEqual(m.resolve(self.rec, meta, kind, None, smb), (None, 'storage_unavailable')); self.assertEqual(smb.calls, [])
+  m.set_location(meta, kind, location='gdrive', file_id='F2', bytes=12, sha256='ef'*32, error='remote_mismatch')
   rf, state = m.resolve(self.rec, meta, kind, None, backend); self.assertEqual((state, rf.ref.file_id), ('corrupt', 'F2'))
   # No sha256 in the index: the etag still has the file id.
   m.set_location(meta, kind, location='gdrive', file_id='F3', bytes=12)
@@ -388,11 +411,12 @@ class MediaStoreTests(unittest.TestCase):
   self.assertEqual((s.enabled, s.backend, s.effective_mode, s.gdrive_folder_name, s.error), (False, 'smb', 'move', 'Road Viewer', None))
 
 class FakeBackend:
- def __init__(self, state='connected', result=..., error=None):
+ def __init__(self, state='connected', result=..., error=None, kind='gdrive'):
   self.state, self.error, self.calls = state, error, []
+  self.caps = SimpleNamespace(kind=kind)
   self.result = FakeBackend.stat_of(7) if result is ... else result
  @staticmethod
- def stat_of(size, trashed=False): return RemoteStat(not trashed, size, None, None, trashed)
+ def stat_of(size, trashed=False, sha256=None): return RemoteStat(not trashed, size, sha256, None, trashed)
  def last_state(self): self.calls.append(('last_state',)); return self.state
  def probe(self): self.calls.append(('probe',)); return self.state, None
  def stat(self, ref):
