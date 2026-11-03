@@ -7,7 +7,7 @@ Usage:
     # Leaving the block shuts the server down and joins its thread.
 
 State (guard with `drive.lock` when touching it from a test while requests may be in flight):
-    files     {id: {name, mimeType, parents, appProperties, content(bytes), trashed, md5, sha256}}
+    files     {id: {name, mimeType, parents, appProperties, content(bytes), trashed, md5, sha256[, created]}}
     sessions  {upload_id: {received(bytes), total(int|None), file_meta(dict), file_id(str|None)}}
     access_tokens / refresh_tokens   sets of currently valid tokens; revoked: tokens posted to /revoke
     requests  [{method, path, headers}] in arrival order
@@ -40,6 +40,7 @@ Scenario (`drive.scenario`):
     delay_seconds          sleep before handling each request (timeouts)
     quota_limit            None (no limit reported) or bytes; completing an upload past it -> 403 storageQuotaExceeded
     lose_completion_response  store the completed upload, then close the socket without answering (once)
+    list_lag               the next N files.list calls answer an empty list (a create not yet visible to search)
     access_expires_in, device_expires_in, device_interval   numbers handed out by the OAuth endpoints
 """
 import hashlib, json, re, threading, time
@@ -58,6 +59,7 @@ class Scenario:
         self.delay_seconds = 0
         self.quota_limit = None
         self.lose_completion_response = False
+        self.list_lag = 0
         self.require_auth = True
         self.access_expires_in = 3599
         self.device_expires_in = 1800
@@ -83,6 +85,7 @@ def error_body(path, status, reason):
 def file_json(file_id, f):
     out = {'kind': 'drive#file', 'id': file_id, 'name': f['name'], 'mimeType': f['mimeType'], 'parents': list(f['parents']),
            'appProperties': dict(f['appProperties']), 'trashed': f['trashed']}
+    if f.get('created'): out['createdTime'] = f['created']
     if f['mimeType'] != FOLDER:
         out.update(size=str(len(f['content'])), md5Checksum=f['md5'], sha256Checksum=f['sha256'])
     return out
@@ -219,7 +222,7 @@ class Handler(BaseHTTPRequestHandler):
         d.files[file_id] = {'name': meta.get('name', 'Untitled'), 'mimeType': meta.get('mimeType', 'application/octet-stream'),
                             'parents': list(meta.get('parents') or []), 'appProperties': dict(meta.get('appProperties') or {}),
                             'content': content, 'trashed': False, 'md5': hashlib.md5(content).hexdigest(),
-                            'sha256': hashlib.sha256(content).hexdigest()}
+                            'sha256': hashlib.sha256(content).hexdigest(), 'created': '2026-11-03T00:00:00.%06dZ' % d.file_count}
         return file_id
 
     def used(self):
@@ -235,7 +238,9 @@ class Handler(BaseHTTPRequestHandler):
     def list_files(self):
         d = self.server
         q = self.query.get('q', '')
-        with d.lock: found = [file_json(i, f) for i, f in d.files.items() if matches(f, q)]
+        with d.lock:
+            found = [file_json(i, f) for i, f in d.files.items() if matches(f, q)]
+            if d.scenario.list_lag > 0: d.scenario.list_lag -= 1; found = []
         self.send(200, {'kind': 'drive#fileList', 'files': found})
 
     def create(self):

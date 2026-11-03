@@ -398,10 +398,16 @@ class DriveBackendTests(BackendTestCase):
         self.assertEqual(self.backend.verify(ref, sha, size + 1), 'mismatch')
         self.assertEqual(self.backend.stat(ref), ab.RemoteStat(True, size, sha, md5, False))
         self.assertEqual(self.sleeps, [])
-        # The local file is not what the caller hashed: the upload is not trusted.
-        path, *_ = self.media(1000)
-        with self.assertRaises(ab.BackendError) as caught: self.backend.upload(path, ID, 'ecamera.mp4', '0' * 64, None, 1000)
-        self.assertEqual(caught.exception.code, 'mismatch')
+        # The local file is not what the caller hashed (or grew): the last chunk is never sent, so the session
+        # never completes and Drive holds no file carrying the wrong rv_sha256.
+        path, _, sha2, md52 = self.media(size)
+        cases = [('ecamera.mp4', '0' * 64, None, size), ('camera.mp4', sha2, '0' * 32, size), ('qcamera.ts', None, None, size - 10)]
+        for kind, want_sha, want_md5, want_size in cases:
+            mark = len(self.drive.requests)
+            with self.assertRaises(ab.BackendError) as caught: self.backend.upload(path, ID, kind, want_sha, want_md5, want_size)
+            self.assertEqual((caught.exception.code, caught.exception.reason), ('mismatch', 'local_changed'))
+            self.assertEqual(len(self.ranges(mark)), 2)  # Only the two full 1 MiB chunks went out.
+            with self.drive.lock: self.assertEqual([f for f in self.drive.files.values() if f['appProperties'].get('rv_kind') == kind], [])
         # An empty file is one status request.
         path, _, sha0, _ = self.media(0)
         ref = self.backend.upload(path, ID, 'rlog.zst', sha0, None, 0)
@@ -499,7 +505,11 @@ class DriveBackendTests(BackendTestCase):
         self.backend.activate()
         self.put_file('x1', rv_id=ID, rv_kind=KIND, rv_storage_id='other-instance')
         self.put_file('x2')
-        for file_id in ('x1', 'x2'):
+        ours = self.local_id()
+        self.put_file('x3', rv_storage_id=ours, rv_kind=KIND)  # Ours, but no rv_id: not a media file.
+        self.put_file('x4', rv_storage_id=ours, rv_id=ID, rv_kind=KIND)
+        with self.drive.lock: self.drive.files['x4']['mimeType'] = FOLDER
+        for file_id in ('x1', 'x2', 'x3', 'x4', self.drive_auth.folder_id):
             with self.assertRaises(ab.BackendError) as caught: self.backend.delete(ab.RemoteRef('gdrive', file_id, 1, None, None))
             self.assertEqual((caught.exception.code, caught.exception.reason), ('io', 'foreign_file'))
             self.assertIn(file_id, self.drive.files)
@@ -534,6 +544,10 @@ class DriveBackendTests(BackendTestCase):
         self.assertEqual((caught.exception.code, caught.exception.reason), ('io', 'range_not_satisfiable'))
         with self.assertRaises(ab.BackendError) as caught: self.backend.open(ab.RemoteRef('gdrive', 'nope', 1, None, None))
         self.assertEqual(caught.exception.code, 'not_found')
+        # A range answered with 200 (the whole file) is refused rather than streamed as the range.
+        self.drive.scenario.fail_next('/drive/v3/files/' + ref.file_id, 200)
+        with self.assertRaises(ab.BackendError) as caught: self.backend.open(ref, 10, 109)
+        self.assertEqual((caught.exception.code, caught.exception.reason), ('io', 'range_ignored'))
 
     def test_download_to_verifies_hash(self):
         self.backend.activate()
@@ -544,6 +558,18 @@ class DriveBackendTests(BackendTestCase):
         with self.assertRaises(ab.BackendError) as caught: self.backend.download_to(ref, out/'other.mp4', '0' * 64)
         self.assertEqual(caught.exception.code, 'mismatch')
         self.assertEqual(sorted(p.name for p in out.iterdir()), ['fcamera.mp4'])  # No partial or wrong copy left.
+        # No sha256 given: the ref's is used.
+        self.backend.download_to(ref, out/'by-ref.mp4', None)
+        self.assertEqual((out/'by-ref.mp4').read_bytes(), data)
+        bad = ab.RemoteRef('gdrive', ref.file_id, ref.bytes, '1' * 64, None)
+        with self.assertRaises(ab.BackendError) as caught: self.backend.download_to(bad, out/'bad.mp4', None)
+        self.assertEqual((caught.exception.code, caught.exception.reason), ('mismatch', 'sha256'))
+        # No checksum at all: the byte count must match, or nothing is put in place.
+        self.backend.download_to(ab.RemoteRef('gdrive', ref.file_id, ref.bytes, None, None), out/'count.mp4', None)
+        self.assertEqual((out/'count.mp4').read_bytes(), data)
+        with self.assertRaises(ab.BackendError) as caught: self.backend.download_to(ab.RemoteRef('gdrive', ref.file_id, ref.bytes + 1, None, None), out/'short.mp4', None)
+        self.assertEqual((caught.exception.code, caught.exception.reason), ('mismatch', 'no_checksum'))
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ['by-ref.mp4', 'count.mp4', 'fcamera.mp4'])
 
     def test_usage_unreliable_without_limit(self):
         self.backend.activate()
@@ -565,6 +591,8 @@ class DriveBackendTests(BackendTestCase):
         self.backend.activate()  # The storage id recorded before the failed create is used.
         self.assertEqual([f['appProperties']['rv_storage_id'] for f in self.folders().values()], [sid])
         self.assertEqual(self.local_id(), sid)
+        self.assertEqual(self.sleeps, [1.5])  # Searched twice for a folder from the failed create first.
+        self.sleeps.clear()
         # A chunk that got a 5xx is not resent blindly: the session is asked first, then the chunk is sent
         # again after one backoff because nothing arrived.
         self.drive.scenario.fail_next('upload_id', 503)
@@ -574,6 +602,29 @@ class DriveBackendTests(BackendTestCase):
         self.assertEqual(self.ranges(mark), ['bytes 0-1048575/%d' % size, 'bytes */%d' % size, 'bytes 0-1048575/%d' % size, 'bytes 1048576-%d/%d' % (size - 1, size)])
         self.assertEqual(self.sleeps, [1.5])
         self.assertEqual(self.content(ref.file_id), data)
+
+    def test_activate_rechecks_lagging_list_and_binds_oldest_folder(self):
+        # A create whose answer was lost left a folder that search does not show yet.
+        self.drive_auth.remember(storage_id='sid1')
+        self.put_file('late', parents=[], rv_storage_id='sid1')
+        self.put_file('early', parents=[], rv_storage_id='sid1')
+        with self.drive.lock:
+            for file_id, created in (('late', '2026-11-03T10:00:00.000Z'), ('early', '2026-11-03T09:00:00.000Z')):
+                self.drive.files[file_id].update(mimeType=FOLDER, created=created)
+            self.drive.scenario.list_lag = 1
+        mark = len(self.drive.requests)
+        self.backend.activate()
+        self.assertEqual(self.sleeps, [1.5])  # One backoff, then the second look finds them.
+        lists = self.requests('GET', mark)
+        self.assertEqual([parse_qs(urlsplit(r['path']).query)['fields'][0] for r in lists], ['nextPageToken,files(id,createdTime)'] * 2)
+        self.assertEqual(self.requests('POST', mark), [])  # Nothing created.
+        self.assertEqual((self.drive_auth.folder_id, self.local_id()), ('early', 'sid1'))
+        self.assertEqual(json.loads((self.root/'.archive.json').read_text()), {'storage_id': 'sid1'})
+        self.assertEqual(self.backend.probe(), ('connected', None))
+        # Writing the local id keeps other keys in the file.
+        (self.root/'.archive.json').write_text(json.dumps({'storage_id': 'sid1', 'other': 1}))
+        self.backend._write_local_id('storage_id', 'sid2')
+        self.assertEqual(json.loads((self.root/'.archive.json').read_text()), {'storage_id': 'sid2', 'other': 1})
 
     def test_get_retries_socket_error_then_succeeds(self):
         self.backend.activate()
