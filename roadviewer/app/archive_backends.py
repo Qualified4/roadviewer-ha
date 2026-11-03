@@ -1,8 +1,11 @@
-"""Archive backends: the HTTP client with backoff and Google Drive device-flow auth (standard library only)."""
-import http.client, io, json, os, random, re, ssl, threading, time
+"""Archive backends: the HTTP client with backoff, Google Drive device-flow auth, the Drive client and the
+Drive/NAS backends behind one interface (standard library only)."""
+import hashlib, http.client, io, json, os, random, re, ssl, threading, time, uuid
 import urllib.error, urllib.parse, urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from storage_policy import atomic_json
+import media_store
 
 DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file'
 DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
@@ -110,14 +113,25 @@ class Http:
             # urllib.error.URLError is an OSError. The cause is dropped: its text can carry the URL.
             raise BackendError('unavailable', retryable=True, reason=type(e).__name__) from None
 
-    def request(self, method, url, *, headers=None, body=None, stream=False, timeout=TIMEOUT):
-        for attempt in range(self.attempts):
-            r = self._once(method, url, headers, body, stream, timeout)
+    def backoff(self, attempt): self.sleep(min(2 ** attempt + self.rand(), 64))
+
+    def request(self, method, url, *, headers=None, body=None, stream=False, timeout=TIMEOUT, retry=True, idempotent=False):
+        """retry=False makes one attempt: for requests that must not be resent blindly (files.create, a session's
+        chunk PUT); the caller finds out what happened instead (find(), the session's status). idempotent=True
+        also retries socket errors and timeouts with the same backoff."""
+        attempts = self.attempts if retry else 1
+        for attempt in range(attempts):
+            last = attempt + 1 >= attempts
+            try: r = self._once(method, url, headers, body, stream, timeout)
+            except BackendError:
+                if not idempotent or last: raise
+                self.backoff(attempt)
+                continue
             reason = error_reason(r) if r.status == 403 else None
             if reason == 'storageQuotaExceeded': raise BackendError('quota_exceeded', reason=reason)
             if r.status not in RETRY_STATUS and reason not in RATE_REASONS: return r
             r.close()
-            if attempt + 1 < self.attempts: self.sleep(min(2 ** attempt + self.rand(), 64))
+            if not last: self.backoff(attempt)
         raise BackendError('rate_limited' if r.status in (403, 429) else 'unavailable', retryable=True, reason=str(r.status))
 
 class DriveAuth:
@@ -222,6 +236,10 @@ class DriveAuth:
             if r.status in (400, 401, 403): raise BackendError('auth_expired', reason=reason or str(r.status))
             raise BackendError('unavailable', retryable=True, reason=reason or str(r.status))
 
+    def expire(self):
+        # Drive answered 401 to this access token: the next access_token() refreshes it.
+        with self._lock: self._data['access_token'] = None
+
     def disconnect(self):
         with self._lock:
             token = self._data.get('refresh_token') or self._data.get('access_token')
@@ -231,3 +249,495 @@ class DriveAuth:
             self._data, self._device = {}, None
             try: self.path.unlink()
             except FileNotFoundError: pass
+
+# --- Shared types ---
+FOLDER_MIME = 'application/vnd.google-apps.folder'
+CHUNK = 2**20  # Resumable chunks must be multiples of 256 KiB, except the last.
+CACHE_SECONDS = media_store.CACHE_SECONDS
+FILE_FIELDS = 'id,size,sha256Checksum,md5Checksum,appProperties'
+# A 403 that only reconnecting fixes (scope removed, app no longer authorized).
+AUTH_REASONS = ('insufficientPermissions', 'authError', 'access_denied', 'forbidden')
+
+@dataclass(frozen=True)
+class Capabilities:
+    kind: str             # 'smb' | 'gdrive'
+    local_paths: bool     # files can be opened by path
+    checksum: tuple       # checksums the server reports; () means re-read
+    range_reads: bool
+    atomic_rename: bool   # Drive: completing the session is the atomic point
+    remote_cleanup: bool  # automatic remote deletion allowed
+
+@dataclass
+class RemoteRef:  # 1:1 with the index's `remote` block. SMB: file_id is '<id>/<kind>'.
+    backend: str
+    file_id: str | None
+    bytes: int
+    sha256: str | None
+    md5: str | None
+
+@dataclass
+class RemoteStat:
+    exists: bool
+    bytes: int
+    sha256: str | None
+    md5: str | None
+    trashed: bool
+
+@dataclass
+class Usage:
+    used: int
+    free: int | None
+    limit: int | None
+    reliable: bool
+
+def _int_or(value, default=None):
+    try: return int(value)
+    except (TypeError, ValueError): return default
+
+def _q(value):
+    return str(value).replace('\\', '\\\\').replace("'", "\\'")
+
+def _fail(r):
+    reason = error_reason(r) or str(r.status)
+    r.close()
+    if r.status == 401 or r.status == 403 and reason in AUTH_REASONS: return BackendError('auth_expired', reason=reason)
+    if r.status in (404, 410): return BackendError('not_found', reason=reason)
+    return BackendError('io', reason=reason)
+
+def _received_end(r):
+    # 308 `Range: bytes=0-N` -> N; no header -> nothing received yet.
+    m = re.fullmatch(r'bytes=0-(\d+)', (r.headers.get('Range') or '').strip())
+    return int(m.group(1)) if m else -1
+
+def _stage(chunks, dest, sha256):
+    # Writes to `<dest>.part`, hashing as it goes; only a verified copy is renamed into place.
+    dest = Path(dest)
+    part = dest.with_suffix(dest.suffix + '.part')
+    h = hashlib.sha256()
+    try:
+        with open(part, 'wb') as f:
+            for chunk in chunks: h.update(chunk); f.write(chunk)
+        if sha256 and h.hexdigest() != sha256: raise BackendError('mismatch', reason='sha256')
+        os.replace(part, dest)
+    except BaseException as e:
+        try: part.unlink()
+        except OSError: pass
+        if isinstance(e, OSError): raise BackendError('io', reason=type(e).__name__) from None
+        raise
+
+class _SessionExpired(Exception): pass
+
+class DriveClient:
+    """Drive v3 calls. Token handling: one refresh on 401, then auth_expired. Session URIs are credentials:
+    they never reach an exception (Http drops URLs)."""
+    def __init__(self, http, auth, api_base=None, upload_base=None):
+        self.http, self.auth = http, auth
+        self.api_base = (api_base or api_base_url()).rstrip('/') + '/drive/v3'
+        self.upload_base = (upload_base or upload_base_url()).rstrip('/') + '/drive/v3'
+
+    def __repr__(self): return 'DriveClient()'
+
+    def _request(self, method, url, *, headers=None, body=None, stream=False, retry=True, idempotent=False, token=True):
+        for attempt in (0, 1):
+            h = dict(headers or {})
+            if token: h['Authorization'] = 'Bearer ' + self.auth.access_token()
+            r = self.http.request(method, url, headers=h, body=body, stream=stream, retry=retry, idempotent=idempotent)
+            if r.status != 401 or not token or attempt: return r
+            r.close()
+            self.auth.expire()  # A 401 rejected the request unprocessed, so sending it again is safe.
+        return r
+
+    def _url(self, path, **params):
+        return self.api_base + path + ('?' + urllib.parse.urlencode(params) if params else '')
+
+    def _file(self, file_id, **params): return self._url('/files/' + urllib.parse.quote(file_id, safe=''), **params)
+
+    def get(self, file_id, fields):
+        r = self._request('GET', self._file(file_id, fields=fields), idempotent=True)
+        if r.status == 404: r.close(); return None
+        if r.status != 200: raise _fail(r)
+        return r.json() or {}
+
+    def list(self, q, fields):
+        found, token = [], None
+        while True:
+            params = {'q': q, 'fields': 'nextPageToken,' + fields, 'spaces': 'drive', 'pageSize': '1000'}
+            if token: params['pageToken'] = token
+            r = self._request('GET', self._url('/files', **params), idempotent=True)
+            if r.status != 200: raise _fail(r)
+            body = r.json() or {}
+            found += [f for f in body.get('files') or [] if isinstance(f, dict)]
+            token = body.get('nextPageToken')
+            if not token: return found
+
+    def create_folder(self, name, app_props):
+        # Not retried: after a failure the caller looks the folder up by its appProperties.
+        r = self._request('POST', self.api_base + '/files?fields=id', headers={'Content-Type': 'application/json; charset=UTF-8'},
+                          body=json.dumps({'name': name, 'mimeType': FOLDER_MIME, 'appProperties': app_props}).encode(), retry=False)
+        if r.status != 200: raise _fail(r)
+        file_id = (r.json() or {}).get('id')
+        if not file_id: raise BackendError('io', reason='no_file_id')
+        return file_id
+
+    def start_resumable(self, name, parents, app_props, size):
+        # A session holds nothing until completed, so starting one again is harmless.
+        url = self.upload_base + '/files?' + urllib.parse.urlencode({'uploadType': 'resumable', 'fields': FILE_FIELDS})
+        r = self._request('POST', url, headers={'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': 'application/octet-stream',
+                                                'X-Upload-Content-Length': str(size)},
+                          body=json.dumps({'name': name, 'parents': parents, 'appProperties': app_props}).encode())
+        if r.status != 200: raise _fail(r)
+        r.close()
+        session = r.headers.get('Location')
+        if not session: raise BackendError('io', reason='no_session')
+        return session
+
+    def _session(self, r):
+        if r.status == 308: r.close(); return 'incomplete', _received_end(r)
+        if r.status in (200, 201): return 'done', r.json() or {}
+        if r.status in (404, 410): r.close(); return 'expired', None
+        raise _fail(r)
+
+    def put_chunk(self, session, data, start, total):
+        """('incomplete', last received byte | -1) | ('done', file metadata) | ('expired', None). Not retried:
+        after an error the caller asks session_status() how far the upload got."""
+        rng = 'bytes %d-%d/%d' % (start, start + len(data) - 1, total) if data else 'bytes */%d' % total
+        return self._session(self._request('PUT', session, headers={'Content-Range': rng}, body=data, retry=False, token=False))
+
+    def session_status(self, session, total):
+        return self._session(self._request('PUT', session, headers={'Content-Range': 'bytes */%d' % total}, idempotent=True, token=False))
+
+    def download(self, file_id, start=None, end=None):
+        headers = {} if start is None else {'Range': 'bytes=%d-%s' % (start, '' if end is None else end)}
+        r = self._request('GET', self._file(file_id, alt='media'), headers=headers, stream=True, idempotent=True)
+        if r.status == 416: r.close(); raise BackendError('io', reason='range_not_satisfiable')
+        if r.status not in (200, 206): raise _fail(r)
+        return r
+
+    def delete(self, file_id):
+        # Resending is safe: a delete that went through answers 404 the second time.
+        r = self._request('DELETE', self._file(file_id), idempotent=True)
+        if r.status in (200, 204, 404): r.close(); return True
+        raise _fail(r)
+
+    def about(self):
+        r = self._request('GET', self._url('/about', fields='storageQuota'), idempotent=True)
+        if r.status != 200: raise _fail(r)
+        return (r.json() or {}).get('storageQuota') or {}
+
+
+class _Availability:
+    """The ArchiveStore pattern: a probe result is reused for CACHE_SECONDS; while a probe is in flight other
+    callers get 'checking' instead of waiting or trusting a stale answer."""
+    def _init_cache(self, clock):
+        self.clock, self.lock = clock, threading.Lock()
+        self.cached = self.usage_cached = None
+
+    def _enabled(self): return getattr(self.settings, 'enabled', True)
+
+    def probe(self):
+        if not self._enabled(): return 'disabled', getattr(self.settings, 'error', None)
+        cached = self.cached
+        if cached and self.clock() - cached[0] < CACHE_SECONDS: return cached[1:]
+        if not self.lock.acquire(blocking=False): return 'checking', 'probe_pending'
+        try:
+            cached = self.cached
+            if cached and self.clock() - cached[0] < CACHE_SECONDS: return cached[1:]
+            result = self._probe()
+            self.cached = (self.clock(), *result)
+            return result
+        finally: self.lock.release()
+
+    def last_state(self):
+        # Cache only, for callers holding the server lock; None when stale.
+        if not self._enabled(): return 'disabled'
+        cached = self.cached
+        return cached[1] if cached and self.clock() - cached[0] < CACHE_SECONDS else None
+
+    def invalidate(self): self.cached = self.usage_cached = None
+
+
+class DriveBackend(_Availability):
+    caps = Capabilities('gdrive', local_paths=False, checksum=('sha256', 'md5'), range_reads=True, atomic_rename=False, remote_cleanup=False)
+
+    def __init__(self, settings, root, auth, client, clock=time.monotonic):
+        self.settings, self.root, self.auth, self.client = settings, Path(root), auth, client
+        self._init_cache(clock)
+
+    def __repr__(self): return 'DriveBackend(connected=%r)' % self.auth.connected
+
+    def storage_id(self):
+        # The same local copy the NAS uses (ArchiveStore.local_id): {"storage_id": ...}.
+        try: return json.loads((self.root / media_store.LOCAL_COPY).read_text())['storage_id']
+        except (OSError, ValueError, KeyError, TypeError): return None
+
+    def _probe(self):
+        if not self.auth.connected: return 'unavailable', 'not_connected'
+        folder_id = self.auth.folder_id
+        if not folder_id: return 'unavailable', 'folder_missing'
+        try: folder = self.client.get(folder_id, 'trashed,appProperties')
+        except BackendError as e: return 'unavailable', 'network' if e.code == 'unavailable' else e.code
+        # 404: deleted for good, or reconnected with an account that cannot see it.
+        if folder is None: return 'unavailable', 'folder_missing'
+        if folder.get('trashed'): return 'unavailable', 'folder_trashed'
+        local = self.storage_id()
+        if local is None or (folder.get('appProperties') or {}).get('rv_storage_id') != local: return 'unavailable', 'storage_id_mismatch'
+        return 'connected', None
+
+    def _find_folder(self, storage_id):
+        q = "appProperties has { key='rv_storage_id' and value='%s' } and mimeType='%s' and trashed=false" % (_q(storage_id), FOLDER_MIME)
+        return [f['id'] for f in self.client.list(q, 'files(id)') if f.get('id')]
+
+    def activate(self):
+        """Creates the folder only on a fresh setup (no folder bound, no local storage id). Otherwise only
+        verifies; a folder whose binding was lost (disconnect) is found again by its storage id, never recreated."""
+        if not self._enabled() or not self.auth.connected: return
+        self.invalidate()
+        try:
+            if not self.auth.folder_id:
+                local = self.storage_id()
+                storage_id = local or self.auth.storage_id
+                found = self._find_folder(storage_id) if storage_id else []
+                if found: folder_id = found[0]
+                elif local is None:
+                    if storage_id is None:
+                        # Recorded before the create: a create whose answer was lost is found next time.
+                        storage_id = uuid.uuid4().hex
+                        self.auth.remember(storage_id=storage_id)
+                    name = getattr(self.settings, 'gdrive_folder_name', '') or 'Road Viewer'
+                    folder_id = self.client.create_folder(name, {'rv_storage_id': storage_id})
+                else: folder_id = None  # Our id but no folder carrying it: stays unavailable.
+                if folder_id:
+                    if local is None: atomic_json(self.root / media_store.LOCAL_COPY, {'storage_id': storage_id})
+                    self.auth.remember(folder_id=folder_id, storage_id=storage_id)
+        except (BackendError, OSError): pass  # Stays unavailable; the next probe reports why.
+        self.invalidate()
+
+    def _ref(self, meta):
+        return RemoteRef('gdrive', meta.get('id'), _int_or(meta.get('size'), 0), meta.get('sha256Checksum') or None, meta.get('md5Checksum') or None)
+
+    def stat(self, ref):
+        meta = self.client.get(ref.file_id, 'id,size,sha256Checksum,md5Checksum,trashed')
+        if meta is None: return None
+        trashed = bool(meta.get('trashed'))
+        return RemoteStat(not trashed, _int_or(meta.get('size'), 0), meta.get('sha256Checksum') or None, meta.get('md5Checksum') or None, trashed)
+
+    def find(self, id, kind):
+        local, folder_id = self.storage_id(), self.auth.folder_id
+        if not local or not folder_id: return []
+        q = ("appProperties has { key='rv_id' and value='%s' } and appProperties has { key='rv_kind' and value='%s' } "
+             "and trashed=false and '%s' in parents") % (_q(id), _q(kind), _q(folder_id))
+        return [self._ref(f) for f in self.client.list(q, 'files(%s)' % FILE_FIELDS)
+                if (f.get('appProperties') or {}).get('rv_storage_id') == local]
+
+    def upload(self, local, id, kind, sha256, md5, size, resume=None, on_progress=None):
+        """Resumable upload in 1 MiB chunks. `resume` ({session, bytes_sent} from an earlier attempt, or {}) is
+        updated in place before every on_progress(bytes_sent) call so the caller can persist it. Returns the
+        completed file's ref; verify() is a separate step."""
+        folder_id, storage_id = self.auth.folder_id, self.storage_id()
+        if not folder_id or not storage_id: raise BackendError('unavailable', reason='folder_missing')
+        resume = resume if resume is not None else {}
+        session, offset = resume.get('session'), 0
+        if session:
+            state, value = self.client.session_status(session, size)
+            if state == 'done': return self._completed(value, size, resume, on_progress)
+            if state == 'incomplete': offset = value + 1
+            else: session = None
+        props = {'rv_id': id, 'rv_kind': kind, 'rv_sha256': sha256 or '', 'rv_storage_id': storage_id}
+        for _ in range(2):  # One fresh session if the current one expires part-way.
+            if not session:
+                session, offset = self.client.start_resumable('%s--%s' % (id, kind), [folder_id], props, size), 0
+                resume.update(session=session, bytes_sent=0)
+                if on_progress: on_progress(0)
+            try: meta, digest, local_md5 = self._send(local, session, offset, size, resume, on_progress)
+            except _SessionExpired: session = None; continue
+            if sha256 and digest != sha256 or md5 and local_md5 != md5: raise BackendError('mismatch', reason='local_changed')
+            return self._completed(meta, size, resume, on_progress)
+        raise BackendError('unavailable', retryable=True, reason='session_expired')
+
+    def _completed(self, meta, size, resume, on_progress):
+        ref = self._ref(meta)
+        if not ref.file_id: raise BackendError('io', reason='no_file_id')
+        if ref.bytes != size: raise BackendError('mismatch', reason='size')
+        resume['bytes_sent'] = size
+        if on_progress: on_progress(size)
+        return ref
+
+    def _send(self, local, session, offset, size, resume, on_progress):
+        # The file is read once: the part the session already holds is only hashed, the rest hashed and sent.
+        h256, hmd5 = hashlib.sha256(), hashlib.md5()
+        try: f = open(local, 'rb')
+        except OSError as e: raise BackendError('io', reason=type(e).__name__) from None
+        with f:
+            read = 0
+            while read < offset:
+                data = f.read(min(CHUNK, offset - read))
+                if not data: raise BackendError('io', reason='local_shrank')
+                h256.update(data); hmd5.update(data); read += len(data)
+            sent, buf, stalls = offset, b'', 0
+            while True:
+                while len(buf) < CHUNK and read < size:
+                    data = f.read(min(CHUNK - len(buf), size - read))
+                    if not data: raise BackendError('io', reason='local_shrank')
+                    h256.update(data); hmd5.update(data); buf += data; read += len(data)
+                try: state, value = self.client.put_chunk(session, buf, sent, size)
+                except BackendError as e:
+                    if e.code not in ('unavailable', 'rate_limited'): raise
+                    # The chunk may or may not have arrived: ask the session rather than resending blindly.
+                    state, value = self.client.session_status(session, size)
+                if state == 'expired': raise _SessionExpired()
+                if state == 'done':
+                    if f.read(1): raise BackendError('io', reason='local_grew')
+                    return value, h256.hexdigest(), hmd5.hexdigest()
+                end = value + 1
+                if not sent <= end <= sent + len(buf): raise BackendError('io', reason='bad_range')
+                if end == sent:
+                    stalls += 1
+                    if stalls >= self.client.http.attempts: raise BackendError('unavailable', retryable=True, reason='no_progress')
+                    self.client.http.backoff(stalls - 1)
+                else: stalls = 0
+                buf, sent = buf[end - sent:], end
+                resume['bytes_sent'] = sent
+                if on_progress: on_progress(sent)
+
+    def verify(self, ref, sha256, size, md5=None):
+        meta = self.client.get(ref.file_id, 'size,sha256Checksum,md5Checksum,trashed')
+        if meta is None or meta.get('trashed'): raise BackendError('not_found')
+        if size is not None and _int_or(meta.get('size')) != size: return 'mismatch'
+        if meta.get('sha256Checksum') and sha256: return 'ok' if meta['sha256Checksum'] == sha256 else 'mismatch'
+        if meta.get('md5Checksum') and md5: return 'ok' if meta['md5Checksum'] == md5 else 'mismatch'
+        return 'unverifiable'
+
+    def open(self, ref, start=0, end=None):
+        # The request is made now, so a missing file or a bad range raises here rather than on the first chunk.
+        r = self.client.download(ref.file_id, None if not start and end is None else start, end)
+        return r.iter_chunks(CHUNK)
+
+    def download_to(self, ref, dest, sha256): _stage(self.open(ref), dest, sha256)
+
+    def delete(self, ref):
+        """True: deleted or already gone (confirmed). False: unsure (network, auth). A file without our storage
+        id is never deleted: BackendError('io', reason='foreign_file')."""
+        try:
+            meta = self.client.get(ref.file_id, 'appProperties,trashed')
+            if meta is None: return True
+            local = self.storage_id()
+            if not local or (meta.get('appProperties') or {}).get('rv_storage_id') != local:
+                raise BackendError('io', reason='foreign_file')
+            return self.client.delete(ref.file_id)
+        except BackendError as e:
+            if e.reason == 'foreign_file': raise
+            return False
+
+    def usage(self):
+        cached = self.usage_cached
+        if cached and self.clock() - cached[0] < CACHE_SECONDS: return cached[1]
+        quota = self.client.about()
+        usage, limit = _int_or(quota.get('usage'), 0), _int_or(quota.get('limit')) or None
+        result = Usage(used=_int_or(quota.get('usageInDrive'), usage), free=max(limit - usage, 0) if limit else None, limit=limit, reliable=bool(limit))
+        self.usage_cached = (self.clock(), result)
+        return result
+
+
+class SmbBackend:
+    """The NAS behind the Backend interface. State, capacity and deletion go to ArchiveStore; NAS archiving
+    itself keeps using Archiver.archive_file, so the path-based upload/verify/open here are minimal."""
+    caps = Capabilities('smb', local_paths=True, checksum=(), range_reads=True, atomic_rename=True, remote_cleanup=True)
+
+    def __init__(self, store): self.store = store
+    def __repr__(self): return 'SmbBackend()'
+
+    def probe(self): return self.store._check()
+    def last_state(self): return self.store.last_state()
+    def invalidate(self): self.store.invalidate()
+    def storage_id(self): return self.store.local_id()
+    def activate(self): self.store.activate()
+
+    def usage(self):
+        used, free = self.store.usage()
+        return Usage(used=used, free=free, limit=None, reliable=self.store.last_state() == 'connected')
+
+    def _path(self, ref):
+        if not self.store.available(): raise BackendError('unavailable', reason='share')
+        id, _, kind = (ref.file_id or '').partition('/')
+        if id in ('', '.', '..'): raise BackendError('io', reason='bad_ref')
+        try: return self.store.path_for(id, kind)
+        except ValueError: raise BackendError('io', reason='bad_ref') from None
+
+    def stat(self, ref):
+        path = self._path(ref)
+        try: st = path.stat()
+        except FileNotFoundError: return None
+        except OSError as e: raise BackendError('unavailable', reason=type(e).__name__) from None
+        return RemoteStat(True, st.st_size, None, None, False)
+
+    def find(self, id, kind):
+        ref = RemoteRef('smb', '%s/%s' % (id, kind), 0, None, None)
+        st = self.stat(ref)
+        if st is None: return []
+        ref.bytes = st.bytes
+        return [ref]
+
+    def upload(self, local, id, kind, sha256, md5, size, resume=None, on_progress=None):
+        ref = RemoteRef('smb', '%s/%s' % (id, kind), size, sha256, md5)
+        dest = self._path(ref)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            f = open(local, 'rb')
+        except OSError as e: raise BackendError('io', reason=type(e).__name__) from None
+        sent = 0
+        def chunks():
+            nonlocal sent
+            with f:
+                while data := f.read(CHUNK):
+                    sent += len(data)
+                    if on_progress: on_progress(sent)
+                    yield data
+        _stage(chunks(), dest, sha256)
+        if sent != size:
+            try: dest.unlink()
+            except OSError: pass
+            raise BackendError('mismatch', reason='size')
+        return ref
+
+    def verify(self, ref, sha256, size, md5=None):
+        st = self.stat(ref)
+        if st is None: raise BackendError('not_found')
+        if size is not None and st.bytes != size: return 'mismatch'
+        if not sha256: return 'unverifiable'
+        h = hashlib.sha256()
+        for chunk in self.open(ref): h.update(chunk)
+        return 'ok' if h.hexdigest() == sha256 else 'mismatch'
+
+    def open(self, ref, start=0, end=None):
+        path = self._path(ref)
+        try: f = open(path, 'rb')
+        except FileNotFoundError: raise BackendError('not_found') from None
+        except OSError as e: raise BackendError('unavailable', reason=type(e).__name__) from None
+        def chunks():
+            with f:
+                f.seek(start)
+                left = None if end is None else end - start + 1
+                while left is None or left > 0:
+                    try: data = f.read(CHUNK if left is None else min(CHUNK, left))
+                    except OSError as e: raise BackendError('unavailable', reason=type(e).__name__) from None
+                    if not data: return
+                    if left is not None: left -= len(data)
+                    yield data
+        return chunks()
+
+    def download_to(self, ref, dest, sha256): _stage(self.open(ref), dest, sha256)
+
+    def delete(self, ref):
+        id, _, kind = (ref.file_id or '').partition('/')
+        if id in ('', '.', '..') or kind not in media_store.MEDIA_KINDS: raise BackendError('io', reason='bad_ref')
+        _removed, failed = media_store.delete_archived(self.store, id, [kind])
+        return not failed
+
+
+def make_backend(settings, root, store=None, auth=None, http=None):
+    if getattr(settings, 'backend', 'smb') == 'gdrive':
+        http = http or Http()
+        auth = auth or DriveAuth(Path(root) / '.gdrive-auth.json', getattr(settings, 'gdrive_client_id', '') or '',
+                                 getattr(settings, 'gdrive_client_secret', '') or '', http)
+        return DriveBackend(settings, root, auth, DriveClient(http, auth))
+    return SmbBackend(store if store is not None else media_store.ArchiveStore(settings, root))
