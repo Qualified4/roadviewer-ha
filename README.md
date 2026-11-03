@@ -89,6 +89,10 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 <img src="docs/images/roadviewer-device-pairing.png" alt="콤마 장치 연결을 위한 Road Viewer 일회용 페어링 코드 팝업" width="420">
 
+## AI 에이전트 연동 (MCP)
+
+[roadviewer-mcp](https://github.com/Qualified4/roadviewer-mcp)는 Codex·Claude Code 같은 MCP 클라이언트가 Road Viewer의 주행 로그를 다룰 수 있게 하는 로컬 서버입니다. Home Assistant 장기 토큰으로 기존 Ingress 인증을 그대로 통과해 애드온의 기존 API만 호출하므로 애드온 변경, 새 포트, 외부 공개가 없습니다. 로그 검색·상세·북마크·저장 공간 조회, 리플레이 데이터와 차량 정보의 구간 조회, 영상·로그 다운로드(로컬 디스크에 저장 후 경로 반환)를 지원하고, 쓰기는 북마크 추가·수정과 태그 추가·제거만 합니다. 삭제·변환·설정 변경은 하지 않습니다. 설치와 등록 방법은 해당 저장소의 README를 참고하세요.
+
 ## 재생과 분석
 
 | 기능 | 사용 방법 |
@@ -205,6 +209,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 - [설치 및 사용 설명](roadviewer/DOCS.md) · [English](roadviewer/DOCS.en.md): 업로드, 변환, 재생, 일괄 관리, 저장 정책, 백업과 문제 해결
 - [변경 이력](roadviewer/CHANGELOG.md): 버전별 변경 내용
+- [roadviewer-mcp](https://github.com/Qualified4/roadviewer-mcp): AI 에이전트용 MCP 서버. 기존 Ingress 인증과 API만 사용
 - [장치 API v1](docs/device-api.md) · [English](docs/device-api.en.md): HTTPS 구성, 페어링·서명, 업로드·이어올리기와 openpilot 없이 테스트하는 방법
 
 `roadviewer/`가 Docker 빌드 컨텍스트입니다. GitHub Actions에서 amd64/aarch64 이미지 빌드와 API·변환·브라우저 검사를 실행합니다. 브라우저 검사는 반응형 배치, 설정 저장, 마우스·터치 피드백 등을 확인하며 실제 Home Assistant 기기와 Android 파일 선택창은 환경에 따라 다를 수 있습니다.
