@@ -5,7 +5,7 @@ import hashlib, json, os, random, sys, tempfile, unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_media_integration import make_log  # Sets RV_DATA and imports the server module.
+from test_media_integration import make_log, PEER, HEADERS  # Sets RV_DATA and imports the server module.
 import server, media_store
 import archive_backends as ab
 from fake_drive import FakeDrive
@@ -44,7 +44,7 @@ class GdriveArchiverTests(unittest.TestCase):
     def log(self, id, kinds=KINDS, data=None, **fields):
         p = make_log(self.root, id, kinds, [])
         for kind, content in (data or {}).items(): (p / kind).write_bytes(content)
-        m = server.read_meta(p); m.update(uploaded=1, **fields); server.save_meta(p, m)
+        m = server.read_meta(p); m.update({'uploaded': 1, **fields}); server.save_meta(p, m)
         return p
 
     def meta_bytes(self, p): return (p / 'meta.json').read_bytes()
@@ -91,7 +91,7 @@ class GdriveArchiverTests(unittest.TestCase):
         # A recording deleted earlier left a remote file to delete; recovery and pending deletes run on a restart.
         other = self.log('c' * 32, ['qcamera.ts']); self.archiver().run_cycle()
         with server.registration_lock, server.lock:
-            with patch.object(server, 'process_pending'): server.delete_recording(other.name)
+            with patch.object(server, 'process_pending'): server.delete_recording(other.name, remote=True)
         archiver = self.archiver()
         unlinked = []
         real = Path.unlink
@@ -300,17 +300,30 @@ class GdriveArchiverTests(unittest.TestCase):
         self.archiver().run_cycle()
         ids = {media_store.remote(server.read_meta(p), kind)['file_id'] for kind in KINDS}
         with server.registration_lock, server.lock:
-            with patch.object(server, 'process_pending'): server.delete_recording(p.name)
+            with patch.object(server, 'process_pending'): server.delete_recording(p.name, remote=True)
         pending = media_store.PendingDeletes(self.root)
         rows = json.loads(pending.path.read_text())
         self.assertEqual(rows[0]['kinds'], []); self.assertEqual({r['file_id'] for r in rows[0]['refs']}, ids)
+        # Request handlers only queue them: Drive is never called from a request.
+        since = len(self.requests())
+        server.process_pending()
+        self.assertEqual(self.requests()[since:], []); self.assertEqual(pending.count(), 2)
+        # Any failure other than a foreign file keeps the refs for the next time.
+        with patch.object(self.backend.client, 'delete', side_effect=ab.BackendError('unavailable', retryable=True)):
+            self.assertEqual(pending.process(self.backend), 0)
+        with patch.object(self.backend, 'delete', side_effect=ab.BackendError('auth_expired')):
+            self.assertEqual(pending.process(self.backend), 0)
+        self.assertEqual(pending.count(), 2); self.assertEqual(len(self.files()), 2)
         # Another instance's file, recorded for a deleted recording: never deleted.
         with self.drive.lock:
             self.drive.files['foreign'] = dict(name='x', mimeType='application/octet-stream', parents=[], appProperties={'rv_id': 'c' * 32, 'rv_storage_id': 'other'},
                                                content=b'x', trashed=False, md5='', sha256='')
         pending.add('c' * 32, [], [{'kind': 'fcamera.mp4', 'backend': 'gdrive', 'file_id': 'foreign', 'bytes': 1, 'sha256': None}])
         self.assertEqual(pending.count(), 3)
-        server.process_pending()
+        # The archiver cycle removes them; the foreign file is skipped with a warning and dropped from the list.
+        with self.assertLogs('media_store', 'WARNING') as logs:
+            self.archiver().run_cycle()
+        self.assertEqual(len([line for line in logs.output if 'foreign' in line and 'c' * 32 + '/fcamera.mp4' in line]), 1)
         self.assertEqual(set(self.files()), {'foreign'})
         deleted = {r['path'].split('?')[0].rsplit('/', 1)[-1] for r in self.requests('DELETE')}
         self.assertEqual(deleted, ids)
@@ -322,5 +335,137 @@ class GdriveArchiverTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob('.pending-nas-deletes.corrupt-*')), [])
         self.assertEqual(media_store.PendingDeletes(self.root).process(self.backend), 1)  # Already gone counts as removed.
         self.assertEqual(json.loads(pending.path.read_text()), [{'id': 'd' * 32, 'kinds': ['rlog.zst']}])
+
+    def moved_with_local(self, content=None):
+        # A moved file whose local unlink did not happen (or a file put back since): index gdrive, local file present.
+        p = self.log('a' * 32, ['fcamera.mp4'])
+        original = (p / 'fcamera.mp4').read_bytes()
+        self.archiver(mode='move', allow_local_delete=True).run_cycle()
+        self.assertEqual(media_store.location(server.read_meta(p), 'fcamera.mp4'), 'gdrive')
+        (p / 'fcamera.mp4').write_bytes(original if content is None else content)
+        archiver = self.archiver(mode='move', allow_local_delete=True)
+        archiver.held_checked = True  # Only recovery is under test (recheck_held is Task 5's).
+        return p, archiver
+
+    def test_recovery_never_unlinks_a_local_file_that_differs_from_index(self):
+        original = b'fcamera.mp4' * 10
+        for content in (b'X' * len(original), b'new camera file'):  # Same size, other bytes; another size.
+            with self.subTest(size=len(content)):
+                p, archiver = self.moved_with_local(content)
+                archiver.recover_startup()
+                self.assertTrue(archiver.recovered); self.assertEqual((p / 'fcamera.mp4').read_bytes(), content)
+                for f in list(self.files()):
+                    with self.drive.lock: del self.drive.files[f]
+                server.delete_recording(p.name)
+        # The moved content itself goes once its copy verifies.
+        p, archiver = self.moved_with_local()
+        archiver.recover_startup()
+        self.assertTrue(archiver.recovered); self.assertFalse((p / 'fcamera.mp4').exists())
+        self.assertEqual(media_store.location(server.read_meta(p), 'fcamera.mp4'), 'gdrive')
+
+    def test_recovery_keeps_local_file_when_protected_or_copy_mode(self):
+        p, _ = self.moved_with_local()
+        for fields, pinned in (({}, False), ({'mode': 'move'}, False), ({'mode': 'move', 'allow_local_delete': True}, True)):
+            archiver = self.archiver(**fields); archiver.held_checked = True
+            with patch.object(server.storage_policy, 'settings', {**server.storage_policy.settings, 'pinned_logs': [p.name] if pinned else []}):
+                archiver.recover_startup()
+            self.assertTrue(archiver.recovered); self.assertTrue((p / 'fcamera.mp4').is_file())
+
+    def test_logs_never_expose_session_or_file_ids(self):
+        data = random.Random(2).randbytes(2 * 2**20 + 7)
+        p = self.log('a' * 32, ['fcamera.mp4'], data={'fcamera.mp4': data})
+        q = self.log('b' * 32, ['fcamera.mp4'])
+        # p's upload crashed after its session was recorded (a real session URI from Drive); q has a copy.
+        archiver = self.archiver()
+        real, calls = archiver.backend.client.put_chunk, []
+        def put_chunk(*args):
+            calls.append(1)
+            if len(calls) == 2: raise Crash()
+            return real(*args)
+        with patch.object(archiver.backend.client, 'put_chunk', side_effect=put_chunk), self.assertRaises(Crash): archiver.run_cycle()
+        self.assertIn('upload_id=', media_store.remote_pending(server.read_meta(p), 'fcamera.mp4')['session'])
+        m = server.read_meta(q); media_store.set_remote(m, 'fcamera.mp4', backend='gdrive', file_id='fileid-secret', bytes=1, sha256='0' * 64, md5='0', uploaded_at=1.0, verified_by='sha256'); server.save_meta(q, m)
+        r = server.app.test_client().get('/api/logs', environ_overrides=PEER)
+        self.assertEqual(r.status_code, 200)
+        body = r.get_data(as_text=True)
+        for secret in ('upload_id=', 'remote_pending', 'secretsession', 'fileid-secret', 'file_id'): self.assertNotIn(secret, body)
+        rows = {row['id']: row for row in r.json['logs']}
+        self.assertEqual(rows[q.name]['storage']['fcamera.mp4']['remote']['backend'], 'gdrive')  # The copy is still shown.
+        self.assertEqual(server.read_meta(p)['storage']['fcamera.mp4']['remote_pending']['backend'], 'gdrive')  # Index untouched.
+        self.assertNotIn('upload_id', json.dumps(archiver.status()))
+
+    def completed_pending(self, p):
+        # An upload completed at Drive whose commit was lost: the index still records its session.
+        content = (p / 'fcamera.mp4').read_bytes(); sha = hashlib.sha256(content).hexdigest(); resume = {}
+        ref = self.backend.upload(p / 'fcamera.mp4', p.name, 'fcamera.mp4', sha, None, len(content), resume=resume)
+        m = server.read_meta(p)
+        media_store.set_remote_pending(m, 'fcamera.mp4', backend='gdrive', session=resume['session'], started_at=1.0, bytes_sent=0, sha256=sha, size=len(content))
+        server.save_meta(p, m)
+        return ref
+
+    def cycling(self):
+        archiver = self.archiver(); archiver.recovered = archiver.held_checked = True  # The cycle's own path.
+        return archiver
+
+    def test_completed_session_with_trashed_file_does_not_block_the_cycle(self):
+        a = self.log('a' * 32, ['fcamera.mp4'], uploaded=1); b = self.log('b' * 32, ['fcamera.mp4'], uploaded=2)
+        ref = self.completed_pending(a)
+        with self.drive.lock: self.drive.files[ref.file_id]['trashed'] = True
+        archiver = self.cycling()
+        self.assertEqual(archiver.run_cycle()['stopped'], 'os_error')
+        m = server.read_meta(a); self.assertIsNone(media_store.remote_pending(m, 'fcamera.mp4')); self.assertNotIn('error', media_store.entry(m, 'fcamera.mp4'))
+        result = archiver.run_cycle()
+        self.assertEqual((result['archived'], result['stopped']), (2, None))
+        self.assert_copied(a, 'fcamera.mp4'); self.assert_copied(b, 'fcamera.mp4')
+
+    def test_completed_session_with_wrong_size_marks_error_and_moves_on(self):
+        a = self.log('a' * 32, ['fcamera.mp4'], uploaded=1); b = self.log('b' * 32, ['fcamera.mp4'], uploaded=2)
+        ref = self.completed_pending(a)
+        with self.drive.lock: self.drive.files[ref.file_id]['content'] = b'short'
+        archiver = self.cycling()
+        self.assertEqual(archiver.run_cycle()['stopped'], 'hash_mismatch')
+        m = server.read_meta(a); e = media_store.entry(m, 'fcamera.mp4')
+        self.assertIsNone(media_store.remote_pending(m, 'fcamera.mp4')); self.assertEqual(e['error'], 'remote_mismatch')
+        self.assertTrue((a / 'fcamera.mp4').is_file())
+        result = archiver.run_cycle()
+        self.assertEqual((result['archived'], result['stopped']), (1, None)); self.assert_copied(b, 'fcamera.mp4')
+
+    def test_recovery_of_completed_session_never_uploads(self):
+        p = self.log('a' * 32, ['fcamera.mp4'])
+        ref = self.completed_pending(p)
+        with self.drive.lock: self.drive.files[ref.file_id]['trashed'] = True  # Nothing to adopt.
+        sessions, puts = len(self.sessions_started()), len(self.requests('PUT'))
+        archiver = self.archiver(); archiver.held_checked = True
+        archiver.recover_startup()
+        self.assertTrue(archiver.recovered)
+        self.assertEqual(len(self.sessions_started()), sessions); self.assertEqual(len(self.requests('PUT')), puts + 1)  # The status query only.
+        m = server.read_meta(p)
+        self.assertIsNone(media_store.remote_pending(m, 'fcamera.mp4')); self.assertIsNone(media_store.remote(m, 'fcamera.mp4'))
+        self.assertEqual(archiver.run_cycle()['archived'], 1)  # The cycle uploads it.
+        self.assert_copied(p, 'fcamera.mp4')
+
+    def test_user_delete_queues_drive_copies_eviction_keeps_them(self):
+        a = self.log('a' * 32); b = self.log('b' * 32, ['fcamera.mp4'])
+        self.archiver().run_cycle()
+        self.assertEqual(len(self.files()), 3)
+        # Eviction for space (storage_policy calls delete_recording(id)): the copies stay on Drive, nothing queued.
+        with self.assertLogs(server.app.logger, 'INFO') as logs:
+            with server.registration_lock, server.lock: server.delete_recording(b.name)
+        self.assertTrue(any('kept' in line and b.name in line for line in logs.output))
+        pending = media_store.PendingDeletes(self.root)
+        self.assertEqual(pending.count(), 0); self.assertFalse(b.exists())
+        # The user's delete (DELETE /api/logs/<id>) queues them; the request makes no Drive call.
+        since = len(self.requests())
+        r = server.app.test_client().delete(f'/api/logs/{a.name}', environ_overrides=PEER, headers=HEADERS)
+        self.assertEqual(r.status_code, 200); self.assertFalse(a.exists())
+        self.assertEqual(self.requests()[since:], []); self.assertEqual(pending.count(), 2)
+        self.archiver().run_cycle()
+        self.assertEqual(pending.count(), 0); self.assertEqual(len(self.files()), 1)  # b's copy is kept.
+        self.assertEqual(self.files()[next(iter(self.files()))]['appProperties']['rv_id'], b.name)
+        # A moved file is the only copy: eviction still queues it, as for the NAS.
+        c = self.log('c' * 32, ['fcamera.mp4'])
+        self.archiver(mode='move', allow_local_delete=True).run_cycle()
+        with server.registration_lock, server.lock: server.delete_recording(c.name)
+        self.assertEqual(pending.count(), 1)
 
 if __name__ == '__main__': unittest.main()

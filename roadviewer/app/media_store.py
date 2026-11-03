@@ -1,11 +1,12 @@
 """Archive (NAS) settings, availability via a sentinel file, per-recording media resolution and the archiver."""
-import hashlib, json, os, re, shutil, threading, time, uuid
+import hashlib, json, logging, os, re, shutil, threading, time, uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from storage_policy import atomic_json
 from video_sources import STORED_KINDS
 
 MEDIA_KINDS = STORED_KINDS
+log = logging.getLogger(__name__)  # For code without the server's logger (PendingDeletes).
 # Videos first, the original log last: it is the only input for reconversion.
 ARCHIVE_ORDER = ('fcamera.mp4', 'ecamera.mp4', 'camera.mp4', 'fcamera.hevc', 'ecamera.hevc', 'qcamera.ts', 'rlog.zst')
 VIDEO_KINDS = ARCHIVE_ORDER[:-1]
@@ -257,19 +258,33 @@ def clear_remote_pending(meta, kind):
     e = storage.get(kind) if isinstance(storage, dict) else None
     if isinstance(e, dict): e.pop('remote_pending', None)
 
-def remote_refs(meta):
-    # The remote backend's files a recording's index refers to (moved files and verified copies), for deleting
-    # them with the recording. NAS files are listed by kind (PendingDeletes' `kinds`).
+def remote_refs(meta, copies=True):
+    # The remote backend's files a recording's index refers to (moved files and, with `copies`, verified copies),
+    # for deleting them with the recording. NAS files are listed by kind (PendingDeletes' `kinds`).
     refs = []
     for kind in MEDIA_KINDS:
         e = entry(meta, kind)
-        block = e if e['location'] == 'gdrive' else remote(meta, kind) if e['location'] == 'local' else None
+        block = e if e['location'] == 'gdrive' else remote(meta, kind) if e['location'] == 'local' and copies else None
         name = 'gdrive' if e['location'] == 'gdrive' else block.get('backend') if block else None
         if name in REMOTE_BACKENDS and isinstance(block.get('file_id'), str) and block['file_id']:
             sha256 = block.get('sha256')
             refs.append({'kind': kind, 'backend': name, 'file_id': block['file_id'], 'bytes': _bytes(block),
                          'sha256': sha256 if isinstance(sha256, str) else None})
     return refs
+
+PRIVATE_FIELDS = ('remote_pending', 'file_id')
+
+def public_storage(storage):
+    # The index as API responses show it: an upload's session URI is a credential (it accepts data without a
+    # token) and remote file ids are not needed by the UI, so neither leaves the add-on.
+    if not isinstance(storage, dict): return storage
+    out = {}
+    for kind, e in storage.items():
+        if isinstance(e, dict):
+            e = {k: v for k, v in e.items() if k not in PRIVATE_FIELDS}
+            if isinstance(e.get('remote'), dict): e['remote'] = {k: v for k, v in e['remote'].items() if k not in PRIVATE_FIELDS}
+        out[kind] = e
+    return out
 
 def archived_bytes(meta):
     return sum(_bytes(e) for e in (entry(meta, k) for k in MEDIA_KINDS) if is_archived_location(e['location']))
@@ -473,8 +488,10 @@ class PendingDeletes:
                     # True: deleted or already gone (confirmed); False: unsure, tried again next time.
                     if backend.delete(RemoteRef(r['backend'], r['file_id'], r['bytes'], r['sha256'], None)):
                         gone.add(r['file_id']); total += 1
-                except BackendError:
+                except BackendError as e:
+                    if e.reason != 'foreign_file': continue  # Kept: tried again next time.
                     # Not ours (another instance's file, the folder itself): never deleted, and not tried again.
+                    log.warning('Pending Google Drive deletion of %s/%s (%s) skipped: not a file of this instance', row['id'], r['kind'], r['file_id'])
                     gone.add(r['file_id'])
             done[row['id']] = gone
         if done: self._merge({}, done)
@@ -530,6 +547,7 @@ class Archiver:
         # Drive (design §2.6) takes archive_remote/_recover_remote; the NAS keeps its own path, always moving.
         self.remote = settings.backend == 'gdrive'
         self.remote_copies_total, self.last_auth_error = 0, None
+        self.adopted = False  # Whether the last archive_remote found a copy to adopt.
         self.cycle = threading.Lock()  # One cycle (or recovery) at a time.
         self.thread = None
         self.manual = None  # The latest manual run (start_cycle).
@@ -1295,11 +1313,13 @@ class Archiver:
             last.update(session=session, bytes=sent, at=time.monotonic())
         return on_progress
 
-    def archive_remote(self, p, meta, kind):
+    def archive_remote(self, p, meta, kind, adopt_only=False):
         # Design §2.6 steps 1-6. Caller holds self.cycle. Until the index is committed the local file is the only
         # trusted copy and is never touched; afterwards only in move mode with deleting explicitly allowed.
+        # adopt_only (recovery): only a copy find() returns is verified and committed; nothing is uploaded, and
+        # self.adopted tells whether one was found.
         from archive_backends import BackendError  # archive_backends imports this module.
-        s, b, self.reason, p = self.server, self.backend, None, Path(p)
+        s, b, self.reason, self.adopted, p = self.server, self.backend, None, False, Path(p)
         source, revision = p / kind, meta.get('conversion_revision', 0)
         try:
             # 1. The local file's hashes: the recorded sha256 when the file is unchanged since (md5 then comes from
@@ -1311,6 +1331,8 @@ class Archiver:
             sha256, md5 = (known, None) if isinstance(known, str) else _digests(source)
             # 2. A copy whose completion answer or index commit was lost is adopted instead of uploaded again.
             ref = next((r for r in b.find(p.name, kind) if r.sha256 == sha256 and r.bytes == size), None)
+            self.adopted = ref is not None
+            if ref is None and adopt_only: return False
             if ref is None:
                 # 3. Resumable upload; the session is in the index before the first chunk (on_progress).
                 pending = remote_pending(meta, kind)
@@ -1322,6 +1344,9 @@ class Archiver:
         except _Changed: return False
         except BackendError as e:
             if e.reason == 'local_changed': return False  # Changed while uploading: hashed again next cycle.
+            # A completed upload whose file is gone (trashed after a crash) or is not the local content: the session
+            # is dropped, or every later cycle would stop at the same file. Only a wrong content marks the entry.
+            if e.code in ('not_found', 'mismatch'): self._drop_pending(p, kind, revision, mismatch=e.code == 'mismatch')
             return self._remote_fail(e)
         except OSError:
             s.app.logger.exception('Archiving %s/%s to Google Drive failed', p.name, kind)
@@ -1330,13 +1355,7 @@ class Archiver:
         if verdict != 'ok':
             # The copy stays on Drive (never deleted automatically) and the local file stays; the entry is marked.
             s.app.logger.warning('The Google Drive copy of %s/%s does not match the local file', p.name, kind)
-            with s.lock:
-                current = self._unchanged(p, kind, revision)
-                if current is not None:
-                    _editable(current, kind)['error'] = 'remote_mismatch'
-                    clear_remote_pending(current, kind)
-                    try: atomic_json(p / 'meta.json', current)
-                    except OSError: s.app.logger.exception('Index of %s not saved', p.name)
+            self._drop_pending(p, kind, revision, mismatch=True)
             self.reason = 'hash_mismatch'
             return False
         # 5./6. Under the lock: the recording is still the one hashed, the index is committed (fsync'd), and only
@@ -1368,6 +1387,18 @@ class Archiver:
                 self.recovered = False  # The next cycle's recovery removes it.
         return True
 
+    def _drop_pending(self, p, kind, revision, mismatch):
+        # Clears the upload in progress; with `mismatch` the entry is marked remote_mismatch (kept until attended).
+        s = self.server
+        with s.lock:
+            current = self._unchanged(p, kind, revision)
+            if current is None: return
+            if mismatch: _editable(current, kind)['error'] = 'remote_mismatch'
+            elif remote_pending(current, kind) is None: return
+            clear_remote_pending(current, kind)
+            try: atomic_json(p / 'meta.json', current)
+            except OSError: s.app.logger.exception('Index of %s not saved', p.name)
+
     def _recover_remote(self):
         # Caller holds self.cycle. Uploads interrupted by a restart are resumed, adopted or dropped; a local file
         # left by a move that stopped before its unlink goes once its copy verifies (when allowed); files Drive
@@ -1382,7 +1413,7 @@ class Archiver:
                 if not isinstance(m, dict): continue
                 for kind in MEDIA_KINDS:
                     e = entry(m, kind)
-                    if e['location'] == 'gdrive': self._recover_moved(p, kind, e)
+                    if e['location'] == 'gdrive': self._recover_moved(p, m, kind, e)
                     elif e['location'] == 'local':
                         pending = remote_pending(m, kind)
                         if pending and pending.get('backend') == self.backend.caps.kind and not self._recover_pending(p, m, kind, pending): return
@@ -1398,9 +1429,13 @@ class Archiver:
         s, state = self.server, self.backend.session_status(pending)
         if state == 'incomplete': return True  # The next archiving of the file resumes it.
         if state == 'done':
-            # Completed but not committed: archive_remote finds the copy, verifies and commits it (no new upload).
-            return self.archive_remote(p, m, kind) or self.reason is None
-        with s.lock:  # Expired: nothing was kept on Drive.
+            # Completed but not committed: the copy find() returns is verified and committed. Recovery never uploads:
+            # without an adoptable copy the record goes and the normal cycle (with its upload, conversion and
+            # threshold checks) archives the file.
+            if self.archive_remote(p, m, kind, adopt_only=True): return True
+            if self.reason is not None: return False
+            if self.adopted: return True  # Found but the recording changed meanwhile.
+        with s.lock:  # Expired (nothing was kept on Drive), or completed with nothing to adopt.
             try:
                 current = s.read_meta(p)
                 if remote_pending(current, kind) != pending: return True
@@ -1419,20 +1454,34 @@ class Archiver:
         self.missing.discard((p, kind))
         return True
 
-    def _recover_moved(self, p, kind, e):
-        # A moved file (location gdrive) whose local file is still there: removed only when every condition holds.
-        s = self.server
+    def _recover_moved(self, p, m, kind, e):
+        # A moved file (location gdrive) whose local file is still there: removed only when every condition holds,
+        # and only when it is the content that was moved (a file put there since, e.g. by a re-upload, stays).
+        s, local = self.server, p / kind
         if not self._check_remote(p, kind, e) or not _local_file(p, kind): return
-        if not (self.settings.effective_mode == 'move' and self.settings.allow_local_delete and isinstance(e.get('sha256'), str)): return
-        verdict, _ = self._verify(self._ref(e), e['sha256'], _bytes(e) or None, e.get('md5'))
+        if not (self.settings.effective_mode == 'move' and self.settings.allow_local_delete and isinstance(e.get('sha256'), str) and _bytes(e) > 0): return
+        # Outside the lock: the local file must be the indexed content (the recorded hash only while it is unchanged).
+        try:
+            stat = local.stat()
+            if stat.st_size != _bytes(e): return
+            hashes = m.get('content_hashes')
+            known = hashes.get(kind) if isinstance(hashes, dict) else None
+            recorded = (isinstance(known, dict) and known.get('size') == stat.st_size and known.get('mtime_ns') == stat.st_mtime_ns
+                        and known.get('sha256') == e['sha256'])
+            if not recorded and _sha256(local) != e['sha256']:
+                s.app.logger.warning('Local %s/%s differs from its moved copy; it is kept', p.name, kind)
+                return
+        except OSError: return
+        verdict, _ = self._verify(self._ref(e), e['sha256'], _bytes(e), e.get('md5'))
         if verdict != 'ok':
             s.app.logger.warning('The Google Drive copy of %s/%s does not match its index; the local file is kept', p.name, kind)
             return
         with s.lock:
             try:
-                current = s.read_meta(p)
-                if (entry(current, kind) == e and current.get('status') == 'ready' and p.name not in s.processes
-                        and not s.storage_policy.pinned(current)): (p / kind).unlink()
+                current, now = s.read_meta(p), local.stat()
+                if ((now.st_size, now.st_mtime_ns) == (stat.st_size, stat.st_mtime_ns) and entry(current, kind) == e
+                        and current.get('conversion_revision', 0) == m.get('conversion_revision', 0) and current.get('status') == 'ready'
+                        and p.name not in s.processes and not s.storage_policy.pinned(current)): local.unlink()
             except (OSError, ValueError): pass
 
     def _recheck_missing_remote(self):

@@ -37,6 +37,8 @@ def stored(p,m,kind):
  return where=='nas' or where=='local' and (p/kind).is_file()
 def original_bytes(p,m=None,kinds=STORED_KINDS):return sum(media_store.media_size(p,m or {},k,store) for k in kinds if stored(p,m or {},k))
 def has_video(p,m):return any(stored(p,m,k) for k in (*ORIGINALS,*DERIVED.values()))
+# A recording's metadata as API responses show it: never an upload's session URI (a credential) or remote file ids.
+def public_meta(m):return dict(m,storage=media_store.public_storage(m['storage'])) if 'storage' in m else m
 def archived(m):return any(media_store.is_archived_location(media_store.location(m,k)) for k in media_store.MEDIA_KINDS)
 def video_download_kind(p,m):
  return next((kind for source in ('front','qcamera','wide') for kind in SOURCES[source][:2] if stored(p,m,kind)),None)
@@ -359,7 +361,7 @@ def logs():
   row=dict(m,pinned=pinned,bytes=original_bytes(p,m),video=has_video(p,m),video_download=video_download_kind(p,m),video_downloads=video_downloads(p,m),download_options=download_options(p,m),log_bytes=media_store.media_size(p,m,'rlog.zst',store) if stored(p,m,'rlog.zst') else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
   # Only recordings touched by the archive carry the new fields; local-only rows stay as before.
   if any(media_store.location(m,kind)!='local' for kind in media_store.MEDIA_KINDS):row.update(video_state=video_states(p,m,share_state()),storage_locations=storage_locations(p,m))
-  return row
+  return public_meta(row)
  share=[]
  def share_state():
   # Once per request and only when a row has archived files; never under the lock.
@@ -548,7 +550,7 @@ def register_files(files):
          meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted')
         meta.update(video=True,bytes=original_bytes(p,meta));save_meta(p,meta)
         existing[g['hashes']['rlog.zst']]=(meta,hashes)
-        updated.append(dict(meta,original_restored=True) if restored else meta)
+        updated.append(public_meta(dict(meta,original_restored=True) if restored else meta))
         continue
        video_diff=any(kind in g['hashes'] and g['hashes'][kind]!=hashes.get(kind) for kind in VIDEO_KINDS)
        duplicates.append({'id':meta['id'],'name':g['label'],'video_differs':video_diff})
@@ -761,18 +763,22 @@ def cancel_upload(id):
 def delete(id):
  with registration_lock,lock:
   if request.args.get('skip_pinned')=='1' and storage_policy.pinned(read_meta(folder(id))):return jsonify(skipped='pinned')
-  delete_recording(id)
+  delete_recording(id,remote=True)
  process_pending()
  return jsonify(deleted=id)
 
 def process_pending():
  # Outside the locks: the share may be slow. Archived files of deleted recordings go once it answers.
+ # A remote backend's files are only queued here: the archiver cycle removes them, so Drive (retries, timeouts)
+ # never holds a request.
+ if backend.caps.kind!='smb':return
  pending=media_store.PendingDeletes(ROOT)
- # The NAS's files go through `store` as before; a remote backend's through the backend.
- if pending.path.exists():pending.process(backend if backend.caps.kind!='smb' else store)
+ if pending.path.exists():pending.process(store)
 
-def delete_recording(id):
+def delete_recording(id,remote=False):
  # Shared deletion unit for explicit deletion and route-level storage cleanup.
+ # remote: the user deleted the recording, so its remote copies go too. Eviction for space (storage_policy)
+ # keeps them: a copy is the recording's backup and stays on the remote backend (find() adopts it again).
  p=folder(id);proc=processes.get(id)
  if proc and proc.poll() is None:
   proc.terminate()
@@ -786,7 +792,9 @@ def delete_recording(id):
  if not isinstance(m,dict):m={}
  kinds=[kind for kind in media_store.MEDIA_KINDS if media_store.location(m,kind)=='nas']
  # A remote backend's files (moved files and verified copies) are recorded by reference.
- refs=media_store.remote_refs(m)
+ refs=media_store.remote_refs(m,copies=remote)
+ kept=len(media_store.remote_refs(m))-len(refs)
+ if kept:app.logger.info('Recording %s removed for space; its %d Google Drive copies are kept',id,kept)
  if kinds or refs:media_store.PendingDeletes(ROOT).add(id,kinds,refs or None)
  shutil.rmtree(p)
 
