@@ -585,6 +585,13 @@ class DriveBackend(_Availability):
             return self._completed(meta, size, resume, on_progress)
         raise BackendError('unavailable', retryable=True, reason='session_expired')
 
+    def session_status(self, resume):
+        """'done' | 'incomplete' | 'expired' for a persisted upload (the index's remote_pending). One status
+        query; nothing is sent. A record without a session or size has nothing to resume: 'expired'."""
+        session, size = (resume or {}).get('session'), (resume or {}).get('size')
+        if not isinstance(session, str) or not session or type(size) is not int: return 'expired'
+        return self.client.session_status(session, size)[0]
+
     def _completed(self, meta, size, resume, on_progress):
         ref = self._ref(meta)
         if not ref.file_id: raise BackendError('io', reason='no_file_id')

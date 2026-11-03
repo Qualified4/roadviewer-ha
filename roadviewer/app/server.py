@@ -7,7 +7,7 @@ from work_queue import ProcessingQueue
 from flask import Flask,request,jsonify,send_file,send_from_directory,abort
 from werkzeug.exceptions import HTTPException
 from storage_policy import StoragePolicy,atomic_json
-import media_store
+import media_store,archive_backends
 from device_api import DeviceAPI
 from device_network import DeviceNetwork
 from video_sources import SOURCES,ORIGINALS,DERIVED,VIDEO_KINDS,CAMERA_KINDS,UPLOAD_KINDS,STORED_KINDS,validate_hevc,validate_mp4
@@ -37,7 +37,7 @@ def stored(p,m,kind):
  return where=='nas' or where=='local' and (p/kind).is_file()
 def original_bytes(p,m=None,kinds=STORED_KINDS):return sum(media_store.media_size(p,m or {},k,store) for k in kinds if stored(p,m or {},k))
 def has_video(p,m):return any(stored(p,m,k) for k in (*ORIGINALS,*DERIVED.values()))
-def archived(m):return any(media_store.location(m,k)=='nas' for k in media_store.MEDIA_KINDS)
+def archived(m):return any(media_store.is_archived_location(media_store.location(m,k)) for k in media_store.MEDIA_KINDS)
 def video_download_kind(p,m):
  return next((kind for source in ('front','qcamera','wide') for kind in SOURCES[source][:2] if stored(p,m,kind)),None)
 def video_downloads(p,m):
@@ -192,7 +192,7 @@ def recording_paths():
 
 def archived_states(p,m,kinds=STORED_KINDS):
  # Resolve the archived kinds BEFORE taking the lock (the share may be slow); local kinds are checked later.
- return {kind:media_store.resolve(p,m,kind,store)[1] for kind in kinds if media_store.location(m,kind)=='nas'}
+ return {kind:media_store.resolve(p,m,kind,store,backend)[1] for kind in kinds if media_store.is_archived_location(media_store.location(m,kind))}
 
 def reconvertible(m,states=None):
  # Replay data may be discarded for a reconversion only while its log can be read: an archived log by its state
@@ -768,7 +768,8 @@ def delete(id):
 def process_pending():
  # Outside the locks: the share may be slow. Archived files of deleted recordings go once it answers.
  pending=media_store.PendingDeletes(ROOT)
- if pending.path.exists():pending.process(store)
+ # The NAS's files go through `store` as before; a remote backend's through the backend.
+ if pending.path.exists():pending.process(backend if backend.caps.kind!='smb' else store)
 
 def delete_recording(id):
  # Shared deletion unit for explicit deletion and route-level storage cleanup.
@@ -784,7 +785,9 @@ def delete_recording(id):
  except (OSError,ValueError):m={}  # A broken meta.json is still deletable; it records no archived files.
  if not isinstance(m,dict):m={}
  kinds=[kind for kind in media_store.MEDIA_KINDS if media_store.location(m,kind)=='nas']
- if kinds:media_store.PendingDeletes(ROOT).add(id,kinds)
+ # A remote backend's files (moved files and verified copies) are recorded by reference.
+ refs=media_store.remote_refs(m)
+ if kinds or refs:media_store.PendingDeletes(ROOT).add(id,kinds,refs or None)
  shutil.rmtree(p)
 
 # Tags belong to the recording, never to disposable prepared data.
@@ -1183,8 +1186,10 @@ def migrate_prepared():
 archive_settings=media_store.ArchiveSettings.from_options(options)
 # Only constructed here: the share is first touched by the archiver thread (Archiver.activate), so a hung mount cannot stall startup.
 store=media_store.ArchiveStore(archive_settings,ROOT)
+# The active backend (the NAS around `store`, or Drive); constructing it reads at most the local token file.
+backend=archive_backends.make_backend(archive_settings,ROOT,store=store)
 if archive_settings.error:app.logger.warning('Video archive is disabled: %s',archive_settings.error)
-archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings)
+archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings,backend=backend)
 @app.route('/api/settings/archive/run',methods=['POST'])
 def run_archive():
  # One cycle now, in the background (a cycle can outlast the Ingress timeout); progress shows in
