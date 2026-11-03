@@ -285,7 +285,7 @@ class DriveBackendTests(BackendTestCase):
     def folders(self):
         with self.drive.lock: return {i: f for i, f in self.drive.files.items() if f['mimeType'] == FOLDER}
 
-    def local_id(self): return json.loads((self.root/'.archive.json').read_text())['storage_id']
+    def local_id(self): return json.loads((self.root/'.archive.json').read_text())['gdrive_storage_id']
 
     def media(self, size, name='media'):
         data = random.Random(size).randbytes(size)
@@ -673,12 +673,27 @@ class DriveBackendTests(BackendTestCase):
         self.assertEqual([parse_qs(urlsplit(r['path']).query)['fields'][0] for r in lists], ['nextPageToken,files(id,createdTime)'] * 2)
         self.assertEqual(self.requests('POST', mark), [])  # Nothing created.
         self.assertEqual((self.drive_auth.folder_id, self.local_id()), ('early', 'sid1'))
-        self.assertEqual(json.loads((self.root/'.archive.json').read_text()), {'storage_id': 'sid1'})
+        self.assertEqual(json.loads((self.root/'.archive.json').read_text()), {'gdrive_storage_id': 'sid1'})
         self.assertEqual(self.backend.probe(), ('connected', None))
         # Writing the local id keeps other keys in the file.
-        (self.root/'.archive.json').write_text(json.dumps({'storage_id': 'sid1', 'other': 1}))
-        self.backend._write_local_id('storage_id', 'sid2')
-        self.assertEqual(json.loads((self.root/'.archive.json').read_text()), {'storage_id': 'sid2', 'other': 1})
+        (self.root/'.archive.json').write_text(json.dumps({'gdrive_storage_id': 'sid1', 'storage_id': 'nas', 'other': 1}))
+        self.backend._write_local_id('gdrive_storage_id', 'sid2')
+        self.assertEqual(json.loads((self.root/'.archive.json').read_text()), {'gdrive_storage_id': 'sid2', 'storage_id': 'nas', 'other': 1})
+
+    def test_nas_storage_id_does_not_bind_drive(self):
+        # A NAS-era id in the local copy is the share's, not Drive's: Drive gets its own key and the NAS id stays.
+        (self.root/'.archive.json').write_text(json.dumps({'storage_id': 'nas-era'}))
+        self.assertIsNone(self.backend.storage_id())
+        self.backend.activate()
+        data = json.loads((self.root/'.archive.json').read_text())
+        self.assertEqual(data['storage_id'], 'nas-era')
+        self.assertTrue(data['gdrive_storage_id']); self.assertNotEqual(data['gdrive_storage_id'], 'nas-era')
+        self.assertEqual(self.backend.storage_id(), data['gdrive_storage_id'])
+        self.assertEqual([f['appProperties']['rv_storage_id'] for f in self.folders().values()], [data['gdrive_storage_id']])
+        self.assertEqual(self.backend.probe(), ('connected', None))
+        # The NAS still finds its own id.
+        store = media_store.ArchiveStore(media_store.ArchiveSettings(enabled=True, path=self.root/'share'), self.root)
+        self.assertEqual(store.local_id(), 'nas-era')
 
     def test_get_retries_socket_error_then_succeeds(self):
         self.backend.activate()

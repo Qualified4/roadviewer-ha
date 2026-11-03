@@ -1,6 +1,6 @@
 """Archive (NAS) settings, availability via a sentinel file, per-recording media resolution and the archiver."""
 import hashlib, json, os, re, shutil, threading, time, uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from storage_policy import atomic_json
 from video_sources import STORED_KINDS
@@ -15,6 +15,15 @@ CACHE_SECONDS = 10
 # A folder inside a share (/share/<name>/...): the share's root is where an unmounted share leaves an empty directory.
 SHARE_PATH = re.compile(r'^/share/[A-Za-z0-9_]+(/[A-Za-z0-9_.-]+)+$')
 MB = 2**20
+BACKENDS = ('smb', 'gdrive')
+MODES = ('move', 'copy')
+DEFAULT_FOLDER = 'Road Viewer'
+# Index locations whose file lives on the archive instead of locally.
+REMOTE_LOCATIONS = ('nas', 'gdrive')
+# The index's fields for a remote copy and for an upload in progress (§2.4). The pending upload records the
+# file's hash and size: a session created for other content is never resumed.
+REMOTE_FIELDS = ('backend', 'file_id', 'bytes', 'sha256', 'md5', 'uploaded_at', 'verified_by')
+REMOTE_PENDING_FIELDS = ('backend', 'session', 'started_at', 'bytes_sent', 'sha256', 'size')
 
 def _any_path(): return os.environ.get('RV_ARCHIVE_ALLOW_ANY_PATH') == '1'
 
@@ -32,6 +41,10 @@ def _int(options, key, default, lo, hi=None):
     return max(lo, value if hi is None else min(hi, value))
 
 def _bool(value): return value is True or isinstance(value, str) and value.lower() in ('true', '1')
+
+def _text(options, key):
+    value = options.get(key, '')
+    return value if isinstance(value, str) else ''
 
 def _kind(kind):
     if kind not in MEDIA_KINDS: raise ValueError(f'unknown media kind: {kind!r}')
@@ -60,19 +73,46 @@ class ArchiveSettings:
     nas_max_bytes: int = 0
     nas_margin_bytes: int = 1024 * MB
     error: str | None = None
+    backend: str = 'smb'
+    mode: str = 'move'
+    allow_local_delete: bool = False
+    gdrive_client_id: str = ''
+    gdrive_client_secret: str = field(default='', repr=False)
+    gdrive_folder_name: str = DEFAULT_FOLDER
 
     @classmethod
     def from_options(cls, options):
         enabled, raw = _bool(options.get('archive_enabled', False)), options.get('archive_path', '')
+        backend = options.get('archive_backend', 'smb')
         ok, error = valid_path(raw), None
-        if raw and not ok or enabled and not ok: enabled, error = False, 'invalid_archive_path'
+        # The share path belongs to SMB; Drive does not need one.
+        if backend != 'gdrive' and (raw and not ok or enabled and not ok): enabled, error = False, 'invalid_archive_path'
+        if backend not in BACKENDS: backend, enabled, error = 'smb', False, 'invalid_backend'
+        mode = options.get('archive_mode', 'move')
+        folder = _text(options, 'archive_gdrive_folder_name').strip()
         return cls(enabled=enabled, path=Path(raw) if ok else None, error=error,
                    local_threshold_bytes=_int(options, 'archive_local_threshold_mb', 0, 0) * MB,
                    min_age_seconds=_int(options, 'archive_min_age_hours', 24, 0, 8760) * 3600,
                    interval_seconds=_int(options, 'archive_interval_minutes', 10, 1, 1440) * 60,
                    batch=_int(options, 'archive_batch', 4, 1, 64),
                    nas_max_bytes=_int(options, 'archive_nas_max_mb', 0, 0) * MB,
-                   nas_margin_bytes=_int(options, 'archive_nas_margin_mb', 1024, 0) * MB)
+                   nas_margin_bytes=_int(options, 'archive_nas_margin_mb', 1024, 0) * MB,
+                   backend=backend, mode=mode if mode in MODES else 'move',
+                   allow_local_delete=_bool(options.get('archive_allow_local_delete', False)),
+                   gdrive_client_id=_text(options, 'archive_gdrive_client_id').strip(),
+                   gdrive_client_secret=_text(options, 'archive_gdrive_client_secret').strip(),
+                   gdrive_folder_name=folder or DEFAULT_FOLDER)
+
+    @property
+    def effective_mode(self):
+        # Drive keeps the local original unless deleting it was explicitly allowed as well.
+        if self.backend != 'gdrive': return self.mode
+        return 'move' if self.mode == 'move' and self.allow_local_delete else 'copy'
+
+    @property
+    def requires_client(self):
+        # The backend signs in with an OAuth client (archive_gdrive_client_id/secret).
+        return self.backend == 'gdrive'
 
 class ArchiveStore:
     def __init__(self, settings, root, clock=time.monotonic):
@@ -166,7 +206,10 @@ class ArchiveStore:
             try:
                 storage_id = uuid.uuid4().hex
                 atomic_json(self.settings.path / SENTINEL, {'storage_id': storage_id, 'created_at': time.time(), 'owner': 'roadviewer'})
-                atomic_json(self.root / LOCAL_COPY, {'storage_id': storage_id})
+                # Merged: another backend's id in the local copy (gdrive_storage_id) survives a switch.
+                try: kept = json.loads((self.root / LOCAL_COPY).read_text())
+                except (OSError, ValueError): kept = {}
+                atomic_json(self.root / LOCAL_COPY, {**(kept if isinstance(kept, dict) else {}), 'storage_id': storage_id})
             except OSError: pass  # stays unavailable; the next probe reports why
         self.invalidate()
 
@@ -183,14 +226,86 @@ def set_location(meta, kind, **fields):
     if not isinstance(meta.get('storage'), dict): meta['storage'] = {}
     meta['storage'][kind] = fields
 
-def archived_bytes(meta):
-    return sum(_bytes(e) for e in (entry(meta, k) for k in MEDIA_KINDS) if e['location'] == 'nas')
+def is_archived_location(where): return where in REMOTE_LOCATIONS
 
-def resolve(p, meta, kind, store):
-    # Touches the share: never call it while holding the server lock.
+def _block(meta, kind, key):
+    value = entry(meta, kind).get(key)
+    return value if isinstance(value, dict) else None
+
+def remote(meta, kind): return _block(meta, kind, 'remote')
+def remote_pending(meta, kind): return _block(meta, kind, 'remote_pending')
+
+def _editable(meta, kind):
+    # The entry to add a block to; a missing or legacy entry becomes a local one.
+    if not isinstance(meta.get('storage'), dict): meta['storage'] = {}
+    e = meta['storage'].get(kind)
+    if not (isinstance(e, dict) and e.get('location')): e = meta['storage'][kind] = {'location': 'local'}
+    return e
+
+def _fields(fields, allowed):
+    unknown = set(fields) - set(allowed)
+    if unknown: raise ValueError(f'unknown index fields: {sorted(unknown)}')
+    return dict(fields)
+
+def set_remote(meta, kind, **fields): _editable(meta, kind)['remote'] = _fields(fields, REMOTE_FIELDS)
+def set_remote_pending(meta, kind, **fields): _editable(meta, kind)['remote_pending'] = _fields(fields, REMOTE_PENDING_FIELDS)
+
+def clear_remote_pending(meta, kind):
+    storage = meta.get('storage')
+    e = storage.get(kind) if isinstance(storage, dict) else None
+    if isinstance(e, dict): e.pop('remote_pending', None)
+
+def archived_bytes(meta):
+    return sum(_bytes(e) for e in (entry(meta, k) for k in MEDIA_KINDS) if is_archived_location(e['location']))
+
+def remote_copy_totals(meta):
+    # Local files that also have a verified remote copy: (files, bytes).
+    blocks = [remote(meta, k) for k in MEDIA_KINDS if location(meta, k) == 'local']
+    blocks = [b for b in blocks if b is not None]
+    return len(blocks), sum(_bytes(b) for b in blocks)
+
+@dataclass
+class RemoteFile:
+    # A file only the remote backend has; not a Path, so consumers branch with isinstance.
+    backend_kind: str
+    ref: 'archive_backends.RemoteRef'
+    kind: str
+    size: int
+    etag: str
+
+def _resolve_remote(block, backend_kind, kind, backend, corrupt):
+    # Asks the backend once for the file's metadata. Nothing in the index changes: unreachable or gone
+    # files are dynamic states.
+    if backend is None: return None, 'storage_unavailable'
+    state = backend.probe()[0]
+    if state == 'checking': return None, 'checking'
+    if state != 'connected': return None, 'storage_unavailable'
+    from archive_backends import BackendError, RemoteRef  # archive_backends imports this module.
+    file_id = block.get('file_id')
+    if not isinstance(file_id, str) or not file_id: return None, 'missing'
+    sha256, md5 = block.get('sha256'), block.get('md5')
+    ref = RemoteRef(backend_kind, file_id, _bytes(block), sha256 if isinstance(sha256, str) else None, md5 if isinstance(md5, str) else None)
+    try: stat = backend.stat(ref)
+    except BackendError: return None, 'storage_unavailable'
+    if stat is None or stat.trashed or not stat.exists: return None, 'missing'
+    rf = RemoteFile(backend_kind, ref, kind, stat.bytes, f'"{file_id}:{(ref.sha256 or "")[:16]}"')
+    return rf, 'corrupt' if corrupt else 'available'
+
+def _local_file(p, kind):
+    try: return (Path(p) / kind).is_file()
+    except OSError: return False
+
+def resolve(p, meta, kind, store, backend=None):
+    # Touches the share or the remote backend: never call it while holding the server lock.
+    # Returns (Path | RemoteFile | None, state); a local file always wins over a remote copy.
     e = entry(meta, _kind(kind))
     where = e['location']
     if where == 'removed': return None, 'missing'
+    if where == 'gdrive': return _resolve_remote(e, 'gdrive', kind, backend, e.get('error'))
+    if where == 'local' and remote(meta, kind) and not _local_file(p, kind):
+        block = remote(meta, kind)
+        name = block.get('backend')
+        return _resolve_remote(block, name if isinstance(name, str) and name else 'gdrive', kind, backend, e.get('error'))
     if where == 'nas':
         if store.state() == 'checking': return None, 'checking'
         if not store.available(): return None, 'storage_unavailable'
@@ -210,18 +325,25 @@ def resolve(p, meta, kind, store):
 def indexed_state(p, meta, kind, share):
     # The state for the library list: archived files by their index and the share's state (one check per
     # request), so the list never stats the share per file. Playback and downloads use resolve().
+    # A remote backend's files (gdrive, or a remote copy whose local file is gone) follow the same rule with
+    # the active backend's state as `share`.
     e = entry(meta, _kind(kind))
     if e['location'] == 'removed': return 'missing'
-    if e['location'] != 'nas': return resolve(p, meta, kind, None)[1]
+    remote_only = e['location'] == 'local' and remote(meta, kind) is not None and not _local_file(p, kind)
+    if not is_archived_location(e['location']) and not remote_only: return resolve(p, meta, kind, None)[1]
     if share == 'connected': return 'corrupt' if e.get('error') else 'available'
     return 'storage_unavailable' if share in ('unavailable', 'disabled') else 'checking'
 
 def media_size(p, meta, kind, store):
     e = entry(meta, kind)
     if e['location'] == 'nas': return _bytes(e)
+    if e['location'] == 'gdrive': return _bytes(e)
     if e['location'] == 'removed': return 0
     try: return (Path(p) / kind).stat().st_size
-    except OSError: return 0
+    except OSError:
+        # A remote copy whose local file is gone: its size is the index's.
+        block = remote(meta, kind) if e['location'] == 'local' else None
+        return _bytes(block) if block else 0
 
 def delete_archived(store, id, kinds):
     # Removes the recording's files from the share. Returns (removed count, kinds that could not be removed).

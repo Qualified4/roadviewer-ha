@@ -470,8 +470,9 @@ class DriveBackend(_Availability):
 
     def __repr__(self): return 'DriveBackend(connected=%r)' % self.auth.connected
 
-    # The same local copy the NAS uses (ArchiveStore.local_id): {"storage_id": ...}.
-    LOCAL_KEY = 'storage_id'
+    # The same local copy file the NAS uses, under its own key: a NAS-era "storage_id" is the share's
+    # identity, not Drive's, and switching backends keeps the other one's key.
+    LOCAL_KEY = 'gdrive_storage_id'
 
     def _read_local_ids(self):
         try: data = json.loads((self.root / media_store.LOCAL_COPY).read_text())
