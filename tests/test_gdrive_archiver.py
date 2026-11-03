@@ -439,10 +439,55 @@ class GdriveArchiverTests(unittest.TestCase):
         archiver.recover_startup()
         self.assertTrue(archiver.recovered)
         self.assertEqual(len(self.sessions_started()), sessions); self.assertEqual(len(self.requests('PUT')), puts + 1)  # The status query only.
+        # The record stays for the cycle: its resume finds the file gone and drops it; the next cycle uploads anew.
         m = server.read_meta(p)
-        self.assertIsNone(media_store.remote_pending(m, 'fcamera.mp4')); self.assertIsNone(media_store.remote(m, 'fcamera.mp4'))
-        self.assertEqual(archiver.run_cycle()['archived'], 1)  # The cycle uploads it.
+        self.assertIsNotNone(media_store.remote_pending(m, 'fcamera.mp4')); self.assertIsNone(media_store.remote(m, 'fcamera.mp4'))
+        self.assertEqual(archiver.run_cycle()['stopped'], 'os_error')
+        self.assertIsNone(media_store.remote_pending(server.read_meta(p), 'fcamera.mp4'))
+        self.assertEqual(archiver.run_cycle()['archived'], 1)
         self.assert_copied(p, 'fcamera.mp4')
+
+    def test_completed_session_missed_by_a_lagging_list_is_adopted_without_resending(self):
+        p = self.log('a' * 32, ['fcamera.mp4'])
+        size = len((p / 'fcamera.mp4').read_bytes())
+        self.completed_pending(p)
+        self.drive.scenario.list_lag = 2  # Recovery's and the cycle's find() do not see the file yet.
+        sessions, since = len(self.sessions_started()), len(self.requests())
+        archiver = self.archiver(); archiver.held_checked = True
+        archiver.recover_startup()
+        self.assertTrue(archiver.recovered)
+        self.assertIsNotNone(media_store.remote_pending(server.read_meta(p), 'fcamera.mp4'))  # Kept, not dropped.
+        self.assertEqual(archiver.run_cycle()['archived'], 1)
+        self.assert_copied(p, 'fcamera.mp4')
+        self.assertEqual(self.drive.scenario.list_lag, 0); self.assertEqual(len(self.files()), 1)
+        self.assertEqual(len(self.sessions_started()), sessions)
+        # Only status queries went to the session: no byte was sent again.
+        puts = [r['headers'].get('Content-Range') for r in self.requests()[since:] if r['method'] == 'PUT']
+        self.assertTrue(puts); self.assertEqual(set(puts), {'bytes */%d' % size})
+
+    def moved_check_interrupted(self, change):
+        # A moved file's local copy (the moved content) during recovery's Drive check, while `change` happens.
+        p, archiver = self.moved_with_local()
+        before = self.meta_bytes(p)
+        real = archiver.backend.verify
+        def verify(*args):
+            change(p)
+            return real(*args)
+        with patch.object(archiver.backend, 'verify', side_effect=verify) as checked:
+            archiver.recover_startup()
+        self.assertTrue(checked.called); self.assertTrue(archiver.recovered)
+        self.assertTrue((p / 'fcamera.mp4').is_file()); self.assertEqual(self.meta_bytes(p), before)
+        return p
+
+    def test_recovery_keeps_local_file_touched_during_drive_check(self):
+        def touch(p):
+            st = (p / 'fcamera.mp4').stat(); os.utime(p / 'fcamera.mp4', ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+        self.moved_check_interrupted(touch)
+
+    def test_recovery_keeps_local_file_of_a_recording_converting_during_drive_check(self):
+        def converting(p): server.processes[p.name] = object()
+        self.addCleanup(server.processes.pop, 'a' * 32, None)
+        self.moved_check_interrupted(converting)
 
     def test_user_delete_queues_drive_copies_eviction_keeps_them(self):
         a = self.log('a' * 32); b = self.log('b' * 32, ['fcamera.mp4'])

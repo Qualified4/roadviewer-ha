@@ -547,7 +547,6 @@ class Archiver:
         # Drive (design §2.6) takes archive_remote/_recover_remote; the NAS keeps its own path, always moving.
         self.remote = settings.backend == 'gdrive'
         self.remote_copies_total, self.last_auth_error = 0, None
-        self.adopted = False  # Whether the last archive_remote found a copy to adopt.
         self.cycle = threading.Lock()  # One cycle (or recovery) at a time.
         self.thread = None
         self.manual = None  # The latest manual run (start_cycle).
@@ -1316,10 +1315,9 @@ class Archiver:
     def archive_remote(self, p, meta, kind, adopt_only=False):
         # Design §2.6 steps 1-6. Caller holds self.cycle. Until the index is committed the local file is the only
         # trusted copy and is never touched; afterwards only in move mode with deleting explicitly allowed.
-        # adopt_only (recovery): only a copy find() returns is verified and committed; nothing is uploaded, and
-        # self.adopted tells whether one was found.
+        # adopt_only (recovery): only a copy find() returns is verified and committed; nothing is uploaded.
         from archive_backends import BackendError  # archive_backends imports this module.
-        s, b, self.reason, self.adopted, p = self.server, self.backend, None, False, Path(p)
+        s, b, self.reason, p = self.server, self.backend, None, Path(p)
         source, revision = p / kind, meta.get('conversion_revision', 0)
         try:
             # 1. The local file's hashes: the recorded sha256 when the file is unchanged since (md5 then comes from
@@ -1331,7 +1329,6 @@ class Archiver:
             sha256, md5 = (known, None) if isinstance(known, str) else _digests(source)
             # 2. A copy whose completion answer or index commit was lost is adopted instead of uploaded again.
             ref = next((r for r in b.find(p.name, kind) if r.sha256 == sha256 and r.bytes == size), None)
-            self.adopted = ref is not None
             if ref is None and adopt_only: return False
             if ref is None:
                 # 3. Resumable upload; the session is in the index before the first chunk (on_progress).
@@ -1429,13 +1426,11 @@ class Archiver:
         s, state = self.server, self.backend.session_status(pending)
         if state == 'incomplete': return True  # The next archiving of the file resumes it.
         if state == 'done':
-            # Completed but not committed: the copy find() returns is verified and committed. Recovery never uploads:
-            # without an adoptable copy the record goes and the normal cycle (with its upload, conversion and
-            # threshold checks) archives the file.
-            if self.archive_remote(p, m, kind, adopt_only=True): return True
-            if self.reason is not None: return False
-            if self.adopted: return True  # Found but the recording changed meanwhile.
-        with s.lock:  # Expired (nothing was kept on Drive), or completed with nothing to adopt.
+            # Completed but not committed: the copy find() returns is verified and committed. Recovery never uploads.
+            # When find() misses it (a lagging listing), the record stays: the cycle's resume asks the session, which
+            # answers with the file, so nothing is sent again (a gone or wrong file is dropped there).
+            return self.archive_remote(p, m, kind, adopt_only=True) or self.reason is None
+        with s.lock:  # Expired: nothing was kept on Drive.
             try:
                 current = s.read_meta(p)
                 if remote_pending(current, kind) != pending: return True
