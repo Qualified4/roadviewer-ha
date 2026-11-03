@@ -67,8 +67,12 @@ class StoragePolicy:
     def archive(self):
         # Status of the video archive. The share's path is never reported (it is shown only in the add-on options).
         s = self.s; store, settings = s.store, s.store.settings
-        state, reason = store.state(), store.reason()
-        used, free = store.usage() if state == 'connected' else (0, 0)
+        if s.remote_backend():
+            # Google Drive has no share to check or measure; its usage block comes with the connection settings.
+            state, reason = s.backend.probe(); used, free = 0, 0
+        else:
+            state, reason = store.state(), store.reason()
+            used, free = store.usage() if state == 'connected' else (0, 0)
         # Archiving off: nothing is read from disk for the block (the panel polls every few seconds).
         files, size = store.index_totals(self.archived_totals) if settings.enabled else (0, 0)
         try: pending = s.media_store.PendingDeletes(s.ROOT).count() if settings.enabled else 0
@@ -87,7 +91,7 @@ class StoragePolicy:
             try: m = s.read_meta(p)
             except (OSError, ValueError): continue
             if not isinstance(m, dict): continue
-            files += sum(s.media_store.location(m, k) == 'nas' for k in s.media_store.MEDIA_KINDS)
+            files += sum(s.media_store.is_archived_location(s.media_store.location(m, k)) for k in s.media_store.MEDIA_KINDS)
             size += s.media_store.archived_bytes(m)
         return files, size
 
@@ -145,7 +149,7 @@ class StoragePolicy:
         def evictable(m):
             nonlocal reachable
             if not self.s.archived(m): return True
-            if reachable is None: reachable = self.s.store.last_state() == 'connected'
+            if reachable is None: reachable = self.s.archive_last_state() == 'connected'
             return reachable
         for key, rows in groups.items():
             if key in protected or any(m['id'] in protected_ids or m['status'] in ('queued', 'processing') for _, m in rows): continue

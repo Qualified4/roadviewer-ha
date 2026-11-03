@@ -994,7 +994,8 @@ class Archiver:
 
     def _note_missing(self, p, kind):
         if (p, kind) not in self.missing:
-            self.server.app.logger.warning('Archived %s/%s is not on the share; its index is kept', p.name, kind)
+            if self.remote: self.server.app.logger.warning('Archived %s/%s is not on the remote archive (%s); its index is kept', p.name, kind, self.backend.caps.kind)
+            else: self.server.app.logger.warning('Archived %s/%s is not on the share; its index is kept', p.name, kind)
         self.missing.add((p, kind))
 
     def _recheck_missing(self):

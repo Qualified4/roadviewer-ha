@@ -1,0 +1,337 @@
+"""The server with Google Drive as the archive (tests/fake_drive.py): archived files stream through the same URLs
+(ranges, downloads, ZIPs), are staged locally only where a path is needed (original-format export, conversion),
+a local file always wins over its remote copy, and lists, admission and restarts treat a moved file as stored."""
+import hashlib, io, json, os, sys, tempfile, unittest, zipfile
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_media_integration import make_log, PEER, HEADERS  # Sets RV_DATA and imports the server module.
+import server, media_store
+import archive_backends as ab
+from fake_drive import FakeDrive
+
+DAY = 86400
+MIB = 2**20
+
+class GdriveServerTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup); self.root = Path(temp.name)
+        self.drive = FakeDrive().start(); self.addCleanup(self.drive.stop)
+        for patcher in (patch.dict(os.environ, self.drive.env()), patch.object(server, 'ROOT', self.root),
+                        patch.object(server, 'cleanup_uploads'), patch.object(server, 'UPLOADS', self.root / '.uploads'),
+                        patch.object(server, 'upload_receiving', return_value=False), patch.object(server, 'submit')):
+            patcher.start(); self.addCleanup(patcher.stop)
+        (self.root / '.uploads').mkdir()
+        self.http = ab.Http(sleep=lambda seconds: None, rand=lambda: 0.0)
+        auth = self.auth(); auth.start_device_flow(); self.assertEqual(auth.poll_once(), 'granted')
+        self.make_backend().activate()
+        self.assertEqual(self.backend.probe(), ('connected', None))
+        self.client = server.app.test_client()
+
+    def auth(self): return ab.DriveAuth(self.root / '.gdrive-auth.json', 'client-id', 'secret', self.http)
+
+    def make_backend(self, **fields):
+        # The server as configured with archive_backend: gdrive: its store has no share path.
+        self.settings = media_store.ArchiveSettings(**{'enabled': True, 'backend': 'gdrive', 'min_age_seconds': DAY, **fields})
+        auth = self.auth()
+        self.backend = ab.DriveBackend(self.settings, self.root, auth, ab.DriveClient(self.http, auth))
+        for name, value in (('backend', self.backend), ('store', media_store.ArchiveStore(self.settings, self.root))):
+            patcher = patch.object(server, name, value); patcher.start(); self.addCleanup(patcher.stop)
+        return self.backend
+
+    def archive(self, **fields):
+        backend = self.make_backend(**fields)
+        archiver = media_store.Archiver(server, server.store, self.settings, backend=backend)
+        result = archiver.run_cycle()
+        self.assertIsNone(result['stopped'], result)
+        return archiver
+
+    def move(self): return self.archive(mode='move', allow_local_delete=True)
+
+    def log(self, id, data, **fields):
+        p = make_log(self.root, id, list(data), [])
+        for kind, content in data.items(): (p / kind).write_bytes(content)
+        m = server.read_meta(p)
+        m.update({'uploaded': 1, 'files': {kind: '000003fe--d524dc1e0b--8--' + kind for kind in data}, **fields}); server.save_meta(p, m)
+        return p
+
+    def ready(self, p, **fields):
+        m = server.read_meta(p); (p / 'prepared' / 'data.json').write_text('{}')
+        m.update({'status': 'ready', 'decoder_version': 'v28-runtime-geometry', 'video': server.has_video(p, m), **fields}); server.save_meta(p, m)
+        return m
+
+    def get(self, url, **kw): return self.client.get(url, environ_overrides=PEER, **kw)
+    def send(self, method, url, **kw): return getattr(self.client, method)(url, environ_overrides=PEER, headers=HEADERS, **kw)
+
+    def requests(self, needle):
+        with self.drive.lock: return [r for r in self.drive.requests if needle in r['path']]
+
+    def media_requests(self): return self.requests('alt=media')
+
+    def assert_no_ids(self, text):
+        files = self.drive.files
+        with self.drive.lock: ids = [i for i in files]
+        for i in ids:
+            for shown in (f'"{i}"', f'{i}:', f'/{i}'): self.assertNotIn(shown, text)
+        for secret in ('upload_id=', 'file_id', 'remote_pending', 'access_token', 'refresh_token', 'Bearer'): self.assertNotIn(secret, text)
+
+    def test_remote_video_range_streams_without_buffering(self):
+        video = os.urandom(3 * MIB + 123)
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': video}); self.ready(p)
+        self.move()
+        self.assertEqual(media_store.location(server.read_meta(p), 'fcamera.mp4'), 'gdrive')
+        self.assertFalse((p / 'fcamera.mp4').exists())
+        r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': 'bytes=10-99'})
+        self.assertEqual(r.status_code, 206)
+        self.assertEqual((r.headers['Content-Range'], r.headers['Content-Length'], r.headers['Accept-Ranges']), (f'bytes 10-99/{len(video)}', '90', 'bytes'))
+        self.assertEqual(r.headers['Cache-Control'], 'no-store'); self.assertTrue(r.headers['ETag'])
+        self.assertEqual(r.mimetype, 'video/mp4')
+        self.assertEqual(r.data, video[10:100])
+        # The browser's range is the one asked of Drive: nothing beyond it is downloaded.
+        self.assertEqual(self.media_requests()[-1]['headers'].get('Range'), 'bytes=10-99')
+        self.assert_no_ids(json.dumps(dict(r.headers)))
+        # Open-ended and whole-file requests stream in small chunks; the response never holds the file.
+        r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': f'bytes={MIB}-'}, buffered=False)
+        self.assertEqual((r.status_code, r.headers['Content-Range']), (206, f'bytes {MIB}-{len(video) - 1}/{len(video)}'))
+        chunks = list(r.response); r.close()
+        self.assertTrue(len(chunks) > 1 and all(len(c) <= 65536 for c in chunks))
+        self.assertEqual(b''.join(chunks), video[MIB:])
+        r = self.get(f'/api/logs/{p.name}/video?source=front', buffered=False)
+        self.assertEqual((r.status_code, r.headers['Content-Length']), (200, str(len(video))))
+        self.assertNotIn('Content-Range', r.headers)
+        chunks = list(r.response); r.close()
+        self.assertTrue(all(len(c) <= 65536 for c in chunks)); self.assertEqual(b''.join(chunks), video)
+        # A suffix range is a single range too; several ranges, garbage or a start past the end are refused.
+        r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': 'bytes=-5'})
+        self.assertEqual((r.status_code, r.data), (206, video[-5:]))
+        for bad in ('bytes=0-1,4-5', 'items=0-1', 'bytes=9-3', f'bytes={len(video)}-', 'bytes=x-'):
+            with self.subTest(bad=bad):
+                r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': bad})
+                self.assertEqual((r.status_code, r.headers.get('Content-Range')), (416, f'bytes */{len(video)}'))
+
+    def test_remote_original_download_attachment(self):
+        log, video = os.urandom(200 * 1024), os.urandom(100 * 1024)
+        p = self.log('a' * 32, {'rlog.zst': log, 'fcamera.mp4': video}); self.ready(p)
+        self.move()
+        r = self.get(f'/api/logs/{p.name}/original/rlog.zst')
+        self.assertEqual((r.status_code, r.data, r.mimetype), (200, log, 'application/zstd'))
+        self.assertEqual(r.headers['Content-Disposition'], 'attachment; filename="000003fe--d524dc1e0b--8--rlog.zst"')
+        self.assertEqual(r.headers['Content-Length'], str(len(log)))
+        r = self.get(f'/api/logs/{p.name}/original/rlog.zst', headers={'Range': 'bytes=0-9'})
+        self.assertEqual((r.status_code, r.data), (206, log[:10]))
+        # The single downloads (log, camera MP4) take the same path.
+        r = self.get(f'/api/logs/{p.name}/download?source=rlog')
+        self.assertEqual((r.status_code, r.data), (200, log))
+        self.assertIn('attachment', r.headers['Content-Disposition'])
+        r = self.get(f'/api/logs/{p.name}/download?source=front&format=mp4')
+        self.assertEqual((r.status_code, r.data, r.mimetype), (200, video, 'video/mp4'))
+        self.assertIn('000003fe--d524dc1e0b--8--fcamera.mp4', r.headers['Content-Disposition'])
+        r = self.get(f'/api/logs/{p.name}/download/video')
+        self.assertEqual((r.status_code, r.data), (200, video))
+
+    def test_zip_mixes_local_and_remote(self):
+        moved = {'rlog.zst': os.urandom(300 * 1024), 'fcamera.mp4': os.urandom(700 * 1024)}
+        a = self.log('a' * 32, moved); self.ready(a)
+        self.move()
+        local = {'rlog.zst': b'local log' * 50, 'fcamera.mp4': b'local video' * 50}
+        b = self.log('b' * 32, local, uploaded=2 ** 40); self.ready(b)  # Too young to archive.
+        self.assertEqual(media_store.location(server.read_meta(b), 'rlog.zst'), 'local')
+        for url in (f'/api/logs/download.zip?ids={a.name},{b.name}&parts=rlog,front', f'/api/logs/download.zip?ids={a.name},{b.name}&parts=rlog,front&format=mp4'):
+            with self.subTest(url=url):
+                r = self.get(url)
+                self.assertEqual(r.status_code, 200)
+                with zipfile.ZipFile(io.BytesIO(r.data)) as z:
+                    contents = {i.filename: z.read(i) for i in z.infolist()}
+                self.assertEqual(sorted(contents.values()), sorted([*moved.values(), *local.values()]))
+                self.assertEqual(len(contents), 4)
+
+    def test_export_original_format_from_remote_stages_then_cleans(self):
+        video = os.urandom(400 * 1024)
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': video}); self.ready(p, video_codecs={'front': 'hevc'})
+        self.move()
+        staged, seen = [], []
+        real = server.stage_remote
+        def stage(p, rf):
+            path = real(p, rf); staged.append(path)
+            self.assertTrue(path.is_relative_to(p / '.staging')); self.assertEqual(path.read_bytes(), video)
+            return path
+        def export(source, kind, offset):
+            # The exporter reads the staged copy through its descriptor, as media_export.py does.
+            seen.append((kind, offset)); os.lseek(source.fileno(), 0, 0); yield source.read()
+        with patch.object(server, 'stage_remote', side_effect=stage), patch.object(server, 'export_chunks', side_effect=export):
+            r = self.get(f'/api/logs/{p.name}/download?source=front&format=original')
+            self.assertEqual((r.status_code, r.data), (200, video)); r.close()
+            r = self.get(f'/api/logs/download.zip?ids={p.name}&parts=front&format=original')
+            self.assertEqual(r.status_code, 200)
+            with zipfile.ZipFile(io.BytesIO(r.data)) as z: self.assertEqual([z.read(i) for i in z.infolist()], [video])
+            r.close()
+        self.assertEqual(len(staged), 2); self.assertEqual(seen, [('hevc', 0), ('hevc', 0)])
+        for path in staged: self.assertFalse(path.exists())
+        self.assertFalse((p / '.staging').exists())
+        # A copy that does not match its index is never exported; the staging area is cleaned anyway.
+        with self.drive.lock:
+            f = next(f for f in self.drive.files.values() if f['appProperties'].get('rv_kind') == 'fcamera.mp4')
+            f['content'] = bytes(len(video))
+        r = self.get(f'/api/logs/{p.name}/download?source=front&format=original')
+        self.assertEqual((r.status_code, r.json['error']), (409, 'media_corrupt'))
+        self.assertFalse((p / '.staging').exists())
+
+    def test_export_refused_without_disk_space(self):
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': os.urandom(1000)}); self.ready(p, video_codecs={'front': 'hevc'})
+        self.move()
+        with patch.object(server.shutil, 'disk_usage', return_value=type('U', (), {'free': 50 * MIB})()):
+            r = self.get(f'/api/logs/{p.name}/download?source=front&format=original')
+        self.assertEqual((r.status_code, r.json['error']), (507, 'insufficient_disk_space'))
+        self.assertFalse(self.media_requests()); self.assertFalse((p / '.staging').exists())
+
+    def test_run_job_stages_remote_inputs(self):
+        data = {'rlog.zst': os.urandom(5000), 'fcamera.hevc': os.urandom(9000)}
+        p = self.log('a' * 32, data); self.ready(p)
+        self.move()
+        m = server.read_meta(p)
+        self.assertEqual({k: media_store.location(m, k) for k in data}, {'rlog.zst': 'gdrive', 'fcamera.hevc': 'gdrive'})
+        m.update(status='queued', manual_conversion=True); server.save_meta(p, m)
+        seen = {}
+        def popen(args, **kw):
+            paths = json.loads(kw['env']['RV_MEDIA_PATHS'])
+            seen.update(log=Path(args[-2]), video=Path(paths['fcamera.hevc']), other=Path(paths['ecamera.hevc']))
+            seen['contents'] = (seen['log'].read_bytes(), seen['video'].read_bytes())
+            proc = unittest.mock.MagicMock(); proc.communicate.return_value = ('', 'failed'); proc.returncode = 1; proc.poll.return_value = 1
+            return proc
+        with patch.object(server, 'ProgressChannel') as channel, patch.object(server.subprocess, 'Popen', side_effect=popen):
+            channel.return_value.__enter__.return_value.options.return_value = {}
+            server.run_job(p.name)
+        for key in ('log', 'video'): self.assertTrue(seen[key].is_relative_to(p / '.staging'), seen[key])
+        self.assertEqual(seen['contents'], (data['rlog.zst'], data['fcamera.hevc']))
+        self.assertEqual(seen['other'], p / 'ecamera.hevc')  # Not stored: the decoder finds nothing, as before.
+        self.assertFalse((p / '.staging').exists())
+        self.assertEqual(server.read_meta(p)['status'], 'error')
+        # Drive unreachable: the conversion is deferred, as for an unreachable share; nothing is staged.
+        m = server.read_meta(p); m.update(status='queued', error=None); server.save_meta(p, m)
+        self.backend.invalidate(); self.drive.scenario.fail_next('/files/', 500, times=100)
+        with patch.object(server.subprocess, 'Popen') as never:
+            server.run_job(p.name)
+        never.assert_not_called()
+        m = server.read_meta(p)
+        self.assertEqual((m['status'], m.get('deferred')), ('unconverted', 'storage'))
+        self.assertFalse((p / '.staging').exists())
+
+    def test_local_preferred_when_both(self):
+        log, video = b'log' * 300, b'video' * 300
+        p = self.log('a' * 32, {'rlog.zst': log, 'fcamera.mp4': video}); self.ready(p)
+        self.archive()  # Copy mode: the local files stay, each with a verified Drive copy.
+        m = server.read_meta(p)
+        self.assertIsNotNone(media_store.remote(m, 'fcamera.mp4')); self.assertTrue((p / 'fcamera.mp4').is_file())
+        before = len(self.requests('/drive/v3/files'))
+        r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': 'bytes=0-4'})
+        self.assertEqual((r.status_code, r.data), (206, video[:5])); r.close()
+        r = self.get(f'/api/logs/{p.name}/original/rlog.zst'); self.assertEqual(r.data, log); r.close()
+        r = self.get(f'/api/logs/download.zip?ids={p.name}&parts=rlog,front'); self.assertEqual(r.status_code, 200); r.close()
+        self.assertEqual(len(self.requests('/drive/v3/files')), before)  # Drive was never asked.
+
+    def test_remote_unavailable_503_and_list_ok(self):
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
+        self.move()
+        # The download itself fails (the file's metadata still answers): 503, never a partial body.
+        self.drive.scenario.fail_next('alt=media', 500, times=100)
+        r = self.get(f'/api/logs/{p.name}/video?source=front')
+        self.assertEqual((r.status_code, r.json['error']), (503, 'storage_unavailable'))
+        r = self.get(f'/api/logs/{p.name}/original/rlog.zst')
+        self.assertEqual((r.status_code, r.json['error']), (503, 'storage_unavailable'))
+        self.drive.scenario.failures.clear()
+        # Drive unreachable altogether: every single-file route answers 503; the list keeps working.
+        self.backend.invalidate(); self.drive.scenario.fail_next('/files/', 500, times=100)
+        for url in (f'/api/logs/{p.name}/video?source=front', f'/api/logs/{p.name}/original/rlog.zst', f'/api/logs/{p.name}/download?source=rlog',
+                    f'/api/logs/download.zip?ids={p.name}&parts=rlog'):
+            with self.subTest(url=url):
+                r = self.get(url)
+                self.assertEqual((r.status_code, r.json['error']), (503, 'storage_unavailable'))
+        r = self.get('/api/logs')
+        self.assertEqual(r.status_code, 200)
+        row = r.json['logs'][0]
+        self.assertEqual((row['video'], row['storage_locations']['front']), (True, 'gdrive'))
+        self.assertEqual(row['video_state']['front'], 'storage_unavailable')
+        self.assertEqual(media_store.location(server.read_meta(p), 'fcamera.mp4'), 'gdrive')  # Index untouched.
+
+    def test_logs_remote_copies_field_only_when_present(self):
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
+        self.archive()
+        self.log('b' * 32, {'rlog.zst': b'other' * 100}, uploaded=2 ** 40)
+        r = self.get('/api/logs')
+        rows = {row['id']: row for row in r.json['logs']}
+        self.assertEqual(rows[p.name]['remote_copies'], {'rlog': 'gdrive', 'front': 'gdrive'})
+        self.assertNotIn('remote_copies', rows['b' * 32])
+        # A copy changes nothing else in the row: the files are local, so no archive fields.
+        for key in ('video_state', 'storage_locations', 'archive_error'): self.assertNotIn(key, rows[p.name])
+        self.assertNotIn('archive_error', rows['b' * 32])
+        self.assert_no_ids(r.get_data(as_text=True))
+
+    def test_logs_expose_remote_mismatch_per_kind(self):
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
+        m = server.read_meta(p); media_store.set_location(m, 'fcamera.mp4', location='local', error='remote_mismatch'); server.save_meta(p, m)
+        row = self.get('/api/logs').json['logs'][0]
+        self.assertEqual(row['archive_error'], {'fcamera.mp4': 'remote_mismatch'})
+        r = self.get(f'/api/logs/{p.name}/video?source=front')
+        self.assertEqual(r.status_code, 200); r.close()  # The local file still plays.
+
+    def test_gdrive_enabled_server_does_not_touch_share_state(self):
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
+        self.move()
+        self.assertIsNone(server.store.settings.path)
+        with patch.object(media_store.ArchiveStore, '_probe', side_effect=AssertionError('share probed')):
+            self.assertEqual(self.get('/api/logs').status_code, 200)
+            r = self.send('post', '/api/uploads', json={'files': [{'name': 'x/rlog.zst', 'size': 10}]})
+            self.assertEqual(r.status_code, 201, r.json)
+            r = self.send('post', '/api/upload', data={'files': (io.BytesIO(b'other log' * 10), 'y/rlog.zst')})
+            self.assertEqual(r.status_code, 201, r.json)
+            r = self.get('/api/settings/storage')
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json['archive']['state'], 'connected')
+            server.requeue_startup()
+
+    def test_gdrive_located_recording_listed_with_video_and_location(self):
+        video = b'video' * 100
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': video}); self.ready(p)
+        self.move()
+        self.backend.probe()
+        r = self.get('/api/logs')
+        self.assertEqual(r.status_code, 200)
+        row = r.json['logs'][0]
+        self.assertTrue(row['video']); self.assertEqual(row['video_download'], 'fcamera.mp4')
+        self.assertEqual(row['storage_locations'], {'rlog': 'gdrive', 'front': 'gdrive'})
+        self.assertEqual(row['video_state'], {'front': 'available'})
+        self.assertEqual((row['bytes'], row['log_bytes']), (len(video) + 300, 300))
+        self.assertEqual(row['video_downloads'], [{'source': 'front', 'kind': 'fcamera.mp4', 'bytes': len(video)}])
+        self.assertTrue(server.has_video(p, server.read_meta(p)))
+        self.assert_no_ids(r.get_data(as_text=True))
+
+    def test_gdrive_located_recording_survives_restart(self):
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
+        archiver = self.move()
+        before = (p / 'meta.json').read_bytes()
+        server.requeue_startup()
+        archiver = media_store.Archiver(server, server.store, self.settings, backend=self.backend)
+        self.assertEqual(archiver.recheck_held(), 0)
+        self.assertEqual((p / 'meta.json').read_bytes(), before)
+        self.assertTrue((p / 'prepared' / 'data.json').is_file()); server.submit.assert_not_called()
+        self.assertFalse(server.stale_recording(p, server.read_meta(p)))
+        # The archiver's own restart path (recovery with Drive connected) keeps it too.
+        archiver.recover_startup()
+        self.assertEqual(server.read_meta(p)['status'], 'ready'); server.submit.assert_not_called()
+
+    def test_reupload_of_moved_recording_is_duplicate(self):
+        log, video = os.urandom(3000), b'\x00\x00\x01\x40\x01' + os.urandom(4000)  # A valid-looking HEVC start.
+        p = self.log('a' * 32, {'rlog.zst': log, 'fcamera.hevc': video}); self.ready(p)
+        self.move()
+        self.assertEqual(media_store.location(server.read_meta(p), 'fcamera.hevc'), 'gdrive')
+        r = self.send('post', '/api/upload', data={'files': [(io.BytesIO(log), 'x/rlog.zst'), (io.BytesIO(video), 'x/fcamera.hevc')]})
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual((r.json['logs'], [d['id'] for d in r.json['duplicates']], r.json['updated']), ([], [p.name], []))
+        self.assertFalse((p / 'fcamera.hevc').exists())  # The moved camera is not added back.
+
+    def test_missing_drive_file_logs_backend_neutral_message(self):
+        archiver = media_store.Archiver(server, server.store, self.settings, backend=self.backend)
+        with self.assertLogs(server.app.logger, 'WARNING') as logs: archiver._note_missing(self.root / ('a' * 32), 'fcamera.mp4')
+        self.assertNotIn('share', logs.output[0]); self.assertIn('remote archive (gdrive)', logs.output[0])
+
+if __name__ == '__main__': unittest.main()
