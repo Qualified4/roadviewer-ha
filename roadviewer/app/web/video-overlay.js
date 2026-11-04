@@ -244,7 +244,7 @@
    context.globalAlpha=1;
   }
   context.restore();
-  status.textContent=on('ccncTargets')?'LF · FF · RF 박스는 지면에 고정됩니다. 크기는 추정값입니다.':'차량은 위치 표식으로 표시됩니다.';
+  status.textContent='';
  };
  heightButton.onclick=()=>{raised=!raised;heightButton.setAttribute('aria-pressed',String(raised));try{localStorage.setItem('roadviewer-overlay-height',String(raised))}catch{}moveHeight()};
  button.onclick=()=>{

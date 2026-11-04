@@ -395,6 +395,9 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .boundary-summary .boundary-lead{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;padding:8px 2px 0;border-top:1px solid #ffffff09}.boundary-summary .boundary-lead>span{font-size:11px;color:var(--muted)}.boundary-summary .boundary-lead strong{margin:0;font-size:16px}
 @media(max-width:380px){.boundary-summary{padding:10px}.boundary-summary .lane-readouts{gap:5px}.boundary-summary .boundary-lane{padding:8px 5px}.boundary-summary .boundary-position{font-size:9.5px}.boundary-summary .readouts strong{font-size:15px}.boundary-summary .boundary-edge{display:block;padding:8px}.boundary-summary .boundary-edge>span{max-width:none}.boundary-summary .boundary-edge strong{margin-top:4px}}
 
-.boundary-summary:has(#boundaryDistance[aria-pressed=true]) .lane-readouts strong{font-size:13px;white-space:normal;overflow-wrap:anywhere}
 
-.boundary-summary:has(#boundaryDistance[aria-pressed=true]) .boundary-edge{display:block}.boundary-summary:has(#boundaryDistance[aria-pressed=true]) .boundary-edge>span{max-width:none}.boundary-summary:has(#boundaryDistance[aria-pressed=true]) .boundary-edge strong{margin-top:4px}
+
+/* Probability and y[0] modes keep the same geometry, including narrow split views. */
+.boundary-summary{container-type:inline-size}.boundary-summary .lane-readouts strong{font-size:clamp(11px,4.1cqw,17px)}
+
+@media(max-width:600px){.boundary-summary .boundary-edge{display:block}.boundary-summary .boundary-edge>span{max-width:none}.boundary-summary .boundary-edge strong{margin-top:4px}}
