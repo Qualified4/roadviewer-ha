@@ -49,7 +49,7 @@ jobs:
           python -m pip install pip-audit
       - name: Audit application requirements
         run: python -m pip_audit -r roadviewer/requirements.txt
-  browser-tests:
+  browser-test-groups:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     strategy:
@@ -141,6 +141,15 @@ jobs:
         if: matrix.group == 'motion-video'
       - run: node tests/upload_drop.cjs
         if: matrix.group == 'navigation'
+  browser-tests:
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [browser-test-groups]
+    runs-on: ubuntu-slim
+    steps:
+      - name: Require every browser group to pass
+        env:
+          GROUP_RESULT: ${{ needs.browser-test-groups.result }}
+        run: test "$GROUP_RESULT" = success
   upload-tests:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
