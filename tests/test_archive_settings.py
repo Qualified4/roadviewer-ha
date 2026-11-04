@@ -252,4 +252,17 @@ class ArchiveSettingsTests(unittest.TestCase):
         self.assertEqual(media_store.PendingDeletes(self.root).count(), 1)
 
 
+class BackupInclusionTests(unittest.TestCase):
+    def test_settings_and_token_files_are_not_excluded_from_backups(self):
+        # backup_exclude drops recording folders by a hex-prefix glob; the preferences must stay in the backup.
+        import fnmatch, re
+        text = (Path(__file__).resolve().parents[1] / 'roadviewer' / 'config.yaml').read_text(encoding='utf-8')
+        block = text.split('backup_exclude:', 1)[1]
+        patterns = re.findall(r'^\s+-\s+"([^"]+)"', block.split('\n\n', 1)[0], re.M)
+        self.assertIn('roadviewer/[0-9a-f]*', patterns)
+        for name in (prefs.FILENAME, '.gdrive-auth.json', '.archive.json'):
+            with self.subTest(name=name):
+                self.assertFalse(any(fnmatch.fnmatch('roadviewer/' + name, p) for p in patterns))
+
+
 if __name__ == '__main__': unittest.main()

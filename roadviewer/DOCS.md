@@ -312,7 +312,7 @@ Home Assistant 앱 백업에서는 다음을 제외합니다.
 | 업로드 용량·인증서 파일명 등 앱 옵션 | `/data/options.json` |
 | 자동 변환·동시 처리 | `/data/roadviewer/.processing-settings.json` |
 | 저장 한도·삭제 정책·구간 고정 | `/data/roadviewer/.storage-settings.json` |
-| 아카이빙 설정(클라이언트 자격 증명 제외) | `/data/roadviewer/archive-settings.json` |
+| 아카이빙 설정(클라이언트 자격 증명 제외) | `/data/roadviewer/.archive-settings.json` |
 | 장치 등록·인증 상태 | `/data/roadviewer/.devices.json` |
 | NAS 아카이빙 저장소 ID(NAS의 파일은 백업 대상 아님) | `/data/roadviewer/.archive.json` |
 
@@ -397,7 +397,7 @@ API 포트 상태는 시작 시 Supervisor에서 이 앱의 네트워크 매핑�
 
 **저장공간 관리 → 아카이빙 설정**에서 사용 여부, 저장소, 모드, 로컬 원본 삭제 허용, 보관 기간, 실행 주기, 배치 개수, 사용량 임계값과 저장소별 항목을 바꿉니다. MB는 1024² bytes 기준입니다. NAS는 모드 선택과 관계없이 항상 검증 후 이동합니다. 아래 키는 저장 파일의 이름이며 애드온 옵션에서 편집하지 않습니다.
 
-설정은 `/data/roadviewer/archive-settings.json`에 원자적으로 저장됩니다(권한 0600). OAuth 클라이언트 ID·보안 비밀만 애드온 옵션 `archive_gdrive_client_id`, `archive_gdrive_client_secret`에 남으며 API와 웹 UI에 반환하지 않습니다. 처음 업데이트할 때 파일이 없으면 기존 `/data/options.json`의 아카이빙 값을 한 번만 이전합니다. 꺼짐도 그대로 유지하며 빠진 값은 아래 기본값을 씁니다. 이후에는 파일이 우선이고 이전 옵션 키는 무시하므로 지워도 됩니다. 호환성을 위해 이전 키는 이번 릴리스의 스키마에 선택 항목으로 남습니다.
+설정은 `/data/roadviewer/.archive-settings.json`에 원자적으로 저장됩니다(권한 0600). OAuth 클라이언트 ID·보안 비밀만 애드온 옵션 `archive_gdrive_client_id`, `archive_gdrive_client_secret`에 남으며 API와 웹 UI에 반환하지 않습니다. 처음 업데이트할 때 파일이 없으면 기존 `/data/options.json`의 아카이빙 값을 한 번만 이전합니다. 꺼짐도 그대로 유지하며 빠진 값은 아래 기본값을 씁니다. 이후에는 파일이 우선이고 이전 옵션 키는 무시하므로 지워도 됩니다. 호환성을 위해 이전 키는 이번 릴리스의 스키마에 선택 항목으로 남습니다.
 
 파일이 손상되거나 읽을 수 없거나 이전 값이 잘못되면 아카이빙을 끄고 `settings_error`를 표시합니다. 잘못된 파일은 덮어쓰지 않으며 화면에서 저장해야 복구됩니다. 설정 저장은 실행 중이면 거부됩니다. 저장 자체는 아카이브·삭제·정리를 시작하지 않고, 시작 및 저장 후에는 설정한 주기를 온전히 기다립니다. **지금 아카이브**로 직접 실행할 수도 있습니다. 이전 과정은 토큰·저장소 ID·기록 파일을 변경하지 않습니다.
 
@@ -466,7 +466,7 @@ NAS 폴더 사용량이 `archive_nas_max_mb`를 넘거나 NAS 여유가 `archive
 
 ### 백업
 
-NAS의 파일은 Home Assistant 백업 대상이 아닙니다. 아카이빙 설정 파일 `archive-settings.json`, 클라이언트 자격 증명을 담은 앱 옵션과 저장소 ID를 담은 `/data/roadviewer/.archive.json`은 앱 설정과 함께 백업됩니다. NAS 자체의 백업은 NAS에서 따로 관리하세요.
+NAS의 파일은 Home Assistant 백업 대상이 아닙니다. 아카이빙 설정 파일 `.archive-settings.json`, 클라이언트 자격 증명을 담은 앱 옵션과 저장소 ID를 담은 `/data/roadviewer/.archive.json`은 앱 설정과 함께 백업됩니다. NAS 자체의 백업은 NAS에서 따로 관리하세요.
 
 ## Google Drive 아카이빙 (실험 기능)
 

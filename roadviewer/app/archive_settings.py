@@ -4,7 +4,7 @@ from dataclasses import replace
 from media_store import ArchiveSettings, MB
 from storage_policy import atomic_json
 
-FILENAME = 'archive-settings.json'
+FILENAME = '.archive-settings.json'
 VERSION = 1
 RANGES = {'archive_local_threshold_mb': (0, None), 'archive_min_age_hours': (0, 8760),
           'archive_interval_minutes': (1, 1440), 'archive_batch': (1, 64),

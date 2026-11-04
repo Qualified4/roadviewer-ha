@@ -261,7 +261,7 @@ Home Assistant app backups exclude originals (ZST, TS, HEVC), MP4s, analysis/gra
 |---|---|
 | Processing options | `/data/roadviewer/.processing-settings.json` |
 | Storage policy and segment pins | `/data/roadviewer/.storage-settings.json` |
-| Archive settings (excluding client credentials) | `/data/roadviewer/archive-settings.json` |
+| Archive settings (excluding client credentials) | `/data/roadviewer/.archive-settings.json` |
 | Device authentication | `/data/roadviewer/.devices.json` |
 | NAS archive storage ID (files on the NAS are not backed up) | `/data/roadviewer/.archive.json` |
 
@@ -304,7 +304,7 @@ On first connection, and only while `/share/<name>` is actually mounted, the app
 
 Use **Storage management → 아카이빙 설정** (Archive settings) for enabled, backend, mode, local deletion permission, minimum age, interval, batch, local usage threshold and backend-specific fields. MB means 1024² bytes. NAS always moves after verification regardless of the mode selector. The keys below identify saved preferences, rather than add-on options.
 
-Preferences are written atomically to `/data/roadviewer/archive-settings.json` with mode 0600. Only `archive_gdrive_client_id` and `archive_gdrive_client_secret` remain add-on options; neither value is returned by the API or shown in the web UI. On the first update, if the file is absent, the old archive options in `/data/options.json` are migrated once. Enabled and disabled values are preserved, with defaults for missing fields. Afterwards the file is authoritative: old keys are ignored and can be cleared. They remain optional schema entries for migration compatibility in this release.
+Preferences are written atomically to `/data/roadviewer/.archive-settings.json` with mode 0600. Only `archive_gdrive_client_id` and `archive_gdrive_client_secret` remain add-on options; neither value is returned by the API or shown in the web UI. On the first update, if the file is absent, the old archive options in `/data/options.json` are migrated once. Enabled and disabled values are preserved, with defaults for missing fields. Afterwards the file is authoritative: old keys are ignored and can be cleared. They remain optional schema entries for migration compatibility in this release.
 
 An unreadable/corrupt file or invalid migrated values disable archiving and show `settings_error`. The bad file is left untouched until the user saves from the UI. Saving is refused while a cycle runs. Saving starts no archive, deletion or eviction: startup and each save wait a full configured interval. **지금 아카이브** (Archive now) can run it manually. Migration never changes the token, storage identity or recordings.
 
@@ -373,7 +373,7 @@ Files of pinned segments and of recordings waiting for or undergoing conversion 
 
 ### Backups
 
-Files on the NAS are not part of Home Assistant backups. `archive-settings.json`, the add-on options containing client credentials, and `/data/roadviewer/.archive.json`, holding the storage ID, are backed up with the app configuration. Back up the NAS itself separately.
+Files on the NAS are not part of Home Assistant backups. `.archive-settings.json`, the add-on options containing client credentials, and `/data/roadviewer/.archive.json`, holding the storage ID, are backed up with the app configuration. Back up the NAS itself separately.
 
 ## Google Drive archiving (experimental)
 

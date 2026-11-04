@@ -56,7 +56,7 @@ http.serve_forever()`;
   assert.equal(await field('backend').inputValue(),'gdrive');assert.equal(await field('interval_minutes').inputValue(),'37');assert.equal(await field('gdrive_folder_name').inputValue(),'UI archive folder');
   await field('backend').selectOption('smb');await field('path').fill(nas);await field('nas_max_mb').fill('8192');await field('nas_margin_mb').fill('2048');await save();
   assert.equal(await page.locator('#gdrivePanel').count(),0);assert(await field('path').isVisible());assert(await field('gdrive_folder_name').isHidden());
-  prefs=JSON.parse(fs.readFileSync(path.join(root,'archive-settings.json'),'utf8'));
+  prefs=JSON.parse(fs.readFileSync(path.join(root,'.archive-settings.json'),'utf8'));
   assert.equal(prefs.archive_backend,'smb');assert.equal(prefs.archive_nas_max_mb,8192);assert.equal(prefs.archive_nas_margin_mb,2048);
   assert(!fs.existsSync(path.join(root,'.archive.json')),'saving must not activate a backend');
   for(const width of [320,390,1280]){await page.setViewportSize({width,height:900});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no overflow at '+width)}
