@@ -458,6 +458,12 @@ class _Availability:
         cached = self.cached
         return cached[1] if cached and self.clock() - cached[0] < CACHE_SECONDS else None
 
+    def last_result(self):
+        # (state, reason) from the cache only; None when stale.
+        if not self._enabled(): return 'disabled', getattr(self.settings, 'error', None)
+        cached = self.cached
+        return tuple(cached[1:]) if cached and self.clock() - cached[0] < CACHE_SECONDS else None
+
     def invalidate(self): self.cached = self.usage_cached = None
 
 

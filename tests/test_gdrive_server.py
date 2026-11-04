@@ -1,9 +1,9 @@
 """The server with Google Drive as the archive (tests/fake_drive.py): archived files stream through the same URLs
 (ranges, downloads, ZIPs), are staged locally only where a path is needed (original-format export, conversion),
 a local file always wins over its remote copy, and lists, admission and restarts treat a moved file as stored."""
-import hashlib, io, json, os, sys, tempfile, unittest, zipfile
+import hashlib, io, json, os, sys, tempfile, threading, time, unittest, zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_media_integration import make_log, PEER, HEADERS  # Sets RV_DATA and imports the server module.
 import server, media_store
@@ -12,6 +12,9 @@ from fake_drive import FakeDrive
 
 DAY = 86400
 MIB = 2**20
+REAL_CLEANUP = server.cleanup_uploads  # setUp patches it out; the startup cleanup test calls the real one.
+HEVC = b'\x00\x00\x01\x40\x01'  # The start validate_hevc accepts.
+SUMMARY = {'duration': 1, 'warnings': [], 'model_frames': 0, 'videos': {'front': {'codec': 'hevc'}}}
 
 class GdriveServerTests(unittest.TestCase):
     def setUp(self):
@@ -59,6 +62,20 @@ class GdriveServerTests(unittest.TestCase):
         m = server.read_meta(p); (p / 'prepared' / 'data.json').write_text('{}')
         m.update({'status': 'ready', 'decoder_version': 'v28-runtime-geometry', 'video': server.has_video(p, m), **fields}); server.save_meta(p, m)
         return m
+
+    def convert(self, p, prepared, summary=SUMMARY):
+        # A conversion whose decoder (replaced) produced `prepared` and `summary`; returns the Popen mock.
+        for name, data in prepared.items(): (p / 'prepared' / name).write_bytes(data)
+        (p / 'prepared' / 'summary.json').write_text(json.dumps(summary))
+        m = server.read_meta(p); m.update(status='queued', manual_conversion=True); server.save_meta(p, m)
+        with patch.object(server, 'ProgressChannel') as channel, patch.object(server.subprocess, 'Popen') as popen:
+            channel.return_value.__enter__.return_value.options.return_value = {}
+            popen.return_value.communicate.return_value = ('', ''); popen.return_value.returncode = 0; popen.return_value.poll.return_value = 0
+            server.run_job(p.name)
+        return popen
+
+    def drive_file(self, kind):
+        with self.drive.lock: return next(f for f in self.drive.files.values() if f['appProperties'].get('rv_kind') == kind)
 
     def get(self, url, **kw): return self.client.get(url, environ_overrides=PEER, **kw)
     def send(self, method, url, **kw): return getattr(self.client, method)(url, environ_overrides=PEER, headers=HEADERS, **kw)
@@ -236,6 +253,7 @@ class GdriveServerTests(unittest.TestCase):
         self.drive.scenario.fail_next('alt=media', 500, times=100)
         r = self.get(f'/api/logs/{p.name}/video?source=front')
         self.assertEqual((r.status_code, r.json['error']), (503, 'storage_unavailable'))
+        self.assertEqual(r.json['message'], server.REMOTE_UNAVAILABLE)
         r = self.get(f'/api/logs/{p.name}/original/rlog.zst')
         self.assertEqual((r.status_code, r.json['error']), (503, 'storage_unavailable'))
         self.drive.scenario.failures.clear()
@@ -245,7 +263,7 @@ class GdriveServerTests(unittest.TestCase):
                     f'/api/logs/download.zip?ids={p.name}&parts=rlog'):
             with self.subTest(url=url):
                 r = self.get(url)
-                self.assertEqual((r.status_code, r.json['error']), (503, 'storage_unavailable'))
+                self.assertEqual((r.status_code, r.json['error'], r.json['message']), (503, 'storage_unavailable', server.REMOTE_UNAVAILABLE))
         r = self.get('/api/logs')
         self.assertEqual(r.status_code, 200)
         row = r.json['logs'][0]
@@ -333,5 +351,211 @@ class GdriveServerTests(unittest.TestCase):
         archiver = media_store.Archiver(server, server.store, self.settings, backend=self.backend)
         with self.assertLogs(server.app.logger, 'WARNING') as logs: archiver._note_missing(self.root / ('a' * 32), 'fcamera.mp4')
         self.assertNotIn('share', logs.output[0]); self.assertIn('remote archive (gdrive)', logs.output[0])
+
+    # Fix round 1
+
+    def test_nas_entry_left_from_smb_is_unavailable_under_gdrive(self):
+        # After switching from the NAS: its files answer 503 (NAS wording) and Drive archiving goes on for the rest.
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100})
+        m = server.read_meta(p); media_store.set_location(m, 'fcamera.mp4', location='nas', bytes=500, sha256='0' * 64, archived_at=1.0)
+        server.save_meta(p, m); self.ready(p)
+        q = self.log('b' * 32, {'rlog.zst': b'other' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(q)
+        r = self.get(f'/api/logs/{p.name}/video?source=front')
+        self.assertEqual((r.status_code, r.json['error']), (503, 'storage_unavailable'))
+        self.assertEqual(r.json['message'], server.MEDIA_ERRORS['storage_unavailable'][1])
+        self.assertEqual(self.get('/api/logs').status_code, 200)
+        archiver = self.archive()  # Raises no AttributeError; asserts the cycle was not stopped.
+        for kind in ('rlog.zst', 'fcamera.mp4'): self.assertIsNotNone(media_store.remote(server.read_meta(q), kind))
+        self.assertEqual(media_store.location(server.read_meta(p), 'fcamera.mp4'), 'nas')
+        self.assertEqual(archiver.status()['last_error'], None)
+
+    def test_storage_settings_never_probe_drive_on_the_request(self):
+        self.backend.invalidate()
+        started, release, threads = threading.Event(), threading.Event(), []
+        def slow():
+            threads.append(threading.current_thread()); started.set(); release.wait(5)
+            return 'connected', None
+        with patch.object(self.backend, '_probe', side_effect=slow):
+            t0 = time.monotonic(); r = self.get('/api/settings/storage'); elapsed = time.monotonic() - t0
+            try:
+                self.assertEqual(r.status_code, 200)
+                self.assertEqual((r.json['archive']['state'], r.json['archive']['reason']), ('checking', 'probe_pending'))
+                self.assertLess(elapsed, 2)
+                self.assertTrue(started.wait(2)); self.assertIsNot(threads[0], threading.main_thread())
+            finally: release.set()
+            for _ in range(100):
+                if self.backend.last_result(): break
+                time.sleep(0.02)
+        r = self.get('/api/settings/storage')
+        self.assertEqual((r.json['archive']['state'], r.json['archive']['reason']), ('connected', None))
+
+    def test_reconversion_never_serves_the_old_drive_copy(self):
+        old = b'old video' * 100
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.hevc': HEVC + b'h' * 500, 'fcamera.mp4': old}); self.ready(p)
+        self.archive()
+        m = server.read_meta(p); self.assertIsNotNone(media_store.remote(m, 'fcamera.mp4'))
+        m['status'] = 'error'; server.save_meta(p, m)  # A failed result is converted again on request.
+        r = self.send('post', f'/api/logs/{p.name}/convert')
+        self.assertEqual(r.json, {'status': 'queued'})
+        m = server.read_meta(p)
+        self.assertFalse((p / 'fcamera.mp4').exists()); self.assertNotIn('fcamera.mp4', m.get('storage', {}))
+        self.assertIsNotNone(media_store.remote(m, 'fcamera.hevc'))  # The original is unchanged; its copy stays.
+        # The new result is not codec-preserving, so it stays in prepared/: it is what plays, never the old copy.
+        new = b'new video' * 100
+        (p / 'prepared').mkdir(exist_ok=True); (p / 'prepared' / 'fcamera.mp4').write_bytes(new); self.ready(p)
+        before = len(self.media_requests())
+        r = self.get(f'/api/logs/{p.name}/video?source=front')
+        self.assertEqual((r.status_code, r.data), (200, new)); r.close()
+        self.assertEqual(len(self.media_requests()), before)
+        row = self.get('/api/logs').json['logs'][0]
+        self.assertNotIn('fcamera.mp4', row['storage'])
+
+    def test_conversion_promotes_identical_drive_copy_and_copies_the_new_mp4(self):
+        hevc, old, new = HEVC + os.urandom(3000), os.urandom(2000), os.urandom(2500)
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.hevc': hevc, 'fcamera.mp4': old}); self.ready(p)
+        self.archive()
+        block = media_store.remote(server.read_meta(p), 'fcamera.hevc')
+        # A second recording whose original changed after it was copied: its copy is not promoted.
+        q = self.log('b' * 32, {'rlog.zst': b'other' * 100, 'fcamera.hevc': HEVC + os.urandom(3000)}); self.ready(q)
+        self.archive()
+        (q / 'fcamera.hevc').write_bytes(HEVC + os.urandom(3000))
+        self.convert(p, {'fcamera.mp4': new}); self.convert(q, {'fcamera.mp4': new})
+        m = server.read_meta(p)
+        self.assertEqual(m['status'], 'ready')
+        e = media_store.entry(m, 'fcamera.hevc')
+        self.assertEqual((e['location'], e['file_id'], e['bytes'], e['sha256']), ('gdrive', block['file_id'], len(hevc), hashlib.sha256(hevc).hexdigest()))
+        self.assertFalse((p / 'fcamera.hevc').exists()); self.assertEqual((p / 'fcamera.mp4').read_bytes(), new)
+        self.assertIsNone(media_store.remote(m, 'fcamera.mp4'))
+        r = self.get(f'/api/logs/{p.name}/original/fcamera.hevc')
+        self.assertEqual((r.status_code, r.data), (200, hevc))
+        row = next(row for row in self.get('/api/logs').json['logs'] if row['id'] == p.name)
+        self.assertEqual((row['remote_copies'], row['storage_locations']['front']), ({'rlog': 'gdrive'}, 'gdrive'))
+        mq = server.read_meta(q)
+        self.assertEqual(media_store.location(mq, 'fcamera.hevc'), 'local'); self.assertIsNone(media_store.remote(mq, 'fcamera.hevc'))
+        # The next copy-mode cycle copies the new MP4.
+        self.archive()
+        copy = media_store.remote(server.read_meta(p), 'fcamera.mp4')
+        self.assertEqual(copy['sha256'], hashlib.sha256(new).hexdigest())
+        with self.drive.lock: self.assertEqual(self.drive.files[copy['file_id']]['content'], new)
+
+    def test_stored_counts_a_copy_whose_local_file_is_gone(self):
+        video = b'video' * 100
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': video}); self.ready(p)
+        self.archive(); (p / 'fcamera.mp4').unlink()
+        m = server.read_meta(p)
+        self.assertTrue(server.stored(p, m, 'fcamera.mp4')); self.assertTrue(server.has_video(p, m))
+        row = self.get('/api/logs').json['logs'][0]
+        self.assertEqual((row['video'], row['video_download']), (True, 'fcamera.mp4'))
+        r = self.get(f'/api/logs/{p.name}/video?source=front')
+        self.assertEqual((r.status_code, r.data), (200, video))
+
+    def test_conversion_never_replaces_moved_mp4(self):
+        # The MP4 was moved to Drive; a local original added since must survive a codec-preserving result.
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
+        self.move()
+        hevc = HEVC + os.urandom(1000); (p / 'fcamera.hevc').write_bytes(hevc)
+        self.convert(p, {'fcamera.mp4': b'new mp4'})
+        m = server.read_meta(p)
+        self.assertEqual(m['status'], 'ready')
+        self.assertEqual((p / 'fcamera.hevc').read_bytes(), hevc); self.assertFalse((p / 'fcamera.mp4').exists())
+        self.assertTrue((p / 'prepared' / 'fcamera.mp4').is_file()); self.assertEqual(media_store.location(m, 'fcamera.mp4'), 'gdrive')
+
+    def test_reupload_of_camera_uses_drive_state(self):
+        # A new camera for a moved recording needs Drive reachable: the Drive cache decides, not the share's.
+        log = os.urandom(3000)
+        p = self.log('a' * 32, {'rlog.zst': log, 'fcamera.mp4': b'video' * 100}); self.ready(p)
+        self.move()
+        r = self.send('post', '/api/upload', data={'files': [(io.BytesIO(log), 'x/rlog.zst'), (io.BytesIO(HEVC + os.urandom(2000)), 'x/ecamera.hevc')]})
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual([u['id'] for u in r.json['updated']], [p.name])
+        self.assertTrue((p / 'ecamera.hevc').is_file())
+
+    def test_eviction_uses_drive_state(self):
+        # A moved recording may be evicted for space only while Drive answers (by its cache, under the locks).
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
+        self.move(); (p / 'prepared' / 'data.json').write_bytes(b'x' * MIB)
+        self.assertEqual(self.backend.probe()[0], 'connected')
+        used = server.storage_used_bytes()
+        with patch.dict(server.storage_policy.settings, {'max_bytes': used + 65536 + 10 - 1, 'policy': 'delete_oldest'}):
+            r = self.send('post', '/api/uploads', json={'files': [{'name': 'x/rlog.zst', 'size': 10}]})
+            self.assertEqual(r.status_code, 201, r.json)
+            # Unknown now (the background refresh cannot answer yet): the recording is kept, so there is no room.
+            self.backend.invalidate()
+            with patch.object(self.backend, 'probe', return_value=('checking', 'probe_pending')):
+                r = self.send('post', '/api/uploads', json={'files': [{'name': 'y/rlog.zst', 'size': 10}]})
+            self.assertEqual((r.status_code, r.json['error']), (507, 'no_deletable_logs'))
+
+    def corrupt_copy(self, kind):
+        # Drive's metadata still reports the indexed hash, so only the downloaded bytes show the damage.
+        with self.drive.lock:
+            f = next(f for f in self.drive.files.values() if f['appProperties'].get('rv_kind') == kind)
+            f['content'] = bytes(len(f['content']))
+
+    def test_staging_verifies_the_download(self):
+        video = os.urandom(4000)
+        p = self.log('a' * 32, {'rlog.zst': os.urandom(3000), 'fcamera.mp4': video}); self.ready(p, video_codecs={'front': 'hevc'})
+        self.move(); self.corrupt_copy('fcamera.mp4')
+        with patch.object(server, 'export_chunks') as export:
+            r = self.get(f'/api/logs/{p.name}/download?source=front&format=original')
+        self.assertEqual((r.status_code, r.json['error']), (409, 'media_corrupt')); export.assert_not_called()
+        self.assertFalse((p / '.staging').exists())
+        # The decoder never gets the damaged copy: the camera counts as unreadable, as a corrupt NAS file does.
+        m = server.read_meta(p); m.update(status='queued', manual_conversion=True); server.save_meta(p, m)
+        seen = {}
+        def popen(args, **kw):
+            seen.update(json.loads(kw['env']['RV_MEDIA_PATHS']), log=args[-2])
+            proc = MagicMock(); proc.communicate.return_value = ('', 'failed'); proc.returncode = 1; proc.poll.return_value = 1
+            return proc
+        with patch.object(server, 'ProgressChannel') as channel, patch.object(server.subprocess, 'Popen', side_effect=popen):
+            channel.return_value.__enter__.return_value.options.return_value = {}
+            server.run_job(p.name)
+        self.assertEqual(seen['fcamera.mp4'], str(p / 'fcamera.mp4')); self.assertIn('.staging', seen['log'])
+        self.assertFalse((p / '.staging').exists())
+
+    def test_unstaged_remote_input_defers_under_the_lock(self):
+        # The job became runnable between staging and the lock: the unstaged remote input defers it.
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
+        self.move()
+        m = server.read_meta(p); m.update(status='queued', manual_conversion=True); server.save_meta(p, m)
+        real, calls = server.read_meta, []
+        def read(path):
+            calls.append(path); data = real(path)
+            return dict(data, status='unconverted') if len(calls) == 1 else data
+        with patch.object(server, 'read_meta', side_effect=read), patch.object(server.subprocess, 'Popen') as popen:
+            server.run_job(p.name)
+        popen.assert_not_called()
+        m = server.read_meta(p)
+        self.assertEqual((m['status'], m['deferred']), ('unconverted', 'storage'))
+        self.assertFalse(self.media_requests()); self.assertFalse((p / '.staging').exists())
+
+    def test_conversion_space_is_checked_for_all_inputs_first(self):
+        p = self.log('a' * 32, {'rlog.zst': os.urandom(3000), 'fcamera.hevc': os.urandom(4000)}); self.ready(p)
+        self.move()
+        m = server.read_meta(p); m.update(status='queued', manual_conversion=True); server.save_meta(p, m)
+        # Room for either input alone, not for both.
+        free = type('U', (), {'free': server.STAGING_MARGIN + 5000})()
+        with patch.object(server.shutil, 'disk_usage', return_value=free), patch.object(server.subprocess, 'Popen') as popen:
+            server.run_job(p.name)
+        popen.assert_not_called(); self.assertFalse(self.media_requests())
+        m = server.read_meta(p)
+        self.assertEqual((m['status'], m['deferred'], m['error']), ('unconverted', 'storage', '디스크 공간이 부족해 변환을 미뤘습니다.'))
+
+    def test_startup_removes_leftover_staging(self):
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100})
+        (p / '.staging' / 'x').mkdir(parents=True); (p / '.staging' / 'x' / 'fcamera.mp4').write_bytes(b'partial')
+        other = self.root / 'not-a-recording' / '.staging'; other.mkdir(parents=True)
+        REAL_CLEANUP(startup=True)
+        self.assertFalse((p / '.staging').exists()); self.assertTrue((p / 'rlog.zst').is_file()); self.assertTrue(other.is_dir())
+
+    def test_zip_streams_remote_entries_without_buffering(self):
+        video = os.urandom(3 * MIB)
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': video}); self.ready(p)
+        self.move()
+        for url in (f'/api/logs/download.zip?ids={p.name}&parts=front', f'/api/logs/download.zip?ids={p.name}&parts=front&format=mp4'):
+            with self.subTest(url=url):
+                r = self.get(url, buffered=False)
+                chunks = list(r.response); r.close()
+                self.assertLess(max(map(len, chunks)), 70 * 1024)
+                with zipfile.ZipFile(io.BytesIO(b''.join(chunks))) as z: self.assertEqual([z.read(i) for i in z.infolist()], [video])
 
 if __name__ == '__main__': unittest.main()

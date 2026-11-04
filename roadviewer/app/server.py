@@ -4,7 +4,7 @@ import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
 from collections import Counter
 from progress import ProgressChannel
 from work_queue import ProcessingQueue
-from flask import Flask,request,jsonify,send_file,send_from_directory,abort
+from flask import Flask,request,jsonify,send_file,send_from_directory,abort,g as request_state
 from werkzeug.exceptions import HTTPException
 from storage_policy import StoragePolicy,atomic_json
 import media_store,archive_backends
@@ -32,9 +32,10 @@ def read_meta(p):return json.loads((p/'meta.json').read_text())
 def save_meta(p,m):
  temp=p/'meta.tmp';temp.write_text(json.dumps(m,ensure_ascii=False));temp.replace(p/'meta.json')
 def stored(p,m,kind):
- # Registered for this recording: on the archive by the index (reachable or not), or present locally.
+ # Registered for this recording: on the archive by the index (reachable or not), present locally, or a local
+ # entry whose verified remote copy stands in for a local file that is gone (as resolve serves it).
  where=media_store.location(m,kind)
- return media_store.is_archived_location(where) or where=='local' and (p/kind).is_file()
+ return media_store.is_archived_location(where) or where=='local' and ((p/kind).is_file() or media_store.remote(m,kind) is not None)
 def original_bytes(p,m=None,kinds=STORED_KINDS):return sum(media_store.media_size(p,m or {},k,store) for k in kinds if stored(p,m or {},k))
 def has_video(p,m):return any(stored(p,m,k) for k in (*ORIGINALS,*DERIVED.values()))
 # A recording's metadata as API responses show it: never an upload's session URI (a credential) or remote file ids.
@@ -55,15 +56,17 @@ MEDIA_ERRORS={'storage_unavailable':(503,'영상 저장소에 연결할 수 없�
  'insufficient_disk_space':(507,'보관된 파일을 내려받을 디스크 공간이 부족합니다.')}
 REMOTE_UNAVAILABLE='영상 저장소(Google Drive)에 연결할 수 없습니다. 인터넷과 Google Drive 연결을 확인하세요.'
 def remote_backend():return backend.caps.kind!='smb'
-def archive_state():
- # The active backend's state, outside the locks: the share's check for the NAS (as before). Drive answers from
- # its cache; a stale one is refreshed in the background, so a list or an upload never waits on the internet.
- if not remote_backend():return store.state()
- state=backend.last_state()
- if state is None:
+def remote_result():
+ # A remote backend's (state, reason) from its cache; a stale one is refreshed in the background, so a request
+ # never waits on the internet (the probe's own lock keeps concurrent refreshes to one).
+ result=backend.last_result()
+ if result is None:
   threading.Thread(target=backend.probe,name='archive-probe',daemon=True).start()
-  return 'checking'
- return state
+  return 'checking','probe_pending'
+ return result
+def archive_state():
+ # The active backend's state, outside the locks: the share's check for the NAS (as before), Drive's cache.
+ return remote_result()[0] if remote_backend() else store.state()
 def archive_last_state():
  # The active backend's latest result without probing, for callers holding the locks.
  return backend.last_state() if remote_backend() else store.last_state()
@@ -74,7 +77,12 @@ def media_file(p,m,kind):
  path,state=media_store.resolve(p,m,kind,store,backend)
  if state in ('available','missing'):return path
  error={'storage_unavailable':'storage_unavailable','checking':'storage_checking','corrupt':'media_corrupt'}[state]
+ if remote_entry(m,kind):request_state.remote_unavailable=True  # The answer names Google Drive instead of the NAS.
  abort(MEDIA_ERRORS[error][0],description=error)
+def remote_entry(m,kind):
+ # The file is (or would be read) on a remote backend rather than the NAS or local disk.
+ where=media_store.location(m,kind)
+ return where in media_store.REMOTE_BACKENDS or where=='local' and media_store.remote(m,kind) is not None
 def media_path(p,m,kind):
  path=media_file(p,m,kind)
  if path is None:abort(404)
@@ -115,7 +123,7 @@ def abort_remote(e):
  # A backend failure while reading: a copy that does not match its index is corrupt, a file gone since it was
  # resolved is missing, anything else (network, auth, rate) is an unreachable archive.
  if e.code=='not_found':abort(404)
- error='media_corrupt' if e.code=='mismatch' else 'storage_unavailable'
+ error='media_corrupt' if e.code=='mismatch' else 'storage_unavailable';request_state.remote_unavailable=True
  abort(MEDIA_ERRORS[error][0],description=error)
 def stage_remote(p,rf):
  # A local, hash-verified copy of a remote-only file where a path is needed (original-format export, the
@@ -127,6 +135,14 @@ def stage_remote(p,rf):
  except BaseException:
   unstage(dest);raise
  return dest
+def local_content(p,m,kind):
+ # ((size, mtime_ns), sha256) of a local file, reusing the recorded hash while the file is unchanged; None if absent.
+ # Reads the file otherwise: never under a lock.
+ try:st=(p/kind).stat()
+ except FileNotFoundError:return None
+ known=(m.get('content_hashes') or {}).get(kind)
+ fresh=isinstance(known,dict) and known.get('size')==st.st_size and known.get('mtime_ns')==st.st_mtime_ns and isinstance(known.get('sha256'),str)
+ return (st.st_size,st.st_mtime_ns),known['sha256'] if fresh else file_digest(p/kind)
 def unstage(path):
  shutil.rmtree(path.parent,ignore_errors=True)
  try:path.parent.parent.rmdir()  # .staging itself, once no other download or conversion uses it.
@@ -213,9 +229,15 @@ def run_job(id):
    # outside the lock) and removed when the job ends. Nothing is downloaded for a job that will not run.
    short=False
    if current.get('status')=='queued' and (auto_convert or current.get('manual_conversion')):
-    for kind,(found,state) in inputs.items():
-     if not isinstance(found,media_store.RemoteFile) or state!='available':continue
-     try:staged.append(stage_remote(p,found));inputs[kind]=(staged[-1],'available')
+    remote=[kind for kind,(found,state) in inputs.items() if isinstance(found,media_store.RemoteFile) and state=='available']
+    # Room for every copy is checked before the first download: a conversion deferred for space must not
+    # download part of its inputs again at each retry.
+    if remote and shutil.disk_usage(ROOT).free<sum(inputs[kind][0].size for kind in remote)+STAGING_MARGIN:
+     short=True
+     for kind in remote:inputs[kind]=(None,'storage_unavailable')
+     remote=[]
+    for kind in remote:
+     try:staged.append(stage_remote(p,inputs[kind][0]));inputs[kind]=(staged[-1],'available')
      except StagingSpace:short=True;inputs[kind]=(None,'storage_unavailable')
      except archive_backends.BackendError as e:inputs[kind]=(None,'corrupt' if e.code=='mismatch' else 'missing' if e.code=='not_found' else 'storage_unavailable')
    def input_path(kind):return inputs[kind][0] if inputs[kind][1]=='available' else p/kind
@@ -244,6 +266,11 @@ def run_job(id):
     # The decoder writes the large data file. Only its small summary is needed here.
     summary=json.loads((p/'prepared/summary.json').read_text())
     with lock:job_progress[id]={'stage':'registering','percent':0}
+    # Originals with a remote copy that the registration may delete are hashed now, outside the locks: an
+    # identical copy then stands in for the deleted original (promote_remote).
+    try:before=read_meta(p)
+    except FileNotFoundError:return
+    contents={kind:local_content(p,before,kind) for kind in DERIVED if media_store.remote(before,kind)}
     with registration_lock,lock:
      if not (p/'meta.json').exists():return
      m=read_meta(p)
@@ -259,6 +286,17 @@ def run_job(id):
       # An MP4 removed by archive cleanup exists again, locally: the index must not hide it.
       if media_store.location(m,mp4)=='removed':m['storage'].pop(mp4)
       (p/'prepared'/mp4).replace(p/mp4)
+      # The MP4 is new content: a copy of the previous one no longer describes it (the archiver copies it again).
+      if media_store.drop_remote(m,mp4):app.logger.info('Remote copy of %s/%s superseded by a new conversion; it is left on the remote archive',id,mp4)
+      if media_store.remote(m,original):
+       # The original goes: its copy becomes the stored file if it is the same content, else it is dropped.
+       try:st=(p/original).stat()
+       except FileNotFoundError:content=None
+       else:
+        known=contents.get(original)
+        content=(st.st_size,known[1] if known and known[0]==(st.st_size,st.st_mtime_ns) else None)
+       if not media_store.promote_remote(m,original,content):
+        app.logger.info('Remote copy of %s/%s did not match the replaced original; it is left on the remote archive',id,original)
       (p/original).unlink(missing_ok=True)
      m['video_codecs']={**m.get('video_codecs',{}),**{key:info['codec'] for key,info in available.items() if info and info.get('codec')}}
      m['video_origins']={**m.get('video_origins',{}),**{key:info['sourcePts'] for key,info in available.items() if info and 'sourcePts' in info}}
@@ -319,7 +357,10 @@ def clear_prepared(p,m,states=None):
  for original,mp4 in DERIVED.items():
   where=media_store.location(m,original)
   readable=(p/original).is_file() if where=='local' else media_store.is_archived_location(where) and (states or {}).get(original)=='available'
-  if readable:(p/mp4).unlink(missing_ok=True)
+  if readable:
+   (p/mp4).unlink(missing_ok=True)
+   # The conversion makes this MP4 again: a copy of the old one must never stand in for the new result.
+   media_store.drop_remote(m,mp4)
  m['bytes']=original_bytes(p,m)
  m.update(duration=None,model_frames=None,warnings=[],error=None,conversion_revision=m.get('conversion_revision',0)+1)
 
@@ -379,7 +420,7 @@ def fresh_replay_state(response):
 def http_error(e):
  if isinstance(e.description,str) and e.description in MEDIA_ERRORS:
   code,message=MEDIA_ERRORS[e.description]
-  if e.description=='storage_unavailable' and remote_backend():message=REMOTE_UNAVAILABLE
+  if e.description=='storage_unavailable' and request_state.get('remote_unavailable'):message=REMOTE_UNAVAILABLE
   response=jsonify(error=e.description,message=message)
   if e.description=='storage_checking':response.headers['Retry-After']='5'
   return response,code
@@ -658,6 +699,8 @@ def register_files(files):
          meta.setdefault('files',{})[kind]=g['files'][kind]
          # A camera removed by archive cleanup is local again once re-uploaded (archived ones are never added).
          if media_store.location(meta,kind)=='removed':meta['storage'].pop(kind)
+         # A remote copy of other content no longer describes this file.
+         media_store.drop_remote(meta,kind,g['hashes'][kind])
          meta.setdefault('content_hashes',{})[kind]={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':g['hashes'][kind]}
          hashes={**hashes,kind:g['hashes'][kind]}
         if not restored:

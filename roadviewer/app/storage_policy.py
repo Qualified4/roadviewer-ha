@@ -69,7 +69,8 @@ class StoragePolicy:
         s = self.s; store, settings = s.store, s.store.settings
         if s.remote_backend():
             # Google Drive has no share to check or measure; its usage block comes with the connection settings.
-            state, reason = s.backend.probe(); used, free = 0, 0
+            # The panel polls: the state comes from the cache, refreshed in the background, never a probe here.
+            (state, reason), used, free = s.remote_result(), 0, 0
         else:
             state, reason = store.state(), store.reason()
             used, free = store.usage() if state == 'connected' else (0, 0)

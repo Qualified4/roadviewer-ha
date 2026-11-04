@@ -131,6 +131,8 @@ class ArchiveStore:
 
     def _probe(self):
         path = self.settings.path
+        # No share configured (another backend is active): NAS entries left from before are unreachable, not an error.
+        if path is None: return 'unavailable', 'path_missing'
         try:
             if not path.is_dir(): return 'unavailable', 'path_missing'
             try:
@@ -271,6 +273,39 @@ def remote_refs(meta, copies=True):
             refs.append({'kind': kind, 'backend': name, 'file_id': block['file_id'], 'bytes': _bytes(block),
                          'sha256': sha256 if isinstance(sha256, str) else None})
     return refs
+
+def drop_remote(meta, kind, sha256=None):
+    # A remote copy describes one content: once p/<kind> holds other content (or the local file it copied was
+    # superseded), the block, an upload in progress and a failed verification go. The Drive file itself stays
+    # (an orphan, adopted again by find() if the same content comes back). Returns the dropped block, or None;
+    # nothing is dropped when `sha256` (the new content's) is the copy's.
+    storage = meta.get('storage')
+    e = storage.get(kind) if isinstance(storage, dict) else None
+    if not isinstance(e, dict) or e.get('location') != 'local': return None
+    block = e.get('remote') if isinstance(e.get('remote'), dict) else None
+    if block and sha256 is not None and block.get('sha256') == sha256: return None
+    # An entry with nothing remote is left exactly as it is (NAS indexes never change here).
+    if not ('remote' in e or 'remote_pending' in e or e.get('error') == 'remote_mismatch'): return None
+    e.pop('remote', None); e.pop('remote_pending', None)
+    if e.get('error') == 'remote_mismatch': e.pop('error')
+    if e == {'location': 'local'}: storage.pop(kind)
+    return block
+
+def promote_remote(meta, kind, content=None):
+    # A local file about to be deleted (a conversion keeps its MP4 instead) whose verified remote copy is the same
+    # content: the copy becomes the stored file (location gdrive), as if it had been moved, so it stays reachable.
+    # content: (size, sha256) of the local file, or None when it is gone already. True when promoted; otherwise
+    # the block is dropped (drop_remote) and False returned.
+    e, block = entry(meta, kind), remote(meta, kind)
+    name = block.get('backend') if block else None
+    file_id = block.get('file_id') if block else None
+    if (e['location'] == 'local' and name in REMOTE_BACKENDS and name in REMOTE_LOCATIONS and isinstance(file_id, str) and file_id
+            and isinstance(block.get('sha256'), str) and (content is None or tuple(content) == (_bytes(block), block['sha256']))):
+        set_location(meta, kind, location=name, file_id=file_id, bytes=_bytes(block), sha256=block['sha256'], md5=block.get('md5'),
+                     archived_at=block.get('uploaded_at') or time.time())
+        return True
+    drop_remote(meta, kind)
+    return False
 
 PRIVATE_FIELDS = ('remote_pending', 'file_id')
 
