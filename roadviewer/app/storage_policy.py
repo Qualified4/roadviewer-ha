@@ -65,7 +65,7 @@ class StoragePolicy:
         return jsonify(dict(snapshot, archive=self.archive()))
 
     def archive(self):
-        # Status of the video archive. The share's path is never reported (it is shown only in the add-on options).
+        # Status of the video archive; editable preferences are served separately.
         s = self.s; store, settings = s.store, s.store.settings
         remote = s.remote_backend()
         if remote:
@@ -87,6 +87,7 @@ class StoragePolicy:
                      last_cycle_at=status['last_cycle_at'], last_error=status['last_error'], consecutive_failures=status['consecutive_failures'],
                      running=status['running'], pending_deletes=pending, archived_files=files, archived_bytes=size,
                      missing_archived=status['missing_archived'])
+        if s.archive_settings_error: block['settings_error'] = s.archive_settings_error
         if not remote: return block
         # Drive only (the NAS block is unchanged): the mode, local copies that have a Drive copy, files whose copy
         # did not verify (retry: POST /api/logs/<id>/archive/retry) and the connection. Never a token or secret.

@@ -7,7 +7,7 @@ from work_queue import ProcessingQueue
 from flask import Flask,request,jsonify,send_file,send_from_directory,abort,g as request_state
 from werkzeug.exceptions import HTTPException
 from storage_policy import StoragePolicy,atomic_json
-import media_store,archive_backends
+import media_store,archive_backends,archive_settings as archive_config
 from device_api import DeviceAPI
 from device_network import DeviceNetwork
 from video_sources import SOURCES,ORIGINALS,DERIVED,VIDEO_KINDS,CAMERA_KINDS,UPLOAD_KINDS,STORED_KINDS,validate_hevc,validate_mp4
@@ -960,7 +960,7 @@ def delete_recording(id,remote=False):
  # A remote backend's files (moved files and verified copies) are recorded by reference. Eviction removes them
  # only in move mode, where Drive holds the recording's only copy; in copy mode Drive is the backup that outlives
  # local cleanup, including originals a conversion promoted to the stored copy.
- move=remote_backend() and getattr(getattr(backend,'settings',None),'effective_mode',None)=='move'
+ move=remote_backend() and archiver.settings.effective_mode=='move'
  refs=media_store.remote_refs(m,copies=remote) if remote or move else []
  kept=len(media_store.remote_refs(m))-len(refs)
  if kept:app.logger.info('Recording %s removed for space; its %d Google Drive files are kept',id,kept)
@@ -1391,19 +1391,68 @@ def migrate_prepared():
   except (OSError,ValueError,KeyError,subprocess.SubprocessError):
    app.logger.exception('Replay data migration failed for %s',p.name)
 
-archive_settings=media_store.ArchiveSettings.from_options(options)
+archive_settings,archive_migrated_from,archive_settings_error=archive_config.load(ROOT,options)
 # Only constructed here: the share is first touched by the archiver thread (Archiver.activate), so a hung mount cannot stall startup.
 store=media_store.ArchiveStore(archive_settings,ROOT)
 # The active backend (the NAS around `store`, or Drive); constructing it reads at most the local token file.
 backend=archive_backends.make_backend(archive_settings,ROOT,store=store)
-if archive_settings.error:app.logger.warning('Video archive is disabled: %s',archive_settings.error)
+if archive_settings_error:app.logger.warning('Video archive is disabled: %s',archive_settings_error)
 archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings,backend=backend)
+def archive_preferences():
+ result=dict(archive_config.values(archive_settings),effective_mode=archive_settings.effective_mode,
+             client_configured=bool(archive_settings.gdrive_client_id))
+ if archive_settings_error:result['settings_error']=archive_settings_error
+ return result
+
+@app.route('/api/settings/archive',methods=['GET','POST'])
+def archive_preferences_api():
+ global archive_settings,archive_settings_error,archive_migrated_from,store,backend,connection
+ if request.method=='GET':
+  with lock:return jsonify(archive_preferences())
+ request.max_content_length=65536
+ body=request.get_json(silent=True)
+ # The cycle lock spans validation, persistence and swap: even a newly starting job sees one configuration.
+ if not archiver.cycle.acquire(blocking=False):return jsonify(error='archive_running'),409
+ try:
+  with lock:
+   if not isinstance(body,dict):return jsonify(error='invalid_archive_settings',fields={'_body':'expected_object'}),400
+   data={**archive_config.values(archive_settings),**body}
+   errors=archive_config.validate(data)
+   if errors:return jsonify(error='invalid_archive_settings',fields=errors),400
+   updated=archive_config.parse(data,options)
+   rebuild=(updated.backend,updated.path,updated.gdrive_folder_name)!=(archive_settings.backend,archive_settings.path,archive_settings.gdrive_folder_name)
+   new_store=media_store.ArchiveStore(updated,ROOT) if rebuild else store
+   new_backend=archive_backends.make_backend(updated,ROOT,store=new_store) if rebuild else backend
+   try:atomic_json(ROOT/archive_config.FILENAME,archive_config.document(updated,archive_migrated_from))
+   except OSError:return jsonify(error='settings_write_failed'),500
+   if rebuild:
+    with connection_lock:
+     if connection is not None:connection._cancel.set()
+     connection=None
+     store,backend=new_store,new_backend
+     if updated.backend=='gdrive':connection=archive_backends.DriveConnection(backend,on_change=drive_changed)
+    archiver.store,archiver.backend=store,backend
+    archiver.remote=updated.backend=='gdrive'
+    archiver.recovered=archiver.held_checked=False
+    archiver.missing.clear();archiver.empty.clear()
+    archiver.last_auth_error=None
+   archiver.needs_activation |= rebuild or updated.enabled and not archive_settings.enabled
+   archive_settings=updated
+   store.settings=archiver.settings=updated
+   if archiver.remote:backend.settings=updated
+   store.invalidate();store.forget_index()
+   archive_settings_error=None
+   archiver.settings_changed.set()  # Reset the deadline; saving never starts work.
+   return jsonify(archive_preferences())
+ finally:archiver.cycle.release()
+
 @app.route('/api/settings/archive/run',methods=['POST'])
 def run_archive():
  # One cycle now, in the background (a cycle can outlast the Ingress timeout); progress shows in
  # the storage settings' archive block. Never two cycles at once.
- if not archiver.settings.enabled:return jsonify(error='archive_disabled'),409
- if not archiver.start_cycle():return jsonify(error='archive_running'),409
+ with lock:
+  if not archiver.settings.enabled:return jsonify(error='archive_disabled'),409
+  if not archiver.start_cycle():return jsonify(error='archive_running'),409
  return jsonify(started=True),202
 connection=None;connection_lock=threading.Lock()
 FOLDER_REASONS=('folder_missing','folder_trashed','storage_id_mismatch')
@@ -1477,5 +1526,5 @@ requeue_startup()
 # start.py enables this for the app; tests and tools importing the module do not migrate in the background.
 if os.environ.get('RV_MIGRATE_PREPARED')=='1':
  threading.Thread(target=migrate_prepared,name='prepared-migration',daemon=True).start()
- archiver.start()  # Crash recovery first (recover_startup), then a cycle every archive interval; nothing when disabled.
+ archiver.start()  # Wait a full interval before activation/recovery; disabled archives only wait for settings changes.
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)
