@@ -87,6 +87,10 @@ Pairing supports code copy, remaining time and reissue. Codes last five minutes 
 
 <img src="docs/images/roadviewer-device-pairing.png" alt="Road Viewer one-time pairing code dialog for a comma device" width="420">
 
+## AI agent access (MCP)
+
+[roadviewer-mcp](https://github.com/Qualified4/roadviewer-mcp) is a local MCP server that lets clients such as Codex or Claude Code work with Road Viewer recordings. It signs in through the existing Home Assistant Ingress flow with a long-lived token and calls only the add-on's existing API, so nothing changes in the add-on and no port is opened or exposed. It supports searching and inspecting logs, bookmarks and storage status, time-window queries of replay data and vehicle telemetry, and video/log downloads (saved to a local directory, path returned). Writes are limited to adding or updating bookmarks and adding or removing tags; it never deletes, converts or changes settings. See that repository's README for installation and client registration.
+
 ## Playback and analysis
 
 | Feature | Capabilities |
@@ -206,6 +210,7 @@ The experimental **NAS archiving** option moves original videos and logs of conv
 ## Documentation and validation
 
 - [User guide](roadviewer/DOCS.en.md) · [한국어](roadviewer/DOCS.md): installation, playback, conversion, storage, backups and troubleshooting
+- [roadviewer-mcp](https://github.com/Qualified4/roadviewer-mcp): MCP server for AI agents, using only the existing Ingress login and API
 - [Device API v1](docs/device-api.en.md) · [한국어](docs/device-api.md): HTTPS, pairing/signing, upload recovery and tests without openpilot
 - [Changelog (Korean)](roadviewer/CHANGELOG.md)
 
