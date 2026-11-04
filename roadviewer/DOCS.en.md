@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.13.3**.
+This guide describes **0.13.4**.
 
 [한국어](DOCS.md) · English
 
