@@ -564,6 +564,11 @@ def _digests(path):
 def _sha256(path):
     with open(path, 'rb') as f: return hashlib.file_digest(f, 'sha256').hexdigest()
 
+def _record_hash(meta, kind, stat, sha256):
+    # content_hashes[kind] as register_files writes it: fresh while the file keeps this size and mtime.
+    if not isinstance(meta.get('content_hashes'), dict): meta['content_hashes'] = {}
+    meta['content_hashes'][kind] = {'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns, 'sha256': sha256}
+
 class _Hashing:
     # Hashes what is written, so the source is read only once.
     def __init__(self, f): self.f, self.h = f, hashlib.sha256()
@@ -1412,6 +1417,8 @@ class Archiver:
                 set_remote(current, kind, backend=b.caps.kind, file_id=ref.file_id, bytes=size, sha256=sha256, md5=md5,
                            uploaded_at=time.time(), verified_by=verified_by)
                 clear_remote_pending(current, kind)
+            # The hash just verified, so a later start knows this file without reading it again (_drop_stale_remote).
+            _record_hash(current, kind, stat, sha256)
             # Flushed to disk before the local file goes: after a power loss the index must not still say local.
             try: atomic_json(p / 'meta.json', current)
             except OSError:
@@ -1456,8 +1463,9 @@ class Archiver:
                     if e['location'] == 'gdrive': self._recover_moved(p, m, kind, e)
                     elif e['location'] == 'local':
                         if self._drop_stale_remote(p, m, kind):
+                            # Not recovered when the index cannot be read again: the next cycle tries the rest.
                             try: m = s.read_meta(p)
-                            except (OSError, ValueError): break
+                            except (OSError, ValueError): return
                         pending = remote_pending(m, kind)
                         if pending and pending.get('backend') == self.backend.caps.kind and not self._recover_pending(p, m, kind, pending): return
                         block = remote(m, kind)
@@ -1473,7 +1481,8 @@ class Archiver:
         # (drop_remote; its Drive file stays, an orphan find() adopts again if that content returns), so copy mode
         # copies the new content; an upload record for other content is cleared. Nothing is deleted. The local
         # file is hashed (outside the lock) only when the sizes match and content_hashes has no fresh hash for it
-        # (stale or missing) or the recording is still marked processing. True when the index was changed.
+        # (stale or missing) or the recording is still marked processing; a matching read records the hash, so each
+        # content is read at most once. True when the index was changed.
         s, block, pending = self.server, remote(m, kind), remote_pending(m, kind)
         if block is None and pending is None: return False
         local = p / kind
@@ -1491,11 +1500,15 @@ class Archiver:
             if type(size) is int and size != stat.st_size: return True
             if not isinstance(sha256, str): return False
             return current_sha256() != sha256  # The fresh recorded hash, else (stale, missing, processing) a read.
+        read = digest['sha256'] is None  # Any comparison below would read the file.
         try:
             stale_block = block is not None and differs(block.get('bytes'), block.get('sha256'))
             stale_pending = not stale_block and pending is not None and differs(pending.get('size'), pending.get('sha256'))
         except OSError: return False
-        if not (stale_block or stale_pending): return False
+        # The copy matches what was read: the hash is recorded, so the next start reads nothing (not while
+        # processing: that recording's files are still being replaced).
+        record = not (stale_block or stale_pending) and read and digest['sha256'] is not None and m.get('status') != 'processing'
+        if not (stale_block or stale_pending or record): return False
         with s.lock:
             try:
                 current, now = s.read_meta(p), local.stat()
@@ -1503,11 +1516,13 @@ class Archiver:
                 if ((now.st_size, now.st_mtime_ns) != (stat.st_size, stat.st_mtime_ns) or location(current, kind) != 'local'
                         or remote(current, kind) != block or remote_pending(current, kind) != pending): return False
                 if stale_block: drop_remote(current, kind)
-                else: clear_remote_pending(current, kind)
+                elif stale_pending: clear_remote_pending(current, kind)
+                else: _record_hash(current, kind, stat, digest['sha256'])
                 atomic_json(p / 'meta.json', current)
             except (OSError, ValueError):
                 s.app.logger.exception('Index of %s not saved', p.name)
                 return False
+        if record: return True
         s.app.logger.info('Remote copy of %s/%s describes other content than the local file; dropped (the copy stays on the remote archive)', p.name, kind)
         return True
 
@@ -1559,7 +1574,24 @@ class Archiver:
         except OSError: return
         verdict, _ = self._verify(self._ref(e), e['sha256'], _bytes(e), e.get('md5'))
         if verdict != 'ok':
-            s.app.logger.warning('The Google Drive copy of %s/%s does not match its index; the local file is kept', p.name, kind)
+            # The Drive copy is not the indexed content but the local file is: the index points at the local file
+            # again, as the NAS recovery restores one. No remote block (that copy is not trusted; the next cycle
+            # uploads a fresh one and the bad file stays on Drive). Nothing is deleted. The pin does not matter
+            # here: it protects from deletion, and this only keeps a file.
+            restored = False
+            with s.lock:
+                try:
+                    current, now = s.read_meta(p), local.stat()
+                    if ((now.st_size, now.st_mtime_ns) == (stat.st_size, stat.st_mtime_ns) and entry(current, kind) == e
+                            and current.get('conversion_revision', 0) == m.get('conversion_revision', 0) and current.get('status') == 'ready'
+                            and p.name not in s.processes):
+                        current['storage'].pop(kind)
+                        _record_hash(current, kind, stat, e['sha256'])
+                        atomic_json(p / 'meta.json', current)
+                        restored = True
+                except (OSError, ValueError): s.app.logger.exception('Index of %s not saved', p.name)
+            if restored: s.app.logger.warning('The Google Drive copy of %s/%s does not match its index; the identical local file is used again', p.name, kind)
+            else: s.app.logger.warning('The Google Drive copy of %s/%s does not match its index; the local file is kept', p.name, kind)
             return
         with s.lock:
             try:

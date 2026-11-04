@@ -10,7 +10,7 @@ file read again) and a new archiver: recover_startup, then one cycle. After it t
 file, an index that agrees with Drive and the disk, no upload record left, nothing marked removed, the local file kept
 in copy mode and, in move mode, deleted only while the committed index says gdrive and Drive holds the same bytes.
 Power loss itself (an fsync that never reached the disk) is not reproduced here."""
-import contextlib, hashlib, json, os, random, shutil, sys, tempfile, unittest
+import contextlib, hashlib, json, os, random, shutil, sys, tempfile, time, unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -317,25 +317,38 @@ class GdriveCrashTests(unittest.TestCase):
 
     def test_corrupt_drive_copy_before_recovery_unlink_keeps_local(self):
         # Move mode stopped before its unlink, and the Drive copy is damaged meanwhile (same size; Drive reports the
-        # checksums of what it holds). Recovery's Drive verify fails, so the local file, the only good copy, stays.
+        # checksums of what it holds). Recovery's Drive verify fails, so the local file, the only good copy, stays,
+        # and the index points at it again (no copy recorded: the Drive file is not trusted). It plays locally; the
+        # next cycle uploads a fresh copy and only then moves the file; the damaged Drive file is left alone.
         p = self.moved_with_local()
         e = media_store.entry(server.read_meta(p), 'fcamera.mp4')
         with self.drive.lock:
             f = self.drive.files[e['file_id']]
-            f['content'] = bytes([f['content'][0] ^ 1]) + f['content'][1:]
-            f['sha256'], f['md5'] = sha(f['content']), hashlib.md5(f['content']).hexdigest()
+            f['content'] = damaged = bytes([f['content'][0] ^ 1]) + f['content'][1:]
+            f['sha256'], f['md5'] = sha(damaged), hashlib.md5(damaged).hexdigest()
         with contextlib.ExitStack() as stack:
             writes, unlinks = self.watch(stack, p)
-            for _ in range(2):  # Every later start decides the same way.
-                with self.assertLogs(server.app.logger, 'WARNING') as logs:
-                    archiver = self.restart(**MOVE); archiver.run_cycle()
-                self.assertTrue(any('does not match its index; the local file is kept' in line for line in logs.output), logs.output)
-                self.assertEqual((p / 'fcamera.mp4').read_bytes(), VIDEO)
-                self.assertEqual(media_store.entry(server.read_meta(p), 'fcamera.mp4'), e)  # The video's index is unchanged.
-            # Only the log (not yet moved at the crash) went, once its own copy verified.
-            self.assertEqual([(name, where, verified) for name, where, verified in unlinks], [('rlog.zst', 'gdrive', True)])
-            if writes: self.assert_never_removed(writes, 'corrupt copy')
-        self.assertEqual(len(self.sessions(ID, 'fcamera.mp4')), 1); self.assertEqual(list(self.drive_files(ID, 'fcamera.mp4')), [e['file_id']])
+            with self.assertLogs(server.app.logger, 'WARNING') as logs: self.restart(**MOVE)
+            self.assertTrue(any('the identical local file is used again' in line for line in logs.output), logs.output)
+            m = server.read_meta(p)
+            self.assertEqual(media_store.entry(m, 'fcamera.mp4'), {'location': 'local'}); self.assertNotIn('fcamera.mp4', m['storage'])
+            self.assertEqual(m['content_hashes']['fcamera.mp4']['sha256'], sha(VIDEO))
+            self.assertEqual((p / 'fcamera.mp4').read_bytes(), VIDEO); self.assertEqual(unlinks, [])
+            with self.drive.lock: media = len([r for r in self.drive.requests if 'alt=media' in r['path']])
+            r = self.client.get(f'/api/logs/{ID}/video?source=front', environ_overrides=PEER, headers={'Range': 'bytes=0-9'})
+            self.assertEqual((r.status_code, r.data), (206, VIDEO[:10])); r.close()
+            with self.drive.lock: self.assertEqual(len([r for r in self.drive.requests if 'alt=media' in r['path']]), media)  # Played locally.
+            # The next cycle: a fresh verified copy, then the move.
+            self.assertIsNone(self.archiver(**MOVE).run_cycle()['stopped'])
+            self.assert_settled(p, True, 'after the fresh copy', data={'rlog.zst': LOG})
+            e2 = media_store.entry(server.read_meta(p), 'fcamera.mp4')
+            self.assertEqual((e2['location'], e2['sha256'], self.drive_content(e2['file_id'])), ('gdrive', sha(VIDEO), VIDEO))
+            self.assertNotEqual(e2['file_id'], e['file_id']); self.assertFalse((p / 'fcamera.mp4').exists())
+            self.assertEqual(self.drive_content(e['file_id']), damaged)  # The damaged file is untouched.
+            self.assertEqual(set(self.drive_files(ID, 'fcamera.mp4')), {e['file_id'], e2['file_id']})
+            self.assertEqual(sorted(name for name, _, _ in unlinks), ['fcamera.mp4', 'rlog.zst'])
+            for name, where, verified in unlinks: self.assertEqual((where, verified), ('gdrive', True), name)
+            self.assert_never_removed(writes, 'corrupt copy')
 
     def test_disconnect_mid_upload_then_reconnect_resumes_one_file(self):
         # (c) Signed out from the panel after the first chunk: the upload stops, its session stays recorded;
@@ -530,16 +543,27 @@ class GdriveCrashTests(unittest.TestCase):
                 self.assertIsNone(self.archiver().run_cycle()['stopped'])
                 m = server.read_meta(p)
                 for kind in DATA: self.assertIsNotNone(media_store.remote(m, kind))
-                if fresh:
-                    m['content_hashes'] = {kind: {'size': (p / kind).stat().st_size, 'mtime_ns': (p / kind).stat().st_mtime_ns, 'sha256': sha(DATA[kind])} for kind in DATA}
+                # The copy recorded the verified hash (archive_remote); an older index has none.
+                expected = {kind: {'size': (p / kind).stat().st_size, 'mtime_ns': (p / kind).stat().st_mtime_ns, 'sha256': sha(DATA[kind])} for kind in DATA}
+                self.assertEqual(m['content_hashes'], expected, label)
+                if not fresh: m.pop('content_hashes')
                 m['status'] = status; server.save_meta(p, m)
-                before, sessions, read[:] = (p / 'meta.json').read_bytes(), len(self.sessions(id, 'fcamera.mp4')), []
+                before, sessions, read[:] = server.read_meta(p), len(self.sessions(id, 'fcamera.mp4')), []
                 with patch.object(media_store, '_sha256', hashing): self.restart().run_cycle()
-                self.assertEqual((p / 'meta.json').read_bytes(), before, label)
+                after = server.read_meta(p)
+                self.assertEqual(after['storage'], before['storage'], label)  # Every copy is kept.
                 self.assertEqual(len(self.sessions(id, 'fcamera.mp4')), sessions, label)
                 own = [path for path in read if path.parent == p]
-                if fresh and status == 'ready': self.assertEqual(own, [], label)
+                if fresh and status == 'ready': self.assertEqual((own, after), ([], before), label)
                 else: self.assertEqual(sorted(path.name for path in own), sorted(DATA), label)
+                # A read that matched records the hash (not while processing), so the next start reads nothing.
+                self.assertEqual(after.get('content_hashes'), expected if (fresh or status == 'ready') else None, label)
+                if status == 'ready':
+                    read[:] = []
+                    with patch.object(media_store, '_sha256', hashing), patch.object(media_store, '_digests', side_effect=AssertionError('read')):
+                        self.restart().run_cycle()
+                    self.assertEqual([path for path in read if path.parent == p], [], label + ': second start')
+                    self.assertEqual(server.read_meta(p), after, label)
 
     def test_leftover_nas_entry_under_gdrive_answers_503_and_recovery_goes_on(self):
         # (e) A file moved to the NAS before switching to Drive: unreachable now (503), never touched; the restart's
