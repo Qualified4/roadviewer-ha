@@ -62,9 +62,11 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-save playwright
-      - run: npx playwright install --with-deps chromium
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: ffmpeg -f lavfi -i color=c=black:s=160x90:r=10 -t 2 -c:v libx264 -pix_fmt yuv420p /tmp/roadviewer-test.mp4
+      - run: npx playwright install --with-deps --only-shell chromium
+      # Regenerate the 2 KiB fixture with:
+      # ffmpeg -f lavfi -i color=c=black:s=160x90:r=10 -t 2 -c:v libx264 -pix_fmt yuv420p tests/fixtures/black.mp4
+      - name: Prepare browser video fixture
+        run: cp tests/fixtures/black.mp4 /tmp/roadviewer-test.mp4
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
