@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.13.6**.
+This guide describes **0.13.7**.
 
 [한국어](DOCS.md) · English
 
@@ -64,6 +64,8 @@ The UI's MB/GB settings use powers of 1024. The upload limit is distinct from th
 If Android's native file picker cannot return multiple files, add one at a time. Closing the app or losing access to a selected file can interrupt uploads; after reopening, select the files again. An unchanged browser session can retry interrupted chunks. No-progress transfers are aborted after 15 seconds and retried up to five times, with delays starting at one second and capped at four seconds. Slow but progressing transfers are retained.
 
 ## Library and conversion
+
+Segments with the same full route ID share a collapsible group. Select its heading to expand or collapse; the browser remembers that choice. The smallest segment number and that segment’s **upload date/time** remain visible when collapsed; this is not the actual driving timestamp. Playback in the collapsed header starts from the first segment. The header pin applies to every currently stored segment in that route (later uploads do not inherit it): a partial selection becomes fully pinned, and a fully pinned route becomes unpinned. The header download icon directly opens the download dialog for every segment in the route. Expanded-row pins and management menus remain segment-specific. Expand the group for other segments; there is no separate segment selector. Tag filters apply to individual segments and hide groups with no matches.
 
 `00000395--0d0eda17c5--7` is displayed as **395 / 구간 7**. The copy icon copies the full original identifier, including leading zeros and the hash.
 

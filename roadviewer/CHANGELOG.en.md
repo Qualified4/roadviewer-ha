@@ -4,6 +4,13 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.7
+
+- Group stored segments by full route ID with collapsible sections. The first segment’s upload date/time and segment count stay visible when collapsed; the browser remembers fold state.
+- Play the first segment and pin/unpin every currently stored segment in the route from its collapsed header. Partial pins become fully pinned; failures show completed counts and retain an accurate partial state.
+- A direct download icon opens the existing multi-segment download dialog for the route. Playback stays content-sized, while expanded-row pins and management menus remain segment-specific.
+- Preserve tag filters, live status updates, mobile/keyboard interaction, and existing per-segment controls. No log analysis or video reconversion is required.
+
 ## 0.13.6
 
 - Opening storage management now measures Google Drive usage in the background when there is no figure or it is older than 5 minutes. It shows "measuring" meanwhile and refreshes when done, fixing "0 B / quota unknown" after a restart until the first archive cycle. Nothing is moved or copied; accounts for which Google reports no total quota still show it as unknown.
