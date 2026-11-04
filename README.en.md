@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.13.3**
+Feature reference: **0.13.4**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -232,7 +232,7 @@ The experimental **NAS archiving** option moves original videos and logs of conv
 
 ## Documentation and validation
 
-New UI details were captured from main `6631968` (version **0.13.3**) using example data. Previously selected driving/wide illustrations are retained and may show older UI. Device, capacity, and pairing values are synthetic; the displayed code cannot connect a device. See the [screenshot guide](docs/images/README.en.md).
+New UI details were captured from main `6631968` (version 0.13.3) using example data. Previously selected driving/wide illustrations are retained and may show older UI. Device, capacity, and pairing values are synthetic; the displayed code cannot connect a device. See the [screenshot guide](docs/images/README.en.md).
 
 - [User guide](roadviewer/DOCS.en.md) · [한국어](roadviewer/DOCS.md): installation, playback, conversion, storage, backups and troubleshooting
 - [roadviewer-mcp](https://github.com/Qualified4/roadviewer-mcp): MCP server for AI agents, using only the existing Ingress login and API

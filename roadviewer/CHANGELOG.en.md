@@ -4,6 +4,13 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.4
+
+- Replaced "Archive now" with "Move all eligible data" ("Copy all eligible data" in COPY). It runs the existing MOVE/COPY engine until every eligible file is processed, without the scheduled batch size or local threshold, while keeping the minimum age and pinned-log protection. The scheduled interval, batch, and threshold are unchanged.
+- A confirmation first shows file and segment counts, size, expected local space freed in MOVE, whether local files are really deleted, and excluded records; nothing runs until confirmed. Drive MOVE without local deletion allowed is announced as a copy.
+- Progress and processed/succeeded/failed counts are shown; a second run and settings changes are refused meanwhile. Failed files keep their originals, and Drive outages, expired sign-in, or a full NAS stop the run safely. The run state is stored on the server, survives reloads, and a run cut short by a restart shows as interrupted. Remote files are never deleted and verified remote copies are not uploaded again.
+- Refreshed the Korean/English guides and UI screenshots. Stabilized the Drive panel test with a fake browser clock and rebalanced CI browser groups.
+
 ## 0.13.3
 
 - Moved the LF/FF/RF ground-anchor and estimated-size explanation into overlay settings. Matched lane probability/y[0] card heights, typography, and road-edge alignment.
