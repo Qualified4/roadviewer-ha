@@ -14,6 +14,150 @@ function showStorage(s){
  $('storageMaximum').textContent=s.max_bytes?storageSize(s.max_bytes):'제한 없음';
  $('storageFree').textContent=storageSize(s.free_bytes);
  $('storageReserved').textContent=storageSize(s.reserved_bytes);
+ showArchive(s.archive);
+}
+const ARCHIVE_STATES={connected:'연결됨',unavailable:'연결 불가',checking:'확인 중'},ARCHIVE_ERRORS={storage_unavailable:'NAS에 연결할 수 없습니다.',nas_full:'NAS 공간이 부족합니다.',nas_full_no_candidates:'NAS가 가득 찼지만 정리할 수 있는 파일이 없습니다.',hash_mismatch:'NAS 사본 검증에 실패했습니다.',os_error:'NAS에 파일을 복사하지 못했습니다.'};
+// Google Drive: the panel shows only what the status block names; of a waiting sign-in, only the code and the address.
+const DRIVE_ERRORS={storage_unavailable:'Google Drive에 연결할 수 없습니다.',remote_full:'Google Drive 공간이 부족합니다.',rate_limited:'Google Drive 요청 한도를 넘었습니다. 다음 주기에 다시 시도합니다.',auth_expired:'Google Drive 인증이 만료되었습니다. 다시 연결하세요.',hash_mismatch:'Google Drive 사본 검증에 실패했습니다.',os_error:'Google Drive에 파일을 올리지 못했습니다.'};
+const GDRIVE_AUTH_ERRORS={access_denied:'사용자가 승인을 거부했습니다',code_expired:'코드가 만료되었습니다. 다시 연결하세요',auth_expired:'인증이 만료되었습니다. 다시 연결하세요',invalid_grant:'인증이 만료되었습니다. 다시 연결하세요',invalid_client:'클라이언트 ID/비밀키가 올바르지 않습니다',signed_out:'연결이 해제되어 업로드를 중단했습니다. 다시 연결하세요'};
+const GDRIVE_ARCHIVE_OFF='아카이빙이 꺼져 있습니다. 여기서는 Google Drive 계정 연결만 관리하며 파일은 복사하지 않습니다.';
+const GDRIVE_SETUP='애드온 옵션에서 Google Drive 클라이언트 ID를 설정하세요',GDRIVE_NOT_SELECTED='아카이브 저장소가 Google Drive로 설정되어 있지 않습니다.';
+const GDRIVE_REQUEST_ERRORS={gdrive_not_configured:GDRIVE_SETUP,gdrive_connected:'이미 Google Drive에 연결되어 있습니다.',gdrive_not_selected:GDRIVE_NOT_SELECTED,gdrive_backend:GDRIVE_NOT_SELECTED,gdrive_unavailable:'Google에 연결할 수 없습니다. 잠시 후 다시 시도하세요.'};
+const gdriveAuthText=code=>GDRIVE_AUTH_ERRORS[code]||`인증 오류 (${code})`;
+const gdriveRequestError=e=>e.code==='gdrive_auth_failed'?gdriveAuthText(e.reason||e.code):GDRIVE_REQUEST_ERRORS[e.code]||e.message;
+let gdriveTimer=null,gdriveTick=0,gdriveExpires=0,gdriveBusy=false,gdriveFetching=false,gdriveGeneration=0,gdriveState=null,gdriveSkew=null,gdriveDeadline=null,gdriveShownCode='';
+function showArchive(a){
+ // Archiving off: the panel keeps exactly its four local metrics. The share's path is never shown.
+ for(const row of document.querySelectorAll('#storageUsage>.archive-metric'))row.remove();
+ $('archiveRun')?.remove();
+ // A block without a backend is the NAS and shows as before; nothing of Drive is created for it.
+ // Drive's sign-in does not need archiving on: with it off, only the connection panel is shown.
+ const drive=a?.backend==='gdrive';
+ if(!drive)hideGdrive();
+ if(!a?.enabled){if(drive)showGdrive(a);return}
+ const rows=drive?gdriveRows(a):[['NAS 상태',ARCHIVE_STATES[a.state]||'확인 중'],['NAS 사용 중',storageSize(a.used_bytes)],['NAS 여유',storageSize(a.free_bytes)],['마지막 아카이브',a.last_cycle_at?new Date(a.last_cycle_at*1000).toLocaleString():'—']];
+ $('storageUsage').append(...rows.map(([label,value])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');row.className='archive-metric';dt.textContent=label;dd.textContent=value;row.append(dt,dd);return row}));
+ const button=document.createElement('button');button.id='archiveRun';button.type='button';button.textContent='지금 아카이브';button.disabled=!!a.running;button.onclick=runArchive;$('storageUsage').after(button);
+ if(a.last_error)$('storageStatus').textContent='마지막 아카이브 오류: '+((drive?DRIVE_ERRORS:ARCHIVE_ERRORS)[a.last_error]||a.last_error);
+ if(drive)showGdrive(a);
+}
+function gdriveStatusText(g,state){
+ if(!g.connected)return '연결 안 됨';
+ return g.last_auth_error?'인증 만료':ARCHIVE_STATES[state]||'확인 중';
+}
+// With archiving off the state is 'disabled' and says nothing of the account: the sign-in block alone does.
+const gdriveAccountText=g=>g.pending&&typeof g.pending==='object'?'연결 대기 중':gdriveStatusText(g,'connected');
+function gdriveRows(a){
+ const g=a.gdrive||{};
+ return [['저장소','Google Drive'],['Drive 상태',gdriveStatusText(g,a.state)],['Drive 사용 중',storageSize(a.used_bytes)],['Drive 여유',a.usage_reliable?storageSize(a.free_bytes):'할당량 확인 불가'],
+  ['복제 사본',`${Number(a.remote_copies_files)||0}개`],['복제 사본 용량',storageSize(Number(a.remote_copies_bytes)||0)],['검증 실패',`${Number(a.archive_errors?.remote_mismatch)||0}개`],['마지막 아카이브',a.last_cycle_at?new Date(a.last_cycle_at*1000).toLocaleString():'—']];
+}
+function gdrivePanel(){
+ let panel=$('gdrivePanel');if(panel)return panel;
+ const el=(tag,props={})=>Object.assign(document.createElement(tag),props);
+ panel=el('div',{id:'gdrivePanel',className:'gdrive-panel'});
+ const code=el('div',{id:'gdriveCode',className:'gdrive-code',hidden:true}),guide=el('p',{className:'gdrive-code-guide'}),status=el('p',{id:'gdriveStatus',className:'gdrive-status'});
+ guide.append('아무 브라우저에서 ',el('a',{id:'gdriveUrl',target:'_blank',rel:'noopener noreferrer'}),' 에 접속해 아래 코드를 입력하세요.');
+ code.append(guide,el('code',{id:'gdriveUserCode',className:'gdrive-user-code'}),el('p',{id:'gdriveCountdown',className:'gdrive-countdown'}));
+ status.setAttribute('role','status');
+ const actions=el('div',{className:'gdrive-actions'}),connect=el('button',{id:'gdriveConnect',type:'button',textContent:'Google Drive 연결'}),disconnect=el('button',{id:'gdriveDisconnect',type:'button',textContent:'연결 해제',hidden:true});
+ connect.onclick=()=>gdriveRequest('connect');disconnect.onclick=()=>gdriveRequest('disconnect');
+ actions.append(connect,disconnect);
+ panel.append(el('p',{id:'gdriveArchiveOff',className:'archive-mode',textContent:GDRIVE_ARCHIVE_OFF,hidden:true}),el('p',{id:'gdriveAccount',className:'archive-mode',hidden:true}),el('p',{id:'archiveMode',className:'archive-mode'}),el('p',{id:'gdriveSetup',className:'gdrive-setup',textContent:GDRIVE_SETUP,hidden:true}),el('p',{id:'gdriveAuthError',className:'gdrive-auth-error',hidden:true}),code,actions,status);
+ ($('archiveRun')||$('storageUsage')).after(panel);
+ return panel;
+}
+function showGdrive(a){
+ gdrivePanel();
+ const g=a.gdrive||{},pending=g.pending&&typeof g.pending==='object'?g.pending:null,move=(a.effective_mode||a.mode)==='move';
+ gdriveState=g;
+ // Archiving off: a note and the account's state instead of the mode (nothing is copied or moved).
+ $('gdriveArchiveOff').hidden=!!a.enabled;$('gdriveAccount').hidden=!!a.enabled;$('archiveMode').hidden=!a.enabled;
+ $('gdriveAccount').textContent=a.enabled?'':'Drive 계정: '+gdriveAccountText(g);
+ $('archiveMode').textContent=move?'이동 모드: 검증된 원격 사본이 있으면 로컬 원본이 삭제됩니다':'복제 모드: 로컬 파일은 보존됩니다';
+ $('archiveMode').className=move?'archive-mode archive-warning':'archive-mode';
+ $('gdriveSetup').hidden=!!g.configured;
+ $('gdriveAuthError').textContent=g.last_auth_error?gdriveAuthText(g.last_auth_error):'';$('gdriveAuthError').hidden=!g.last_auth_error;
+ // Of a waiting sign-in only user_code and verification_url are shown; expires_at drives the countdown.
+ $('gdriveCode').hidden=!pending;
+ if(pending){
+  $('gdriveUserCode').textContent=String(pending.user_code??'');
+  // Only an https address becomes a link; anything else is shown as text.
+  const link=$('gdriveUrl'),address=String(pending.verification_url??'');let safe=null;
+  try{const url=new URL(address);if(url.protocol==='https:')safe=url.href}catch{}
+  link.textContent=address;if(safe)link.href=safe;else link.removeAttribute('href');
+  gdriveExpires=Number(pending.expires_at)||0;gdriveShownCode=String(pending.user_code??'');
+ }
+ // Polls only while the panel is open and the page visible; reopening or returning fetches again first.
+ gdriveCountdown();gdriveButtons();gdrivePoll(!!pending&&storageDetails.open&&!document.hidden);
+}
+function gdriveButtons(){
+ const g=gdriveState||{},pending=!$('gdriveCode').hidden;
+ $('gdriveConnect').textContent=g.connected?'다시 연결':'Google Drive 연결';
+ $('gdriveConnect').hidden=pending||(!!g.connected&&!g.last_auth_error);
+ $('gdriveConnect').disabled=gdriveBusy||!g.configured;
+ $('gdriveDisconnect').hidden=!g.connected;$('gdriveDisconnect').disabled=gdriveBusy;
+}
+// expires_at is the add-on's clock, which the browser's may not match: the countdown runs from the connect answer's
+// expires_in (browser clock only), else from expires_at against the server's Date header. Unknown or past while
+// the server still reports the code: no expiry is claimed.
+function gdriveRemaining(){
+ if(gdriveDeadline&&gdriveDeadline.code===gdriveShownCode)return gdriveDeadline.at-performance.now()/1000;
+ return gdriveSkew===null?null:gdriveExpires-(Date.now()/1000+gdriveSkew);
+}
+function gdriveCountdown(){
+ if(!$('gdriveCode')||$('gdriveCode').hidden)return;
+ const left=gdriveRemaining(),remaining=left===null?0:Math.max(0,Math.ceil(left));
+ $('gdriveCountdown').textContent=remaining?`코드 유효 시간 ${Math.floor(remaining/60)}:${String(remaining%60).padStart(2,'0')} 남음`:'코드 유효 시간을 확인하는 중입니다';
+}
+async function storageSnapshot(){
+ // As api() for the storage block, plus the server's clock from the Date header.
+ const response=await fetch('api/settings/storage',{cache:'no-store',headers:{'X-RoadViewer-Request':'1'},signal:AbortSignal.timeout(60000)});
+ const date=Date.parse(response.headers.get('Date')||''),result=apiResult(response.status,await response.text());
+ if(Number.isFinite(date))gdriveSkew=date/1000-Date.now()/1000;
+ return result;
+}
+async function gdriveRefresh(){
+ if(gdriveFetching||gdriveBusy)return;
+ gdriveFetching=true;const generation=gdriveGeneration;
+ try{const s=await storageSnapshot();if(generation===gdriveGeneration&&storageDetails.open&&!document.hidden)showStorage(s)}
+ catch(e){if($('gdriveStatus'))$('gdriveStatus').textContent=e.message}
+ finally{gdriveFetching=false}
+}
+function gdrivePoll(on){
+ // While a code waits the panel follows the sign-in every 3 s; the countdown ticks every second.
+ if(!on){clearInterval(gdriveTimer);gdriveTimer=null;return}
+ if(gdriveTimer)return;
+ // Without the server's clock yet, the first fetch comes on the first tick.
+ gdriveTick=gdriveSkew===null?2:0;
+ gdriveTimer=setInterval(()=>{
+  gdriveCountdown();
+  if(++gdriveTick%3===0)void gdriveRefresh();
+ },1000);
+}
+function hideGdrive(){gdrivePoll(false);gdriveState=null;$('gdrivePanel')?.remove()}
+storageDetails.addEventListener('toggle',()=>{if(!storageDetails.open)gdrivePoll(false)});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)gdrivePoll(false);else if(storageDetails.open&&gdriveState?.pending)void gdriveRefresh()});
+async function gdriveRequest(action){
+ if(gdriveBusy)return;
+ if(action==='disconnect'&&!confirm('Google Drive 연결을 해제할까요? Drive에 올린 파일과 목록은 그대로 유지되며, 다시 연결할 때까지 Drive 아카이빙과 재생이 멈춥니다.'))return;
+ // A poll answer from before this request must not bring back the earlier state.
+ gdriveBusy=true;gdriveGeneration++;gdriveButtons();$('gdriveStatus').textContent='';
+ let message='';
+ try{
+  const result=await settingsRequest('api/settings/archive/gdrive/'+action),seconds=Number(result?.expires_in);
+  if(action==='connect'&&Number.isFinite(seconds))gdriveDeadline={code:String(result.user_code??''),at:performance.now()/1000+seconds};
+  if(action==='disconnect'){gdriveDeadline=null;message='Google Drive 연결을 해제했습니다.'}
+ }
+ catch(e){message=gdriveRequestError(e)}
+ try{const s=await storageSnapshot();gdriveBusy=false;showStorage(s)}
+ catch(e){message=message||e.message}
+ finally{gdriveBusy=false;if($('gdrivePanel')){gdriveButtons();$('gdriveStatus').textContent=message}}
+}
+async function runArchive(){
+ $('archiveRun').disabled=true;
+ try{await settingsRequest('api/settings/archive/run');$('storageStatus').textContent='아카이브를 시작했습니다.'}
+ catch(e){$('storageStatus').textContent={archive_running:'아카이빙이 이미 실행 중입니다.',archive_disabled:'아카이빙이 꺼져 있습니다.'}[e.code]||e.message;$('archiveRun').disabled=false}
 }
 storageDetails.addEventListener('toggle',async()=>{
  if(!storageDetails.open)return;

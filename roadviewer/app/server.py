@@ -4,15 +4,17 @@ import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
 from collections import Counter
 from progress import ProgressChannel
 from work_queue import ProcessingQueue
-from flask import Flask,request,jsonify,send_file,send_from_directory,abort
+from flask import Flask,request,jsonify,send_file,send_from_directory,abort,g as request_state
 from werkzeug.exceptions import HTTPException
 from storage_policy import StoragePolicy,atomic_json
+import media_store,archive_backends
 from device_api import DeviceAPI
 from device_network import DeviceNetwork
 from video_sources import SOURCES,ORIGINALS,DERIVED,VIDEO_KINDS,CAMERA_KINDS,UPLOAD_KINDS,STORED_KINDS,validate_hevc,validate_mp4
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
 options_path=Path('/data/options.json');options=json.loads(options_path.read_text()) if options_path.exists() else {}
+options.update(json.loads(os.environ.get('RV_ARCHIVE_OPTIONS_JSON','{}')))  # Archive options for tests only; production never sets it.
 DEVICE_HOST_PORT=int(os.environ.get('RV_DEVICE_HOST_PORT','0')) or None
 app=Flask(__name__,static_folder=None)
 app.config.update(MAX_CONTENT_LENGTH=int(options.get('max_upload_mb',512))*1024*1024,MAX_FORM_PARTS=220)
@@ -29,17 +31,174 @@ def folder(id):
 def read_meta(p):return json.loads((p/'meta.json').read_text())
 def save_meta(p,m):
  temp=p/'meta.tmp';temp.write_text(json.dumps(m,ensure_ascii=False));temp.replace(p/'meta.json')
-def original_bytes(p,kinds=STORED_KINDS):return sum((p/k).stat().st_size for k in kinds if (p/k).is_file())
-def has_video(p):return any((p/k).is_file() for k in (*ORIGINALS,*DERIVED.values()))
-def video_download_kind(p):
- return next((kind for source in ('front','qcamera','wide') for kind in SOURCES[source][:2] if (p/kind).is_file()),None)
-def video_downloads(p):
+def stored(p,m,kind):
+ # Registered for this recording: on the archive by the index (reachable or not), present locally, or a local
+ # entry whose verified remote copy stands in for a local file that is gone (as resolve serves it).
+ where=media_store.location(m,kind)
+ return media_store.is_archived_location(where) or where=='local' and ((p/kind).is_file() or media_store.remote(m,kind) is not None)
+def original_bytes(p,m=None,kinds=STORED_KINDS):return sum(media_store.media_size(p,m or {},k,store) for k in kinds if stored(p,m or {},k))
+def has_video(p,m):return any(stored(p,m,k) for k in (*ORIGINALS,*DERIVED.values()))
+# A recording's metadata as API responses show it: never an upload's session URI (a credential) or remote file ids.
+def public_meta(m):return dict(m,storage=media_store.public_storage(m['storage'])) if 'storage' in m else m
+def archived(m):return any(media_store.is_archived_location(media_store.location(m,k)) for k in media_store.MEDIA_KINDS)
+def video_download_kind(p,m):
+ return next((kind for source in ('front','qcamera','wide') for kind in SOURCES[source][:2] if stored(p,m,kind)),None)
+def video_downloads(p,m):
  # One entry per stored camera (front f, wide e, low-res q): its original, or the MP4 kept instead of it.
  rows=[]
  for source in ('front','wide','qcamera'):
-  kind=next((kind for kind in SOURCES[source][:2] if (p/kind).is_file()),None)
-  if kind:rows.append({'source':source,'kind':kind,'bytes':(p/kind).stat().st_size})
+  kind=next((kind for kind in SOURCES[source][:2] if stored(p,m,kind)),None)
+  if kind:rows.append({'source':source,'kind':kind,'bytes':media_store.media_size(p,m,kind,store)})
  return rows
+MEDIA_ERRORS={'storage_unavailable':(503,'영상 저장소에 연결할 수 없습니다. NAS 연결을 확인하세요.'),
+ 'storage_checking':(503,'영상 저장소 연결을 확인하는 중입니다. 잠시 후 다시 시도하세요.'),
+ 'media_corrupt':(409,'영상 파일을 읽을 수 없습니다. 손상되었을 수 있습니다.'),
+ 'insufficient_disk_space':(507,'보관된 파일을 내려받을 디스크 공간이 부족합니다.')}
+REMOTE_UNAVAILABLE='영상 저장소(Google Drive)에 연결할 수 없습니다. 인터넷과 Google Drive 연결을 확인하세요.'
+def remote_backend():return backend.caps.kind!='smb'
+def remote_result():
+ # A remote backend's (state, reason) from its cache; a stale one is refreshed in the background, so a request
+ # never waits on the internet (the probe's own lock keeps concurrent refreshes to one).
+ result=backend.last_result()
+ if result is None:
+  threading.Thread(target=backend.probe,name='archive-probe',daemon=True).start()
+  return 'checking','probe_pending'
+ return result
+def archive_state():
+ # The active backend's state, outside the locks: the share's check for the NAS (as before), Drive's cache.
+ return remote_result()[0] if remote_backend() else store.state()
+def archive_last_state():
+ # The active backend's latest result without probing, for callers holding the locks.
+ return backend.last_state() if remote_backend() else store.last_state()
+def media_file(p,m,kind):
+ # The readable file (a Path, or a RemoteFile only the remote backend has), or None if it does not exist.
+ # An unreachable archive or a recorded read error is answered (503/409) instead: it must never look like
+ # a missing file to the caller.
+ path,state=media_store.resolve(p,m,kind,store,backend)
+ if state in ('available','missing'):return path
+ error={'storage_unavailable':'storage_unavailable','checking':'storage_checking','corrupt':'media_corrupt'}[state]
+ if remote_entry(m,kind):request_state.remote_unavailable=True  # The answer names Google Drive instead of the NAS.
+ abort(MEDIA_ERRORS[error][0],description=error)
+def remote_entry(m,kind):
+ # The file is (or would be read) on a remote backend rather than the NAS or local disk.
+ where=media_store.location(m,kind)
+ return where in media_store.REMOTE_BACKENDS or where=='local' and media_store.remote(m,kind) is not None
+def media_path(p,m,kind):
+ path=media_file(p,m,kind)
+ if path is None:abort(404)
+ return path
+STATE_RANK=('available','corrupt','checking','storage_unavailable','missing')
+def registered(p,m,kind):return stored(p,m,kind) or media_store.location(m,kind)=='removed'
+def video_states(p,m,share):
+ # Per camera, the best state among its registered files (original or kept MP4); removed ones count as missing.
+ # share: the archive's state, checked once per list request (archived files are judged by the index).
+ states={}
+ for source,(original,mp4,_) in SOURCES.items():
+  found=[media_store.indexed_state(p,m,kind,share) for kind in (original,mp4) if registered(p,m,kind)]
+  if found:states[source]=min(found,key=STATE_RANK.index)
+ return states
+def storage_locations(p,m):
+ locations={}
+ for part,kinds in {'rlog':('rlog.zst',),**{source:row[:2] for source,row in SOURCES.items()}}.items():
+  where={media_store.location(m,kind) for kind in kinds if registered(p,m,kind)}
+  if where:locations[part]=next(w for w in (*media_store.REMOTE_LOCATIONS,'local','removed') if w in where)
+ return locations
+def remote_copies(p,m):
+ # Parts whose local file also has a verified copy on a remote backend: {part: backend}.
+ copies={}
+ for part,kinds in {'rlog':('rlog.zst',),**{source:row[:2] for source,row in SOURCES.items()}}.items():
+  for kind in kinds:
+   block=media_store.remote(m,kind)
+   if block and media_store.location(m,kind)=='local' and isinstance(block.get('backend'),str):copies.setdefault(part,block['backend'])
+ return copies
+def archive_errors(m):
+ # Files whose remote copy did not verify; the local file is kept and plays. A later task offers a retry.
+ return {kind:'remote_mismatch' for kind in media_store.MEDIA_KINDS if media_store.entry(m,kind).get('error')=='remote_mismatch'}
+
+STREAM_BLOCK=65536
+STAGING_MARGIN=100*1024*1024
+class StagingSpace(Exception):pass
+class InsufficientStorage(HTTPException):code=507  # werkzeug's abort() knows no 507.
+def abort_remote(e):
+ # A backend failure while reading: a copy that does not match its index is corrupt, a file gone since it was
+ # resolved is missing, anything else (network, auth, rate) is an unreachable archive.
+ if e.code=='not_found':abort(404)
+ error='media_corrupt' if e.code=='mismatch' else 'storage_unavailable';request_state.remote_unavailable=True
+ abort(MEDIA_ERRORS[error][0],description=error)
+def stage_remote(p,rf):
+ # A local, hash-verified copy of a remote-only file where a path is needed (original-format export, the
+ # decoder's inputs), under p/.staging; the caller removes it (unstage). Remote I/O: never under a lock.
+ if shutil.disk_usage(ROOT).free<rf.size+STAGING_MARGIN:raise StagingSpace()
+ dest=p/'.staging'/uuid.uuid4().hex/rf.kind
+ dest.parent.mkdir(parents=True)
+ try:backend.download_to(rf.ref,dest,rf.ref.sha256)
+ except BaseException:
+  unstage(dest);raise
+ return dest
+def local_content(p,m,kind):
+ # ((size, mtime_ns), sha256) of a local file, reusing the recorded hash while the file is unchanged; None if absent.
+ # Reads the file otherwise: never under a lock.
+ try:st=(p/kind).stat()
+ except OSError:return None  # Gone, or unreadable: the lock-time stat decides.
+ known=(m.get('content_hashes') or {}).get(kind)
+ fresh=isinstance(known,dict) and known.get('size')==st.st_size and known.get('mtime_ns')==st.st_mtime_ns and isinstance(known.get('sha256'),str)
+ if fresh:return (st.st_size,st.st_mtime_ns),known['sha256']
+ try:return (st.st_size,st.st_mtime_ns),file_digest(p/kind)
+ except OSError:
+  # Unverifiable: the copy is not promoted (the registration drops it); the conversion itself goes on.
+  app.logger.warning('Reading %s/%s failed; its remote copy cannot be checked against it',p.name,kind)
+  return None
+def unstage(path):
+ shutil.rmtree(path.parent,ignore_errors=True)
+ try:path.parent.parent.rmdir()  # .staging itself, once no other download or conversion uses it.
+ except OSError:pass
+def staged_source(p,rf):
+ # A staged copy opened for reading. The file is removed at once: the open descriptor keeps it readable.
+ try:path=stage_remote(p,rf)
+ except StagingSpace:raise InsufficientStorage(description='insufficient_disk_space') from None
+ except archive_backends.BackendError as e:abort_remote(e)
+ try:return path.open('rb')
+ finally:unstage(path)
+class RemoteBody:
+ # The remote file (or one range of it) as small chunks: a response never holds more than one block.
+ # close() ends the backend's download too, also when the client went away before the first chunk.
+ def __init__(self,body):self.body=body
+ def __iter__(self):
+  for block in self.body:
+   for i in range(0,len(block),STREAM_BLOCK):yield block[i:i+STREAM_BLOCK]
+ def close(self):
+  if hasattr(self.body,'close'):self.body.close()
+def remote_chunks(rf,start=0,end=None):
+ # The request is made here, so an unreachable archive is answered before any byte is sent.
+ try:return RemoteBody(backend.open(rf.ref,start,end))
+ except archive_backends.BackendError as e:abort_remote(e)
+def attachment(response,name):
+ from email.message import Message
+ disposition=Message();disposition.add_header('Content-Disposition','attachment',filename=name)
+ response.headers['Content-Disposition']=disposition['Content-Disposition']
+RANGE=re.compile(r'bytes=(\d*)-(\d*)')
+def remote_response(rf,mimetype,as_attachment=False,name=None):
+ # A file only the remote backend has, served like send_file serves a local one, with one byte range at most.
+ size=rf.size;header=request.headers.get('Range');start,end=0,size-1
+ if header is not None:
+  match=RANGE.fullmatch(header.strip())
+  first,last=(match[1],match[2]) if match else ('','')
+  if first:start,end=int(first),min(int(last),size-1) if last else size-1
+  elif last:start=max(size-int(last),0)  # bytes=-N: the last N bytes.
+  if not (first or last) or not first and int(last)==0 or first and last and int(last)<int(first) or start>=size:
+   response=jsonify(error='range_not_satisfiable');response.status_code=416
+   response.headers['Content-Range']=f'bytes */{size}';response.headers['Cache-Control']='no-store'
+   return response
+ partial=header is not None
+ body=remote_chunks(rf,start,end) if partial else remote_chunks(rf)
+ response=app.response_class(body,status=206 if partial else 200,mimetype=mimetype,direct_passthrough=True)
+ response.headers['Accept-Ranges']='bytes';response.headers['Content-Length']=str(end-start+1)
+ if partial:response.headers['Content-Range']=f'bytes {start}-{end}/{size}'
+ # Opaque: derived from the file id and hash without showing either.
+ response.headers['ETag']='"'+hashlib.sha256(rf.etag.encode()).hexdigest()[:32]+'"'
+ response.headers['Cache-Control']='no-store'
+ if as_attachment:attachment(response,name)
+ return response
 
 UPLOAD_QUIET_SECONDS=30
 def upload_receiving():
@@ -54,7 +213,7 @@ def upload_receiving():
 LOW_PRIORITY=(['ionice','-c2','-n7','-t'] if shutil.which('ionice') else [])
 def run_job(id):
  p=ROOT/id
- proc=None;revision=None
+ proc=None;revision=None;staged=[]
  # Automatic conversions wait (still queued) while segments are arriving; a manual request starts at once.
  while upload_receiving():
   with lock:
@@ -67,23 +226,56 @@ def run_job(id):
    if processes.get(id) is proc:job_progress[id]=event
  try:
   with ProgressChannel(update_progress) as channel:
+   # Resolve the inputs before taking the lock: an archived file may wait on the NAS.
+   try:current=read_meta(p)
+   except FileNotFoundError:return
+   inputs={kind:media_store.resolve(p,current,kind,store,backend) for kind in STORED_KINDS}
+   # A file only the remote backend has is read by the decoder from a verified local copy, staged here (still
+   # outside the lock) and removed when the job ends. Nothing is downloaded for a job that will not run.
+   short=False
+   if current.get('status')=='queued' and (auto_convert or current.get('manual_conversion')):
+    remote=[kind for kind,(found,state) in inputs.items() if isinstance(found,media_store.RemoteFile) and state=='available']
+    # Room for every copy is checked before the first download: a conversion deferred for space must not
+    # download part of its inputs again at each retry.
+    if remote and shutil.disk_usage(ROOT).free<sum(inputs[kind][0].size for kind in remote)+STAGING_MARGIN:
+     short=True
+     for kind in remote:inputs[kind]=(None,'storage_unavailable')
+     remote=[]
+    for kind in remote:
+     try:staged.append(stage_remote(p,inputs[kind][0]));inputs[kind]=(staged[-1],'available')
+     except StagingSpace:short=True;inputs[kind]=(None,'storage_unavailable')
+     except archive_backends.BackendError as e:inputs[kind]=(None,'corrupt' if e.code=='mismatch' else 'missing' if e.code=='not_found' else 'storage_unavailable')
+   def input_path(kind):return inputs[kind][0] if inputs[kind][1]=='available' else p/kind
    with lock:
     if not (p/'meta.json').exists():return
     m=read_meta(p)
     if m['status']!='queued':return
     if not auto_convert and not m.get('manual_conversion'):
      m.update(status='unconverted');save_meta(p,m);return
+    if any(state in ('storage_unavailable','checking') or isinstance(found,media_store.RemoteFile) for found,state in inputs.values()):
+     # Converting without the archived files would replace a good result with one lacking its videos.
+     # 'deferred' marks it for requeueing once the share is back (archiver), independent of the message text.
+     error='디스크 공간이 부족해 변환을 미뤘습니다.' if short else '저장소에 연결할 수 없어 변환을 미뤘습니다.'
+     m.update(status='unconverted',error=error,deferred='storage');save_meta(p,m);return
     revision=m.get('conversion_revision',0)
-    m.update(status='processing');save_meta(p,m)
+    m.pop('deferred',None);m.update(status='processing');save_meta(p,m)
     job_progress[id]={'stage':'log_prepare','percent':0}
-    proc=subprocess.Popen([*LOW_PRIORITY,sys.executable,'-B',str(BASE/'decoder.py'),str(p/'rlog.zst'),m['name']],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,preexec_fn=lambda:os.nice(10),**channel.options());processes[id]=proc
+    # Archived files are read where they are; replay output and meta.json stay in the local folder (decoder.py).
+    options=channel.options()
+    env=dict(options.get('env',os.environ),RV_MEDIA_PATHS=json.dumps({kind:str(input_path(kind)) for kind in VIDEO_KINDS}),RV_PREPARED_DIR=str(p/'prepared'),RV_RECORDING_DIR=str(p))
+    proc=subprocess.Popen([*LOW_PRIORITY,sys.executable,'-B',str(BASE/'decoder.py'),str(input_path('rlog.zst')),m['name']],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,preexec_fn=lambda:os.nice(10),**{**options,'env':env});processes[id]=proc
    channel.start()
    try:
-    stdout,stderr=proc.communicate(timeout=1800 if any((p/k).is_file() for k in ('fcamera.hevc','ecamera.hevc')) else 600)
+    stdout,stderr=proc.communicate(timeout=1800 if any(inputs[k][1]=='available' for k in ('fcamera.hevc','ecamera.hevc')) else 600)
     if proc.returncode:raise ValueError((stderr.strip().splitlines() or ['로그 변환 실패'])[-1][:500])
     # The decoder writes the large data file. Only its small summary is needed here.
     summary=json.loads((p/'prepared/summary.json').read_text())
     with lock:job_progress[id]={'stage':'registering','percent':0}
+    # Originals with a remote copy that the registration may delete are hashed now, outside the locks: an
+    # identical copy then stands in for the deleted original (promote_remote).
+    try:before=read_meta(p)
+    except FileNotFoundError:return
+    contents={kind:local_content(p,before,kind) for kind in DERIVED if media_store.remote(before,kind)}
     with registration_lock,lock:
      if not (p/'meta.json').exists():return
      m=read_meta(p)
@@ -94,25 +286,44 @@ def run_job(id):
       # Only a newly verified, codec-preserving result may replace an original.
       expected='h264' if source=='qcamera' else 'hevc'
       if available[source].get('codec')!=expected:continue
+      # An archived original stays the stored copy; its MP4 remains converted output in prepared/.
+      if media_store.location(m,original)!='local' or media_store.is_archived_location(media_store.location(m,mp4)):continue
+      # An MP4 removed by archive cleanup exists again, locally: the index must not hide it.
+      if media_store.location(m,mp4)=='removed':m['storage'].pop(mp4)
       (p/'prepared'/mp4).replace(p/mp4)
+      # The MP4 is new content: a copy of the previous one no longer describes it (the archiver copies it again).
+      if media_store.drop_remote(m,mp4):app.logger.info('Remote copy of %s/%s superseded by a new conversion; it is left on the remote archive',id,mp4)
+      if media_store.remote(m,original):
+       # The original goes: its copy becomes the stored file if it is the same content, else it is dropped.
+       try:st=(p/original).stat()
+       except FileNotFoundError:content=None
+       else:
+        known=contents.get(original)
+        content=(st.st_size,known[1] if known and known[0]==(st.st_size,st.st_mtime_ns) else None)
+       if not media_store.promote_remote(m,original,content):
+        app.logger.info('Remote copy of %s/%s did not match the replaced original; it is left on the remote archive',id,original)
       (p/original).unlink(missing_ok=True)
      m['video_codecs']={**m.get('video_codecs',{}),**{key:info['codec'] for key,info in available.items() if info and info.get('codec')}}
      m['video_origins']={**m.get('video_origins',{}),**{key:info['sourcePts'] for key,info in available.items() if info and 'sourcePts' in info}}
-     m['bytes']=original_bytes(p)
-     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v28-runtime-geometry');save_meta(p,m)
+     m['bytes']=original_bytes(p,m)
+     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p,m),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v28-runtime-geometry');save_meta(p,m)
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
  except Exception as e:
+  try:states=archived_states(p,read_meta(p)) if revision is not None else {}
+  except (OSError,ValueError):states={}
   with lock:
    if (p/'meta.json').exists():
     m=read_meta(p)
     if revision is not None and m.get('conversion_revision',0)==revision:
-     clear_prepared(p,m);m.update(status='error',error=str(e));save_meta(p,m)
+     if reconvertible(m,states):clear_prepared(p,m,states)
+     m.update(status='error',error=str(e));save_meta(p,m)
  finally:
   with lock:
    if processes.get(id) is proc:
     processes.pop(id,None);job_progress.pop(id,None)
+  for path in staged:unstage(path)
 
 PROCESSING_SETTINGS=ROOT/'.processing-settings.json'
 def read_processing_settings():
@@ -134,12 +345,28 @@ def submit(id):pool.submit(id)
 def recording_paths():
  return [p for p in ROOT.iterdir() if p.is_dir() and ID.fullmatch(p.name) and (p/'meta.json').is_file()]
 
-def clear_prepared(p,m):
+def archived_states(p,m,kinds=STORED_KINDS):
+ # Resolve the archived kinds BEFORE taking the lock (the share may be slow); local kinds are checked later.
+ return {kind:media_store.resolve(p,m,kind,store,backend)[1] for kind in kinds if media_store.is_archived_location(media_store.location(m,kind))}
+
+def reconvertible(m,states=None):
+ # Replay data may be discarded for a reconversion only while its log can be read: an archived log by its state
+ # resolved beforehand (archived_states), never one removed by NAS cleanup. A local log is handled as before.
+ where=media_store.location(m,'rlog.zst')
+ return where=='local' or media_store.is_archived_location(where) and (states or {}).get('rlog.zst')=='available'
+
+def clear_prepared(p,m,states=None):
  if (p/'prepared').exists():shutil.rmtree(p/'prepared')
- # Never remove the only retained copy of any camera.
+ # Never remove the only retained copy of any camera: an unreachable or unreadable original keeps its MP4.
+ # Archived originals count only by states resolved beforehand (archived_states); without one, the MP4 stays.
  for original,mp4 in DERIVED.items():
-  if (p/original).is_file():(p/mp4).unlink(missing_ok=True)
- m['bytes']=original_bytes(p)
+  where=media_store.location(m,original)
+  readable=(p/original).is_file() if where=='local' else media_store.is_archived_location(where) and (states or {}).get(original)=='available'
+  if readable:
+   (p/mp4).unlink(missing_ok=True)
+   # The conversion makes this MP4 again: a copy of the old one must never stand in for the new result.
+   media_store.drop_remote(m,mp4)
+ m['bytes']=original_bytes(p,m)
  m.update(duration=None,model_frames=None,warnings=[],error=None,conversion_revision=m.get('conversion_revision',0)+1)
 
 def queue_unconverted():
@@ -196,6 +423,12 @@ def fresh_replay_state(response):
 
 @app.errorhandler(HTTPException)
 def http_error(e):
+ if isinstance(e.description,str) and e.description in MEDIA_ERRORS:
+  code,message=MEDIA_ERRORS[e.description]
+  if e.description=='storage_unavailable' and request_state.get('remote_unavailable'):message=REMOTE_UNAVAILABLE
+  response=jsonify(error=e.description,message=message)
+  if e.description=='storage_checking':response.headers['Retry-After']='5'
+  return response,code
  if request.path.startswith('/api/device/'):
   message=e.description if isinstance(e.description,str) and re.fullmatch(r'[a-z_]+',e.description) else {400:'invalid_request',401:'unauthorized',403:'forbidden',404:'not_found',405:'method_not_allowed',413:'request_too_large'}.get(e.code,'request_failed')
   return jsonify(error=message),e.code
@@ -282,7 +515,19 @@ def logs():
   with lock:pinned=storage_policy.pinned(m);progress=job_progress.get(p.name)
   # Logs converted before 0.9.6 stored a warning for skipped new event types; it was never a problem.
   m['warnings']=[w for w in m.get('warnings') or [] if not str(w).startswith(SKIPPED_EVENTS_WARNING)]
-  return dict(m,pinned=pinned,bytes=original_bytes(p),video=has_video(p),video_download=video_download_kind(p),video_downloads=video_downloads(p),download_options=download_options(p,m),log_bytes=(p/'rlog.zst').stat().st_size if (p/'rlog.zst').is_file() else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
+  row=dict(m,pinned=pinned,bytes=original_bytes(p,m),video=has_video(p,m),video_download=video_download_kind(p,m),video_downloads=video_downloads(p,m),download_options=download_options(p,m),log_bytes=media_store.media_size(p,m,'rlog.zst',store) if stored(p,m,'rlog.zst') else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
+  # Only recordings touched by the archive carry the new fields; local-only rows stay as before.
+  if any(media_store.location(m,kind)!='local' for kind in media_store.MEDIA_KINDS):row.update(video_state=video_states(p,m,share_state()),storage_locations=storage_locations(p,m))
+  # Remote copies of local files and copies that did not verify: only on rows that have them.
+  copies=remote_copies(p,m);errors=archive_errors(m)
+  if copies:row['remote_copies']=copies
+  if errors:row['archive_error']=errors
+  return public_meta(row)
+ share=[]
+ def share_state():
+  # Once per request and only when a row has archived files; never under the lock. The active backend's state.
+  if not share:share.append(archive_state())
+  return share[0]
  items=[]
  for p in recording_paths():
   try:items.append(item(p))
@@ -293,6 +538,7 @@ def upload():
  # Legacy multipart uploads use the same admission reservation. Browsers use chunks.
  if not request.content_length:return jsonify(error='content_length_required'),411
  files=request.files.getlist('files')
+ archive_state()  # Refreshed before locking: admission reads it without probing the share (archive_last_state).
  with registration_lock,lock:
   amount=storage_policy.admit(request.content_length,[{'name':f.filename or ''} for f in files],staging=True)
   id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir();atomic_json(p/'reservation.json',{'bytes':amount});active_uploads[id]+=1
@@ -318,7 +564,10 @@ def stored_digests(path,meta,kinds=UPLOAD_KINDS):
  for kind in kinds:
   file=path/kind
   if not file.is_file():
-   if kind in DERIVED and (path/DERIVED[kind]).is_file() and kind in cached:updated[kind]=cached[kind]
+   e=media_store.entry(meta,kind)
+   # An archived file is known by the hash recorded when it was verified; the share is never read here.
+   if media_store.is_archived_location(e['location']) and isinstance(e.get('sha256'),str):updated[kind]=dict(cached.get(kind,{}),sha256=e['sha256'])
+   elif kind in DERIVED and stored(path,meta,DERIVED[kind]) and kind in cached:updated[kind]=cached[kind]
    continue
   stat=file.stat();old=cached.get(kind,{})
   if old.get('size')==stat.st_size and old.get('mtime_ns')==stat.st_mtime_ns and old.get('sha256'):
@@ -330,21 +579,37 @@ def stored_digests(path,meta,kinds=UPLOAD_KINDS):
 def retained_original(p,m,kind,digest,known):
  # A matching re-upload must not recreate the second permanent camera copy.
  source=next(key for key,value in SOURCES.items() if value[0]==kind)
- return ((p/DERIVED[kind]).is_file() and digest==known.get(kind) and
+ return (stored(p,m,DERIVED[kind]) and digest==known.get(kind) and
          m.get('video_codecs',{}).get(source)==('h264' if source=='qcamera' else 'hevc'))
 
 def additional_videos(p,meta,incoming,known):
+ # Existence follows the index (stored): an archived file exists even while the share is unreachable,
+ # so a re-upload never creates a second copy, and the share is not touched under the lock.
  added=[]
  for kind in VIDEO_KINDS:
-  if kind not in incoming or (p/kind).is_file():continue
+  if kind not in incoming or stored(p,meta,kind):continue
   if kind in DERIVED:
    if retained_original(p,meta,kind,incoming[kind],known):continue
-   if (p/DERIVED[kind]).is_file() and incoming[kind]!=known.get(kind):continue
+   if stored(p,meta,DERIVED[kind]) and incoming[kind]!=known.get(kind):continue
   else:
    original=next(raw for raw,mp4 in DERIVED.items() if mp4==kind)
-   if (p/original).is_file() or (p/'prepared'/kind).is_file():continue
+   if stored(p,meta,original) or (p/'prepared'/kind).is_file():continue
   added.append(kind)
  return added
+
+def archived_matches(wanted):
+ # States of the archived files of recordings whose log has one of these hashes, resolved before any lock.
+ # The hash comes from the index (or the cached local hash): nothing is read from the share or hashed here.
+ # A recording missed here has no states, so clear_prepared keeps the MP4s of its archived originals.
+ states={}
+ for p in recording_paths():
+  try:m=read_meta(p)
+  except (OSError,ValueError):continue
+  if not isinstance(m,dict) or not archived(m):continue
+  e=media_store.entry(m,'rlog.zst');cached=m.get('content_hashes',{}).get('rlog.zst')
+  digest=e.get('sha256') if media_store.is_archived_location(e['location']) else cached.get('sha256') if isinstance(cached,dict) else None
+  if digest in wanted:states[m['id']]=archived_states(p,m)
+ return states
 
 def register_files(files):
  if not files or len(files)>(200 if request.path.startswith('/api/device/') else 100):return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
@@ -376,6 +641,9 @@ def register_files(files):
     if 'rlog.zst' not in g['files']:raise ValueError(g['label']+': 영상과 짝이 되는 rlog.zst를 함께 올려주세요.')
     if (g['dir']/'rlog.zst').stat().st_size==0:raise ValueError('로그 파일이 비어 있습니다.')
     g['hashes']={kind:g.get('known',{}).get(kind) or file_digest(g['dir']/kind) for kind in g['files']}
+   # The share is probed before any lock, and only for re-uploads of archived recordings: it may be slow.
+   # Admission and the checks below then read the result without probing (last_state).
+   archive_state();states=archived_matches({g['hashes']['rlog.zst'] for g in groups.values()})
    with registration_lock:
     # Hash old recordings without blocking upload chunks or conversion progress.
     existing={};hash_updates=[]
@@ -386,6 +654,8 @@ def register_files(files):
      if hashes.get('rlog.zst') in wanted:hashes=stored_digests(path,meta)
      hash_updates.append((path,meta['content_hashes']))
      if 'rlog.zst' in hashes:existing.setdefault(hashes['rlog.zst'],(meta,hashes))
+    found=[match[0] for match in (existing.get(g['hashes']['rlog.zst']) for g in groups.values()) if match and archived(match[0])]
+    reachable=not found or archive_last_state()=='connected'
     with lock:
      # Recheck device revocation/expiry after slow copying and hashing, before deletion.
      if request.path.startswith('/api/device/'):
@@ -403,7 +673,16 @@ def register_files(files):
        changes=True
       else:
        path=ROOT/match[0]['id']
-       if additional_videos(path,match[0],g['hashes'],match[1]):changes=True
+       if additional_videos(path,match[0],g['hashes'],match[1]):
+        # A new camera reconverts the recording, which needs every archived file: wait for the share.
+        if not reachable and archived(match[0]):return jsonify(error='storage_unavailable',message='저장소 연결 후 다시 시도하세요.'),409
+        # Without a readable log (archived one corrupt or missing, by the states resolved before the locks) the
+        # replay data could not be made again: the recording is left as it is. A state not resolved yet waits for the share.
+        if not reconvertible(match[0],states.get(match[0]['id'])):
+         if media_store.is_archived_location(media_store.location(match[0],'rlog.zst')) and (states.get(match[0]['id']) or {}).get('rlog.zst') in (None,'storage_unavailable','checking'):
+          return jsonify(error='storage_unavailable',message='저장소 연결 후 다시 시도하세요.'),409
+         return jsonify(error='log_unavailable',message='원본 로그가 없어 영상을 추가할 수 없습니다. 로그와 영상을 함께 다시 업로드하세요.'),409
+        changes=True
      if changes:
       storage_policy.admit(0,[{'name':name} for g in groups.values() for name in g['files'].values()],commit=True,protected_ids={match[0]['id'] for match in matches if match})
      for g in groups.values():
@@ -423,20 +702,25 @@ def register_files(files):
         for kind in added:
          target=p/kind;(g['dir']/kind).replace(target);stat=target.stat()
          meta.setdefault('files',{})[kind]=g['files'][kind]
+         # A camera removed by archive cleanup is local again once re-uploaded (archived ones are never added).
+         if media_store.location(meta,kind)=='removed':meta['storage'].pop(kind)
+         # A remote copy of other content no longer describes this file.
+         media_store.drop_remote(meta,kind,g['hashes'][kind])
          meta.setdefault('content_hashes',{})[kind]={'size':stat.st_size,'mtime_ns':stat.st_mtime_ns,'sha256':g['hashes'][kind]}
          hashes={**hashes,kind:g['hashes'][kind]}
         if not restored:
-         clear_prepared(p,meta)
+         clear_prepared(p,meta,states.get(meta['id']))
          meta.update(status='queued' if (meta.get('manual_conversion') or (auto_convert and not meta.get('auto_excluded'))) else 'unconverted')
-        meta.update(video=True,bytes=original_bytes(p));save_meta(p,meta)
+        meta.update(video=True,bytes=original_bytes(p,meta));save_meta(p,meta)
         existing[g['hashes']['rlog.zst']]=(meta,hashes)
-        updated.append(dict(meta,original_restored=True) if restored else meta)
+        updated.append(public_meta(dict(meta,original_restored=True) if restored else meta))
         continue
        video_diff=any(kind in g['hashes'] and g['hashes'][kind]!=hashes.get(kind) for kind in VIDEO_KINDS)
        duplicates.append({'id':meta['id'],'name':g['label'],'video_differs':video_diff})
        continue
       id=uuid.uuid4().hex;p=g['dir']
       m={'id':id,'name':g['label'],'uploaded':time.time(),'status':'queued' if auto_convert else 'unconverted','video':any(kind in g['files'] for kind in VIDEO_KINDS),'bytes':sum(f.stat().st_size for f in p.iterdir()),'files':g['files'],'error':None,'content_hashes':{kind:{'size':(p/kind).stat().st_size,'mtime_ns':(p/kind).stat().st_mtime_ns,'sha256':digest} for kind,digest in g['hashes'].items()}};save_meta(p,m);p.rename(ROOT/id);staged.append(m);existing[g['hashes']['rlog.zst']]=(m,g['hashes'])
+  process_pending()  # Archived files of recordings evicted by admission, now that the locks are released.
   return jsonify(logs=staged,duplicates=duplicates,updated=updated),201
  except ValueError as e:return jsonify(error=str(e)),400
  finally:
@@ -471,6 +755,9 @@ def cleanup_uploads(startup=False,force=False):
    # Staging copies only; registered originals and conversions are preserved.
    for p in ROOT.glob('.upload-*'):
     if p.is_dir():removed+=storage_used_bytes(p);shutil.rmtree(p)
+   # Local copies of remote files left by an interrupted download or conversion (stage_remote).
+   for p in ROOT.glob('*/.staging'):
+    if p.is_dir() and ID.fullmatch(p.parent.name):removed+=storage_used_bytes(p);shutil.rmtree(p)
   for id in list(upload_hashes):
    if not (UPLOADS/id).is_dir():upload_hashes.pop(id,None)
   for key in list(upload_file_locks):
@@ -522,6 +809,7 @@ def begin_upload():
  cleanup_uploads()
  body=request.get_json(silent=True)
  if not isinstance(body,dict):return jsonify(error='invalid_upload'),400
+ archive_state()  # Refreshed before locking: admission reads it without probing the share (archive_last_state).
  with registration_lock,lock:return create_upload(body.get('files'))
 
 def create_upload(files,max_bytes=None,max_files=100):
@@ -641,17 +929,42 @@ def cancel_upload(id):
 def delete(id):
  with registration_lock,lock:
   if request.args.get('skip_pinned')=='1' and storage_policy.pinned(read_meta(folder(id))):return jsonify(skipped='pinned')
-  delete_recording(id)
+  delete_recording(id,remote=True)
+ process_pending()
  return jsonify(deleted=id)
 
-def delete_recording(id):
+def process_pending():
+ # Outside the locks: the share may be slow. Archived files of deleted recordings go once it answers.
+ # A remote backend's files are only queued here: the archiver cycle removes them, so Drive (retries, timeouts)
+ # never holds a request.
+ if backend.caps.kind!='smb':return
+ pending=media_store.PendingDeletes(ROOT)
+ if pending.path.exists():pending.process(store)
+
+def delete_recording(id,remote=False):
  # Shared deletion unit for explicit deletion and route-level storage cleanup.
+ # remote: the user deleted the recording, so its remote copies go too. Eviction for space (storage_policy)
+ # keeps them: a copy is the recording's backup and stays on the remote backend (find() adopts it again).
  p=folder(id);proc=processes.get(id)
  if proc and proc.poll() is None:
   proc.terminate()
   try:proc.wait(timeout=3)
   except subprocess.TimeoutExpired:proc.kill();proc.wait()
  pool.discard(id)
+ # The caller holds the locks, so the share is not touched here: archived files are only recorded, and
+ # removed after the locks are released (process_pending) or by the archiver, whenever the share answers.
+ try:m=read_meta(p)
+ except (OSError,ValueError):m={}  # A broken meta.json is still deletable; it records no archived files.
+ if not isinstance(m,dict):m={}
+ kinds=[kind for kind in media_store.MEDIA_KINDS if media_store.location(m,kind)=='nas']
+ # A remote backend's files (moved files and verified copies) are recorded by reference. Eviction removes them
+ # only in move mode, where Drive holds the recording's only copy; in copy mode Drive is the backup that outlives
+ # local cleanup, including originals a conversion promoted to the stored copy.
+ move=remote_backend() and getattr(getattr(backend,'settings',None),'effective_mode',None)=='move'
+ refs=media_store.remote_refs(m,copies=remote) if remote or move else []
+ kept=len(media_store.remote_refs(m))-len(refs)
+ if kept:app.logger.info('Recording %s removed for space; its %d Google Drive files are kept',id,kept)
+ if kinds or refs:media_store.PendingDeletes(ROOT).add(id,kinds,refs or None)
  shutil.rmtree(p)
 
 # Tags belong to the recording, never to disposable prepared data.
@@ -718,24 +1031,36 @@ def recording_tags(id):
 
 @app.route('/api/logs/<id>/convert',methods=['POST'])
 def convert(id):
+ # Outside the lock: archived files may wait on the NAS.
+ with lock:p=folder(id);m=read_meta(p)
+ states=archived_states(p,m)
  with lock:
   p=folder(id);m=read_meta(p)
   if m['status'] in ('queued','processing','ready'):
    return jsonify(status=m['status'])
-  if not (p/'rlog.zst').is_file():return jsonify(error='원본 로그가 없습니다.'),409
-  clear_prepared(p,m)
+  # Local files are checked here; an archived one not resolved beforehand counts as unreachable.
+  def state(kind):return states.get(kind,'storage_unavailable') if media_store.is_archived_location(media_store.location(m,kind)) else media_store.resolve(p,m,kind,store)[1]
+  # A conversion needs every archived input, videos included: refused now rather than queued and deferred.
+  if any(state(kind) in ('storage_unavailable','checking') for kind in STORED_KINDS):return jsonify(error='storage_unavailable',message='저장소 연결 후 다시 시도하세요.'),409
+  # An unreadable archived camera could not be converted again: its MP4 in prepared/ is the only playable copy.
+  if any(state(kind)=='corrupt' for kind in STORED_KINDS):return jsonify(error='media_corrupt',message=MEDIA_ERRORS['media_corrupt'][1]),409
+  if state('rlog.zst')=='missing' or not reconvertible(m,states):return jsonify(error='원본 로그가 없습니다.'),409
+  clear_prepared(p,m,states)
   m.update(status='queued',manual_conversion=True,auto_excluded=False)
   save_meta(p,m);submit(id)
  return jsonify(status='queued')
 
 @app.route('/api/logs/<id>/prepared',methods=['DELETE'])
 def remove_prepared(id):
+ # Outside the lock: whether an archived original is readable may wait on the NAS.
+ with lock:p=folder(id);m=read_meta(p)
+ states=archived_states(p,m,ORIGINALS)
  with lock:
   p=folder(id);m=read_meta(p)
   if request.args.get('skip_pinned')=='1' and storage_policy.pinned(m):return jsonify(skipped='pinned')
   if m['status']=='processing':return jsonify(error='처리 중에는 변환 데이터를 제거할 수 없습니다.'),409
   pool.discard(id)
-  clear_prepared(p,m)
+  clear_prepared(p,m,states)
   m.update(status='unconverted',manual_conversion=False,auto_excluded=True)
   save_meta(p,m)
  return jsonify(status='unconverted')
@@ -743,9 +1068,10 @@ def remove_prepared(id):
 @app.route('/api/logs/<id>/download/video')
 def download_video(id):
  with lock:
-  kind=video_download_kind(folder(id))
-  if kind is None:abort(404)
-  return original(id,kind)
+  p=folder(id);kind=video_download_kind(p,read_meta(p))
+ if kind is None:abort(404)
+ # Outside the lock: resolving an archived file may wait on the NAS.
+ return original(id,kind)
 
 def download_name(m,kind):
  # The uploaded filename (e.g. 000003fe--d524dc1e0b--8--rlog.zst); a kept MP4 takes its original's name.
@@ -769,6 +1095,20 @@ def zip_stream(entries):
  sink=_ZipSink()
  with zipfile.ZipFile(sink,'w',zipfile.ZIP_STORED,allowZip64=True) as archive:
   for path,name in entries:
+   if isinstance(path,media_store.RemoteFile):
+    # Read from the remote backend as the ZIP is written; a failure ends the stream (an incomplete ZIP),
+    # except a file deleted meanwhile, which is left out as a removed local one is.
+    try:body=RemoteBody(backend.open(path.ref))
+    except archive_backends.BackendError as e:
+     if e.code=='not_found':continue
+     raise
+    try:
+     info=zipfile.ZipInfo(name,time.localtime()[:6]);info.file_size=path.size
+     with archive.open(info,'w',force_zip64=path.size>=0x7fffffff) as out:
+      for chunk in body:out.write(chunk);yield sink.take()
+    finally:body.close()
+    yield sink.take()
+    continue
    try:source=path.open('rb')
    except OSError:continue # Removed since the request started.
    with source:
@@ -785,21 +1125,23 @@ DOWNLOAD_PARTS=('rlog','front','wide','qcamera')
 def download_options(p,m):
  rows=[]
  for source,(original,mp4,_) in SOURCES.items():
-  video=next((path for path in (p/mp4,p/'prepared'/mp4) if path.is_file()),None)
-  raw=p/original
-  if not raw.is_file() and video is None:continue
+  video=stored(p,m,mp4) or (p/'prepared'/mp4).is_file();raw=stored(p,m,original)
+  if not raw and not video:continue
   codec=m.get('video_codecs',{}).get(source)
-  reversible=video is not None and (codec=='hevc' if source!='qcamera' else codec in (None,'h264'))
-  rows.append(dict(source=source,mp4=video is not None,original=raw.is_file() or reversible,
-                   bytes=(video or raw).stat().st_size,original_kind=original))
+  reversible=video and (codec=='hevc' if source!='qcamera' else codec in (None,'h264'))
+  size=media_store.media_size(p,m,mp4,store) if stored(p,m,mp4) else (p/'prepared'/mp4).stat().st_size if video else media_store.media_size(p,m,original,store)
+  rows.append(dict(source=source,mp4=video,original=raw or reversible,bytes=size,original_kind=original))
  return rows
 
 def planned_video(p,m,source,format):
  original,mp4,_=SOURCES[source]
- raw=p/original
- video=next((path for path in (p/mp4,p/'prepared'/mp4) if path.is_file()),None)
- if format=='mp4':return (video,mp4,None,0) if video else None
- if raw.is_file():return raw,original,None,0
+ # Resolve only the file actually sent: an unreachable MP4 must not block its reachable original.
+ def kept():return media_file(p,m,mp4) or ((p/'prepared'/mp4) if (p/'prepared'/mp4).is_file() else None)
+ if format=='mp4':
+  video=kept();return (video,mp4,None,0) if video else None
+ raw=media_file(p,m,original)
+ if raw:return raw,original,None,0
+ video=kept()
  if video is None:return None
  option=next(row for row in download_options(p,m) if row['source']==source)
  if not option['original']:abort(409,description='요청한 원본 형식 파일을 만들 수 없습니다.')
@@ -817,27 +1159,66 @@ def export_chunks(source,kind,offset):
   if proc.poll() is None:proc.terminate()
   proc.wait();proc.stdout.close();proc.stderr.close()
 
+def plan_downloads(ids,parts,format):
+ # Without the lock: metadata is replaced atomically, and resolving archived files may wait on the NAS.
+ plans,names=[],set()
+ for id in ids:
+  p=folder(id);m=read_meta(p);rows=[]
+  if 'rlog' in parts and (log:=media_file(p,m,'rlog.zst')):rows.append((log,'rlog.zst',None,0))
+  for source in ('front','wide','qcamera'):
+   if source in parts and (plan:=planned_video(p,m,source,format)):rows.append(plan)
+  for path,kind,export,offset in rows:
+   name=download_name(m,kind)
+   if name in names:name=f'{id[:8]}-{name}'
+   names.add(name);plans.append((path,name,export,offset,p))
+ return plans
+
+def close_source(source):
+ if hasattr(source,'close'):source.close()
+
+def open_downloads(ids,plans):
+ # Archived files are opened outside the lock (a local deletion cannot affect them); local files under it,
+ # after rechecking each recording, so a concurrent deletion answers 404 as before. A file only the remote
+ # backend has stays a RemoteFile, read while streaming; one to export from a path is staged first (verified).
+ sources=[None]*len(plans)
+ try:
+  for i,(path,_,export,_,p) in enumerate(plans):
+   if isinstance(path,media_store.RemoteFile):
+    sources[i]=staged_source(p,path) if export else path
+    continue
+   if path.is_relative_to(ROOT):continue
+   try:sources[i]=path.open('rb')
+   except OSError:abort(503,description='storage_unavailable')  # The archive went away after resolving.
+  with lock:
+   for id in ids:folder(id)
+   for i,(path,*_) in enumerate(plans):
+    if sources[i] is None:sources[i]=path.open('rb')
+ except BaseException:
+  for source in sources:
+   if source:close_source(source)
+  raise
+ return [(source,*plan[1:4]) for source,plan in zip(sources,plans)]
+
+def remote_stream(rf):
+ # A remote file read while a response already streams: a failure ends the response, never mid-body JSON.
+ body=RemoteBody(backend.open(rf.ref))
+ try:yield from body
+ finally:body.close()
+
 def download_selected(ids,parts,format,single=False):
  if format not in ('mp4','original'):abort(400)
- entries=[]
- try:
-  with lock:
-   for id in ids:
-    p=folder(id);m=read_meta(p)
-    plans=[]
-    if 'rlog' in parts and (p/'rlog.zst').is_file():plans.append((p/'rlog.zst','rlog.zst',None,0))
-    for source in ('front','wide','qcamera'):
-     if source not in parts:continue
-     plan=planned_video(p,m,source,format)
-     if plan:plans.append(plan)
-    for path,kind,export,offset in plans:
-     name=download_name(m,kind)
-     if any(entry[1]==name for entry in entries):name=f'{id[:8]}-{name}'
-     entries.append((path.open('rb'),name,export,offset))
-  if not entries:abort(404)
- except BaseException:
-  for source,*_ in entries:source.close()
-  raise
+ for attempt in range(3):
+  plans=plan_downloads(ids,parts,format)
+  if not plans:abort(404)
+  try:entries=open_downloads(ids,plans);break
+  except FileNotFoundError:
+   # A conversion replaced a local file (original -> kept MP4) after planning: plan again.
+   if attempt==2:raise
+ name=entries[0][1] if single else f'roadviewer-{len(ids)}-segments-{format}.zip'
+ mime=('video/mp4' if name.endswith('.mp4') else 'video/hevc' if name.endswith('.hevc') else 'video/mp2t' if name.endswith('.ts') else 'application/zstd') if single else 'application/zip'
+ # One remote-only file sent as it is: streamed from the backend like the playback routes (ranges included).
+ if single and isinstance(entries[0][0],media_store.RemoteFile) and not entries[0][2]:
+  return remote_response(entries[0][0],mime,as_attachment=True,name=name)
  def stream():
   try:
    if single:
@@ -849,24 +1230,21 @@ def download_selected(ids,parts,format,single=False):
     sink=_ZipSink()
     with zipfile.ZipFile(sink,'w',zipfile.ZIP_STORED,allowZip64=True) as archive:
      for source,name,kind,offset in entries:
-      info=zipfile.ZipInfo(name);info.file_size=0 if kind else os.fstat(source.fileno()).st_size
+      remote=isinstance(source,media_store.RemoteFile)
+      info=zipfile.ZipInfo(name);info.file_size=0 if kind else source.size if remote else os.fstat(source.fileno()).st_size
       with archive.open(info,'w',force_zip64=True) as out:
        if kind:
         for chunk in export_chunks(source,kind,offset):out.write(chunk);yield sink.take()
        else:
-        while chunk:=source.read(65536):out.write(chunk);yield sink.take()
+        for chunk in remote_stream(source) if remote else iter(lambda:source.read(65536),b''):out.write(chunk);yield sink.take()
       yield sink.take()
     yield sink.take()
   finally:
-   for source,*_ in entries:source.close()
- name=entries[0][1] if single else f'roadviewer-{len(ids)}-segments-{format}.zip'
- mime=('video/mp4' if name.endswith('.mp4') else 'video/hevc' if name.endswith('.hevc') else 'video/mp2t' if name.endswith('.ts') else 'application/zstd') if single else 'application/zip'
+   for source,*_ in entries:close_source(source)
  response=app.response_class(stream(),mimetype=mime,direct_passthrough=True)
- from email.message import Message
- disposition=Message();disposition.add_header('Content-Disposition','attachment',filename=name)
- response.headers['Content-Disposition']=disposition['Content-Disposition']
+ attachment(response,name)
  response.headers['Cache-Control']='no-store'
- response.call_on_close(lambda:[source.close() for source,*_ in entries])
+ response.call_on_close(lambda:[close_source(source) for source,*_ in entries])
  return response
 
 @app.route('/api/logs/<id>/download')
@@ -883,14 +1261,19 @@ def download_many():
  if not ids or len(ids)>150 or not parts or not parts<=set(DOWNLOAD_PARTS):abort(400)
  if request.args.get('format') is not None:return download_selected(ids,parts,request.args['format'])
  entries,names=[],set()
+ # Without the lock: resolving archived files may wait on the NAS. Files are opened while streaming.
+ for id in ids:
+  p=folder(id);m=read_meta(p)
+  kinds=(['rlog.zst'] if 'rlog' in parts else [])+[row['kind'] for row in video_downloads(p,m) if row['source'] in parts]
+  for kind in kinds:
+   # Every file is resolved before streaming: one unreachable file refuses the whole ZIP.
+   path=media_file(p,m,kind)
+   if path is None:continue
+   name=download_name(m,kind)
+   if name in names:name=f'{id[:8]}-{name}'
+   names.add(name);entries.append((path,name))
  with lock:
-  for id in ids:
-   p=folder(id);m=read_meta(p)
-   kinds=(['rlog.zst'] if 'rlog' in parts and (p/'rlog.zst').is_file() else [])+[row['kind'] for row in video_downloads(p) if row['source'] in parts]
-   for kind in kinds:
-    name=download_name(m,kind)
-    if name in names:name=f'{id[:8]}-{name}'
-    names.add(name);entries.append((p/kind,name))
+  for id in ids:folder(id)
  if not entries:abort(404)
  response=app.response_class(zip_stream(entries),mimetype='application/zip',direct_passthrough=True)
  response.headers['Content-Disposition']=f'attachment; filename="roadviewer-{len(ids)}-segments-{time.strftime("%Y%m%d-%H%M%S")}.zip"'
@@ -900,10 +1283,10 @@ def download_many():
 @app.route('/api/logs/<id>/original/<kind>')
 def original(id,kind):
  if kind not in STORED_KINDS:abort(404)
- p=folder(id);file=p/kind
- if not file.is_file():abort(404)
- name=download_name(read_meta(p),kind)
+ p=folder(id);m=read_meta(p);file=media_path(p,m,kind)
+ name=download_name(m,kind)
  mime='video/mp4' if kind.endswith('.mp4') else 'video/hevc' if kind.endswith('.hevc') else 'video/mp2t' if kind=='qcamera.ts' else 'application/zstd'
+ if isinstance(file,media_store.RemoteFile):return remote_response(file,mime,as_attachment=True,name=name)
  return send_file(file,as_attachment=True,download_name=name,mimetype=mime,conditional=True)
 
 @app.route('/api/logs/<id>/data')
@@ -938,26 +1321,47 @@ def telemetry(id):
 
 @app.route('/api/logs/<id>/video')
 def video(id):
- p=folder(id)
- if read_meta(p)['status']!='ready':return jsonify(error='로그를 준비 중이거나 변환에 실패했습니다.'),409
+ p=folder(id);m=read_meta(p)
+ if m['status']!='ready':return jsonify(error='로그를 준비 중이거나 변환에 실패했습니다.'),409
  summary_file=p/'prepared/summary.json'
  summary=json.loads(summary_file.read_text()) if summary_file.is_file() else {}
  preferred=next((key for key in ('front','qcamera','wide') if summary.get('videos',{}).get(key)),'qcamera')
  source=request.args.get('source',preferred)
  if source not in SOURCES:abort(404)
  name=SOURCES[source][1]
- file=p/name if (p/name).is_file() else p/'prepared'/name
+ file=media_file(p,m,name) or p/'prepared'/name
+ if isinstance(file,media_store.RemoteFile):return remote_response(file,'video/mp4')
  if not file.exists():abort(404)
  return send_file(file,mimetype='video/mp4',conditional=True)
+def stale_recording(p,m):
+ # A ready result made by an older decoder, without its replay data, or recorded with other videos than stored now.
+ # Videos removed by NAS cleanup are gone for good: the result recorded with them is not stale for it.
+ removed=not has_video(p,m) and any(media_store.location(m,kind)=='removed' for kind in VIDEO_KINDS)
+ return m['status']=='ready' and (m.get('decoder_version')!='v28-runtime-geometry' or bool(m.get('video'))!=has_video(p,m) and not removed or prepared_file(p,'data.json')[0] is None)
+
+def invalidate_recording(p,m,states):
+ # Marks the recording for conversion again; the caller saves it. Archived inputs count only by states resolved
+ # beforehand (archived_states). False when a ready result is kept because its log cannot be read.
+ if not reconvertible(m,states):
+  if m['status']=='ready':return False
+ else:clear_prepared(p,m,states)
+ m.update(status='unconverted',video=has_video(p,m))
+ return True
+
 def requeue_startup():
  # Invalidate all stale results before admitting work, oldest first.
  pending=[]
+ # The share is never probed here (a hung mount must not stall startup): only a recent result counts.
+ connected=archive_last_state()=='connected'
  for p in recording_paths():
   m=read_meta(p)
-  stale=m['status']=='ready' and (m.get('decoder_version')!='v28-runtime-geometry' or bool(m.get('video'))!=has_video(p) or prepared_file(p,'data.json')[0] is None)
-  if m['status'] in ('queued','processing') or stale:
-   clear_prepared(p,m)
-   m.update(status='unconverted',video=has_video(p))
+  # Results of a recording with archived files are kept while the share cannot be checked: reconverting
+  # without them would replace a good result with one lacking its videos. The archiver checks them once
+  # the share is connected (Archiver.recheck_held).
+  held=archived(m) and not connected
+  states=archived_states(p,m,(*ORIGINALS,'rlog.zst')) if archived(m) and connected else {}
+  if m['status'] in ('queued','processing') or not held and stale_recording(p,m):
+   if not invalidate_recording(p,m,states):continue
    save_meta(p,m)
   if m['status']=='unconverted' and not m.get('auto_excluded') and (auto_convert or m.get('manual_conversion')):pending.append((p,m))
  pending.sort(key=lambda row:(row[1].get('uploaded',0),row[0].name))
@@ -987,10 +1391,91 @@ def migrate_prepared():
   except (OSError,ValueError,KeyError,subprocess.SubprocessError):
    app.logger.exception('Replay data migration failed for %s',p.name)
 
+archive_settings=media_store.ArchiveSettings.from_options(options)
+# Only constructed here: the share is first touched by the archiver thread (Archiver.activate), so a hung mount cannot stall startup.
+store=media_store.ArchiveStore(archive_settings,ROOT)
+# The active backend (the NAS around `store`, or Drive); constructing it reads at most the local token file.
+backend=archive_backends.make_backend(archive_settings,ROOT,store=store)
+if archive_settings.error:app.logger.warning('Video archive is disabled: %s',archive_settings.error)
+archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings,backend=backend)
+@app.route('/api/settings/archive/run',methods=['POST'])
+def run_archive():
+ # One cycle now, in the background (a cycle can outlast the Ingress timeout); progress shows in
+ # the storage settings' archive block. Never two cycles at once.
+ if not archiver.settings.enabled:return jsonify(error='archive_disabled'),409
+ if not archiver.start_cycle():return jsonify(error='archive_running'),409
+ return jsonify(started=True),202
+connection=None;connection_lock=threading.Lock()
+FOLDER_REASONS=('folder_missing','folder_trashed','storage_id_mismatch')
+def drive_connection():
+ # The device-flow sign-in of the active Drive backend (None for the NAS), made on first use.
+ global connection
+ if not remote_backend():return None
+ with connection_lock:
+  if connection is None or connection.backend is not backend:connection=archive_backends.DriveConnection(backend,on_change=drive_changed)
+  return connection
+def drive_changed(connected):
+ # A new grant or a disconnect: an earlier sign-in failure of the archiver no longer applies.
+ archiver.last_auth_error=None
+def gdrive_auth_error(reason):
+ # Why Drive needs signing in (again), as a code: the sign-in's last failure, the archiver's, or the cached probe's.
+ # reason: the cached probe reason (remote_result), never a fresh probe.
+ conn=drive_connection()
+ return conn.last_error or archiver.last_auth_error or ('auth_expired' if reason=='auth_expired' else None)
+def gdrive_status(reason):
+ # The connection as the settings panel shows it: never a token, secret, device code or session.
+ auth=backend.auth
+ return dict(configured=bool(backend.settings.gdrive_client_id),connected=auth.connected,
+             folder_ok=bool(auth.folder_id) and reason not in FOLDER_REASONS,pending=drive_connection().pending(),
+             last_auth_error=gdrive_auth_error(reason))
+@app.route('/api/settings/archive/gdrive/connect',methods=['POST'])
+def gdrive_connect():
+ # Asks Google for a device code (the only Google call in a request: the user waits for the code); a daemon
+ # thread polls for the grant. One flow at a time: while a code waits, the same code is answered again.
+ conn=drive_connection()
+ if conn is None:return jsonify(error='gdrive_not_selected'),409
+ if not backend.settings.gdrive_client_id:return jsonify(error='gdrive_not_configured'),409
+ # Signed in and working: disconnect first. A grant Google no longer accepts can be renewed in place.
+ if backend.auth.connected and not gdrive_auth_error((backend.last_result() or (None,None))[1]):return jsonify(error='gdrive_connected'),409
+ try:flow=conn.start()
+ except archive_backends.BackendError as e:
+  if e.code in ('unavailable','rate_limited'):return jsonify(error='gdrive_unavailable'),503
+  return jsonify(error='gdrive_auth_failed',reason=e.reason or e.code),502
+ return jsonify(user_code=flow['user_code'],verification_url=flow['verification_url'],
+                expires_in=max(0,int(flow['expires_at']-backend.auth.clock()))),202
+@app.route('/api/settings/archive/gdrive/disconnect',methods=['POST'])
+def gdrive_disconnect():
+ # Forgets the grant (token file); Google's revoke runs in the background and may fail. The index is untouched:
+ # Drive files stay recorded and answer storage_unavailable until a connection to the same folder.
+ conn=drive_connection()
+ if conn is None:return jsonify(error='gdrive_not_selected'),409
+ conn.disconnect()
+ return jsonify(connected=False)
+@app.route('/api/logs/<id>/archive/retry',methods=['POST'])
+def retry_archive(id):
+ # A file whose remote copy did not verify (error remote_mismatch) is skipped by the archiver; this clears the
+ # error so the next cycle uploads it again. Local and remote files are untouched (the bad copy stays on Drive).
+ request.max_content_length=65536
+ body=request.get_json(silent=True) if request.get_data() else {}
+ kinds=body.get('kinds',list(media_store.MEDIA_KINDS)) if isinstance(body,dict) and not set(body)-{'kinds'} else None
+ if not isinstance(kinds,list) or not kinds or any(not isinstance(k,str) or k not in media_store.MEDIA_KINDS for k in kinds):
+  return jsonify(error='invalid_archive_retry'),400
+ with lock:
+  p=folder(id);m=read_meta(p)
+  failed=[k for k in media_store.MEDIA_KINDS if k in kinds and media_store.entry(m,k).get('error')=='remote_mismatch']
+  if not failed:return jsonify(error='no_archive_error'),409
+  for kind in failed:
+   e=m['storage'][kind];e.pop('error')
+   if e=={'location':'local'}:m['storage'].pop(kind)
+  atomic_json(p/'meta.json',m)
+ store.forget_index()  # The settings panel's error count.
+ return jsonify(retried=failed)
 storage_policy=StoragePolicy(sys.modules[__name__])
 devices=DeviceAPI(sys.modules[__name__])
 device_network=DeviceNetwork(sys.modules[__name__])
 requeue_startup()
 # start.py enables this for the app; tests and tools importing the module do not migrate in the background.
-if os.environ.get('RV_MIGRATE_PREPARED')=='1':threading.Thread(target=migrate_prepared,name='prepared-migration',daemon=True).start()
+if os.environ.get('RV_MIGRATE_PREPARED')=='1':
+ threading.Thread(target=migrate_prepared,name='prepared-migration',daemon=True).start()
+ archiver.start()  # Crash recovery first (recover_startup), then a cycle every archive interval; nothing when disabled.
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)
