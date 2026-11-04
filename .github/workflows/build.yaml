@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [g1, g2, g3, g4, g5]
+        group: [g1, g2, g3, g4, g5, g6, g7, g8]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -74,9 +74,9 @@ jobs:
       - run: node tests/navigation.cjs
         if: matrix.group == 'g3'
       - run: node tests/video_sources.cjs
-        if: matrix.group == 'g5'
+        if: matrix.group == 'g7'
       - run: node tests/replay_ready.cjs
-        if: matrix.group == 'g2'
+        if: matrix.group == 'g8'
       - run: node tests/replay_coverage.cjs
         if: matrix.group == 'g2'
       - run: node tests/replay_play_request.cjs
@@ -84,63 +84,63 @@ jobs:
       - run: node tests/replay_end_seek.cjs
         if: matrix.group == 'g3'
       - run: node tests/choices.cjs
-        if: matrix.group == 'g5'
+        if: matrix.group == 'g8'
       - run: node tests/display_preferences.cjs
-        if: matrix.group == 'g2'
+        if: matrix.group == 'g7'
       - run: node tests/concurrency.cjs
-        if: matrix.group == 'g3'
+        if: matrix.group == 'g8'
       - run: node tests/conversion_controls.cjs
-        if: matrix.group == 'g2'
+        if: matrix.group == 'g7'
       - run: node tests/bulk_actions.cjs
-        if: matrix.group == 'g4'
+        if: matrix.group == 'g5'
       - run: node tests/tags.cjs
-        if: matrix.group == 'g4'
+        if: matrix.group == 'g5'
       - run: node tests/bookmarks.cjs
-        if: matrix.group == 'g2'
+        if: matrix.group == 'g5'
       - run: node tests/recording_names.cjs
-        if: matrix.group == 'g1'
+        if: matrix.group == 'g2'
       - run: node tests/storage_devices.cjs
-        if: matrix.group == 'g4'
+        if: matrix.group == 'g7'
       - run: node tests/info_panels.cjs
         if: matrix.group == 'g4'
       - run: node tests/archive_status.cjs
-        if: matrix.group == 'g2'
+        if: matrix.group == 'g5'
       - run: node tests/gdrive_panel.cjs
         if: matrix.group == 'g1'
       - run: node tests/archive_settings.cjs
-        if: matrix.group == 'g5'
+        if: matrix.group == 'g6'
       - run: node tests/pairing_refresh.cjs
-        if: matrix.group == 'g3'
+        if: matrix.group == 'g6'
       - run: node tests/device_test_page.cjs
         if: matrix.group == 'g3'
       - run: node tests/video_overlay.cjs
-        if: matrix.group == 'g3'
+        if: matrix.group == 'g8'
       - run: node tests/camera_info.cjs
-        if: matrix.group == 'g5'
+        if: matrix.group == 'g7'
       - run: node tests/telemetry.cjs
-        if: matrix.group == 'g5'
+        if: matrix.group == 'g6'
       - run: node tests/replay_layout.cjs
         if: matrix.group == 'g4'
       - run: node tests/disclosure_animation.cjs
-        if: matrix.group == 'g1'
+        if: matrix.group == 'g3'
       - run: node tests/replay_gzip.cjs
-        if: matrix.group == 'g1'
+        if: matrix.group == 'g8'
       - run: node tests/lane_marking.cjs
-        if: matrix.group == 'g5'
+        if: matrix.group == 'g8'
       - run: node tests/motion.cjs
         if: matrix.group == 'g5'
       - run: node tests/replay_downloads.cjs
-        if: matrix.group == 'g4'
+        if: matrix.group == 'g6'
       - run: node tests/download_dialog.cjs
-        if: matrix.group == 'g5'
-      - run: node tests/upload_timeout.cjs
         if: matrix.group == 'g4'
+      - run: node tests/upload_timeout.cjs
+        if: matrix.group == 'g6'
       - run: node tests/upload_stall.cjs
-        if: matrix.group == 'g1'
+        if: matrix.group == 'g5'
       - run: node tests/upload_mobile.cjs
-        if: matrix.group == 'g3'
+        if: matrix.group == 'g6'
       - run: node tests/upload_drop.cjs
-        if: matrix.group == 'g2'
+        if: matrix.group == 'g7'
   browser-tests:
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs: [browser-test-groups]
