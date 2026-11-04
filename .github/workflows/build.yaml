@@ -62,7 +62,16 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-save playwright
-      - run: npx playwright install --with-deps --only-shell chromium
+      - name: Read Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      # The browser download is cached per Playwright version. System libraries are not installed (--with-deps
+      # runs apt for ~30 s per job): the hosted runner ships Google Chrome, so Chromium's shared libraries are present.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}-chromium-shell
+      - run: npx playwright install --only-shell chromium
       # Regenerate the 2 KiB fixture with:
       # ffmpeg -f lavfi -i color=c=black:s=160x90:r=10 -t 2 -c:v libx264 -pix_fmt yuv420p tests/fixtures/black.mp4
       - name: Prepare browser video fixture
