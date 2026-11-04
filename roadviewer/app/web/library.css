@@ -494,3 +494,4 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .archive-all-summary{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0;padding:4px 22px 10px;font-size:13px}.archive-all-summary dt{color:var(--muted)}.archive-all-summary dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .archive-all-dialog .archive-mode{margin:0 22px 8px}.archive-all-excluded{margin:0 22px 8px;padding-left:18px;font-size:12px;color:var(--muted)}.archive-all-excluded:empty{display:none}
 .archive-all-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px 22px 18px}
+.archive-all-dialog{width:520px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:0;border:1px solid var(--line);border-radius:16px;background:var(--panel);color:var(--text);box-shadow:0 24px 80px #0008;overflow:auto}.archive-all-dialog[open]{display:flex;flex-direction:column}.archive-all-dialog::backdrop{background:#0009}
