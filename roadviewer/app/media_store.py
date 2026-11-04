@@ -1455,6 +1455,9 @@ class Archiver:
                     e = entry(m, kind)
                     if e['location'] == 'gdrive': self._recover_moved(p, m, kind, e)
                     elif e['location'] == 'local':
+                        if self._drop_stale_remote(p, m, kind):
+                            try: m = s.read_meta(p)
+                            except (OSError, ValueError): break
                         pending = remote_pending(m, kind)
                         if pending and pending.get('backend') == self.backend.caps.kind and not self._recover_pending(p, m, kind, pending): return
                         block = remote(m, kind)
@@ -1463,6 +1466,50 @@ class Archiver:
             self._remote_fail(e)
             return
         self.recovered = True
+
+    def _drop_stale_remote(self, p, m, kind):
+        # A local file whose remote copy (or upload in progress) describes other content: a conversion stopped
+        # between replacing the file and saving its index leaves the previous content's block. The block goes
+        # (drop_remote; its Drive file stays, an orphan find() adopts again if that content returns), so copy mode
+        # copies the new content; an upload record for other content is cleared. Nothing is deleted. The local
+        # file is hashed (outside the lock) only when the sizes match and content_hashes has no fresh hash for it
+        # (stale or missing) or the recording is still marked processing. True when the index was changed.
+        s, block, pending = self.server, remote(m, kind), remote_pending(m, kind)
+        if block is None and pending is None: return False
+        local = p / kind
+        try: stat = local.stat()
+        except OSError: return False  # Gone locally: the copy stands in for it.
+        hashes = m.get('content_hashes')
+        known = hashes.get(kind) if isinstance(hashes, dict) else None
+        fresh = known.get('sha256') if isinstance(known, dict) and known.get('size') == stat.st_size and known.get('mtime_ns') == stat.st_mtime_ns else None
+        # A recording still marked processing is read whatever its recorded hash says (its files were being replaced).
+        digest = {'sha256': fresh if isinstance(fresh, str) and m.get('status') != 'processing' else None}
+        def current_sha256():
+            if digest['sha256'] is None: digest['sha256'] = _sha256(local)
+            return digest['sha256']
+        def differs(size, sha256):
+            if type(size) is int and size != stat.st_size: return True
+            if not isinstance(sha256, str): return False
+            return current_sha256() != sha256  # The fresh recorded hash, else (stale, missing, processing) a read.
+        try:
+            stale_block = block is not None and differs(block.get('bytes'), block.get('sha256'))
+            stale_pending = not stale_block and pending is not None and differs(pending.get('size'), pending.get('sha256'))
+        except OSError: return False
+        if not (stale_block or stale_pending): return False
+        with s.lock:
+            try:
+                current, now = s.read_meta(p), local.stat()
+                # Only the index and file that were checked: anything changed meanwhile waits for the next start.
+                if ((now.st_size, now.st_mtime_ns) != (stat.st_size, stat.st_mtime_ns) or location(current, kind) != 'local'
+                        or remote(current, kind) != block or remote_pending(current, kind) != pending): return False
+                if stale_block: drop_remote(current, kind)
+                else: clear_remote_pending(current, kind)
+                atomic_json(p / 'meta.json', current)
+            except (OSError, ValueError):
+                s.app.logger.exception('Index of %s not saved', p.name)
+                return False
+        s.app.logger.info('Remote copy of %s/%s describes other content than the local file; dropped (the copy stays on the remote archive)', p.name, kind)
+        return True
 
     def _recover_pending(self, p, m, kind, pending):
         # False when recovery must stop (Drive failed).
