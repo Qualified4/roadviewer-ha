@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.13.2**.
+This guide describes **0.13.3**.
 
 [한국어](DOCS.md) · English
 
@@ -293,7 +293,7 @@ Archiving moves original videos and log files of converted recordings to network
 
 1. In Home Assistant **Settings → System → Storage**, add network storage with usage **Share**. The app sees it as `/share/<name>`.
 2. Create a folder for Road Viewer on the NAS first, for example `/share/<name>/roadviewer`. The app does not create it.
-3. In Road Viewer **Storage management → 아카이빙 설정** (Archive settings), select **NAS(SMB)**, enter the path, enable archiving and save. Changes apply without restarting.
+3. In Road Viewer **Storage management → 아카이빙 기본 설정** (Archive basics), select **NAS · 네트워크 저장소**, enter the path under **실행 및 고급 설정 → 고급 설정**, enable **자동 아카이빙** and press **설정 저장**. Changes apply without restarting.
 4. Open **저장공간 관리** (Storage management) and check that **NAS 상태** (NAS status) reads **연결됨** (connected).
 
 `archive_path` must be below `/share/`, and a sub-folder is required, e.g. `/share/<name>/roadviewer`; the share itself (`/share/<name>`) is rejected. The first folder name may use letters, digits and underscores; later names may also use dots and hyphens; `..` is rejected. Saving an invalid path is refused. An invalid migrated path disables archiving and reports `settings_error`.
@@ -302,7 +302,7 @@ On first connection, and only while `/share/<name>` is actually mounted, the app
 
 ### Web UI settings
 
-Use **Storage management → 아카이빙 설정** (Archive settings) for enabled, backend, mode, local deletion permission, minimum age, interval, batch, local usage threshold and backend-specific fields. MB means 1024² bytes. NAS always moves after verification regardless of the mode selector. The keys below identify saved preferences, rather than add-on options.
+Use **Storage management → 아카이빙 기본 설정** (Archive basics) for enabled, backend, mode, local deletion permission, minimum age and local usage criteria. **실행 및 고급 설정** contains the interval and an expandable advanced section for batch size, NAS path/capacity and the Drive folder. Presets and custom inputs preserve the existing hour/minute/MB values. **현재 설정 요약** previews draft behavior; only **설정 저장** applies it. Partial saves identify remaining changes and retries save only those changes. MB means 1024² bytes. NAS always moves after verification regardless of the mode selector. The keys below identify saved preferences, rather than add-on options.
 
 Preferences are written atomically to `/data/roadviewer/.archive-settings.json` with mode 0600. Only `archive_gdrive_client_id` and `archive_gdrive_client_secret` remain add-on options; neither value is returned by the API or shown in the web UI. On the first update, if the file is absent, the old archive options in `/data/options.json` are migrated once. Enabled and disabled values are preserved, with defaults for missing fields. Afterwards the file is authoritative: old keys are ignored and can be cleared. They remain optional schema entries for migration compatibility in this release.
 
@@ -338,7 +338,7 @@ Startup and settings saves wait `archive_interval_minutes` before running. Recov
 
 A run stops when the NAS is unreachable, NAS free space is below the file size plus 100MiB, a hash does not match, or copying fails; the next interval retries. An upload starting during a run lets the current file finish and then ends the run.
 
-**저장공간 관리** shows **NAS 상태 / NAS 사용 중 / NAS 여유 / 마지막 아카이브** (status, used, free, last run) and the latest error. **지금 아카이브** (Archive now) runs once without waiting for the interval; the button is disabled while a run is in progress. The NAS path is editable in the archive settings form.
+**저장공간 관리** shows **NAS 상태 / NAS 사용 중 / NAS 여유 / 마지막 아카이브** (status, used, free, last run) and the latest error. **지금 아카이브** (Archive now) runs once without waiting for the interval; the button is disabled while a run is in progress or unsaved changes remain. Secondary metrics and the latest run result appear under **실행 · 사본 정보**; the NAS path is under **고급 설정**.
 
 ### Video states
 
