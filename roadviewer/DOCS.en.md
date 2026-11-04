@@ -261,6 +261,7 @@ Home Assistant app backups exclude originals (ZST, TS, HEVC), MP4s, analysis/gra
 |---|---|
 | Processing options | `/data/roadviewer/.processing-settings.json` |
 | Storage policy and segment pins | `/data/roadviewer/.storage-settings.json` |
+| Archive settings (excluding client credentials) | `/data/roadviewer/archive-settings.json` |
 | Device authentication | `/data/roadviewer/.devices.json` |
 | NAS archive storage ID (files on the NAS are not backed up) | `/data/roadviewer/.archive.json` |
 
@@ -292,16 +293,20 @@ Archiving moves original videos and log files of converted recordings to network
 
 1. In Home Assistant **Settings → System → Storage**, add network storage with usage **Share**. The app sees it as `/share/<name>`.
 2. Create a folder for Road Viewer on the NAS first, for example `/share/<name>/roadviewer`. The app does not create it.
-3. In the app options, set `archive_path` to that folder, turn on `archive_enabled`, save and restart the app.
+3. In Road Viewer **Storage management → 아카이빙 설정** (Archive settings), select **NAS(SMB)**, enter the path, enable archiving and save. Changes apply without restarting.
 4. Open **저장공간 관리** (Storage management) and check that **NAS 상태** (NAS status) reads **연결됨** (connected).
 
-`archive_path` must be below `/share/`, and a sub-folder is required, e.g. `/share/<name>/roadviewer`; the share itself (`/share/<name>`) is rejected. The first folder name may use letters, digits and underscores; later names may also use dots and hyphens; `..` is rejected. With an invalid path the app starts with archiving off and logs `invalid_archive_path`.
+`archive_path` must be below `/share/`, and a sub-folder is required, e.g. `/share/<name>/roadviewer`; the share itself (`/share/<name>`) is rejected. The first folder name may use letters, digits and underscores; later names may also use dots and hyphens; `..` is rejected. Saving an invalid path is refused. An invalid migrated path disables archiving and reports `settings_error`.
 
 On first connection, and only while `/share/<name>` is actually mounted, the app writes `.roadviewer-storage.json` into the NAS folder and `.archive.json`, holding the same storage ID, into `/data/roadviewer`. The share counts as connected only when both IDs match, so an empty unmounted folder or another installation's folder is never used by mistake. Pointing `archive_path` at a different folder after the first connection shows **연결 불가** (unavailable). Do not delete either file.
 
-### App options
+### Web UI settings
 
-Options are changed only in the app configuration and apply after a restart. MB means 1024² bytes.
+Use **Storage management → 아카이빙 설정** (Archive settings) for enabled, backend, mode, local deletion permission, minimum age, interval, batch, local usage threshold and backend-specific fields. MB means 1024² bytes. NAS always moves after verification regardless of the mode selector. The keys below identify saved preferences, rather than add-on options.
+
+Preferences are written atomically to `/data/roadviewer/archive-settings.json` with mode 0600. Only `archive_gdrive_client_id` and `archive_gdrive_client_secret` remain add-on options; neither value is returned by the API or shown in the web UI. On the first update, if the file is absent, the old archive options in `/data/options.json` are migrated once. Enabled and disabled values are preserved, with defaults for missing fields. Afterwards the file is authoritative: old keys are ignored and can be cleared. They remain optional schema entries for migration compatibility in this release.
+
+An unreadable/corrupt file or invalid migrated values disable archiving and show `settings_error`. The bad file is left untouched until the user saves from the UI. Saving is refused while a cycle runs. Saving starts no archive, deletion or eviction: startup and each save wait a full configured interval. **지금 아카이브** (Archive now) can run it manually. Migration never changes the token, storage identity or recordings.
 
 | Option | Default | Range | Meaning |
 |---|---|---|---|
@@ -324,7 +329,7 @@ Each file is copied to the NAS, flushed to disk, read back and compared by hash,
 
 ### When it runs
 
-At startup the app first finishes any interrupted work, then runs every `archive_interval_minutes`. Each run checks the NAS connection and then:
+Startup and settings saves wait `archive_interval_minutes` before running. Recovery of interrupted work happens in the first run. Each run checks the NAS connection and then:
 
 1. Completes deletions postponed because the NAS was unreachable.
 2. Cleans up the NAS if it is over its limit or low on free space (see below).
@@ -333,7 +338,7 @@ At startup the app first finishes any interrupted work, then runs every `archive
 
 A run stops when the NAS is unreachable, NAS free space is below the file size plus 100MiB, a hash does not match, or copying fails; the next interval retries. An upload starting during a run lets the current file finish and then ends the run.
 
-**저장공간 관리** shows **NAS 상태 / NAS 사용 중 / NAS 여유 / 마지막 아카이브** (status, used, free, last run) and the latest error. **지금 아카이브** (Archive now) runs once without waiting for the interval; the button is disabled while a run is in progress. The NAS path is never shown in the UI.
+**저장공간 관리** shows **NAS 상태 / NAS 사용 중 / NAS 여유 / 마지막 아카이브** (status, used, free, last run) and the latest error. **지금 아카이브** (Archive now) runs once without waiting for the interval; the button is disabled while a run is in progress. The NAS path is editable in the archive settings form.
 
 ### Video states
 
@@ -368,7 +373,7 @@ Files of pinned segments and of recordings waiting for or undergoing conversion 
 
 ### Backups
 
-Files on the NAS are not part of Home Assistant backups. The app options (`archive_*`) and `/data/roadviewer/.archive.json`, holding the storage ID, are backed up with the app configuration. Back up the NAS itself separately.
+Files on the NAS are not part of Home Assistant backups. `archive-settings.json`, the add-on options containing client credentials, and `/data/roadviewer/.archive.json`, holding the storage ID, are backed up with the app configuration. Back up the NAS itself separately.
 
 ## Google Drive archiving (experimental)
 
@@ -390,9 +395,9 @@ Road Viewer signs in with Google's device flow (entering a code), so it needs an
 
 Road Viewer asks for a single scope, `drive.file`. With it the app sees **only the folder and files it created**; it cannot read or change any other file in the account's Drive.
 
-### Drive app options
+### Drive settings
 
-The [common archiving options](#app-options) (`archive_enabled`, `archive_local_threshold_mb`, `archive_min_age_hours`, `archive_interval_minutes`, `archive_batch`) mean the same for Drive. `archive_path` and `archive_nas_*` apply to the NAS only. Options are changed only in the app configuration and apply after a restart.
+The [common web UI settings](#web-ui-settings) (`archive_enabled`, `archive_local_threshold_mb`, `archive_min_age_hours`, `archive_interval_minutes`, `archive_batch`) mean the same for Drive. `archive_path` and `archive_nas_*` apply to the NAS only. Only client ID/secret are add-on options; other settings apply immediately when saved in the web UI. Folder names must contain 1–255 characters after trimming and name the folder created on first setup. Changing the name or switching backends preserves an already bound folder and its token.
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -407,10 +412,10 @@ The [common archiving options](#app-options) (`archive_enabled`, `archive_local_
 
 ### Connecting Drive
 
-1. In the app options set `archive_backend: gdrive` and the client ID and secret, save and restart the app. That is all connecting needs; `archive_enabled: true` is required only to actually copy files. With archiving off the panel shows only “아카이빙이 꺼져 있습니다. 여기서는 Google Drive 계정 연결만 관리하며 파일은 복사하지 않습니다.” (archiving is off; only the Google Drive account connection is managed here and no files are copied) and the **Drive 계정** (Drive account) state; the **지금 아카이브** (Archive now) button and the Drive usage and copy rows do not appear.
+1. Set client ID and secret in the add-on options, save and restart the app. Then select **Google Drive** in the web UI archive settings and save. Enable archiving there to copy files. With archiving off the account can still connect; the **지금 아카이브** (Archive now) button and Drive usage and copy rows are hidden.
 2. Open **저장공간 관리** (Storage management) and press **Google Drive 연결** (Connect Google Drive). The panel shows a code, the address (`https://www.google.com/device`) and the time left.
 3. On any device (phone, PC), open that address in a browser, enter the code and approve with the Google account to use.
-4. While the panel is open it checks for the approval by itself. Once approved the code disappears and **Drive 상태** (Drive status; **Drive 계정** with archiving off) reads **연결됨** (connected). The first connection creates the folder named `archive_gdrive_folder_name`. When connected with archiving off, the folder is created once archiving is turned on and the app restarted.
+4. While the panel is open it checks for approval. Once approved the code disappears and **Drive 상태** (Drive status; **Drive 계정** with archiving off) reads **연결됨** (connected). The first connection creates the folder named in the settings. When connected with archiving off, the folder is created in the first run after archiving is enabled.
 
 Without a client ID the panel shows “애드온 옵션에서 Google Drive 클라이언트 ID를 설정하세요” (set the Google Drive client ID in the add-on options) and the connect button is disabled. An expired or refused code shows why, and you can connect again. When the sign-in expires, a **다시 연결** (Reconnect) button appears; reconnecting keeps using the same folder. The device flow needs no redirect address, external port, or router/firewall change.
 
@@ -428,7 +433,7 @@ When a conversion replaces an original video with its MP4 and the original's Dri
 
 ### Drive runs and recovery
 
-Runs follow the same schedule and conditions as the NAS. At startup the app first finishes interrupted work, then every `archive_interval_minutes` it checks Drive and then measures Drive usage → processes postponed Drive deletions → requeues postponed conversions → uploads. Usage is measured before the deletions, so space they free shows in the panel from the next run's figure. There is no step like NAS cleanup. A run stops when Drive is unreachable, the sign-in expired, a rate limit is hit, Drive is full or a verification fails, and the next interval retries. None of these failures causes a local deletion or an index change.
+Runs follow the same schedule and conditions as the NAS. Startup and settings saves wait a full `archive_interval_minutes`; the first run finishes interrupted work. A run checks Drive and then measures Drive usage → processes postponed Drive deletions → requeues postponed conversions → uploads. Usage is measured before deletions, so space they free shows from the next run's figure. There is no step like NAS cleanup. A run stops when Drive is unreachable, sign-in expired, a rate limit is hit, Drive is full or verification fails; the next interval retries. None of these failures causes a local deletion or index change.
 
 Uploads are resumable, in 1MiB chunks. The upload session is recorded in the index before the first chunk, so after an interrupted run the next start continues from where Drive stopped. If the answer to the last chunk was lost, or the app stopped before verification or the index commit, the completed file on Drive is found, verified and recorded without uploading it again. If move mode stopped after the commit and before deleting the local file, the next start verifies the Drive copy again and then deletes it. If a conversion stopped after replacing a file and before saving the index, the next start drops only the record of the copy that describes the previous content (the Drive file stays) and the new content is copied again. If a moved file's Drive copy no longer verifies but the local file left behind still matches the index, that local file is used again and a fresh copy is uploaded by the next run; the bad Drive file is left in place. Empty (0-byte) files are skipped by Drive archiving with a warning.
 

@@ -82,6 +82,7 @@ jobs:
       - run: node tests/storage_devices.cjs
       - run: node tests/archive_status.cjs
       - run: node tests/gdrive_panel.cjs
+      - run: node tests/archive_settings.cjs
       - run: node tests/pairing_refresh.cjs
       - run: node tests/device_test_page.cjs
       - run: node tests/video_overlay.cjs
@@ -137,6 +138,7 @@ jobs:
       - run: python tests/test_gdrive_crash.py
       - run: python tests/test_gdrive_server.py
       - run: python tests/test_gdrive_settings.py
+      - run: python tests/test_archive_settings.py
       - run: python tests/test_gdrive_e2e.py
       - run: python tests/test_overlay.py
       - run: python tests/test_telemetry.py
