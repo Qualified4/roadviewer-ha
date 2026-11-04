@@ -203,6 +203,8 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 실험 기능인 **NAS 아카이빙**을 켜면 변환을 마친 로그의 원본 영상과 로그를 Home Assistant에 Share 용도로 연결한 네트워크 저장소로 옮겨 로컬 공간을 확보합니다. 기본값은 꺼짐이며, 고정한 구간도 옮기지만 NAS 정리에서는 지우지 않습니다. 목록·변환 데이터는 로컬에 남고 NAS에 연결할 수 없어도 파일을 지우지 않으며, 로컬로 되돌리는 복원 기능은 없습니다. NAS의 파일은 Home Assistant 백업 대상이 아닙니다. 설정 방법은 [NAS 아카이빙 안내](roadviewer/DOCS.md#nas-아카이빙-실험-기능)를 참고하세요.
 
+NAS 대신 **Google Drive**를 아카이브 저장소로 쓸 수도 있습니다(실험 기능, 기본값 꺼짐). 직접 만든 OAuth 클라이언트로 코드 입력 방식으로 연결하며, 기본은 로컬 파일을 지우지 않고 검증된 사본만 Drive에 두는 복제 모드입니다. 로컬 원본을 지우는 이동 모드는 `archive_mode: move`와 `archive_allow_local_delete: true`를 둘 다 설정해야 켜지고, 이 버전에는 Drive 자동 정리가 없습니다. 인증 토큰은 Home Assistant 백업에 포함되므로 백업을 안전하게 보관하세요. 자세한 내용은 [Google Drive 아카이빙 안내](roadviewer/DOCS.md#google-drive-아카이빙-실험-기능)를 참고하세요.
+
 ## 문서와 검증
 
 - [설치 및 사용 설명](roadviewer/DOCS.md) · [English](roadviewer/DOCS.en.md): 업로드, 변환, 재생, 일괄 관리, 저장 정책, 백업과 문제 해결
