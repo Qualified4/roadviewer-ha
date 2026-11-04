@@ -444,6 +444,7 @@ def _valid_ref(r):
 def _valid_row(r):
     # A row lists NAS files by kind and a remote backend's files by reference (`refs`, absent in older rows).
     row = {'id': r['id'], 'kinds': [k for k in r['kinds'] if k in MEDIA_KINDS]}
+    if r.get('explicit') is True: row['explicit'] = True
     if 'refs' in r: row['refs'] = [dict(x) for x in r['refs'] if _valid_ref(x)] if isinstance(r['refs'], list) else []
     return row
 
@@ -471,13 +472,14 @@ class PendingDeletes:
         if rows: atomic_json(self.path, rows)
         else: self.path.unlink(missing_ok=True)
 
-    def add(self, id, kinds, refs=None):
+    def add(self, id, kinds, refs=None, *, explicit=False):
         # refs: remote files ({kind, backend, file_id, bytes, sha256}); a row gets the field only when it has some.
         with self.lock:
             rows = self._load()
             row = next((r for r in rows if r['id'] == id), None)
             if row is None: rows.append({'id': id, 'kinds': list(kinds)}); row = rows[-1]
             else: row['kinds'] += [k for k in kinds if k not in row['kinds']]
+            if explicit and refs: row['explicit'] = True
             if refs:
                 known = {r['file_id'] for r in row.setdefault('refs', [])}
                 row['refs'] += [dict(r) for r in refs if r['file_id'] not in known]
@@ -515,7 +517,9 @@ class PendingDeletes:
         with self.lock: rows = self._load()
         total, done = 0, {}
         for row in rows:
-            refs = [r for r in row.get('refs', ()) if r['backend'] == backend.caps.kind]
+            # Old intents have no provenance (0.13.1 also queued automatic eviction).
+            # Preserve them for inspection; never guess they were a user's delete.
+            refs = [r for r in row.get('refs', ()) if r['backend'] == backend.caps.kind] if row.get('explicit') else []
             if not refs or (self.path.parent / row['id'] / 'meta.json').exists(): continue
             gone = set()
             for r in refs:
@@ -589,6 +593,7 @@ class Archiver:
         self.remote_copies_total, self.last_auth_error = 0, None
         self.cycle = threading.Lock()  # One cycle (or recovery) at a time.
         self.thread = None
+        self.reclaim_request = None  # Latest capacity goal, coalesced into this same cycle.
         self.settings_changed = threading.Event()
         self.needs_activation = False
         self.manual = None  # The latest manual run (start_cycle).
@@ -649,18 +654,20 @@ class Archiver:
         if not self.cycle.acquire(blocking=False): return {**result, 'stopped': 'busy'}
         return self._run_locked()
 
-    def start_cycle(self):
-        # A manual run in the background: False when a cycle already runs. The lock is taken here and
-        # handed to the thread, so there is no window between the check and the start.
-        if not self.cycle.acquire(blocking=False): return False
-        try:
-            self.running = True
-            self.manual = threading.Thread(target=self._run_background, name='archive-run', daemon=True)
-            self.manual.start()
-        except BaseException:
-            self.running = False
-            self.cycle.release()
-            raise
+    def start_cycle(self, reclaim=None):
+        # Admission publishes its latest goal under the same lock as reservations.
+        # A running cycle picks it up; it must not start a second MOVE worker.
+        with self.server.lock:
+            if reclaim is not None: self.reclaim_request = reclaim
+            if not self.cycle.acquire(blocking=False): return False
+            try:
+                self.running = True
+                self.manual = threading.Thread(target=self._run_background, name='archive-run', daemon=True)
+                self.manual.start()
+            except BaseException:
+                self.running = False; self.reclaim_request = None
+                self.cycle.release()
+                raise
         return True
 
     def _run_background(self):
@@ -668,22 +675,59 @@ class Archiver:
         except Exception: self.server.app.logger.exception('Archive cycle failed')
 
     def _run_locked(self):
-        # Caller holds self.cycle; it is released here.
         result = {'archived': 0, 'bytes': 0, 'stopped': None}
+        released = False
         try:
             if not self.settings.enabled: return {**result, 'stopped': 'disabled'}
-            # A save racing the timer gets a full new interval, even if the old deadline just expired.
-            if threading.current_thread() is self.thread and self.settings_changed.is_set(): return result
+            if threading.current_thread() is self.thread and self.settings_changed.is_set() and not self.reclaim_request: return result
             self.running = True
             if self.needs_activation:
-                self.activate()
-                self.needs_activation = False
-            result['stopped'] = self._cycle(result)
+                self.activate(); self.needs_activation = False
+            with self.server.lock:
+                reclaim, self.reclaim_request = self.reclaim_request, None
+            result['stopped'] = self._reclaim(result, *reclaim) if reclaim else self._cycle(result)
+            if reclaim and not self.cycle_failed: self.consecutive_failures, self.last_error = 0, None
+            while True:
+                self.store.forget_index()
+                with self.server.lock:
+                    reclaim, self.reclaim_request = self.reclaim_request, None
+                    if reclaim is None or result['archived'] >= self.settings.batch:
+                        if reclaim is not None: result['stopped'] = 'batch_limit'
+                        self.running = False; self.cycle.release(); released = True
+                        return result
+                result['stopped'] = self._reclaim(result, *reclaim)
+                if not self.cycle_failed: self.consecutive_failures, self.last_error = 0, None
         finally:
-            self.running = False
-            self.store.forget_index()  # The cycle may have changed what the index says is archived.
-            self.cycle.release()
-        return result
+            if not released:
+                self.store.forget_index()
+                with self.server.lock:
+                    self.running = False; self.reclaim_request = None; self.cycle.release()
+
+    def _reclaim(self, result, enough, eligible):
+        # Same cycle lock and MOVE engine as scheduled/manual archiving. No recovery,
+        # remote cleanup or PendingDeletes processing is part of capacity admission.
+        self.cycle_failed = False; self.last_cycle_at = time.time()
+        if not self.remote or self.settings.effective_mode != 'move' or not self.settings.allow_local_delete: return 'disabled'
+        if enough(): return 'space_available'
+        failure = self._remote_state()
+        if failure: return self._failed(failure)
+        for p, meta in self.candidates():
+            if not eligible(meta): continue
+            for kind in ARCHIVE_ORDER:
+                if enough(): return 'space_available'
+                if result['archived'] >= self.settings.batch: return 'batch_limit'
+                if location(meta, kind) != 'local' or self._done_remotely(meta, kind): continue
+                if not eligible(meta): break
+                try: size = (p / kind).stat().st_size
+                except FileNotFoundError: continue
+                if not size: continue
+                if not self.archive_remote(p, meta, kind, move_guard=eligible):
+                    if self.reason: return self._failed(self.reason)
+                    break
+                result['archived'] += 1; result['bytes'] += size
+                self.archived_files_total += 1
+                if self.server.cleanup_stop.is_set(): return 'shutdown'
+        return 'space_available' if enough() else 'no_eligible_files'
 
     def _cycle(self, result):
         if self.remote: return self._remote_cycle(result)
@@ -1378,7 +1422,7 @@ class Archiver:
             last.update(session=session, bytes=sent, at=time.monotonic())
         return on_progress
 
-    def archive_remote(self, p, meta, kind, adopt_only=False):
+    def archive_remote(self, p, meta, kind, adopt_only=False, move_guard=None):
         # Design §2.6 steps 1-6. Caller holds self.cycle. Until the index is committed the local file is the only
         # trusted copy and is never touched; afterwards only in move mode with deleting explicitly allowed.
         # adopt_only (recovery): only a copy find() returns is verified and committed; nothing is uploaded.
@@ -1428,7 +1472,7 @@ class Archiver:
             current = self._unchanged(p, kind, revision, stat)
             if current is None: return False  # The copy on Drive is adopted by find() if the content comes back.
             move = (self.settings.effective_mode == 'move' and self.settings.allow_local_delete and current.get('status') == 'ready'
-                    and p.name not in s.processes and not s.storage_policy.pinned(current))
+                    and p.name not in s.processes and not s.storage_policy.pinned(current) and (move_guard is None or move_guard(current)))
             md5 = ref.md5 or md5
             if move: set_location(current, kind, location='gdrive', file_id=ref.file_id, bytes=size, sha256=sha256, md5=md5, archived_at=time.time())
             else:

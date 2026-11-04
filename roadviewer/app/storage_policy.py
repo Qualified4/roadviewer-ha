@@ -25,7 +25,46 @@ class StoragePolicy:
         self.migrate_pins()
         s.app.add_url_rule('/api/settings/storage', 'storage_settings', self.api, methods=['GET', 'POST'])
         s.app.add_url_rule('/api/logs/<id>/pin', 'pin_log', self.pin, methods=['POST'])
-        s.app.register_error_handler(StorageError, lambda e: (jsonify(error=e.code, message={'storage_limit_exceeded':'설정한 저장공간 제한을 초과합니다.', 'insufficient_disk_space':'디스크 여유 공간이 부족합니다.', 'no_deletable_logs':'고정되었거나 사용 중인 로그를 제외하면 확보할 공간이 없습니다.'}[e.code]), 507))
+        s.app.register_error_handler(StorageError, self.error)
+
+    def error(self, error):
+        messages = {'storage_limit_exceeded': '설정한 저장공간 제한을 초과합니다.', 'insufficient_disk_space': '예약·임시 파일과 안전 여유 공간을 제외하면 디스크 공간이 부족합니다. 기존 기록은 보존합니다.',
+                    'no_deletable_logs': '고정되었거나 사용 중이거나 Drive 파일이 있는 기록을 제외하면 확보할 공간이 없습니다.'}
+        return jsonify(error=error.code, message=messages[error.code]), 507
+
+    def protected_routes(self, incoming_files):
+        files = list(incoming_files)
+        for p in self.s.UPLOADS.iterdir():
+            manifest = p / 'manifest.json'
+            if manifest.is_file(): files.extend(json.loads(manifest.read_text()))
+        routes = set()
+        for f in files:
+            match = self.s.FLAT.fullmatch(f['name'].replace('\\', '/').rsplit('/', 1)[-1])
+            if match: routes.add(match['route'])
+        return routes
+
+    def request_reclaim(self, extra, incoming_files, protected_ids, reservation_id=None):
+        # One coalesced goal in the existing archiver, never a new queue or network
+        # wait under the admission locks. Accepted uploads become reservations before
+        # the worker takes lock; extra is used only for a request rejected for disk space.
+        s, archiver = self.s, self.s.archiver
+        settings = archiver.settings
+        if not settings.enabled or settings.effective_mode != 'move': return
+        incoming_files, protected_ids = list(incoming_files), set(protected_ids)
+        def enough():
+            with s.lock:
+                reserved = self.reserved(exclude=(reservation_id,) if reservation_id else ())
+                targets = [v for v in (self.settings['max_bytes'], settings.local_threshold_bytes) if v > 0]
+                return ((not targets or s.storage_used_bytes() + reserved + extra <= min(targets))
+                        and shutil.disk_usage(s.ROOT).free >= reserved + extra + MARGIN)
+        def eligible(meta):
+            with s.lock:
+                if self.pinned(meta) or meta['id'] in protected_ids or meta.get('status') != 'ready' or meta['id'] in s.processes: return False
+                key = self.route_key(meta)
+                if key in self.protected_routes(incoming_files): return False
+                return not any(self.route_key(m) == key and (m.get('status') in ('queued', 'processing') or m['id'] in s.processes)
+                               for p in s.recording_paths() for m in [s.read_meta(p)])
+        archiver.start_cycle(reclaim=(enough, eligible))
 
     def route_key(self, meta):
         # Existing flat filenames are authoritative; never group by shortened UI text.
@@ -131,16 +170,17 @@ class StoragePolicy:
             self.settings['pinned_logs'] = sorted(pins); atomic_json(self.path, self.settings)
         return jsonify(pinned=body['pinned'])
 
-    def reserved(self):
+    def reserved(self, exclude=()):
         # Usage already includes received chunks. Reserve only the remaining peak:
         # the originals still to arrive (plus a staging copy for multipart uploads) and metadata.
         total = 0
         for p in self.s.UPLOADS.iterdir():
+            if p.name in exclude: continue
             f = p / 'reservation.json'
             if f.is_file(): total += max(0, json.loads(f.read_text())['bytes'] - self.s.storage_used_bytes(p))
         return total
 
-    def admit(self, total, incoming_files, *, commit=False, protected_ids=(), staging=True):
+    def admit(self, total, incoming_files, *, commit=False, protected_ids=(), staging=True, reservation_id=None):
         # Caller holds registration_lock then lock through admission AND session creation.
         # Multipart uploads are copied once more while registering; finished chunks are moved instead.
         needed = total * (2 if staging else 1) + 65536
@@ -148,6 +188,18 @@ class StoragePolicy:
         used = self.s.storage_used_bytes(); reserved = 0 if commit else self.reserved(); free = shutil.disk_usage(self.s.ROOT).free
         # Unreceived reservations may reserve reclaimable quota, never physical disk.
         # At commit, other upload intentions must not trigger extra eviction.
+        drive_move = self.s.archiver.settings.backend == 'gdrive' and self.s.archiver.settings.effective_mode == 'move'
+        if drive_move:
+            reserved = self.reserved(exclude=(reservation_id,) if commit and reservation_id else ())
+            # The quota is a MOVE trigger, not a reason to discard data/refuse an
+            # otherwise safe upload. Reservations cover outstanding bytes, not bytes
+            # already included in used/free. Multipart's second copy is in needed.
+            disk_full = free < reserved + needed + MARGIN
+            threshold = self.s.archiver.settings.local_threshold_bytes
+            if disk_full or limit and used + reserved + needed >= limit or threshold > 0 and used + reserved + needed >= threshold:
+                self.request_reclaim(needed if disk_full else 0, incoming_files, protected_ids, reservation_id if commit else None)
+            if disk_full: raise StorageError('insufficient_disk_space')
+            return needed
         if free < reserved + needed + MARGIN: raise StorageError('insufficient_disk_space')
         def enough(): return (not limit or used + reserved + needed <= limit) and free >= reserved + needed + MARGIN
         if enough(): return needed
@@ -173,6 +225,8 @@ class StoragePolicy:
         reachable = None
         def evictable(m):
             nonlocal reachable
+            # A Drive file/copy is part of this recording, never an eviction orphan.
+            if self.s.media_store.remote_refs(m, copies=True): return False
             if not self.s.archived(m): return True
             if reachable is None: reachable = self.s.archive_last_state() == 'connected'
             return reachable

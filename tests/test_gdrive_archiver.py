@@ -318,7 +318,7 @@ class GdriveArchiverTests(unittest.TestCase):
         with self.drive.lock:
             self.drive.files['foreign'] = dict(name='x', mimeType='application/octet-stream', parents=[], appProperties={'rv_id': 'c' * 32, 'rv_storage_id': 'other'},
                                                content=b'x', trashed=False, md5='', sha256='')
-        pending.add('c' * 32, [], [{'kind': 'fcamera.mp4', 'backend': 'gdrive', 'file_id': 'foreign', 'bytes': 1, 'sha256': None}])
+        pending.add('c' * 32, [], [{'kind': 'fcamera.mp4', 'backend': 'gdrive', 'file_id': 'foreign', 'bytes': 1, 'sha256': None}], explicit=True)
         self.assertEqual(pending.count(), 3)
         # The archiver cycle removes them; the foreign file is skipped with a warning and dropped from the list.
         with self.assertLogs('media_store', 'WARNING') as logs:
@@ -329,9 +329,9 @@ class GdriveArchiverTests(unittest.TestCase):
         self.assertEqual(deleted, ids)
         self.assertEqual(pending.count(), 0); self.assertFalse(pending.path.exists())
         # Legacy rows (kinds only) still load unchanged next to rows with refs.
-        pending.add('d' * 32, ['rlog.zst']); pending.add('e' * 32, [], [{'kind': 'rlog.zst', 'backend': 'gdrive', 'file_id': 'gone', 'bytes': 0, 'sha256': None}])
+        pending.add('d' * 32, ['rlog.zst']); pending.add('e' * 32, [], [{'kind': 'rlog.zst', 'backend': 'gdrive', 'file_id': 'gone', 'bytes': 0, 'sha256': None}], explicit=True)
         self.assertEqual(json.loads(pending.path.read_text()), [{'id': 'd' * 32, 'kinds': ['rlog.zst']},
-                         {'id': 'e' * 32, 'kinds': [], 'refs': [{'kind': 'rlog.zst', 'backend': 'gdrive', 'file_id': 'gone', 'bytes': 0, 'sha256': None}]}])
+                         {'id': 'e' * 32, 'kinds': [], 'explicit': True, 'refs': [{'kind': 'rlog.zst', 'backend': 'gdrive', 'file_id': 'gone', 'bytes': 0, 'sha256': None}]}])
         self.assertEqual(list(self.root.glob('.pending-nas-deletes.corrupt-*')), [])
         self.assertEqual(media_store.PendingDeletes(self.root).process(self.backend), 1)  # Already gone counts as removed.
         self.assertEqual(json.loads(pending.path.read_text()), [{'id': 'd' * 32, 'kinds': ['rlog.zst']}])
@@ -356,7 +356,7 @@ class GdriveArchiverTests(unittest.TestCase):
                 self.assertTrue(archiver.recovered); self.assertEqual((p / 'fcamera.mp4').read_bytes(), content)
                 for f in list(self.files()):
                     with self.drive.lock: del self.drive.files[f]
-                server.delete_recording(p.name)
+                server.delete_recording(p.name, remote=True)
         # The moved content itself goes once its copy verifies.
         p, archiver = self.moved_with_local()
         archiver.recover_startup()
@@ -493,24 +493,22 @@ class GdriveArchiverTests(unittest.TestCase):
         a = self.log('a' * 32); b = self.log('b' * 32, ['fcamera.mp4'])
         self.archiver().run_cycle()
         self.assertEqual(len(self.files()), 3)
-        # Eviction for space (storage_policy calls delete_recording(id)): the copies stay on Drive, nothing queued.
-        with self.assertLogs(server.app.logger, 'INFO') as logs:
-            with server.registration_lock, server.lock: server.delete_recording(b.name)
-        self.assertTrue(any('kept' in line and b.name in line for line in logs.output))
+        # A verified Drive copy keeps its recording reachable; capacity eviction is refused.
+        with server.registration_lock, server.lock, self.assertRaises(server.StorageError): server.delete_recording(b.name)
         pending = media_store.PendingDeletes(self.root)
-        self.assertEqual(pending.count(), 0); self.assertFalse(b.exists())
+        self.assertEqual(pending.count(), 0); self.assertTrue(b.exists())
         # The user's delete (DELETE /api/logs/<id>) queues them; the request makes no Drive call.
         since = len(self.requests())
         r = server.app.test_client().delete(f'/api/logs/{a.name}', environ_overrides=PEER, headers=HEADERS)
         self.assertEqual(r.status_code, 200); self.assertFalse(a.exists())
         self.assertEqual(self.requests()[since:], []); self.assertEqual(pending.count(), 2)
         self.archiver().run_cycle()
-        self.assertEqual(pending.count(), 0); self.assertEqual(len(self.files()), 1)  # b's copy is kept.
+        self.assertEqual(pending.count(), 0); self.assertEqual(len(self.files()), 1)  # b and its copy are kept.
         self.assertEqual(self.files()[next(iter(self.files()))]['appProperties']['rv_id'], b.name)
-        # A moved file is the only copy: eviction still queues it, as for the NAS.
+        # MOVE also preserves the recording and never queues capacity deletions.
         c = self.log('c' * 32, ['fcamera.mp4'])
         self.archiver(mode='move', allow_local_delete=True).run_cycle()
-        with server.registration_lock, server.lock: server.delete_recording(c.name)
-        self.assertEqual(pending.count(), 1)
+        with server.registration_lock, server.lock, self.assertRaises(server.StorageError): server.delete_recording(c.name)
+        self.assertTrue(c.exists()); self.assertEqual(pending.count(), 0)
 
 if __name__ == '__main__': unittest.main()

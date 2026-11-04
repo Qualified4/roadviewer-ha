@@ -7,9 +7,13 @@ function resetPairCopy(){
  clearTimeout(pairCopyTimer);pairCopyTimer=null;
  $('pairCopyIcon').innerHTML=COPY_ICON;$('pairCopyStatus').textContent='';$('pairCopy').title='페어링 코드 복사';
 }
+const storagePolicyHelp=$('storagePolicyInfo').textContent;
 let pairingTimer=null,pairingBusy=false,pairingGeneration=0,pairingIssuing=false;
 const settingsRequest=(url,body,method='POST')=>api(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
 function showStorage(s){
+ const driveMove=s.archive?.backend==='gdrive'&&s.archive.effective_mode==='move',policy=$('storagePolicy').querySelector('[value=delete_oldest]');
+ policy.textContent=driveMove?'오래된 미고정 로컬 파일을 Drive로 이동':'오래된 미고정 구간 삭제';policy.dataset.driveMove=String(driveMove);$('storagePolicy').closest('label').hidden=driveMove;
+ $('storagePolicyInfo').textContent=driveMove?'Drive MOVE에서는 로컬 한도가 소프트 리밋입니다. 한도나 이동 임계값에 도달하면 주기를 기다리지 않고 이동을 요청하며, 디스크 안전 여유와 업로드 예약·임시 용량이 확보되면 초과 업로드도 허용합니다. Drive 장애 시에도 원본과 주행 기록을 보존합니다. 고정·사용 중·최소 보관 기간·배치 제한은 유지하며, 이동이 부족하면 다음 업로드나 정기 실행에서 이어갑니다. 아카이빙이 꺼져 있으면 MOVE는 실행하지 않습니다. 실제 디스크 여유가 부족할 때만 업로드를 거부합니다.':storagePolicyHelp;
  $('storageUsed').textContent=storageSize(s.used_bytes);
  $('storageMaximum').textContent=s.max_bytes?storageSize(s.max_bytes):'제한 없음';
  $('storageFree').textContent=storageSize(s.free_bytes);
@@ -210,7 +214,7 @@ $('storageLimit').onchange=()=>{$('storageCustomLabel').hidden=$('storageLimit')
 $('storageForm').onsubmit=async e=>{
  e.preventDefault();const gb=Number($('storageLimit').value==='custom'?$('storageCustom').value:$('storageLimit').value),bytes=Math.round(gb*1073741824);
  if(!Number.isSafeInteger(bytes)||bytes<0||($('storageLimit').value==='custom'&&bytes===0)){$('storageStatus').textContent='올바른 용량을 입력하세요.';return}
- if($('storagePolicy').value==='delete_oldest'&&!confirm('공간이 부족할 때 오래된 주행부터 고정하지 않은 구간을 자동으로 완전 삭제합니다. 고정한 구간은 남깁니다. 이 정책을 저장할까요?'))return;
+ if($('storagePolicy').value==='delete_oldest'&&!confirm($('storagePolicy').querySelector('[value=delete_oldest]').dataset.driveMove==='true'?'공간이 부족하면 보호 조건을 지키면서 로컬 파일을 Drive로 검증·이동합니다. 주행 기록과 Drive 파일은 삭제하지 않습니다. 이 정책을 저장할까요?':'공간이 부족할 때 오래된 주행부터 고정하지 않은 구간을 자동으로 완전 삭제합니다. Drive 파일이 있는 기록과 고정한 구간은 남깁니다. 이 정책을 저장할까요?'))return;
  $('storageSave').disabled=true;
  try{const s=await settingsRequest('api/settings/storage',{max_bytes:bytes,policy:$('storagePolicy').value});showStorage(s);$('storageStatus').textContent='저장했습니다.'}catch(e){$('storageStatus').textContent=e.message}finally{$('storageSave').disabled=false}
 };

@@ -72,6 +72,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  pair={status:'paired',expires_at:Date.now()/1000+300};devices=[{device_id:'device',name:'My comma',registered_at:1,last_seen:2,revoked:false}];
  await page.getByText('장치가 연결되었습니다.',{exact:true}).waitFor();assert(await page.locator('#pairCopy').isDisabled());await page.locator('#pairClose').click();await page.getByRole('button',{name:'연결 해제',exact:true}).click();await page.getByRole('button',{name:'목록 제거',exact:true}).waitFor();assert(revoke);
  await page.getByRole('button',{name:'목록 제거',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.device-row'));assert.equal(devices.length,0);
+ await page.evaluate(()=>showStorage({max_bytes:1073741824,used_bytes:2147483648,free_bytes:10737418240,reserved_bytes:4096,archive:{enabled:false,backend:'gdrive',effective_mode:'move',gdrive:{connected:false}}}));
+ assert(await page.locator('#storagePolicy').locator('..').isHidden());
+ assert.match(await page.locator('#storagePolicyInfo').textContent(),/소프트 리밋/);
+ assert.match(await page.locator('#storagePolicyInfo').textContent(),/실제 디스크 여유가 부족할 때만/);
  assert.deepEqual(errors,[]);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  console.log('storage settings, Pin, pairing, revoke and device removal UI passed');
  }finally{await browser.close()}

@@ -171,6 +171,7 @@ jobs:
       - run: python tests/test_device_network.py
       - run: python tests/test_requeue.py
       - run: python tests/test_storage.py
+      - run: python tests/test_drive_capacity.py
       - run: python tests/test_tags.py
       - run: python tests/test_bookmarks.py
       - run: python tests/test_conversion_controls.py
