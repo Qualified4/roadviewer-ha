@@ -46,10 +46,18 @@ const {settleLayout}=require('./browser-helpers.cjs');
   assert.equal(await page.locator('#lead').textContent(),'35.3 m');
   for(const width of [320,390,768,1440]){
    await page.setViewportSize({width,height:1000});await settleLayout(page,'.boundary-summary');
+   let probabilityLayout;
    for(const distance of [false,true]){
     if((await page.locator('#boundaryDistance').getAttribute('aria-pressed')==='true')!==distance)await page.locator('#boundaryDistance').click();
     const cells=await page.locator('.boundary-lane,.boundary-edge').evaluateAll(nodes=>nodes.map(el=>({ok:el.scrollWidth<=el.clientWidth,title:el.textContent})));
     assert(cells.every(cell=>cell.ok),`readout overflow ${width} distance=${distance}: ${JSON.stringify(cells)}`);
+    const layout=await page.locator('.boundary-lane,.boundary-edge').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),value=el.querySelector('strong'),v=value.getBoundingClientRect();return {top:r.top,height:r.height,valueTop:v.top-r.top,valueLeft:v.left-r.left,font:getComputedStyle(value).fontSize}}));
+    if(!distance)probabilityLayout=layout;
+    else for(let i=0;i<layout.length;i++){
+     assert(Math.abs(layout[i].top-probabilityLayout[i].top)<1&&Math.abs(layout[i].height-probabilityLayout[i].height)<1,'readout cards keep their geometry when switching modes '+width+' card '+i+' '+JSON.stringify([probabilityLayout[i],layout[i]]));
+     assert(Math.abs(layout[i].valueTop-probabilityLayout[i].valueTop)<1,'values keep their vertical alignment '+width);
+     assert.equal(layout[i].font,probabilityLayout[i].font,'font size does not change with mode '+width);
+    }
     const rows=await page.locator('#boundaryLanes strong').evaluateAll(nodes=>nodes.map(el=>el.getBoundingClientRect().top));assert(rows.every(y=>Math.abs(y-rows[0])<1),'four lane values share a baseline');
     if(width===390&&!distance&&process.env.RV_PANEL_CAPTURE){await page.locator('.boundary-summary').evaluate(el=>scrollTo(0,scrollY+el.getBoundingClientRect().top-220));await settleLayout(page,'.boundary-summary');await page.locator('.boundary-summary').screenshot({path:'/tmp/roadviewer-boundary-panel.png'})}
    }

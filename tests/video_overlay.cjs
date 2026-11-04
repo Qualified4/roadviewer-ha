@@ -24,6 +24,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   };
   assert.deepEqual(await page.locator('.overlay-tools>button').evaluateAll(nodes=>nodes.map(e=>e.id)),['videoOverlayToggle','overlayHeightSettings','cameraInfoButton']);
   assert.equal(await page.locator('#overlayHeightDialog #modelPathWidth').count(),1);
+  assert.equal(await page.locator('#overlayHeightDialog #ccncBoxHelp').textContent(),'LF · FF · RF 박스는 지면에 고정됩니다. 크기는 추정값입니다.');
+  assert.equal(await page.locator('#overlayStatus').textContent(),'');
   await page.locator('#overlayHeightSettings').click();
   for(const [id,changed,expected,key,saved] of [
    ['ccncBoxHeight',250,'130','roadviewer-ccnc-box-height','1.3'],
