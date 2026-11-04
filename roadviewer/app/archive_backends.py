@@ -240,15 +240,21 @@ class DriveAuth:
         # Drive answered 401 to this access token: the next access_token() refreshes it.
         with self._lock: self._data['access_token'] = None
 
-    def disconnect(self):
+    def forget(self):
+        """Drops the grant here (the token file, a code waiting for the user); returns the token to revoke."""
         with self._lock:
             token = self._data.get('refresh_token') or self._data.get('access_token')
-            if token:
-                try: self._post('/revoke', {'token': token}).close()
-                except BackendError: pass  # Forgetting locally still disconnects; the grant can be removed at Google.
             self._data, self._device = {}, None
             try: self.path.unlink()
             except FileNotFoundError: pass
+            return token
+
+    def revoke(self, token):
+        if not token: return
+        try: self._post('/revoke', {'token': token}).close()
+        except BackendError: pass  # Forgetting locally still disconnects; the grant can be removed at Google.
+
+    def disconnect(self): self.revoke(self.forget())
 
 # --- Shared types ---
 FOLDER_MIME = 'application/vnd.google-apps.folder'
@@ -473,6 +479,7 @@ class DriveBackend(_Availability):
     def __init__(self, settings, root, auth, client, clock=time.monotonic):
         self.settings, self.root, self.auth, self.client = settings, Path(root), auth, client
         self._init_cache(clock)
+        self.usage_seen = None  # (measured_at, Usage): the panel's figure, kept across invalidate().
 
     def __repr__(self): return 'DriveBackend(connected=%r)' % self.auth.connected
 
@@ -684,8 +691,88 @@ class DriveBackend(_Availability):
         quota = self.client.about()
         usage, limit = _int_or(quota.get('usage'), 0), _int_or(quota.get('limit')) or None
         result = Usage(used=_int_or(quota.get('usageInDrive'), usage), free=max(limit - usage, 0) if limit else None, limit=limit, reliable=bool(limit))
-        self.usage_cached = (self.clock(), result)
+        self.usage_cached = self.usage_seen = (self.clock(), result)
         return result
+
+    def last_usage(self):
+        # The latest measured usage whatever its age, for the settings panel (the archiver measures it, a request
+        # never asks Drive); None before the first measurement and while signed out. invalidate() keeps it.
+        seen = self.usage_seen
+        return seen[1] if seen and self.auth.connected else None
+
+
+class DriveConnection:
+    """Signing in to Drive from the settings panel with the device flow, one code at a time. A daemon thread polls
+    the token endpoint at the interval Google asks for (slow_down adds 5 s) until the grant, a refusal or the
+    code's expiry; it holds no server lock, only DriveAuth's own around each token request. After the grant the
+    folder is set up (activate), the state probed and the usage measured, all on that thread."""
+    ERRORS = {'denied': 'access_denied', 'expired': 'code_expired'}
+
+    def __init__(self, backend, on_change=None):
+        self.backend, self.auth, self.on_change = backend, backend.auth, on_change
+        self._lock = threading.Lock()
+        self._pending = None  # {user_code, verification_url, expires_at}: all the panel may show.
+        self._cancel = threading.Event()
+        self.thread = self.revoker = None
+        self.last_error = None  # A code (access_denied, code_expired, Google's error token), never a message.
+
+    def __repr__(self): return 'DriveConnection(pending=%r)' % (self.pending() is not None)
+
+    def pending(self):
+        pending = self._pending
+        return dict(pending) if pending and self.auth.clock() < pending['expires_at'] else None
+
+    def start(self):
+        """The code to show: the one still waiting for the user, or a new one (a BackendError if Google refuses)."""
+        with self._lock:
+            pending = self.pending()
+            if pending: return pending
+            self._cancel.set()  # A thread left from an expired code stops at its next wait.
+            try: flow = self.auth.start_device_flow()
+            except BackendError as e:
+                self.last_error = e.reason or e.code
+                raise
+            self._cancel = cancel = threading.Event()
+            self._pending = {k: flow[k] for k in ('user_code', 'verification_url', 'expires_at')}
+            self.last_error = None
+            self.thread = threading.Thread(target=self._poll, args=(cancel,), name='gdrive-connect', daemon=True)
+            self.thread.start()
+            return dict(self._pending)
+
+    def _wait(self, cancel, seconds): return cancel.wait(seconds)
+
+    def _poll(self, cancel):
+        while True:
+            if self._wait(cancel, self.auth.interval or 5): return  # Disconnected, or replaced by a new code.
+            try: result = self.auth.poll_once()
+            except BackendError as e: result = e.reason or e.code
+            except Exception: result = 'error'  # Never a traceback: the answer could be in it.
+            if cancel.is_set(): return
+            if result != 'pending': break
+        if result == 'granted':
+            try:
+                self.backend.activate()
+                self.backend.probe()
+                self.backend.usage()
+            except Exception: pass  # The next probe or cycle reports what is wrong.
+        with self._lock:
+            if cancel.is_set(): return
+            self._pending = None
+            self.last_error = None if result == 'granted' else self.ERRORS.get(result, result)
+        if self.on_change: self.on_change(result == 'granted')
+
+    def disconnect(self):
+        """Forgets the grant here at once (token file, a waiting code); Google is told in the background and a
+        revoke that fails changes nothing. The index and every file stay as they are."""
+        with self._lock:
+            self._cancel.set()
+            self._pending, self.last_error = None, None
+            token = self.auth.forget()
+        self.backend.invalidate()
+        if token:
+            self.revoker = threading.Thread(target=self.auth.revoke, args=(token,), name='gdrive-revoke', daemon=True)
+            self.revoker.start()
+        if self.on_change: self.on_change(False)
 
 
 class SmbBackend:

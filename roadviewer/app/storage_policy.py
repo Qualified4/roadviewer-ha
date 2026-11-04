@@ -67,23 +67,33 @@ class StoragePolicy:
     def archive(self):
         # Status of the video archive. The share's path is never reported (it is shown only in the add-on options).
         s = self.s; store, settings = s.store, s.store.settings
-        if s.remote_backend():
-            # Google Drive has no share to check or measure; its usage block comes with the connection settings.
-            # The panel polls: the state comes from the cache, refreshed in the background, never a probe here.
-            (state, reason), used, free = s.remote_result(), 0, 0
+        remote = s.remote_backend()
+        if remote:
+            # The panel polls: the state comes from the cache, refreshed in the background, never a probe here;
+            # Drive's usage is the archiver's latest measurement (zero and unreliable until there is one).
+            (state, reason), usage = s.remote_result(), s.backend.last_usage()
+            used, free = (usage.used, usage.free or 0) if usage else (0, 0)
         else:
             state, reason = store.state(), store.reason()
             used, free = store.usage() if state == 'connected' else (0, 0)
         # Archiving off: nothing is read from disk for the block (the panel polls every few seconds).
-        files, size = store.index_totals(self.archived_totals) if settings.enabled else (0, 0)
+        if remote: files, size, copies, copied, errors = store.index_totals(self.remote_totals) if settings.enabled else (0, 0, 0, 0, 0)
+        else: files, size = store.index_totals(self.archived_totals) if settings.enabled else (0, 0)
         try: pending = s.media_store.PendingDeletes(s.ROOT).count() if settings.enabled else 0
         except (OSError, ValueError): pending = 0
         status = s.archiver.status()
-        return dict(enabled=settings.enabled, state=state, reason=reason, path_configured=settings.path is not None,
-                    used_bytes=used, free_bytes=free, max_bytes=settings.nas_max_bytes, margin_bytes=settings.nas_margin_bytes,
-                    last_cycle_at=status['last_cycle_at'], last_error=status['last_error'], consecutive_failures=status['consecutive_failures'],
-                    running=status['running'], pending_deletes=pending, archived_files=files, archived_bytes=size,
-                    missing_archived=status['missing_archived'])
+        block = dict(enabled=settings.enabled, state=state, reason=reason, path_configured=settings.path is not None,
+                     used_bytes=used, free_bytes=free, max_bytes=settings.nas_max_bytes, margin_bytes=settings.nas_margin_bytes,
+                     last_cycle_at=status['last_cycle_at'], last_error=status['last_error'], consecutive_failures=status['consecutive_failures'],
+                     running=status['running'], pending_deletes=pending, archived_files=files, archived_bytes=size,
+                     missing_archived=status['missing_archived'])
+        if not remote: return block
+        # Drive only (the NAS block is unchanged): the mode, local copies that have a Drive copy, files whose copy
+        # did not verify (retry: POST /api/logs/<id>/archive/retry) and the connection. Never a token or secret.
+        return dict(block, backend=settings.backend, mode=settings.mode, effective_mode=settings.effective_mode,
+                    local_delete_allowed=settings.allow_local_delete, usage_reliable=bool(usage and usage.reliable),
+                    remote_copies_files=copies, remote_copies_bytes=copied, archive_errors={'remote_mismatch': errors},
+                    gdrive=s.gdrive_status(reason))
 
     def archived_totals(self):
         # (files, bytes) on the archive according to every recording's index.
@@ -95,6 +105,19 @@ class StoragePolicy:
             files += sum(s.media_store.is_archived_location(s.media_store.location(m, k)) for k in s.media_store.MEDIA_KINDS)
             size += s.media_store.archived_bytes(m)
         return files, size
+
+    def remote_totals(self):
+        # As archived_totals, plus the verified remote copies of local files and the files whose copy did not verify.
+        s = self.s; ms = s.media_store; files = size = copies = copied = errors = 0
+        for p in s.recording_paths():
+            try: m = s.read_meta(p)
+            except (OSError, ValueError): continue
+            if not isinstance(m, dict): continue
+            files += sum(ms.is_archived_location(ms.location(m, k)) for k in ms.MEDIA_KINDS)
+            size += ms.archived_bytes(m)
+            n, b = ms.remote_copy_totals(m); copies += n; copied += b
+            errors += sum(ms.entry(m, k).get('error') == 'remote_mismatch' for k in ms.MEDIA_KINDS)
+        return files, size, copies, copied, errors
 
     def pin(self, id):
         with self.s.registration_lock, self.s.lock:

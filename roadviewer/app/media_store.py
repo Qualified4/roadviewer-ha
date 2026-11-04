@@ -1257,6 +1257,7 @@ class Archiver:
         self._startup()
         failure = self._remote_state()
         if failure: return self._failed(failure)
+        self._measure_usage()
         try: PendingDeletes(s.ROOT).process(self.backend)
         except (OSError, ValueError): s.app.logger.exception('Pending archive deletions failed')
         self.cleanup_last_reason, self.cleanup_error = None, None
@@ -1270,6 +1271,12 @@ class Archiver:
         if reason in FAILURES: return self._failed(reason)
         if not self.cycle_failed: self.consecutive_failures, self.last_error = 0, None
         return reason
+
+    def _measure_usage(self):
+        # The settings panel shows the figure measured here (once per cycle at most, cached); a request never asks.
+        from archive_backends import BackendError  # archive_backends imports this module.
+        try: self.backend.usage()
+        except BackendError: pass  # The panel keeps the last figure; the cycle's own calls report the failure.
 
     def _remote_state(self):
         # None when the backend is connected, else the cycle's failure.

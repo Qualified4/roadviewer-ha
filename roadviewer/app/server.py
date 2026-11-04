@@ -1405,6 +1405,71 @@ def run_archive():
  if not archiver.settings.enabled:return jsonify(error='archive_disabled'),409
  if not archiver.start_cycle():return jsonify(error='archive_running'),409
  return jsonify(started=True),202
+connection=None;connection_lock=threading.Lock()
+FOLDER_REASONS=('folder_missing','folder_trashed','storage_id_mismatch')
+def drive_connection():
+ # The device-flow sign-in of the active Drive backend (None for the NAS), made on first use.
+ global connection
+ if not remote_backend():return None
+ with connection_lock:
+  if connection is None or connection.backend is not backend:connection=archive_backends.DriveConnection(backend,on_change=drive_changed)
+  return connection
+def drive_changed(connected):
+ # A new grant or a disconnect: an earlier sign-in failure of the archiver no longer applies.
+ archiver.last_auth_error=None
+def gdrive_auth_error(reason):
+ # Why Drive needs signing in (again), as a code: the sign-in's last failure, the archiver's, or the cached probe's.
+ # reason: the cached probe reason (remote_result), never a fresh probe.
+ conn=drive_connection()
+ return conn.last_error or archiver.last_auth_error or ('auth_expired' if reason=='auth_expired' else None)
+def gdrive_status(reason):
+ # The connection as the settings panel shows it: never a token, secret, device code or session.
+ auth=backend.auth
+ return dict(configured=bool(backend.settings.gdrive_client_id),connected=auth.connected,
+             folder_ok=bool(auth.folder_id) and reason not in FOLDER_REASONS,pending=drive_connection().pending(),
+             last_auth_error=gdrive_auth_error(reason))
+@app.route('/api/settings/archive/gdrive/connect',methods=['POST'])
+def gdrive_connect():
+ # Asks Google for a device code (the only Google call in a request: the user waits for the code); a daemon
+ # thread polls for the grant. One flow at a time: while a code waits, the same code is answered again.
+ conn=drive_connection()
+ if conn is None:return jsonify(error='gdrive_not_selected'),409
+ if not backend.settings.gdrive_client_id:return jsonify(error='gdrive_not_configured'),409
+ # Signed in and working: disconnect first. A grant Google no longer accepts can be renewed in place.
+ if backend.auth.connected and not gdrive_auth_error((backend.last_result() or (None,None))[1]):return jsonify(error='gdrive_connected'),409
+ try:flow=conn.start()
+ except archive_backends.BackendError as e:
+  if e.code in ('unavailable','rate_limited'):return jsonify(error='gdrive_unavailable'),503
+  return jsonify(error='gdrive_auth_failed',reason=e.reason or e.code),502
+ return jsonify(user_code=flow['user_code'],verification_url=flow['verification_url'],
+                expires_in=max(0,int(flow['expires_at']-backend.auth.clock()))),202
+@app.route('/api/settings/archive/gdrive/disconnect',methods=['POST'])
+def gdrive_disconnect():
+ # Forgets the grant (token file); Google's revoke runs in the background and may fail. The index is untouched:
+ # Drive files stay recorded and answer storage_unavailable until a connection to the same folder.
+ conn=drive_connection()
+ if conn is None:return jsonify(error='gdrive_not_selected'),409
+ conn.disconnect()
+ return jsonify(connected=False)
+@app.route('/api/logs/<id>/archive/retry',methods=['POST'])
+def retry_archive(id):
+ # A file whose remote copy did not verify (error remote_mismatch) is skipped by the archiver; this clears the
+ # error so the next cycle uploads it again. Local and remote files are untouched (the bad copy stays on Drive).
+ request.max_content_length=65536
+ body=request.get_json(silent=True) if request.get_data() else {}
+ kinds=body.get('kinds',list(media_store.MEDIA_KINDS)) if isinstance(body,dict) and not set(body)-{'kinds'} else None
+ if not isinstance(kinds,list) or not kinds or any(not isinstance(k,str) or k not in media_store.MEDIA_KINDS for k in kinds):
+  return jsonify(error='invalid_archive_retry'),400
+ with lock:
+  p=folder(id);m=read_meta(p)
+  failed=[k for k in media_store.MEDIA_KINDS if k in kinds and media_store.entry(m,k).get('error')=='remote_mismatch']
+  if not failed:return jsonify(error='no_archive_error'),409
+  for kind in failed:
+   e=m['storage'][kind];e.pop('error')
+   if e=={'location':'local'}:m['storage'].pop(kind)
+  atomic_json(p/'meta.json',m)
+ store.forget_index()  # The settings panel's error count.
+ return jsonify(retried=failed)
 storage_policy=StoragePolicy(sys.modules[__name__])
 devices=DeviceAPI(sys.modules[__name__])
 device_network=DeviceNetwork(sys.modules[__name__])
