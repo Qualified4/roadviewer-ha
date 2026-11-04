@@ -49,9 +49,9 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.match(await row(ids[1]).textContent(),/ · 영상 없음$/);assert.equal(await row(ids[1]).locator('.media-state').count(),0,'local-only rows keep the plain text');
   assert.equal(await row(ids[2]).locator('span.media-state.media-state-available').textContent(),'영상 있음','an available camera outranks a missing one');
   assert.equal(await row(ids[3]).locator('span.media-state.media-state-missing').textContent(),'영상 없음','every camera missing');
-  await page.locator('#storageSettings summary').click();await page.locator('#archiveUsage>.archive-metric').nth(3).waitFor();
-  const metrics=await page.locator('#storageUsage>div,#archiveUsage>div').evaluateAll(rows=>rows.map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent]));
-  assert.equal(metrics.length,8);assert.deepEqual(metrics.slice(4).map(([label])=>label),['NAS 상태','NAS 사용 중','NAS 여유','마지막 아카이브']);
+  await page.locator('#storageSettings > summary').click();await page.locator('#archiveUsage>.archive-metric').first().waitFor();
+  const metrics=await page.locator('#storageUsage>div,#archiveUsage>div,#archiveSecondaryUsage>div').evaluateAll(rows=>rows.map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent]));
+  assert.equal(metrics.length,9);assert.deepEqual(metrics.slice(4).map(([label])=>label),['NAS 상태','NAS 사용 중','NAS 여유','마지막 아카이브','최근 실행 결과']);
   assert.deepEqual(metrics[4],['NAS 상태','연결 불가']);assert.deepEqual(metrics[7],['마지막 아카이브','—']);
   assert(await page.locator('#archiveRun').isEnabled());
   await page.getByRole('button',{name:'지금 아카이브',exact:true}).click();
@@ -59,7 +59,7 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.deepEqual(runs,[['POST','1',202]]);
   // A run already in progress (409) is explained in Korean and the button is usable again.
   await page.route('**/api/settings/archive/run',route=>route.fulfill({status:409,json:{error:'archive_running'}}));
-  await page.locator('#storageSettings summary').click();await page.locator('#storageSettings summary').click();
+  await page.locator('#storageSettings > summary').click();await page.locator('#storageSettings > summary').click();
   await page.waitForFunction(()=>document.getElementById('archiveRun')&&!document.getElementById('archiveRun').disabled);
   await page.locator('#archiveRun').click();
   await page.waitForFunction(()=>document.getElementById('storageStatus').textContent==='아카이빙이 이미 실행 중입니다.');
@@ -82,7 +82,7 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.match(await plainRow(ids[0]).textContent(),/ · 영상 있음$/);assert.match(await plainRow(ids[1]).textContent(),/ · 영상 없음$/);
   assert.equal(await plain.locator('.media-state').count(),0);
   assert.equal(await plainRow(ids[0]).evaluate(meta=>meta.childElementCount),0,'meta stays a single text node');
-  await plain.locator('#storageSettings summary').click();await plain.waitForFunction(()=>!document.getElementById('storageSave').disabled);
+  await plain.locator('#storageSettings > summary').click();await plain.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true');
   assert.deepEqual(await plain.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약']);
   assert.equal(await plain.locator('#archiveRun').count(),0);assert.equal(await plain.locator('#storageStatus').textContent(),'');
   assert.deepEqual(errors,[]);
