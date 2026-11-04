@@ -55,6 +55,25 @@
 </dl>
 <p>제한은 원본·변환·임시 파일을 합산하며 업로드 전에 배치 전체 용량을 예약합니다. 저장 한도를 낮춰도 즉시 삭제하지 않습니다. 변환 결과의 크기는 달라질 수 있어 파일시스템의 강제 용량 제한은 아닙니다.</p>
 <form id="storageForm"><div class="settings-fields"><label>최대 사용량<select id="storageLimit"><option value="0">제한 없음</option><option value="10">10 GB</option><option value="20">20 GB</option><option value="50">50 GB</option><option value="100">100 GB</option><option value="custom">사용자 지정</option></select></label><label id="storageCustomLabel" hidden>사용자 지정 (GB)<input id="storageCustom" type="number" min="0.001" step="0.001" max="8388607"></label><label>공간 부족 시<select id="storagePolicy"><option value="reject_new">새 업로드 거부 · 기존 로그 유지</option><option value="delete_oldest">오래된 미고정 구간 삭제</option></select></label></div><p>자동 삭제는 최초 업로드 시각이 오래된 주행부터 고정하지 않은 구간을 삭제합니다. 고정한 구간은 남기며, 같은 주행의 나머지 구간은 삭제될 수 있습니다. 업로드 중이거나 대기·변환 중인 주행은 보호합니다.</p><button id="storageSave" type="submit" disabled>저장공간 설정 저장</button><p id="storageStatus" role="status"></p></form>
+<form id="archiveForm">
+<h4>아카이빙 설정</h4>
+<div class="setting-row"><div class="setting-copy"><h3><label for="archiveEnabled">아카이빙 사용</label></h3></div><div class="setting-control"><label class="auto-convert-control"><input id="archiveEnabled" name="archive_enabled" type="checkbox" role="switch" aria-label="아카이빙 사용"><span aria-hidden="true"></span></label></div></div>
+<div class="settings-fields">
+<label>저장소<select name="archive_backend"><option value="gdrive">Google Drive</option><option value="smb">NAS(SMB)</option></select></label>
+<label>모드<select name="archive_mode"><option value="copy">복제(COPY)</option><option value="move">이동(MOVE)</option></select></label>
+<label data-archive-backend="gdrive">로컬 원본 삭제 허용<input name="archive_allow_local_delete" type="checkbox"></label>
+<label>최소 보관 기간(시간)<input name="archive_min_age_hours" type="number" min="0" max="8760" step="1" required></label>
+<label>실행 주기(분)<input name="archive_interval_minutes" type="number" min="1" max="1440" step="1" required></label>
+<label>배치 개수<input name="archive_batch" type="number" min="1" max="64" step="1" required></label>
+<label>로컬 사용량 임계값(MB)<input name="archive_local_threshold_mb" type="number" min="0" step="1" required></label>
+<label data-archive-backend="gdrive">폴더 이름<input name="archive_gdrive_folder_name" type="text" maxlength="255" required></label>
+<label data-archive-backend="smb">경로<input name="archive_path" type="text" placeholder="/share/NAS/roadviewer"></label>
+<label data-archive-backend="smb">NAS 최대 사용량(MB)<input name="archive_nas_max_mb" type="number" min="0" step="1" required></label>
+<label data-archive-backend="smb">NAS 여유 공간 여유분(MB)<input name="archive_nas_margin_mb" type="number" min="0" step="1" required></label>
+</div>
+<p id="archiveWarning" class="archive-mode"></p>
+<button id="archiveSave" type="submit" disabled>아카이빙 설정 저장</button><p id="archiveSettingsStatus" role="status"></p>
+</form>
 </div></details>
 <details class="managed-settings usage-guide"><summary><div><h3>상태 및 파일 관리 안내</h3><span class="disclosure-description">처리 상태, 다운로드, 제거와 완전 삭제의 차이</span></div><span class="disclosure-hint" aria-hidden="true"><span class="when-closed">펼치기</span><span class="when-open">접기</span></span></summary>
 <div class="usage-guide-body"><div><h4>처리 상태</h4><dl class="status-guide"><div><dt>미변환</dt><dd>로그와 보관 영상을 유지한 상태입니다. 변환하면 재생할 수 있습니다.</dd></div><div><dt>대기 중</dt><dd>변환 순서를 기다립니다.</dd></div><div><dt>처리 중</dt><dd>로그 분석 또는 영상 변환을 진행합니다.</dd></div><div><dt>재생 가능</dt><dd>변환이 완료되어 재생할 수 있습니다.</dd></div><div><dt>변환 실패</dt><dd>변환 버튼으로 다시 시도할 수 있습니다.</dd></div></dl></div><div><h4>로그 작업</h4><p class="action-guide">재생·변환 버튼 옆 펼침 메뉴(⌄)에서 선택합니다. 미변환 항목에는 제거가 표시되지 않으며, 처리 중에는 제거할 수 없습니다.</p><dl class="action-guide-grid"><div><dt>변환</dt><dd>재생용 데이터를 생성합니다.</dd></div><div><dt>제거</dt><dd>대기 중인 항목은 변환 예약을 취소합니다. 분석·그래프와 원본으로 다시 만들 수 있는 MP4를 삭제하며, 원본 로그·영상 및 원본 없이 보관하는 MP4는 유지합니다.</dd></div><div><dt>다운로드</dt><dd>팝업에서 선택한 파일만 받습니다. 선택한 파일이 하나면 그대로, 여러 개면 ZIP으로 받습니다. 각 파일 옆의 받기로도 개별 다운로드할 수 있으며, 없는 카메라는 제외합니다.</dd></div><div><dt>로그 다운로드</dt><dd>업로드한 ZST 로그를 내려받습니다.</dd></div><div><dt>영상 다운로드</dt><dd>팝업에서 카메라와 MP4·원본 형식(HEVC·TS)을 선택합니다. 원본 형식은 재압축 없이 다시 만들며 화질은 같지만 업로드한 파일과 바이트까지 같지는 않습니다.</dd></div><div><dt>완전 삭제</dt><dd>원본과 변환 데이터를 모두 삭제합니다.</dd></div></dl><p class="action-guide">수동으로 제거한 항목은 자동으로 다시 변환되지 않습니다. 재시작 후에도 직접 변환해야 합니다.</p></div>

@@ -8,6 +8,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const req=route.request(),p=new URL(req.url()).pathname;
   if(p==='/api/logs')return route.fulfill({json:{logs:[{id:'one',name:'00000395--0d0eda17c5 / 구간 7',status:'unconverted',uploaded:1,bytes:50,prepared_bytes:0,video:false,pinned}],max_upload_mb:512,storage_used_bytes:200}});
   if(p==='/api/settings/storage'){if(req.method()==='POST')settings={...settings,...req.postDataJSON()};return route.fulfill({json:settings})}
+  if(p==='/api/settings/archive')return route.fulfill({json:{archive_enabled:false,archive_backend:'smb',archive_mode:'move',archive_allow_local_delete:false,archive_path:'',archive_local_threshold_mb:0,archive_min_age_hours:24,archive_interval_minutes:10,archive_batch:4,archive_nas_max_mb:0,archive_nas_margin_mb:1024,archive_gdrive_folder_name:'Road Viewer',effective_mode:'move',client_configured:false}});
   if(p==='/api/logs/one/pin'){pinned=req.postDataJSON().pinned;return route.fulfill({json:{pinned}})}
   if(p==='/api/settings/device-network'){
    if(req.method()==='POST'){
