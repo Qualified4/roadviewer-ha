@@ -199,6 +199,7 @@ jobs:
       - run: python tests/test_archiver_crash.py
       - run: python tests/test_archive_e2e.py
       - run: python tests/test_gdrive_archiver.py
+      - run: python tests/test_manual_archive.py
       - run: python tests/test_gdrive_crash.py
       - run: python tests/test_gdrive_server.py
       - run: python tests/test_gdrive_settings.py

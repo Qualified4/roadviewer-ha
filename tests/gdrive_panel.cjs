@@ -76,6 +76,12 @@ async function waitForStorageRefresh(page,action){
   assert.equal(m['저장소'],'Google Drive');assert.equal(m['Drive 상태'],'연결 안 됨');assert.equal(m['Drive 여유'],'할당량 확인 불가');
   assert.equal(m['복제 사본'],'0개');assert.equal(m['검증 실패'],'1개');assert.equal(Object.keys(m).length,13);
   assert.equal(await page.locator('#archiveMode').textContent(),'복제 모드: 로컬 파일은 보존됩니다');
+  // COPY: the manual run says copy, and its confirmation that nothing local is deleted.
+  assert.equal(await page.locator('#archiveRun').textContent(),'복사 가능한 데이터 모두 복사');
+  await page.locator('#archiveRun').click();await page.locator('#archiveAllDialog').waitFor({state:'visible'});
+  assert.match(await page.locator('#archiveAllDelete').textContent(),/로컬 파일은 삭제되지 않/);
+  assert.equal(await page.locator('#archiveAllSummary dt',{hasText:'예상 로컬 확보 용량'}).count(),0);
+  await page.locator('#archiveAllCancel').click();await page.locator('#archiveAllDialog').waitFor({state:'hidden'});
   assert.equal(await page.locator('#archiveMode.archive-warning').count(),0);
   assert.equal(await page.locator('#gdriveConnect').textContent(),'Google Drive 연결');assert(await page.locator('#gdriveConnect').isEnabled());
   assert(await page.locator('#gdriveDisconnect').isHidden());assert(await page.locator('#gdriveCode').isHidden());assert(await page.locator('#gdriveSetup').isHidden());
@@ -147,6 +153,7 @@ async function waitForStorageRefresh(page,action){
   await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();Object.assign(body.archive,{mode:'move',effective_mode:'move',local_delete_allowed:true});Object.assign(body.archive.gdrive,{configured:false,connected:true,last_auth_error:'something_new'});await route.fulfill({response,json:body})});
   await openPanel(page);
   assert.equal(await page.locator('#archiveMode.archive-warning').textContent(),'이동 모드: 검증된 원격 사본이 있으면 로컬 원본이 삭제됩니다');
+  assert.equal(await page.locator('#archiveRun').textContent(),'이동 가능한 데이터 모두 이동');
   assert.equal(await page.locator('#gdriveSetup').textContent(),'애드온 옵션에서 Google Drive 클라이언트 ID를 설정하세요');
   assert.equal(await page.locator('#gdriveAuthError').textContent(),'인증 오류 (something_new)');
   assert.equal((await metrics(page))['Drive 상태'],'인증 만료');

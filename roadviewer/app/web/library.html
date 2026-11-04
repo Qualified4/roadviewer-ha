@@ -82,7 +82,7 @@
 </section>
 <section class="storage-editor-section" aria-labelledby="storageExecutionTitle">
 <div class="storage-editor-heading"><span class="settings-step">03</span><div><h4 id="storageExecutionTitle">실행 및 고급 설정</h4><p>실행 간격을 정하고 필요한 항목만 상세하게 조절하세요.</p></div></div>
-<div class="archive-execution-layout"><div class="storage-field"><label for="archiveIntervalPreset">자동 실행 간격</label><select id="archiveIntervalPreset"><option value="60">1시간</option><option value="360">6시간</option><option value="720">12시간</option><option value="1440">24시간</option><option value="custom">직접 입력</option></select><label id="archiveIntervalCustom" class="storage-custom" hidden>실행 간격 (분)<input name="archive_interval_minutes" type="number" min="1" max="1440" step="1" required></label></div><div id="archiveExecution" class="archive-execution"><p id="archiveRunHint">지금 아카이브는 저장된 설정으로 실행합니다.</p></div></div>
+<div class="archive-execution-layout"><div class="storage-field"><label for="archiveIntervalPreset">자동 실행 간격</label><select id="archiveIntervalPreset"><option value="60">1시간</option><option value="360">6시간</option><option value="720">12시간</option><option value="1440">24시간</option><option value="custom">직접 입력</option></select><label id="archiveIntervalCustom" class="storage-custom" hidden>실행 간격 (분)<input name="archive_interval_minutes" type="number" min="1" max="1440" step="1" required></label></div><div id="archiveExecution" class="archive-execution"><p id="archiveRunHint">저장된 설정으로 이동 가능한 데이터를 모두 처리합니다.</p><div id="archiveJob" class="archive-job" hidden><progress id="archiveJobProgress" max="1" value="0" aria-label="수동 아카이빙 진행률"></progress><p id="archiveJobText" role="status"></p></div></div></div>
 <details id="archiveAdvanced" class="archive-advanced"><summary>고급 설정 <span>배치 크기 · 저장 경로 · NAS 용량</span></summary><div class="storage-advanced-fields">
 <label class="storage-field">한 번에 처리할 파일 수<input name="archive_batch" type="number" min="1" max="64" step="1" required><small>1~64개. 나머지는 다음 실행에서 이어갑니다.</small></label>
 <label class="storage-field" data-archive-backend="gdrive">Drive 폴더 이름<input name="archive_gdrive_folder_name" type="text" maxlength="255" required></label>
@@ -105,6 +105,14 @@
 </details>
 <section class="library"><div class="library-head"><h2>저장된 로그</h2><div class="library-tools"><label class="tag-filter-label">태그 <select id="tagFilter" aria-label="태그 필터"><option value="">전체 태그</option><option value="untagged">태그 없음</option></select></label><button id="refresh">새로고침</button></div></div><div id="empty" hidden>아직 저장된 로그가 없습니다. 위에서 첫 로그를 업로드하세요.</div><p id="tagFilterStatus" class="tag-filter-status" role="status" hidden></p><div id="list"></div></section>
 <footer>Home Assistant 연결을 통해 접근합니다. 업로드한 원본과 변환 데이터는 앱 저장소에 보관됩니다.</footer></main>
+<dialog id="archiveAllDialog" class="archive-all-dialog" aria-labelledby="archiveAllTitle" aria-describedby="archiveAllDescription">
+<div class="tag-dialog-head"><div><span class="tag-eyebrow">ARCHIVE / MANUAL RUN</span><h2 id="archiveAllTitle">이동 가능한 데이터 모두 이동</h2></div></div>
+<p id="archiveAllDescription" class="tag-dialog-description">자동 실행의 배치 개수와 시작 기준 사용량을 적용하지 않고, 지금 처리할 수 있는 파일을 모두 처리합니다.</p>
+<dl id="archiveAllSummary" class="archive-all-summary"></dl>
+<p id="archiveAllDelete" class="archive-mode"></p>
+<ul id="archiveAllExcluded" class="archive-all-excluded"></ul>
+<div class="archive-all-actions"><button id="archiveAllCancel" type="button">취소</button><button id="archiveAllConfirm" class="primary" type="button">실행</button></div>
+</dialog>
 <dialog id="bulkDialog" class="bulk-dialog" aria-labelledby="bulkTitle" aria-describedby="bulkDescription">
 <div class="bulk-header"><h2 id="bulkTitle">로그 일괄 관리</h2><button id="bulkClose" type="button">닫기</button></div>
 <p id="bulkDescription">주행별 전체 선택 또는 구간별 선택 후 다운로드·변환·정리를 진행하세요.</p>

@@ -1443,14 +1443,19 @@ def archive_preferences_api():
    return jsonify(archive_preferences())
  finally:archiver.cycle.release()
 
-@app.route('/api/settings/archive/run',methods=['POST'])
+@app.route('/api/settings/archive/run',methods=['GET','POST'])
 def run_archive():
- # One cycle now, in the background (a cycle can outlast the Ingress timeout); progress shows in
- # the storage settings' archive block. Never two cycles at once.
- with lock:
-  if not archiver.settings.enabled:return jsonify(error='archive_disabled'),409
-  if not archiver.start_cycle():return jsonify(error='archive_running'),409
- return jsonify(started=True),202
+ # GET: what 'archive everything eligible' would process now (for the confirmation) and the latest run.
+ # POST: starts that run in the background (it can outlast the Ingress timeout): the scheduled cycle's engine
+ # repeated without its batch or local threshold. Its progress shows in the storage block's archive.manual.
+ # Never while another cycle runs; settings cannot be saved meanwhile (the cycle lock).
+ if not archiver.settings.enabled:return jsonify(error='archive_disabled'),409
+ if request.method=='GET':
+  status=archiver.status()
+  return jsonify(plan=archiver.manual_plan(),running=status['running'],manual=status['manual'],manual_active=status['manual_active'])
+ job=archiver.start_manual()
+ if job is None:return jsonify(error='archive_running'),409
+ return jsonify(started=True,manual=job),202
 connection=None;connection_lock=threading.Lock()
 FOLDER_REASONS=('folder_missing','folder_trashed','storage_id_mismatch')
 def drive_connection():
