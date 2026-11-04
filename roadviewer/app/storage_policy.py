@@ -95,6 +95,8 @@ class StoragePolicy:
     def api(self):
         with self.s.registration_lock, self.s.lock:
             if request.method == 'POST':
+                # A manual archive run decided what to delete with these settings: they stay until it ends.
+                if self.s.archiver.manual_active: return jsonify(error='archive_running'), 409
                 body = request.get_json(silent=True)
                 if not isinstance(body, dict) or set(body) != {'max_bytes', 'policy'} or type(body['max_bytes']) is not int or not 0 <= body['max_bytes'] <= 2**53-1 or body['policy'] not in ('reject_new', 'delete_oldest'):
                     return jsonify(error='invalid_storage_settings'), 400
@@ -125,7 +127,7 @@ class StoragePolicy:
                      used_bytes=used, free_bytes=free, max_bytes=settings.nas_max_bytes, margin_bytes=settings.nas_margin_bytes,
                      last_cycle_at=status['last_cycle_at'], last_error=status['last_error'], consecutive_failures=status['consecutive_failures'],
                      running=status['running'], pending_deletes=pending, archived_files=files, archived_bytes=size,
-                     missing_archived=status['missing_archived'])
+                     missing_archived=status['missing_archived'], manual=status['manual'], manual_active=status['manual_active'])
         if s.archive_settings_error: block['settings_error'] = s.archive_settings_error
         if not remote: return block
         # Drive only (the NAS block is unchanged): the mode, local copies that have a Drive copy, files whose copy

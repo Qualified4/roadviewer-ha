@@ -490,3 +490,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 }
 
 @media(min-width:601px) and (max-width:1000px){.storage-basic-fields>.storage-field:last-child{grid-column:1/-1}}
+.archive-job{display:grid;gap:6px;margin-top:8px}.archive-job progress{width:100%;height:8px;accent-color:var(--lane)}.archive-job p{margin:0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}.archive-job[data-state="failed"] p,.archive-job[data-state="interrupted"] p,.archive-job[data-state="partial"] p{color:#ffd39f}
+.archive-all-summary{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0;padding:4px 22px 10px;font-size:13px}.archive-all-summary dt{color:var(--muted)}.archive-all-summary dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.archive-all-dialog .archive-mode{margin:0 22px 8px}.archive-all-excluded{margin:0 22px 8px;padding-left:18px;font-size:12px;color:var(--muted)}.archive-all-excluded:empty{display:none}
+.archive-all-actions{display:flex;justify-content:flex-end;gap:8px;padding:10px 22px 18px}

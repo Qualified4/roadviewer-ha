@@ -36,7 +36,7 @@ function showArchive(a){
  if(a?.settings_error)$('archiveSettingsStatus').textContent='아카이빙 설정을 읽지 못해 꺼졌습니다. 설정을 확인하고 저장하세요. ('+a.settings_error+')';
  // Local usage and archive metrics have separate sections. Never show the share's path.
  for(const row of document.querySelectorAll('#archiveUsage>.archive-metric,#archiveSecondaryUsage>.archive-metric'))row.remove();
- $('archiveRun')?.remove();$('archiveSummary').hidden=!a?.enabled;
+ $('archiveRun')?.remove();$('archiveSummary').hidden=!a?.enabled;if(!a?.enabled){$('archiveJob').hidden=true;archiveJobPoll(false)}
  // A block without a backend is the NAS and shows as before; nothing of Drive is created for it.
  // Drive's sign-in does not need archiving on: with it off, only the connection panel is shown.
  const drive=a?.backend==='gdrive';
@@ -55,7 +55,8 @@ function showArchive(a){
   if(kind==='state')row.dataset.state=drive?gdriveStatusText(a.gdrive||{},a.state):ARCHIVE_STATES[a.state]||'확인 중';
   row.append(dt,dd);(['copies','errors','updated','result'].includes(kind)?$('archiveSecondaryUsage'):$('archiveUsage')).append(row);
  }
- const button=document.createElement('button');button.id='archiveRun';button.type='button';button.textContent='지금 아카이브';button.disabled=!!a.running;button.onclick=runArchive;$('archiveExecution').prepend(button);
+ const button=document.createElement('button');button.id='archiveRun';button.type='button';button.textContent=archiveAllLabel(a);button.disabled=!!a.running;button.onclick=runArchive;$('archiveExecution').prepend(button);
+ showArchiveJob(a);
  if(a.last_error)$('storageStatus').textContent='마지막 아카이브 오류: '+((drive?DRIVE_ERRORS:ARCHIVE_ERRORS)[a.last_error]||a.last_error);
  if(drive)showGdrive(a);
 }
@@ -172,12 +173,81 @@ async function gdriveRequest(action){
  catch(e){message=message||e.message}
  finally{gdriveBusy=false;if($('gdrivePanel')){gdriveButtons();$('gdriveStatus').textContent=message}}
 }
-async function runArchive(){
- if(editorSaving||editorDirty())return;
- $('archiveRun').disabled=true;
- try{await settingsRequest('api/settings/archive/run');$('storageStatus').textContent='아카이브를 시작했습니다.'}
- catch(e){$('storageStatus').textContent={archive_running:'아카이빙이 이미 실행 중입니다.',archive_disabled:'아카이빙이 꺼져 있습니다.'}[e.code]||e.message;updateEditor()}
+// 'Archive everything eligible': the server's plan is confirmed first; the run is followed in archive.manual.
+const archiveMoves=a=>a?.backend!=='gdrive'||a?.effective_mode==='move';
+const archiveAllLabel=a=>archiveMoves(a)?'이동 가능한 데이터 모두 이동':'복사 가능한 데이터 모두 복사';
+const ARCHIVE_RUN_ERRORS={archive_running:'아카이빙이 이미 실행 중입니다. 끝난 뒤 다시 시도하세요.',archive_disabled:'아카이빙이 꺼져 있습니다.'};
+const JOB_STOPS={disabled:'아카이빙이 꺼졌습니다.',internal_error:'내부 오류가 발생했습니다.'};
+let archivePlanBusy=false,archiveJobTimer=null,archiveJobFetching=false;
+const manualActive=()=>!!storageSnapshotState?.archive?.manual_active;
+function planRow(label,value){const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dd.textContent=value;row.append(dt,dd);return row}
+function showArchivePlan(plan){
+ const move=plan.mode==='move',verb=move?'이동':'복사',target=plan.backend==='gdrive'?'Google Drive':'NAS';
+ $('archiveAllTitle').textContent=move?'이동 가능한 데이터 모두 이동':'복사 가능한 데이터 모두 복사';
+ const rows=[['처리할 파일',`${plan.files}개`],['주행 구간',`${plan.recordings}개`],['파일 용량',storageSize(plan.bytes)],['동작',`${target}로 ${verb} (${move?'MOVE':'COPY'})`],['로컬 원본 삭제',move?'검증 후 삭제':'삭제 안 함']];
+ if(move)rows.splice(3,0,['예상 로컬 확보 용량',storageSize(plan.frees_bytes)]);
+ $('archiveAllSummary').replaceChildren(...rows.map(([label,value])=>planRow(label,value)));
+ $('archiveAllDelete').textContent=move?`${target}에 사본이 검증되고 기록이 확정된 파일만 이 기기에서 삭제됩니다. 실패한 파일의 로컬 원본은 유지되며, 원격 파일은 삭제하지 않습니다.`:plan.local_delete_blocked?'MOVE로 설정되어 있지만 로컬 원본 삭제가 허용되지 않아 복사만 합니다. 로컬 파일은 삭제되지 않고 로컬 공간도 줄지 않습니다.':'로컬 파일은 삭제되지 않고 로컬 공간도 줄지 않습니다. 이미 원격에 있는 사본은 다시 올리지 않습니다.';
+ $('archiveAllDelete').className=move?'archive-mode archive-warning':'archive-mode';
+ const ex=plan.excluded||{},age=Number(plan.min_age_hours)||0,ageText=age%24===0?`${age/24}일`:`${age}시간`,notes=[];
+ if(ex.min_age)notes.push(`최소 보관 기간(${ageText})이 지나지 않은 ${ex.min_age}개 구간은 제외합니다.`);
+ if(ex.pinned)notes.push(`고정된 ${ex.pinned}개 구간은 이동하지 않고 로컬에 유지합니다.`);
+ if(ex.not_ready)notes.push(`변환 전이거나 처리 중인 ${ex.not_ready}개 구간은 제외합니다.`);
+ $('archiveAllExcluded').replaceChildren(...notes.map(text=>Object.assign(document.createElement('li'),{textContent:text})));
+ $('archiveAllConfirm').textContent=`${plan.files}개 파일 ${verb}`;
+ $('archiveAllConfirm').disabled=!plan.files;
+ $('archiveAllConfirm').className=move?'delete':'primary';
+ $('archiveAllDescription').textContent=plan.files?'자동 실행의 배치 개수와 시작 기준 사용량을 적용하지 않고, 지금 처리할 수 있는 파일을 모두 처리합니다. 확인하기 전에는 아무것도 바뀌지 않습니다.':`지금 ${verb}할 수 있는 파일이 없습니다.`;
 }
+async function runArchive(){
+ if(editorSaving||editorDirty()||archivePlanBusy||manualActive())return;
+ archivePlanBusy=true;$('archiveRun').disabled=true;$('storageStatus').textContent='처리할 파일을 확인하는 중입니다.';
+ try{
+  const result=await api('api/settings/archive/run');
+  if(result.running){$('storageStatus').textContent=ARCHIVE_RUN_ERRORS.archive_running;return}
+  showArchivePlan(result.plan);$('storageStatus').textContent='';$('archiveAllDialog').showModal();
+ }catch(e){$('storageStatus').textContent=ARCHIVE_RUN_ERRORS[e.code]||e.message}
+ finally{archivePlanBusy=false;updateEditor()}
+}
+$('archiveAllCancel').onclick=()=>$('archiveAllDialog').close();
+$('archiveAllConfirm').onclick=async()=>{
+ if(archivePlanBusy)return;archivePlanBusy=true;$('archiveAllConfirm').disabled=true;
+ try{
+  const result=await settingsRequest('api/settings/archive/run');$('archiveAllDialog').close();
+  const a=storageSnapshotState?.archive;if(a)Object.assign(a,{manual:result.manual,manual_active:true,running:true});
+  $('storageStatus').textContent='';if(a){$('archiveRun').disabled=true;showArchiveJob(a)}
+ }catch(e){$('archiveAllDialog').close();$('storageStatus').textContent=ARCHIVE_RUN_ERRORS[e.code]||e.message}
+ finally{archivePlanBusy=false;$('archiveAllConfirm').disabled=false;updateEditor()}
+};
+function archiveJobText(job,drive){
+ const verb=job.mode==='move'?'이동':'복사',done=`성공 ${job.succeeded}개 · 실패 ${job.failed}개`;
+ if(job.state==='running')return `${verb} 중 · ${job.processed}/${job.total_files}개 파일 처리 (${done})`+(job.waiting==='uploading'?' · 업로드가 끝나기를 기다리는 중':job.waiting==='processing'?' · 변환이 끝나기를 기다리는 중':'');
+ const freed=job.mode==='move'?` · 로컬 ${storageSize(job.freed_bytes||0)} 확보`:'';
+ if(job.state==='done')return `${verb} 완료 · ${job.succeeded}개 파일${freed}`;
+ if(job.state==='partial')return `일부 완료 · ${done}${freed}. 실패한 파일의 로컬 원본은 그대로 유지됩니다.`;
+ if(job.state==='failed')return `중단됨: ${(drive?DRIVE_ERRORS:ARCHIVE_ERRORS)[job.error]||JOB_STOPS[job.error]||job.error} · ${done}. 완료된 파일은 유지되고, 처리하지 못한 파일의 로컬 원본은 보존됩니다.`;
+ return `완료되지 않고 중단됨(앱 재시작 등) · ${done}. 완료된 파일은 유지되고 나머지는 로컬에 남아 있습니다. 다시 실행할 수 있습니다.`;
+}
+function showArchiveJob(a){
+ const job=a?.manual,box=$('archiveJob');
+ box.hidden=!job;if(!job){archiveJobPoll(false);return}
+ box.dataset.state=job.state;
+ const progress=$('archiveJobProgress'),total=Math.max(1,Number(job.total_files)||0);
+ progress.max=total;progress.value=job.state==='done'?total:Math.min(total,Number(job.processed)||0);
+ $('archiveJobText').textContent=archiveJobText(job,a.backend==='gdrive');
+ archiveJobPoll(!!a.manual_active&&storageDetails.open&&!document.hidden);
+}
+async function archiveJobRefresh(){
+ if(archiveJobFetching)return;archiveJobFetching=true;
+ try{const s=await storageSnapshot();if(storageDetails.open)showStorage(s)}catch{}
+ finally{archiveJobFetching=false}
+}
+function archiveJobPoll(on){
+ if(!on){clearInterval(archiveJobTimer);archiveJobTimer=null;return}
+ if(!archiveJobTimer)archiveJobTimer=setInterval(()=>void archiveJobRefresh(),2000);
+}
+storageDetails.addEventListener('toggle',()=>{if(!storageDetails.open)archiveJobPoll(false)});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)archiveJobPoll(false);else if(storageDetails.open&&manualActive())void archiveJobRefresh()});
 const archiveForm=$('archiveForm');
 let editorLoaded=false,editorLoading=false,editorSaving=false,archiveSettingsNeedsSave=false,savedStorage=null,savedArchive=null,storageSnapshotState=null;
 const archivePresets=[['archiveAgePreset','archive_min_age_hours','archiveAgeCustom'],['archiveThresholdPreset','archive_local_threshold_mb','archiveThresholdCustom'],['archiveIntervalPreset','archive_interval_minutes','archiveIntervalCustom']];
@@ -263,8 +333,11 @@ function updateEditor(changed=false){
  archiveForm.setAttribute('aria-busy',String(editorSaving));
  $('storageSave').disabled=editorSaving||!dirty;$('storageReset').hidden=!dirty;$('storageReset').disabled=editorSaving;
  if(changed)editorStatus(dirty?'미저장 변경사항이 있습니다.':'저장된 설정과 같습니다.',dirty?'dirty':'idle');
- const run=$('archiveRun');if(run)run.disabled=editorSaving||dirty||!!storageSnapshotState?.archive?.running;
- $('archiveRunHint').textContent=dirty?'미저장 변경사항을 저장하거나 취소한 뒤 실행하세요.':storageSnapshotState?.archive?.enabled?'저장된 설정으로 지금 실행합니다. 설정을 저장하는 것만으로는 실행되지 않습니다.':'자동 아카이빙이 꺼져 있습니다. 설정을 저장해 켠 뒤 실행할 수 있습니다.';
+ const manual=manualActive(),a=storageSnapshotState?.archive;
+ // While a manual run works from the saved settings, they cannot be changed.
+ $('storageEditorFields').disabled=editorSaving||manual;
+ const run=$('archiveRun');if(run)run.disabled=editorSaving||dirty||manual||archivePlanBusy||!!a?.running;
+ $('archiveRunHint').textContent=manual?'수동 아카이빙이 진행 중입니다. 끝날 때까지 설정을 바꿀 수 없습니다.':dirty?'미저장 변경사항을 저장하거나 취소한 뒤 실행하세요.':a?.enabled?`저장된 설정으로 배치 개수·시작 기준과 관계없이 ${archiveMoves(a)?'이동':'복사'} 가능한 데이터를 모두 처리합니다. 실행 전에 확인합니다.`:'자동 아카이빙이 꺼져 있습니다. 설정을 저장해 켠 뒤 실행할 수 있습니다.';
 }
 async function loadStorageEditor(){
  if(editorLoading)return;editorLoading=true;$('storageRetry').hidden=true;

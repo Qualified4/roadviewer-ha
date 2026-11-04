@@ -548,6 +548,8 @@ class PendingDeletes:
 
 CHUNK = MB
 NAS_RESERVE = 100 * MB
+MANUAL_JOB = '.archive-manual.json'
+MANUAL_WAIT_SECONDS = 5  # A manual run waits this long for an upload or conversion, then goes on.
 FAILURES = ('storage_unavailable', 'nas_full', 'hash_mismatch', 'os_error', 'auth_expired', 'rate_limited', 'remote_full')
 # A remote backend's error codes as cycle failures (design §2.10).
 REMOTE_ERRORS = {'unavailable': 'storage_unavailable', 'auth_expired': 'auth_expired', 'rate_limited': 'rate_limited',
@@ -611,6 +613,8 @@ class Archiver:
         # Why the last archive_file returned False; None when the recording changed meanwhile.
         # Shared state: archive_file must only be called from run_cycle (which holds self.cycle).
         self.reason = None
+        # The latest 'archive everything eligible' run (start_manual), persisted so a reload or restart shows it.
+        self.manual_active, self.job = False, self._load_job()
 
     def status(self):
         return {'last_cycle_at': self.last_cycle_at, 'last_error': self.last_error, 'consecutive_failures': self.consecutive_failures,
@@ -618,7 +622,121 @@ class Archiver:
                 'removed_files_total': self.removed_files_total, 'cleanup_last_reason': self.cleanup_last_reason,
                 'rechecked_held': self.rechecked_held, 'missing_archived': len(self.missing),
                 'backend': self.settings.backend, 'effective_mode': self.settings.effective_mode,
-                'remote_copies_total': self.remote_copies_total, 'last_auth_error': self.last_auth_error}
+                'remote_copies_total': self.remote_copies_total, 'last_auth_error': self.last_auth_error,
+                'manual': dict(self.job) if self.job else None, 'manual_active': self.manual_active}
+
+    # --- 'Archive everything eligible' (manual). The same cycle lock and per-file engine as the scheduled cycle,
+    # repeated until nothing eligible is left: no batch and no local threshold. The minimum age stays, and in move
+    # mode pinned recordings are left out (pins keep their local files). Nothing on the remote side is ever deleted.
+
+    def _job_path(self): return Path(self.server.ROOT) / MANUAL_JOB
+
+    def _load_job(self):
+        try: job = json.loads(self._job_path().read_text())
+        except (OSError, ValueError): return None
+        if not isinstance(job, dict): return None
+        if job.get('state') == 'running':
+            # Stopped mid-run (restart, crash): each finished file is committed, the run itself did not complete.
+            job.update(state='interrupted', waiting=None)
+            self._save_job(job)
+        return job
+
+    def _save_job(self, job=None):
+        try: atomic_json(self._job_path(), job or self.job)
+        except OSError: self.server.app.logger.exception('Manual archive state not saved')
+
+    def moves_local(self):
+        # Whether archiving deletes the local original: the NAS always moves; Drive only in move mode with deleting allowed.
+        return not self.remote or self.settings.effective_mode == 'move'
+
+    def _manual_files(self, p, m):
+        # (kind, size) of the local files a manual run would archive (the same tests as candidates/_archive).
+        files = []
+        for kind in ARCHIVE_ORDER:
+            if location(m, kind) != 'local' or self.remote and self._done_remotely(m, kind): continue
+            try: size = (p / kind).stat().st_size
+            except OSError: continue
+            if self.remote and not size: continue
+            files.append((kind, size))
+        return files
+
+    def manual_plan(self):
+        # What a manual run would process now, for the confirmation; reads only the local index and files.
+        s, now, moving = self.server, time.time(), self.moves_local()
+        excluded = {'min_age': 0, 'pinned': 0, 'not_ready': 0}
+        files = recordings = size = 0
+        with s.lock: active = set(s.processes)
+        for p in s.recording_paths():
+            try: m = s.read_meta(p)
+            except (OSError, ValueError): continue
+            if not isinstance(m, dict): continue
+            found = self._manual_files(p, m)
+            if not found: continue
+            uploaded = m.get('uploaded')
+            if m.get('status') != 'ready' or p.name in active: excluded['not_ready'] += 1; continue
+            if not isinstance(uploaded, (int, float)) or now - uploaded < self.settings.min_age_seconds: excluded['min_age'] += 1; continue
+            if moving:
+                with s.lock: pinned = bool(s.storage_policy.pinned(m))
+                if pinned: excluded['pinned'] += 1; continue
+            recordings += 1; files += len(found); size += sum(n for _, n in found)
+        s_ = self.settings
+        return dict(backend=s_.backend, mode='move' if moving else 'copy', configured_mode='move' if not self.remote else s_.mode,
+                    deletes_local=moving, local_delete_blocked=self.remote and s_.mode == 'move' and not s_.allow_local_delete,
+                    files=files, recordings=recordings, bytes=size, frees_bytes=size if moving else 0,
+                    min_age_hours=s_.min_age_seconds // 3600, excluded=excluded)
+
+    def start_manual(self):
+        # Starts the run in the background; None while a cycle (scheduled, manual or capacity) holds the lock.
+        if not self.cycle.acquire(blocking=False): return None
+        try:
+            plan = self.manual_plan()
+            self.job = dict(id=uuid.uuid4().hex, state='running', started_at=time.time(), finished_at=None,
+                            mode=plan['mode'], deletes_local=plan['deletes_local'], total_files=plan['files'], total_bytes=plan['bytes'],
+                            processed=0, succeeded=0, failed=0, bytes_done=0, freed_bytes=0, error=None, last_failure=None, waiting=None)
+            self._save_job()
+            started = dict(self.job)  # As started: the thread may finish before this returns.
+            self.manual_active = self.running = True
+            self.manual = threading.Thread(target=self._run_background, name='archive-run', daemon=True)
+            self.manual.start()
+        except BaseException:
+            self.manual_active = self.running = False
+            if self.job and self.job.get('state') == 'running': self.job.update(state='failed', error='internal_error'); self._save_job()
+            self.cycle.release()
+            raise
+        return started
+
+    def _manual_cycle(self, result):
+        reason = 'internal_error'
+        try:
+            while True:
+                reason = self._cycle(result)
+                # Uploads and conversions come first, as for the scheduled cycle; the run waits and goes on.
+                if reason not in ('uploading', 'processing'): break
+                self.job['waiting'] = reason; self._save_job()
+                if self.server.cleanup_stop.wait(MANUAL_WAIT_SECONDS): reason = 'shutdown'; break
+                self.job['waiting'] = None
+            return reason
+        finally: self._finish_job(reason)
+
+    def _finish_job(self, reason):
+        if not self.manual_active: return
+        job = self.job
+        if reason in FAILURES or reason in ('disabled', 'internal_error'): job.update(state='failed', error=reason)
+        elif reason == 'shutdown': job['state'] = 'interrupted'
+        else: job['state'] = 'partial' if job['failed'] else 'done'
+        job.update(finished_at=time.time(), waiting=None)
+        self.manual_active = False
+        self._save_job()
+
+    def _job_file(self, p, kind, size, ok):
+        job = self.job; job['processed'] += 1
+        if ok:
+            job['succeeded'] += 1; job['bytes_done'] += size
+            try: moved = location(self.server.read_meta(p), kind) != 'local' and not (p / kind).exists()
+            except (OSError, ValueError): moved = False
+            if moved: job['freed_bytes'] += size
+        else: job['failed'] += 1; job['last_failure'] = self.reason
+        self._save_job()
 
     def start(self):
         if self.thread: return
@@ -678,14 +796,21 @@ class Archiver:
         result = {'archived': 0, 'bytes': 0, 'stopped': None}
         released = False
         try:
-            if not self.settings.enabled: return {**result, 'stopped': 'disabled'}
+            if not self.settings.enabled:
+                self._finish_job('disabled')
+                return {**result, 'stopped': 'disabled'}
             if threading.current_thread() is self.thread and self.settings_changed.is_set() and not self.reclaim_request: return result
             self.running = True
             if self.needs_activation:
                 self.activate(); self.needs_activation = False
-            with self.server.lock:
-                reclaim, self.reclaim_request = self.reclaim_request, None
-            result['stopped'] = self._reclaim(result, *reclaim) if reclaim else self._cycle(result)
+            if self.manual_active:
+                # Capacity goals published meanwhile are taken by the loop below, after the run.
+                result['stopped'] = self._manual_cycle(result)
+                reclaim = None
+            else:
+                with self.server.lock:
+                    reclaim, self.reclaim_request = self.reclaim_request, None
+                result['stopped'] = self._reclaim(result, *reclaim) if reclaim else self._cycle(result)
             if reclaim and not self.cycle_failed: self.consecutive_failures, self.last_error = 0, None
             while True:
                 self.store.forget_index()
@@ -746,7 +871,8 @@ class Archiver:
         if s.upload_receiving(): return 'uploading'
         with s.lock: busy = bool(s.processes)
         if busy: return 'processing'
-        if s.storage_used_bytes() <= self.settings.local_threshold_bytes: return 'below_threshold'
+        # A manual run archives everything eligible, whatever the local usage.
+        if not self.manual_active and s.storage_used_bytes() <= self.settings.local_threshold_bytes: return 'below_threshold'
         reason = self._archive(result)
         if reason in FAILURES: return self._failed(reason)
         # A recording the startup re-check could not process keeps its error until a cycle has none.
@@ -760,10 +886,16 @@ class Archiver:
         return reason
 
     def _archive(self, result):
-        s = self.server
+        # A manual run (manual_active) has no batch limit, leaves pinned recordings local in move mode, counts each
+        # file in its job and goes on after a copy that did not verify (that file stays local, marked or retried).
+        s, manual = self.server, self.manual_active
+        moving = manual and self.moves_local()
         for p, meta in self.candidates():
+            if moving:
+                with s.lock: pinned = bool(s.storage_policy.pinned(meta))
+                if pinned: continue
             for kind in ARCHIVE_ORDER:
-                if result['archived'] >= self.settings.batch: return None
+                if not manual and result['archived'] >= self.settings.batch: return None
                 if location(meta, kind) != 'local': continue
                 if self.remote and self._done_remotely(meta, kind): continue
                 try: size = (p / kind).stat().st_size
@@ -777,11 +909,14 @@ class Archiver:
                         s.app.logger.warning('%s/%s is empty; it is not archived to the remote archive', p.name, kind)
                     continue
                 if not (self.archive_remote(p, meta, kind) if self.remote else self.archive_file(p, meta, kind)):
+                    if self.reason and manual: self._job_file(p, kind, size, False)
+                    if self.reason == 'hash_mismatch' and manual: break
                     if self.reason: return self.reason
                     break  # The recording changed meanwhile: its other files wait for the next cycle.
                 result['archived'] += 1
                 result['bytes'] += size
                 self.archived_files_total += 1
+                if manual: self._job_file(p, kind, size, True)
                 # Uploads come first: the file in progress is finished, then the cycle ends.
                 if s.upload_receiving(): return 'uploading'
                 if s.cleanup_stop.is_set(): return 'shutdown'
@@ -808,6 +943,10 @@ class Archiver:
         if not used: return 0  # Nothing on it: nothing to decide on.
         self.cleanup_last_reason = self._over(used, free)
         if not self.cleanup_last_reason: return 0
+        if self.manual_active:
+            # A manual run never deletes archived copies: over its limit, the share takes nothing more.
+            self.cleanup_error = 'nas_full'
+            return 0
         rows, removed, left, measured = self._cleanup_candidates(), 0, False, True
         for kinds in (VIDEO_KINDS, ('rlog.zst',)):
             if not measured:
@@ -1333,7 +1472,7 @@ class Archiver:
         with s.lock: busy = bool(s.processes)
         if busy: return 'processing'
         # Kept in copy mode too: copying starts once local storage passes the threshold (it frees nothing).
-        if s.storage_used_bytes() <= self.settings.local_threshold_bytes: return 'below_threshold'
+        if not self.manual_active and s.storage_used_bytes() <= self.settings.local_threshold_bytes: return 'below_threshold'
         reason = self._archive(result)
         if reason in FAILURES: return self._failed(reason)
         if not self.cycle_failed: self.consecutive_failures, self.last_error = 0, None

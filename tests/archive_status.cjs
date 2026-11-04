@@ -54,15 +54,33 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.equal(metrics.length,9);assert.deepEqual(metrics.slice(4).map(([label])=>label),['NAS 상태','NAS 사용 중','NAS 여유','마지막 아카이브','최근 실행 결과']);
   assert.deepEqual(metrics[4],['NAS 상태','연결 불가']);assert.deepEqual(metrics[7],['마지막 아카이브','—']);
   assert(await page.locator('#archiveRun').isEnabled());
-  await page.getByRole('button',{name:'지금 아카이브',exact:true}).click();
-  await page.waitForFunction(()=>document.getElementById('storageStatus').textContent==='아카이브를 시작했습니다.');
-  assert.deepEqual(runs,[['POST','1',202]]);
+  // 'Move everything': a confirmation with the server's plan first; cancelling changes nothing.
+  await page.getByRole('button',{name:'이동 가능한 데이터 모두 이동',exact:true}).click();
+  const dialog=page.locator('#archiveAllDialog');await dialog.waitFor({state:'visible'});
+  const plan=await page.locator('#archiveAllSummary>div').evaluateAll(rows=>Object.fromEntries(rows.map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent])));
+  assert.equal(plan['처리할 파일'],'5개');assert.equal(plan['주행 구간'],'4개');assert.equal(plan['로컬 원본 삭제'],'검증 후 삭제');assert(plan['예상 로컬 확보 용량']);
+  assert.match(await page.locator('#archiveAllDelete').textContent(),/이 기기에서 삭제됩니다/);
+  assert.equal(await page.locator('#archiveAllConfirm').textContent(),'5개 파일 이동');
+  await page.locator('#archiveAllCancel').click();await dialog.waitFor({state:'hidden'});
+  assert.deepEqual(runs,[['GET','1',200]]);
+  // Confirmed: the run starts, and the unreachable share stops it safely with the files kept.
+  await page.locator('#archiveRun').click();await dialog.waitFor({state:'visible'});await page.locator('#archiveAllConfirm').click();
+  await page.waitForFunction(()=>/^중단됨: NAS에 연결할 수 없습니다\./.test(document.getElementById('archiveJobText').textContent));
+  assert.deepEqual(runs.slice(1),[['GET','1',200],['POST','1',202]]);
+  assert(fs.existsSync(path.join(onDir,ids[1],'rlog.zst')),'nothing moved while the share is unreachable');
+  // While a run is active (as the server reports it), progress shows and the settings are locked.
+  await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();body.archive={...body.archive,running:true,manual_active:true,manual:{state:'running',mode:'move',total_files:5,processed:2,succeeded:2,failed:0,freed_bytes:0,waiting:null}};await route.fulfill({response,json:body})});
+  await page.locator('#storageSettings > summary').click();await page.locator('#storageSettings > summary').click();
+  await page.waitForFunction(()=>document.getElementById('archiveJobText').textContent.startsWith('이동 중 · 2/5개 파일 처리'));
+  assert(await page.locator('#storageEditorFields').evaluate(f=>f.disabled));assert(await page.locator('#archiveIntervalPreset').isDisabled());assert(await page.locator('#archiveRun').isDisabled());
+  assert.equal(await page.locator('#archiveJobProgress').evaluate(bar=>[bar.value,bar.max].join('/')),'2/5');
+  await page.unroute('**/api/settings/storage');
+  await page.locator('#storageSettings > summary').click();await page.locator('#storageSettings > summary').click();
+  await page.waitForFunction(()=>!document.getElementById('storageEditorFields').disabled&&document.getElementById('archiveRun')&&!document.getElementById('archiveRun').disabled);
   // A run already in progress (409) is explained in Korean and the button is usable again.
   await page.route('**/api/settings/archive/run',route=>route.fulfill({status:409,json:{error:'archive_running'}}));
-  await page.locator('#storageSettings > summary').click();await page.locator('#storageSettings > summary').click();
-  await page.waitForFunction(()=>document.getElementById('archiveRun')&&!document.getElementById('archiveRun').disabled);
   await page.locator('#archiveRun').click();
-  await page.waitForFunction(()=>document.getElementById('storageStatus').textContent==='아카이빙이 이미 실행 중입니다.');
+  await page.waitForFunction(()=>document.getElementById('storageStatus').textContent==='아카이빙이 이미 실행 중입니다. 끝난 뒤 다시 시도하세요.');
   assert(await page.locator('#archiveRun').isEnabled());await page.unroute('**/api/settings/archive/run');
   assert(!(await page.content()).includes('nas-share-secret'),'the share path never reaches the page');
   // Replay: the front video is on the unreachable share; the notice shows and the log still plays.
@@ -86,6 +104,6 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.deepEqual(await plain.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약']);
   assert.equal(await plain.locator('#archiveRun').count(),0);assert.equal(await plain.locator('#storageStatus').textContent(),'');
   assert.deepEqual(errors,[]);
-  console.log('PASS: media state badges, NAS status panel with manual archive run, replay storage notice, archiving-off UI unchanged');
+  console.log('PASS: media state badges, NAS status panel with confirmed move-all run and progress, replay storage notice, archiving-off UI unchanged');
  }finally{await browser?.close();await stop(on);await stop(off);fs.rmSync(temp,{recursive:true,force:true})}
 })().catch(error=>{console.error(error);process.exitCode=1});

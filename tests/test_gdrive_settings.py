@@ -13,7 +13,8 @@ from fake_drive import FakeDrive
 DAY = 86400
 CLIENT_SECRET = 'shh-client-secret'
 SMB_KEYS = {'enabled', 'state', 'reason', 'path_configured', 'used_bytes', 'free_bytes', 'max_bytes', 'margin_bytes', 'last_cycle_at',
-            'last_error', 'consecutive_failures', 'pending_deletes', 'archived_files', 'archived_bytes', 'running', 'missing_archived'}
+            'last_error', 'consecutive_failures', 'pending_deletes', 'archived_files', 'archived_bytes', 'running', 'missing_archived',
+            'manual', 'manual_active'}
 GDRIVE_KEYS = SMB_KEYS | {'backend', 'mode', 'effective_mode', 'local_delete_allowed', 'usage_reliable', 'remote_copies_files',
                           'remote_copies_bytes', 'archive_errors', 'gdrive'}
 GDRIVE_BLOCK_KEYS = {'configured', 'connected', 'folder_ok', 'pending', 'last_auth_error'}

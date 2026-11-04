@@ -541,7 +541,7 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertEqual(json.loads(path.read_text()),[{'id':'c'*32,'kinds':['camera.mp4']}])
   self.assertFalse((nas/('a'*32)).exists());self.assertFalse((nas/('b'*32)).exists())
 
- ARCHIVE_KEYS={'enabled','state','reason','path_configured','used_bytes','free_bytes','max_bytes','margin_bytes','last_cycle_at','last_error','consecutive_failures','pending_deletes','archived_files','archived_bytes','running','missing_archived'}
+ ARCHIVE_KEYS={'enabled','state','reason','path_configured','used_bytes','free_bytes','max_bytes','margin_bytes','last_cycle_at','last_error','consecutive_failures','pending_deletes','archived_files','archived_bytes','running','missing_archived','manual','manual_active'}
  def test_storage_snapshot_has_archive_block_without_path(self):
   # Archiving off: the block reports "disabled" and the existing fields are unchanged.
   body=self.get('/api/settings/storage').json
@@ -596,7 +596,7 @@ class MediaIntegrationTests(unittest.TestCase):
    calls.append(threading.current_thread());self.assertTrue(archiver.status()['running']);return 'below_threshold'
   with patch.object(server,'archiver',archiver),patch.object(archiver,'_cycle',side_effect=body):
    r=self.send('post','/api/settings/archive/run')
-   self.assertEqual((r.status_code,r.json),(202,{'started':True}));self.assertEqual(r.headers['Cache-Control'],'no-store')
+   self.assertEqual((r.status_code,r.json['started'],r.json['manual']['state']),(202,True,'running'));self.assertEqual(r.headers['Cache-Control'],'no-store')
    archiver.manual.join(5);self.assertFalse(archiver.manual.is_alive())
    # The cycle ran once, off the request thread, and released the lock.
    self.assertEqual(len(calls),1);self.assertIs(calls[0],archiver.manual);self.assertNotEqual(calls[0],threading.current_thread())
