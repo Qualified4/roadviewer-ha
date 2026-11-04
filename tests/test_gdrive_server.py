@@ -472,8 +472,8 @@ class GdriveServerTests(unittest.TestCase):
         self.assertEqual([u['id'] for u in r.json['updated']], [p.name])
         self.assertTrue((p / 'ecamera.hevc').is_file())
 
-    def test_eviction_uses_drive_state(self):
-        # A moved recording may be evicted for space only while Drive answers (by its cache, under the locks).
+    def test_moved_recordings_survive_soft_quota_and_drive_outage(self):
+        # Local quota is a MOVE trigger. The recording survives even when Drive cannot answer.
         p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
         self.move(); (p / 'prepared' / 'data.json').write_bytes(b'x' * MIB)
         self.assertEqual(self.backend.probe()[0], 'connected')
@@ -481,11 +481,15 @@ class GdriveServerTests(unittest.TestCase):
         with patch.dict(server.storage_policy.settings, {'max_bytes': used + 65536 + 10 - 1, 'policy': 'delete_oldest'}):
             r = self.send('post', '/api/uploads', json={'files': [{'name': 'x/rlog.zst', 'size': 10}]})
             self.assertEqual(r.status_code, 201, r.json)
-            # Unknown now (the background refresh cannot answer yet): the recording is kept, so there is no room.
+            if server.archiver.manual: server.archiver.manual.join(5)
+            self.assertTrue(p.exists())
+            # A missing Drive answer cannot reject uploads while the physical disk is safe.
             self.backend.invalidate()
             with patch.object(self.backend, 'probe', return_value=('checking', 'probe_pending')):
                 r = self.send('post', '/api/uploads', json={'files': [{'name': 'y/rlog.zst', 'size': 10}]})
-            self.assertEqual((r.status_code, r.json['error']), (507, 'no_deletable_logs'))
+            self.assertEqual(r.status_code, 201, r.json)
+            if server.archiver.manual: server.archiver.manual.join(5)
+            self.assertTrue(p.exists())
 
     def corrupt_copy(self, kind):
         # Drive's metadata still reports the indexed hash, so only the downloaded bytes show the damage.
@@ -568,21 +572,18 @@ class GdriveServerTests(unittest.TestCase):
         # As storage_policy evicts for space: delete_recording(id) with remote=False, under both locks.
         with server.registration_lock, server.lock: server.delete_recording(p.name)
 
-    def test_eviction_keeps_drive_files_in_copy_mode_only(self):
+    def test_automatic_eviction_cannot_remove_drive_recordings_in_either_mode(self):
         pending = media_store.PendingDeletes(self.root)
         a, b, c, d = self.promoted([ch * 32 for ch in 'abcd'])
-        # Copy mode: eviction keeps every Drive file, the promoted original included, and says so.
-        with self.assertLogs(server.app.logger, 'INFO') as logs: self.evict(a)
-        self.assertFalse(a.exists()); self.assertEqual(pending.count(), 0)
-        self.assertTrue(any(a.name in line and '2 Google Drive files are kept' in line for line in logs.output), logs.output)
-        # The user's delete queues them all (the promoted original and the log's copy).
+        with self.assertRaises(server.StorageError): self.evict(a)
+        self.assertTrue(a.exists()); self.assertEqual(pending.count(), 0)
         r = self.send('delete', f'/api/logs/{b.name}')
         self.assertEqual(r.status_code, 200); self.assertEqual(pending.count(), 2)
-        # Move mode: Drive holds the only copy of the promoted original, so eviction queues it; copies stay.
         self.make_backend(mode='move', allow_local_delete=True)
-        self.evict(c); self.assertEqual(pending.count(), 3)
+        with self.assertRaises(server.StorageError): self.evict(c)
+        self.assertTrue(c.exists()); self.assertEqual(pending.count(), 2)
         r = self.send('delete', f'/api/logs/{d.name}')
-        self.assertEqual(r.status_code, 200); self.assertEqual(pending.count(), 5)
+        self.assertEqual(r.status_code, 200); self.assertEqual(pending.count(), 4)
         with self.drive.lock: self.assertEqual(len([f for f in self.drive.files.values() if f['appProperties'].get('rv_id') == a.name]), 3)
 
     def test_unreadable_original_skips_promotion_without_failing_the_conversion(self):

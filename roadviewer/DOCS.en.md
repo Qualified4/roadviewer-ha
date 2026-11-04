@@ -530,3 +530,11 @@ For stalled uploads, inspect file access, connectivity, capacity and the library
 CI covers both platforms, dependency/image security, real container HTTPS isolation, upload/storage/conversion and browser behavior. Actual Home Assistant performance and native Android file selection depend on the environment.
 
 The bundled openpilot schema may need updating for sufficiently different log formats. See [schema licensing](schema/OPENPILOT-LICENSE) and the historical [changelog](CHANGELOG.md).
+
+### Local quota with Google Drive MOVE
+
+Google Drive MOVE provides extension storage. Its local quota is a soft limit: reaching the quota or the local archive threshold immediately requests reclamation through the existing archiver, without waiting for the scheduled interval. When both are configured, the lower value is the target. Uploads may exceed it when real disk space covers other uploads' outstanding reservations, temporary registration copies, and a 100 MiB safety margin. At registration commit, only the already received/staged upload's own reservation is excluded; other uploads remain reserved.
+
+MOVE runs alongside uploads under the same cycle lock, preventing concurrent transfers of the same file. Minimum age, pin/in-use protection, and the batch limit remain enforced. A later upload request or scheduled cycle continues when a batch is insufficient. Missing eligible files, Drive outages, and verification failures preserve records and originals. Uploads remain permitted while physical space is safe and are rejected only when physical space is insufficient. Disabling archiving prevents MOVE from running.
+
+Moved recordings remain listed, playable, and downloadable. Automatic local reclamation never deletes Drive files or their recordings. Only a user's explicit complete deletion may enqueue remote deletion. Unattributed Drive deletion intents from older versions are retained without automatic execution. NAS and COPY transfer behavior is unchanged; recordings referencing Drive files are excluded from automatic eviction.
