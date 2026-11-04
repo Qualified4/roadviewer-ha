@@ -565,6 +565,51 @@ class GdriveCrashTests(unittest.TestCase):
                     self.assertEqual([path for path in read if path.parent == p], [], label + ': second start')
                     self.assertEqual(server.read_meta(p), after, label)
 
+    def test_empty_file_never_stalls_the_cycle(self):
+        # Drive never completes an empty upload: an empty file is skipped (one warning) and the cycle goes on.
+        p = self.recording('f' * 32, data={'fcamera.mp4': b'', 'rlog.zst': LOG})
+        q = self.recording('0' * 32)
+        empty = media_store.entry(server.read_meta(p), 'fcamera.mp4')
+        archiver = self.archiver()
+        warnings = []
+        for _ in range(2):
+            with self.assertLogs(server.app.logger, 'INFO') as logs:
+                server.app.logger.info('cycle'); result = archiver.run_cycle()
+            warnings += [line for line in logs.output if 'is empty' in line]
+            self.assertIsNone(result['stopped'])
+        self.assertEqual(len(warnings), 1); self.assertIn(f'{p.name}/fcamera.mp4', warnings[0])
+        m = server.read_meta(p)
+        self.assertEqual(media_store.entry(m, 'fcamera.mp4'), empty); self.assertIsNone(media_store.remote(m, 'fcamera.mp4'))
+        self.assertEqual((p / 'fcamera.mp4').read_bytes(), b''); self.assertEqual(self.sessions(p.name, 'fcamera.mp4'), [])
+        self.assert_settled(p, False, 'its log', data={'rlog.zst': LOG})
+        self.assert_settled(q, False, 'the next recording')
+        self.assertIsNone(archiver.status()['last_error'])
+
+    def test_probe_is_bounded_when_drive_stalls(self):
+        # A request that needs Drive's state (here /video of a moved file) waits for one short probe, never for
+        # retries: a stalled Drive answers unavailable within the probe timeout (shortened here; 15 s by default).
+        self.assertLessEqual(ab.PROBE_TIMEOUT, 15)
+        p = self.recording()
+        self.assertIsNone(self.archiver(**MOVE).run_cycle()['stopped'])
+        self.assertEqual(media_store.location(server.read_meta(p), 'fcamera.mp4'), 'gdrive')
+        folder = self.backend.auth.folder_id
+        with patch.object(ab, 'PROBE_TIMEOUT', 1):
+            with self.drive.lock: self.drive.scenario.delay_seconds = 3
+            try:
+                self.backend.invalidate(); since = self.request_count()
+                t0 = time.monotonic(); state = self.backend.probe(); elapsed = time.monotonic() - t0
+                self.assertEqual(state, ('unavailable', 'network')); self.assertLess(elapsed, 2.5)
+                with self.drive.lock: asked = [r for r in self.drive.requests[since:] if f'/files/{folder}' in r['path']]
+                self.assertEqual(len(asked), 1)  # Not retried.
+                self.backend.invalidate()
+                t0 = time.monotonic(); r = self.client.get(f'/api/logs/{ID}/video?source=front', environ_overrides=PEER); elapsed = time.monotonic() - t0
+                self.assertEqual((r.status_code, r.json['error']), (503, 'storage_unavailable')); r.close()
+                self.assertLess(elapsed, 2.5)
+            finally:
+                with self.drive.lock: self.drive.scenario.delay_seconds = 0
+        self.backend.invalidate()
+        self.assertEqual(self.backend.probe(), ('connected', None))
+
     def test_leftover_nas_entry_under_gdrive_answers_503_and_recovery_goes_on(self):
         # (e) A file moved to the NAS before switching to Drive: unreachable now (503), never touched; the restart's
         # recovery and cycle carry on with every other file.

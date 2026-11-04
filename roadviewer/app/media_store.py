@@ -599,6 +599,7 @@ class Archiver:
         self.held_checked, self.rechecked_held = False, 0
         # (recording path, kind) of archived files recovery did not find on the reachable share; their index is kept.
         self.missing = set()
+        self.empty = set()  # (recording path, kind) of empty local files the remote path skipped (warned once each).
         self.cycle_failed = False  # A failure was counted for the current cycle (counted once per cycle).
         # Why the last archive_file returned False; None when the recording changed meanwhile.
         # Shared state: archive_file must only be called from run_cycle (which holds self.cycle).
@@ -714,6 +715,13 @@ class Archiver:
                 try: size = (p / kind).stat().st_size
                 except FileNotFoundError: continue
                 except OSError: return 'os_error'
+                if self.remote and size == 0:
+                    # Drive takes an empty upload as a status query and never completes it: the cycle would stop here
+                    # every time. The file stays local and unchanged; the next files go on.
+                    if (p, kind) not in self.empty:
+                        self.empty.add((p, kind))
+                        s.app.logger.warning('%s/%s is empty; it is not archived to the remote archive', p.name, kind)
+                    continue
                 if not (self.archive_remote(p, meta, kind) if self.remote else self.archive_file(p, meta, kind)):
                     if self.reason: return self.reason
                     break  # The recording changed meanwhile: its other files wait for the next cycle.

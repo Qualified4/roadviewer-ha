@@ -14,6 +14,9 @@ RETRY_STATUS = (429, 500, 502, 503, 504)
 RATE_REASONS = ('userRateLimitExceeded', 'rateLimitExceeded')
 REFRESH_MARGIN = 60
 TIMEOUT = 60
+# The state check (probe) runs on request paths: a short timeout and no retry of timeouts or socket errors, so an
+# offline or stalled Drive never holds a request for minutes.
+PROBE_TIMEOUT = 15
 # Error reasons are Google's fixed tokens; anything else is cut down so free text never reaches a message.
 REASON = re.compile(r'[A-Za-z0-9_.-]{1,64}')
 
@@ -173,9 +176,10 @@ class DriveAuth:
             if storage_id is not None: self._data['storage_id'] = storage_id
             self.save()
 
-    def _post(self, path, form):
+    def _post(self, path, form, quick=False):
+        # quick: the probe's short timeout (a POST never retries a timeout or socket error anyway).
         return self.http.request('POST', self.oauth_base + path, headers={'Content-Type': 'application/x-www-form-urlencoded'},
-                                 body=urllib.parse.urlencode(form).encode())
+                                 body=urllib.parse.urlencode(form).encode(), timeout=PROBE_TIMEOUT if quick else TIMEOUT)
 
     def start_device_flow(self, scope=DRIVE_SCOPE):
         r = self._post('/device/code', {'client_id': self._client_id, 'scope': scope})
@@ -221,13 +225,13 @@ class DriveAuth:
         self._data = {k: data.get(k) for k in TOKEN_KEYS}
         self.save()
 
-    def access_token(self):
+    def access_token(self, quick=False):
         with self._lock:
             if not self.connected: raise BackendError('auth_expired', reason='not_connected')
             if self._data.get('access_token') and (self._data.get('expires_at') or 0) - REFRESH_MARGIN > self.clock():
                 return self._data['access_token']
             r = self._post('/token', {'client_id': self._client_id, 'client_secret': self._client_secret,
-                                      'refresh_token': self._data['refresh_token'], 'grant_type': 'refresh_token'})
+                                      'refresh_token': self._data['refresh_token'], 'grant_type': 'refresh_token'}, quick=quick)
             if r.status == 200:
                 self._store(r.json() or {})
                 return self._data['access_token']
@@ -346,11 +350,14 @@ class DriveClient:
 
     def __repr__(self): return 'DriveClient()'
 
-    def _request(self, method, url, *, headers=None, body=None, stream=False, retry=True, idempotent=False, token=True):
+    def _request(self, method, url, *, headers=None, body=None, stream=False, retry=True, idempotent=False, token=True, quick=False):
+        # quick (the probe): PROBE_TIMEOUT and no retry of a timeout or socket error, for the token refresh and the
+        # request; Google's own error answers (5xx, 429) keep their short backoff.
         for attempt in (0, 1):
             h = dict(headers or {})
-            if token: h['Authorization'] = 'Bearer ' + self.auth.access_token()
-            r = self.http.request(method, url, headers=h, body=body, stream=stream, retry=retry, idempotent=idempotent)
+            if token: h['Authorization'] = 'Bearer ' + self.auth.access_token(quick=quick)
+            r = self.http.request(method, url, headers=h, body=body, stream=stream, retry=retry, idempotent=idempotent and not quick,
+                                  timeout=PROBE_TIMEOUT if quick else TIMEOUT)
             if r.status != 401 or not token or attempt: return r
             r.close()
             self.auth.expire()  # A 401 rejected the request unprocessed, so sending it again is safe.
@@ -361,8 +368,8 @@ class DriveClient:
 
     def _file(self, file_id, **params): return self._url('/files/' + urllib.parse.quote(file_id, safe=''), **params)
 
-    def get(self, file_id, fields):
-        r = self._request('GET', self._file(file_id, fields=fields), idempotent=True)
+    def get(self, file_id, fields, quick=False):
+        r = self._request('GET', self._file(file_id, fields=fields), idempotent=True, quick=quick)
         if r.status == 404: r.close(); return None
         if r.status != 200: raise _fail(r)
         return r.json() or {}
@@ -504,7 +511,7 @@ class DriveBackend(_Availability):
         if not self.auth.connected: return 'unavailable', 'not_connected'
         folder_id = self.auth.folder_id
         if not folder_id: return 'unavailable', 'folder_missing'
-        try: folder = self.client.get(folder_id, 'trashed,appProperties')
+        try: folder = self.client.get(folder_id, 'trashed,appProperties', quick=True)  # Bounded: requests wait on it.
         except BackendError as e: return 'unavailable', 'network' if e.code == 'unavailable' else e.code
         # 404: deleted for good, or reconnected with an account that cannot see it.
         if folder is None: return 'unavailable', 'folder_missing'
