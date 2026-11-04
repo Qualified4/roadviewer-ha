@@ -93,6 +93,15 @@ async function openPanel(page){
   // The panel follows the sign-in (every 3 s) until Google grants it.
   const polls=[];page.on('request',request=>{if(request.url().endsWith('/api/settings/storage'))polls.push(Date.now())});
   await page.waitForTimeout(3500);assert(polls.length>=1,'polls while the code waits');
+  // Closing the panel or hiding the page stops it; reopening or returning resumes it after a fresh fetch.
+  await page.locator('#storageSettings summary').click();
+  let mark=polls.length;await page.waitForTimeout(4000);assert.equal(polls.length,mark,'no polling with the panel closed');
+  await openPanel(page);await page.locator('#gdriveCode').waitFor();
+  mark=polls.length;await page.waitForTimeout(3500);assert(polls.length>mark,'polling resumes on reopen');
+  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'))});
+  mark=polls.length;await page.waitForTimeout(4000);assert.equal(polls.length,mark,'no polling while the page is hidden');
+  await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'))});
+  await page.waitForTimeout(3500);assert(polls.length>=mark+2,'a fresh fetch on return, then polling again');
   await page.unroute('**/api/settings/storage');
   await drive.command('grant');
   await page.waitForFunction(()=>document.getElementById('gdriveCode').hidden,null,{timeout:15000});
@@ -121,6 +130,27 @@ async function openPanel(page){
   assert.equal(await page.locator('#gdriveAuthError').textContent(),'인증 오류 (something_new)');
   assert.equal((await metrics(page))['Drive 상태'],'인증 만료');
   assert.equal(await page.locator('#gdriveConnect').textContent(),'다시 연결');assert(await page.locator('#gdriveConnect').isDisabled());
+  await page.unroute('**/api/settings/storage');
+  // A waiting code from a handed block. The server's clock (Date header) is an hour behind the browser's.
+  const handed=(code,url,left)=>page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json(),server=Date.now()/1000-3600;body.archive.gdrive.pending={user_code:code,verification_url:url,expires_at:server+left};await route.fulfill({response,json:body,headers:{...response.headers(),date:new Date(server*1000).toUTCString()}})});
+  const markup='<img src=x onerror="window.__x=1"><b>X</b>';
+  await handed(markup,'javascript:alert(1)',600);await openPanel(page);await page.locator('#gdriveCode').waitFor();
+  // Markup stays text and a script address is not a link.
+  assert.equal(await page.locator('#gdriveUserCode').textContent(),markup);
+  assert.equal(await page.locator('#gdriveUserCode').evaluate(el=>el.childElementCount),0);
+  assert.equal(await page.locator('#gdriveCode img, #gdriveCode b').count(),0);
+  assert.equal(await page.evaluate(()=>window.__x),undefined);
+  assert.equal(await page.locator('#gdriveUrl').textContent(),'javascript:alert(1)');assert.equal(await page.locator('#gdriveUrl').getAttribute('href'),null);
+  // The countdown follows the server's clock, not the browser's (which would read 50 minutes past expiry).
+  await page.waitForFunction(()=>/^코드 유효 시간 (9:5\d|10:00) 남음$/.test(document.getElementById('gdriveCountdown').textContent),null,{timeout:8000});
+  await page.unroute('**/api/settings/storage');
+  // A plain-http address is text too; a code the server still reports is never called expired.
+  await handed('WXYZ-1234','http://www.google.com/device',-5);await openPanel(page);await page.locator('#gdriveCode').waitFor();
+  assert.equal(await page.locator('#gdriveUrl').textContent(),'http://www.google.com/device');assert.equal(await page.locator('#gdriveUrl').getAttribute('href'),null);
+  await page.waitForTimeout(3500);
+  assert.equal(await page.locator('#gdriveCountdown').textContent(),'코드 유효 시간을 확인하는 중입니다');
+  assert(!(await page.locator('#gdriveCode').textContent()).includes('만료'));
+  await page.locator('#storageSettings summary').click();
   await page.unroute('**/api/settings/storage');
   assert.deepEqual(errors,[]);
   await stop(drive);drive=null;
