@@ -36,6 +36,7 @@ function showArchive(a){
  if(a?.settings_error)$('archiveSettingsStatus').textContent='아카이빙 설정을 읽지 못해 꺼졌습니다. 설정을 확인하고 저장하세요. ('+a.settings_error+')';
  // Local usage and archive metrics have separate sections. Never show the share's path.
  for(const row of document.querySelectorAll('#archiveUsage>.archive-metric,#archiveSecondaryUsage>.archive-metric'))row.remove();
+ archiveCheckPoll(a);
  $('archiveRun')?.remove();$('archiveSummary').hidden=!a?.enabled;if(!a?.enabled){$('archiveJob').hidden=true;archiveJobPoll(false)}
  // A block without a backend is the NAS and shows as before; nothing of Drive is created for it.
  // Drive's sign-in does not need archiving on: with it off, only the connection panel is shown.
@@ -246,8 +247,18 @@ function archiveJobPoll(on){
  if(!on){clearInterval(archiveJobTimer);archiveJobTimer=null;return}
  if(!archiveJobTimer)archiveJobTimer=setInterval(()=>void archiveJobRefresh(),2000);
 }
-storageDetails.addEventListener('toggle',()=>{if(!storageDetails.open)archiveJobPoll(false)});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)archiveJobPoll(false);else if(storageDetails.open&&manualActive())void archiveJobRefresh()});
+// The server answers 'checking' while it probes the archive in the background (it never waits on the internet):
+// the panel asks again shortly until the state is settled, at most ARCHIVE_CHECK_TRIES times in a row.
+const ARCHIVE_CHECK_TRIES=20;let archiveCheckTimer=null,archiveCheckTries=0;
+function archiveCheckPoll(a){
+ const checking=!!a?.enabled&&a.state==='checking'&&storageDetails.open&&!document.hidden;
+ if(!checking){clearTimeout(archiveCheckTimer);archiveCheckTimer=null;if(a?.state!=='checking')archiveCheckTries=0;return}
+ if(archiveCheckTimer||archiveCheckTries>=ARCHIVE_CHECK_TRIES)return;
+ archiveCheckTries++;
+ archiveCheckTimer=setTimeout(()=>{archiveCheckTimer=null;void archiveJobRefresh()},2000);
+}
+storageDetails.addEventListener('toggle',()=>{archiveCheckTries=0;if(!storageDetails.open){archiveJobPoll(false);archiveCheckPoll(null)}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){archiveJobPoll(false);archiveCheckPoll(null)}else if(storageDetails.open&&(manualActive()||storageSnapshotState?.archive?.state==='checking')){archiveCheckTries=0;void archiveJobRefresh()}});
 const archiveForm=$('archiveForm');
 let editorLoaded=false,editorLoading=false,editorSaving=false,archiveSettingsNeedsSave=false,savedStorage=null,savedArchive=null,storageSnapshotState=null;
 const archivePresets=[['archiveAgePreset','archive_min_age_hours','archiveAgeCustom'],['archiveThresholdPreset','archive_local_threshold_mb','archiveThresholdCustom'],['archiveIntervalPreset','archive_interval_minutes','archiveIntervalCustom']];
