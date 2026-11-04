@@ -6,7 +6,7 @@ from progress import ProgressChannel
 from work_queue import ProcessingQueue
 from flask import Flask,request,jsonify,send_file,send_from_directory,abort,g as request_state
 from werkzeug.exceptions import HTTPException
-from storage_policy import StoragePolicy,atomic_json
+from storage_policy import StoragePolicy,StorageError,atomic_json
 import media_store,archive_backends,archive_settings as archive_config
 from device_api import DeviceAPI
 from device_network import DeviceNetwork
@@ -542,7 +542,7 @@ def upload():
  with registration_lock,lock:
   amount=storage_policy.admit(request.content_length,[{'name':f.filename or ''} for f in files],staging=True)
   id=uuid.uuid4().hex;p=UPLOADS/id;p.mkdir();atomic_json(p/'reservation.json',{'bytes':amount});active_uploads[id]+=1
- try:return register_files(files)
+ try:return register_files(files,reservation_id=id)
  finally:
   with lock:shutil.rmtree(p,ignore_errors=True);active_uploads.pop(id,None)
 
@@ -611,7 +611,7 @@ def archived_matches(wanted):
   if digest in wanted:states[m['id']]=archived_states(p,m)
  return states
 
-def register_files(files):
+def register_files(files,reservation_id=None):
  if not files or len(files)>(200 if request.path.startswith('/api/device/') else 100):return jsonify(error='한 번에 1~100개 파일을 선택하세요.'),400
  if shutil.disk_usage(ROOT).free<(request.content_length or 0)+100*1024*1024:return upload_error('insufficient_disk_space','로그를 저장할 디스크 공간이 부족합니다.',507)
  staged=[];duplicates=[];updated=[]
@@ -684,7 +684,7 @@ def register_files(files):
          return jsonify(error='log_unavailable',message='원본 로그가 없어 영상을 추가할 수 없습니다. 로그와 영상을 함께 다시 업로드하세요.'),409
         changes=True
      if changes:
-      storage_policy.admit(0,[{'name':name} for g in groups.values() for name in g['files'].values()],commit=True,protected_ids={match[0]['id'] for match in matches if match})
+      storage_policy.admit(0,[{'name':name} for g in groups.values() for name in g['files'].values()],commit=True,protected_ids={match[0]['id'] for match in matches if match},reservation_id=reservation_id)
      for g in groups.values():
       match=existing.get(g['hashes']['rlog.zst'])
       if match:
@@ -909,7 +909,7 @@ def finish_upload(id,expected_hashes=None):
    if expected and digest!=expected:return jsonify(error='checksum_mismatch'),422
    received.append(ReceivedFile(p/str(i),f['name'],digest))
   # Hashing and registering up to 512 MB must not block other requests.
-  return register_files(received)
+  return register_files(received,reservation_id=id)
  finally:
   with lock:
    shutil.rmtree(p,ignore_errors=True)
@@ -942,10 +942,13 @@ def process_pending():
  if pending.path.exists():pending.process(store)
 
 def delete_recording(id,remote=False):
- # Shared deletion unit for explicit deletion and route-level storage cleanup.
- # remote: the user deleted the recording, so its remote copies go too. Eviction for space (storage_policy)
- # keeps them: a copy is the recording's backup and stays on the remote backend (find() adopts it again).
- p=folder(id);proc=processes.get(id)
+ # Drive is extension storage. Only an explicit complete deletion may remove its recording or remote files.
+ p=folder(id)
+ try:m=read_meta(p)
+ except (OSError,ValueError):m={}
+ if not isinstance(m,dict):m={}
+ if not remote and media_store.remote_refs(m,copies=True):raise StorageError('no_deletable_logs')
+ proc=processes.get(id)
  if proc and proc.poll() is None:
   proc.terminate()
   try:proc.wait(timeout=3)
@@ -957,14 +960,8 @@ def delete_recording(id,remote=False):
  except (OSError,ValueError):m={}  # A broken meta.json is still deletable; it records no archived files.
  if not isinstance(m,dict):m={}
  kinds=[kind for kind in media_store.MEDIA_KINDS if media_store.location(m,kind)=='nas']
- # A remote backend's files (moved files and verified copies) are recorded by reference. Eviction removes them
- # only in move mode, where Drive holds the recording's only copy; in copy mode Drive is the backup that outlives
- # local cleanup, including originals a conversion promoted to the stored copy.
- move=remote_backend() and archiver.settings.effective_mode=='move'
- refs=media_store.remote_refs(m,copies=remote) if remote or move else []
- kept=len(media_store.remote_refs(m))-len(refs)
- if kept:app.logger.info('Recording %s removed for space; its %d Google Drive files are kept',id,kept)
- if kinds or refs:media_store.PendingDeletes(ROOT).add(id,kinds,refs or None)
+ refs=media_store.remote_refs(m,copies=True) if remote else []
+ if kinds or refs:media_store.PendingDeletes(ROOT).add(id,kinds,refs or None,explicit=remote)
  shutil.rmtree(p)
 
 # Tags belong to the recording, never to disposable prepared data.

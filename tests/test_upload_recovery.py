@@ -126,7 +126,7 @@ class RecoveryTests(unittest.TestCase):
   self.assertEqual((p/'rlog.zst').read_bytes(),b'original')
  def test_finish_copy_does_not_block_other_uploads(self):
   id=self.begin();self.put(id);entered=threading.Event();release=threading.Event();result=[]
-  def slow_registration(files):
+  def slow_registration(files,reservation_id=None):
    entered.set();release.wait(3)
    return server.jsonify(logs=[],duplicates=[],updated=[]),201
   def finish():

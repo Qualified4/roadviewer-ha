@@ -135,19 +135,18 @@ class GdriveEndToEnd(unittest.TestCase):
         media = self.request_count('alt=media')
         r = self.video(b, 'bytes=10-99'); self.assertEqual((r.status_code, r.data), (206, videos['b'][10:100])); r.close()
         self.assertEqual(self.request_count('alt=media'), media)  # Played from the local file.
-        # Eviction for space keeps the Drive files in copy mode: nothing is queued.
+        # Even COPY-backed recordings remain reachable until explicitly deleted.
         pending = media_store.PendingDeletes(self.root)
-        with self.assertLogs(server.app.logger, 'INFO') as logs:
-            with server.registration_lock, server.lock: server.delete_recording(d.name)
-        self.assertTrue(any(d.name in line and 'kept' in line for line in logs.output), logs.output)
-        self.assertFalse(d.exists()); self.assertEqual(pending.count(), 0); self.assertEqual(len(self.files(d.name)), 2)
+        with server.registration_lock, server.lock, self.assertRaises(server.StorageError): server.delete_recording(d.name)
+        self.assertTrue(d.exists()); self.assertEqual(pending.count(), 0); self.assertEqual(len(self.files(d.name)), 2)
+        self.assertEqual(self.send('delete', f'/api/logs/{d.name}').status_code, 200)
         # The user's delete queues them, makes no Drive call itself, and the cycle deletes them.
         since = self.request_count()
         r = self.send('delete', f'/api/logs/{e.name}'); self.assertEqual((r.status_code, r.json), (200, {'deleted': e.name}))
-        self.assertEqual(self.request_count(), since); self.assertEqual(pending.count(), 2)
+        self.assertEqual(self.request_count(), since); self.assertEqual(pending.count(), 4)
         self.assertIsNone(self.archiver.run_cycle()['stopped'])
         self.assertEqual(pending.count(), 0); self.assertEqual(self.files(e.name), {})
-        self.assertEqual(len(self.files(d.name)), 2)  # The evicted recording's files are still there.
+        self.assertEqual(self.files(d.name), {})  # Only the explicit delete queued these files.
         self.settle()
         block, _ = self.block()
         self.assertEqual((block['backend'], block['mode'], block['effective_mode'], block['local_delete_allowed']), ('gdrive', 'move', 'copy', False))

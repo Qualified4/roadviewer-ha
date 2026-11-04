@@ -231,7 +231,7 @@ class ArchiveSettingsTests(unittest.TestCase):
             archiver._loop(); activate.assert_not_called()
         self.assertEqual(runs, [185])
 
-    def test_eviction_observes_mode_only_after_swap(self):
+    def test_explicit_deletion_observes_mode_only_after_swap(self):
         self.install(PRODUCTION)
         entered, release, evicted = threading.Event(), threading.Event(), threading.Event()
         p = make_log(self.root, 'a'*32, [], [])
@@ -243,7 +243,7 @@ class ArchiveSettingsTests(unittest.TestCase):
             modes.append(server.backend.settings.effective_mode); entered.set(); release.wait(5); atomic_json(path, data)
         def evict():
             with server.registration_lock, server.lock:
-                modes.append(server.backend.settings.effective_mode); server.delete_recording(p.name); evicted.set()
+                modes.append(server.backend.settings.effective_mode); server.delete_recording(p.name, remote=True); evicted.set()
         with patch.object(server, 'atomic_json', side_effect=write):
             saver = threading.Thread(target=lambda: replies.append(self.post({'archive_mode': 'move', 'archive_allow_local_delete': True})))
             saver.start(); self.assertTrue(entered.wait(5))
