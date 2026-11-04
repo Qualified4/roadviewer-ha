@@ -636,6 +636,9 @@ class DriveBackend(_Availability):
                     if f.read(1) or sha256 and h256.hexdigest() != sha256 or md5 and hmd5.hexdigest() != md5:
                         raise BackendError('mismatch', reason='local_changed')
                     checked = True
+                # Signed out meanwhile (disconnect): the session URI needs no token, so stop here, before the next
+                # chunk. The persisted session stays for a later resume, as for any interrupted upload.
+                if not self.auth.connected: raise BackendError('auth_expired', reason='signed_out')
                 try: state, value = self.client.put_chunk(session, buf, sent, size)
                 except BackendError as e:
                     if e.code not in ('unavailable', 'rate_limited'): raise
@@ -745,7 +748,10 @@ class DriveConnection:
         while True:
             if self._wait(cancel, self.auth.interval or 5): return  # Disconnected, or replaced by a new code.
             try: result = self.auth.poll_once()
-            except BackendError as e: result = e.reason or e.code
+            except BackendError as e:
+                # Google or the network failing for now (Http already backed off): the code is still valid, so the
+                # next poll comes after the interval. Only a refusal, a bad client or grant, or expiry end the flow.
+                result = 'pending' if e.code in ('unavailable', 'rate_limited') else e.reason or e.code
             except Exception: result = 'error'  # Never a traceback: the answer could be in it.
             if cancel.is_set(): return
             if result != 'pending': break

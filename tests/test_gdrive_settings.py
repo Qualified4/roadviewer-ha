@@ -359,5 +359,40 @@ class GdriveSettingsTests(unittest.TestCase):
         self.assertTrue((self.root / '.gdrive-auth.json').exists()); self.assertEqual((p / 'meta.json').read_bytes(), before)
         self.assertEqual(len(self.requests('/device/code')), 1)  # connect_directly's only.
 
+    def test_transient_token_failure_keeps_polling(self):
+        self.make_backend()
+        with self.drive.lock:
+            self.drive.scenario.device_poll_responses = ['authorization_pending'] * 1000
+            self.drive.scenario.fail_next('/token', 500, times=5)  # One poll's every attempt fails.
+        self.assertEqual(self.post('/api/settings/archive/gdrive/connect').status_code, 202)
+        self.assertTrue(self.until(lambda: len(self.requests('/token')) >= 7))
+        gdrive = self.block()['gdrive']
+        self.assertEqual((gdrive['pending']['user_code'], gdrive['last_auth_error']), ('ABCD-EFGH', None))
+        self.assertTrue(server.connection.thread.is_alive())
+        with self.drive.lock: self.drive.scenario.device_poll_responses = []
+        server.connection.thread.join(5)
+        self.assertTrue(self.auth.connected)
+        self.assertEqual(self.block()['gdrive']['last_auth_error'], None)
+
+    def test_disconnect_stops_an_upload_in_progress(self):
+        self.make_backend(); self.connect_directly()
+        p = self.log('a' * 32, {'fcamera.mp4': os.urandom(3 * ab.CHUNK + 5)})
+        put_chunk, after = self.backend.client.put_chunk, []
+        def chunk(session, data, start, total):
+            if after is not None and not self.auth.connected: after.append(start)
+            result = put_chunk(session, data, start, total)
+            if start == 0: server.drive_connection().disconnect()
+            return result
+        with patch.object(self.backend.client, 'put_chunk', side_effect=chunk):
+            result = self.archiver.run_cycle()
+        self.assertEqual(result['stopped'], 'auth_expired')
+        self.assertEqual(after, [])  # No chunk went out once signed out.
+        with self.drive.lock: session = next(iter(self.drive.sessions.values()))
+        self.assertEqual(len(session['received']), ab.CHUNK)
+        m = server.read_meta(p)
+        self.assertIsNone(media_store.remote(m, 'fcamera.mp4'))
+        self.assertTrue((p / 'fcamera.mp4').is_file())
+        self.assertIsNotNone(media_store.remote_pending(m, 'fcamera.mp4'))  # Kept for a resume after reconnecting.
+
 if __name__ == '__main__':
     unittest.main()
