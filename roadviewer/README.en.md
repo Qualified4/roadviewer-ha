@@ -10,7 +10,7 @@ Replay and analyze openpilot logs with front/wide camera video inside Home Assis
 
 **Add files or drag and drop → Upload → Convert → Play.** Automatic conversion is enabled by default.
 
-Select `rlog.zst` and optional cameras from the same segment: `qcamera.ts`, high-quality front `fcamera.hevc`, and wide `ecamera.hevc`. Logs alone work; video-only and direct MP4 uploads do not. Multiple segments can be uploaded together. If a mobile file picker cannot return multiple files, add them one at a time.
+Upload the matching rlog with qcamera.ts, fcamera.hevc, ecamera.hevc, or camera MP4 files. MP4 re-upload is supported with the same segment rlog: qcamera uses H.264 and front/wide use HEVC. Log-only uploads are supported; video-only registration is not. Missing extra cameras do not block the rest.
 
 ## Features
 
@@ -18,7 +18,7 @@ Select `rlog.zst` and optional cameras from the same segment: `qcamera.ts`, high
 - Front/wide camera switching and calibrated camera overlays
 - Lanes, model paths, radar points, LF/FF/RF boxes, blind spots and turn signals
 - Automatic, side-by-side and stacked layouts, adjustable width and sticky playback controls
-- 23 selectable/reorderable graphs and camera installation information
+- 24 selectable/reorderable graphs and camera installation information
 - Automatic/manual conversion, up to four concurrent jobs and lossless MP4 retention
 - Later camera attachment, original-format export and log/video downloads
 - Per-segment pins, bulk conversion/removal/deletion, storage budgets and cleanup
@@ -30,13 +30,13 @@ Select `rlog.zst` and optional cameras from the same segment: `qcamera.ts`, high
 
 Use **로그 선택** at the bottom of settings for bulk actions. Pins are protected by default; explicitly enable **고정 항목도 삭제** to include them. Reopening the dialog restores protection.
 
-Storage-policy eviction occurs only after upload receipt and validation, not on reservation requests alone. Pinned segments and queued/processing routes remain protected.
+Outside effective Drive MOVE, storage-policy eviction occurs only after upload receipt and validation, not on reservations alone. Pinned segments, queued/processing routes, and recordings referencing Drive are protected. Drive MOVE uses the soft-limit behavior described below.
 
 The web UI uses Home Assistant Ingress. External device HTTPS is off by default and configured inside the app only when needed.
 
 **Original logs, videos and prepared data are excluded from Home Assistant app backups.** Keep originals separately. Processing/storage policies and device authentication configuration are backed up.
 
-See the [user guide](DOCS.en.md) · [한국어](DOCS.md), or the app's Documentation tab. The [changelog](CHANGELOG.md) is in Korean.
+See the [user guide](DOCS.en.md) · [한국어](DOCS.md), or the app's Documentation tab. See [current release notes](CHANGELOG.en.md) or the [full Korean history](CHANGELOG.md).
 
 ## Platforms
 
@@ -51,3 +51,15 @@ The bar stays visible from preparation until the large compressed files have bee
 Choose **다운로드** (Download) in the compact recording menu to select files and MP4/original format in a modal. **전체 선택** (Select all) and **선택 해제** (Clear selection) control the ZIP contents. Use **받기** beside a file to download it individually without ZIP; for multiple segments, expand **개별 받기** to choose a segment’s file. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Selected files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
 Choose **로그 선택** (Select logs) at the bottom of settings. The first **로그 일괄 관리** (Bulk log management) dialog groups recordings by route, with route-level select-all and individual segment checkboxes. A minus indicates a partial selection; the top select-all/count and bottom action buttons stay visible while scrolling. Then choose **다운로드** (Download) to select files and format. Individual library and replay downloads keep the compact file/format popup for the current segment.
+
+## Storage settings
+
+Status, archiving basics, execution/advanced controls, and a live summary make up the storage screen. Presets preserve existing custom values. Review the summary, then save; unsaved edits never start manual archiving. Tags classify segments and bookmarks return to log timestamps; neither replaces pin protection.
+
+**Google Drive MOVE is extension storage for local data.** With Drive MOVE and permission to delete local originals configured, the local maximum is a **soft limit**. When archiving is enabled, reaching that limit or the archive start threshold requests a background move through the existing archiver; when both are positive, the lower value is used. Uploads can temporarily exceed the limit while physical disk space covers other uploads’ outstanding reservations, temporary files, and a **100 MiB safety margin**. Admission does not wait for a Drive transfer to finish.
+
+MOVE deletes only the corresponding local file after remote transfer, integrity verification, and index commit. Minimum age, pin/in-use protection, batch limits, and the shared cycle lock remain enforced. Drive outages and verification failures preserve originals and records. Uploads continue while physical headroom is sufficient; otherwise new uploads are rejected without deleting existing records. Disabling archiving prevents moves; configured Drive MOVE still uses the soft limit, with physical disk headroom controlling upload admission.
+
+Moved recordings **remain listed, playable, and downloadable**. Automatic local reclamation never deletes Drive files or recordings referencing them, including COPY references. Only explicit **Delete permanently** can enqueue remote deletion. Unattributed deletion intents from older versions are retained without automatic execution.
+
+Other policies retain upload rejection or validated-commit eviction of eligible unpinned data. See the [full guide](DOCS.en.md#reading-the-storage-screen).
