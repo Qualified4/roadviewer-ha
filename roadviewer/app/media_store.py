@@ -479,7 +479,7 @@ class PendingDeletes:
             row = next((r for r in rows if r['id'] == id), None)
             if row is None: rows.append({'id': id, 'kinds': list(kinds)}); row = rows[-1]
             else: row['kinds'] += [k for k in kinds if k not in row['kinds']]
-            if explicit: row['explicit'] = True
+            if explicit and refs: row['explicit'] = True
             if refs:
                 known = {r['file_id'] for r in row.setdefault('refs', [])}
                 row['refs'] += [dict(r) for r in refs if r['file_id'] not in known]
