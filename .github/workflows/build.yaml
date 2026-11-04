@@ -299,6 +299,69 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+  warm-caches:
+    # GitHub caches are scoped to the branch that wrote them; a PR reads its own and main's. Builds and browser
+    # tests only run on PRs, so without this every new PR started from stale main caches (full apt/pip rebuild,
+    # vulnerability DB and browser downloads). Runs after merges only and never gates a PR.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [metadata]
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            ha_arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            ha_arch: aarch64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: roadviewer
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            BUILD_ARCH=${{ matrix.ha_arch }}
+            BUILD_VERSION=${{ needs.metadata.outputs.version }}
+          load: true
+          tags: roadviewer:test
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+      # Same action and version as the PR scan, so it fills the same daily vulnerability DB cache key. Report only.
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IMAGE_SRC: docker
+        with:
+          version: 'v0.74.0'
+          scan-type: image
+          image-ref: roadviewer:test
+          scanners: vuln
+          vuln-type: os,library
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+          ignore-unfixed: true
+      - if: matrix.arch == 'amd64'
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - if: matrix.arch == 'amd64'
+        run: npm install --no-save playwright
+      - if: matrix.arch == 'amd64'
+        id: playwright
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - if: matrix.arch == 'amd64'
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}-chromium-shell
+      - if: matrix.arch == 'amd64'
+        run: npx playwright install --only-shell chromium
   publish:
     needs: [metadata]
     if: github.repository == 'Qualified4/roadviewer-ha' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
