@@ -71,7 +71,8 @@ def load(root, options):
             return parse(data, options), marker, None
         if validate(data): raise ValueError('invalid_settings')
         settings = parse(data, options)
-        atomic_json(path, document(settings, marker))
+        # Only migrated values are written; with nothing to migrate the defaults apply until the user saves.
+        if marker == 'options.json': atomic_json(path, document(settings, marker))
         return settings, marker, None
     except (OSError, ValueError, TypeError):
         # Never recover a bad preference file from stale options, or write over it.

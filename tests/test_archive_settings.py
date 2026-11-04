@@ -56,6 +56,7 @@ class ArchiveSettingsTests(unittest.TestCase):
         settings, marker, error = prefs.load(self.root, {})
         self.assertEqual(settings, media_store.ArchiveSettings.from_options({}))
         self.assertEqual(marker, 'defaults'); self.assertIsNone(error)
+        self.assertFalse(self.path.exists())  # Nothing to migrate: no file until the user saves.
         self.path.write_text(json.dumps({'archive_batch': 9}))
         loaded, _, error = prefs.load(self.root, PRODUCTION)
         self.assertEqual(loaded, media_store.ArchiveSettings.from_options({'archive_batch': 9})); self.assertIsNone(error)
@@ -111,7 +112,8 @@ class ArchiveSettingsTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/settings/archive', json={}, headers=HEADERS).status_code, 403)
 
     def test_validation_is_atomic_with_field_codes(self):
-        self.install()
+        # Migrated NAS settings (archiving off), so a file exists that invalid saves must not change; NAS paths are checked.
+        self.install(dict(PRODUCTION, archive_enabled=False, archive_backend='smb'))
         before = self.path.read_bytes()
         cases = [('archive_enabled', 'true'), ('archive_allow_local_delete', 1), ('archive_backend', 'ftp'),
                  ('archive_mode', 'remove'), ('archive_batch', True), ('archive_batch', 0), ('archive_batch', 65),
