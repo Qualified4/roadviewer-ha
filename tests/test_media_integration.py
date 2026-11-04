@@ -657,13 +657,15 @@ class MediaIntegrationTests(unittest.TestCase):
   self.assertRegex(text,r'(?m)^map:\n  - type: ssl\n    read_only: true\n  - type: share\n    read_only: false$')
   options=text.split('\noptions:\n',1)[1].split('\nschema:\n',1)[0];schema=text.split('\nschema:\n',1)[1].split('\nurl:',1)[0]
   expected={'archive_enabled':('false','bool'),'archive_path':('""','str'),'archive_local_threshold_mb':('0','int(0,)'),'archive_min_age_hours':('24','int(0,8760)'),
-            'archive_interval_minutes':('10','int(1,1440)'),'archive_batch':('4','int(1,64)'),'archive_nas_max_mb':('0','int(0,)'),'archive_nas_margin_mb':('1024','int(0,)')}
+            'archive_interval_minutes':('10','int(1,1440)'),'archive_batch':('4','int(1,64)'),'archive_nas_max_mb':('0','int(0,)'),'archive_nas_margin_mb':('1024','int(0,)'),
+            'archive_backend':('smb','list(smb|gdrive)'),'archive_mode':('move','list(move|copy)'),'archive_allow_local_delete':('false','bool'),
+            'archive_gdrive_client_id':('""','str'),'archive_gdrive_client_secret':('""','password'),'archive_gdrive_folder_name':('"Road Viewer"','str')}
   for key,(default,rule) in expected.items():
    self.assertRegex(options,rf'(?m)^  {key}: {re.escape(default)}$',key);self.assertRegex(schema,rf'(?m)^  {key}: {re.escape(rule)}$',key)
-  self.assertEqual(len(re.findall(r'(?m)^  archive_',options)),8);self.assertEqual(len(re.findall(r'(?m)^  archive_',schema)),8)
-  # Existing options stay; the add-on version is not bumped by this change.
+  self.assertEqual(len(re.findall(r'(?m)^  archive_',options)),14);self.assertEqual(len(re.findall(r'(?m)^  archive_',schema)),14)
+  # Existing options stay; the version is a release's, not this test's.
   for line in ('  max_upload_mb: 512','  max_upload_mb: int(16,2048)','hassio_api: true'):self.assertIn(line+'\n',text)
-  self.assertRegex(text,r'(?m)^version: "0\.12\.2"$')
+  self.assertRegex(text,r'(?m)^version: "\d+\.\d+\.\d+"$')
 
  def test_archive_options_json_env_merges(self):
   # The merge happens at import, so a fresh interpreter imports the server with the variable set.

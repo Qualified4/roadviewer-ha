@@ -1,10 +1,12 @@
 """Archive settings, NAS availability via the sentinel, and media path resolution."""
 import json, os, sys, tempfile, threading, unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
 os.environ['RV_ARCHIVE_ALLOW_ANY_PATH'] = '1'  # Temporary directories stand in for the share.
 import media_store as m
+from archive_backends import BackendError, RemoteRef, RemoteStat
 from video_sources import STORED_KINDS
 
 ID = 'a'*32
@@ -227,6 +229,200 @@ class MediaStoreTests(unittest.TestCase):
   (self.nas/'aside').rename(self.nas/m.SENTINEL); store.invalidate()
   with patch.object(m.os, 'walk', side_effect=OSError(5, 'EIO')): self.assertEqual(store.usage(), (0, 0))
   self.assertEqual(store.usage()[0], first[0])
+
+ def test_from_options_backend_and_effective_mode(self):
+  s = m.ArchiveSettings.from_options({})
+  self.assertEqual((s.backend, s.mode, s.allow_local_delete, s.effective_mode, s.requires_client), ('smb', 'move', False, 'move', False))
+  self.assertEqual((s.gdrive_client_id, s.gdrive_client_secret, s.gdrive_folder_name), ('', '', 'Road Viewer'))
+  self.assertEqual(m.ArchiveSettings.from_options({'archive_mode': 'copy'}).effective_mode, 'copy')
+  base = {'archive_enabled': True, 'archive_backend': 'gdrive'}
+  for extra, expected in [({}, 'copy'), ({'archive_mode': 'move'}, 'copy'), ({'archive_allow_local_delete': True}, 'move'),
+                          ({'archive_mode': 'copy', 'archive_allow_local_delete': True}, 'copy'), ({'archive_mode': 'move', 'archive_allow_local_delete': 'true'}, 'move')]:
+   s = m.ArchiveSettings.from_options({**base, **extra})
+   self.assertEqual((s.backend, s.effective_mode, s.requires_client), ('gdrive', expected, True), extra)
+  # Unknown values fall back to the defaults; the folder name is never empty.
+  s = m.ArchiveSettings.from_options({**base, 'archive_mode': 'mirror', 'archive_allow_local_delete': 'yes', 'archive_gdrive_client_id': 'cid', 'archive_gdrive_client_secret': 'sec', 'archive_gdrive_folder_name': '  '})
+  self.assertEqual((s.mode, s.allow_local_delete, s.gdrive_client_id, s.gdrive_client_secret, s.gdrive_folder_name), ('move', False, 'cid', 'sec', 'Road Viewer'))
+  s = m.ArchiveSettings.from_options({**base, 'archive_gdrive_client_id': 5, 'archive_gdrive_folder_name': 'Dashcam'})
+  self.assertEqual((s.gdrive_client_id, s.gdrive_folder_name), ('', 'Dashcam'))
+  # An unknown backend never archives anywhere.
+  for value in ['ftp', '', None, 'GDRIVE']:
+   s = m.ArchiveSettings.from_options({'archive_enabled': True, 'archive_path': str(self.nas), 'archive_backend': value})
+   self.assertEqual((s.backend, s.enabled, s.error), ('smb', False, 'invalid_backend'), value)
+  # The secret never appears in the settings' repr.
+  self.assertNotIn('s3cr3t', repr(m.ArchiveSettings.from_options({'archive_gdrive_client_secret': 's3cr3t'})))
+
+ def test_gdrive_without_path_is_enabled(self):
+  with patch.dict(os.environ, {'RV_ARCHIVE_ALLOW_ANY_PATH': ''}):
+   for path in ['', '/data/x', None]:
+    s = m.ArchiveSettings.from_options({'archive_enabled': True, 'archive_backend': 'gdrive', 'archive_path': path})
+    self.assertEqual((s.enabled, s.path, s.error), (True, None, None), path)
+   self.assertFalse(m.ArchiveSettings.from_options({'archive_backend': 'gdrive'}).enabled)
+   # SMB still requires a valid path.
+   s = m.ArchiveSettings.from_options({'archive_enabled': True, 'archive_backend': 'smb', 'archive_path': ''})
+   self.assertEqual((s.enabled, s.error), (False, 'invalid_archive_path'))
+
+ def remote_block(self, **kw): return {'backend': 'gdrive', 'file_id': 'F1', 'bytes': 7, 'sha256': 'ab'*32, 'md5': 'cd'*16, 'uploaded_at': 1.0, 'verified_by': 'sha256', **kw}
+
+ def test_resolve_local_preferred_over_remote_copy(self):
+  meta = {'id': ID}; backend = FakeBackend()
+  m.set_location(meta, 'fcamera.mp4', location='local'); m.set_remote(meta, 'fcamera.mp4', **self.remote_block())
+  (self.rec/'fcamera.mp4').write_bytes(b'video!!')
+  self.assertEqual(m.resolve(self.rec, meta, 'fcamera.mp4', None, backend), (self.rec/'fcamera.mp4', 'available'))
+  self.assertEqual(backend.calls, [])  # The local copy is used without asking the backend.
+  self.assertEqual(m.indexed_state(self.rec, meta, 'fcamera.mp4', 'unavailable'), 'available')
+  self.assertEqual(m.media_size(self.rec, meta, 'fcamera.mp4', None), 7)
+  # Without the local file the remote copy is used.
+  (self.rec/'fcamera.mp4').unlink()
+  rf, state = m.resolve(self.rec, meta, 'fcamera.mp4', None, backend)
+  self.assertEqual(state, 'available'); self.assertIsInstance(rf, m.RemoteFile)
+  self.assertEqual((rf.backend_kind, rf.kind, rf.size, rf.ref.file_id, rf.ref.bytes, rf.ref.sha256, rf.ref.md5, rf.etag), ('gdrive', 'fcamera.mp4', 7, 'F1', 7, 'ab'*32, 'cd'*16, '"F1:' + 'ab'*8 + '"'))
+  self.assertEqual(m.media_size(self.rec, meta, 'fcamera.mp4', None), 7)
+  self.assertEqual(m.resolve(self.rec, meta, 'fcamera.mp4', None, None), (None, 'storage_unavailable'))
+  for share, expected in [('connected', 'available'), ('unavailable', 'storage_unavailable'), ('disabled', 'storage_unavailable'), ('checking', 'checking'), (None, 'checking')]:
+   self.assertEqual(m.indexed_state(self.rec, meta, 'fcamera.mp4', share), expected, share)
+  # The remote copy is checked against its index too, and only by a backend of its own kind.
+  rf, state = m.resolve(self.rec, meta, 'fcamera.mp4', None, FakeBackend(result=FakeBackend.stat_of(8)))
+  self.assertEqual((state, rf.size), ('corrupt', 7))
+  rf, state = m.resolve(self.rec, meta, 'fcamera.mp4', None, FakeBackend(result=FakeBackend.stat_of(7, sha256='99'*32)))
+  self.assertEqual(state, 'corrupt')
+  smb = FakeBackend(kind='smb')
+  self.assertEqual(m.resolve(self.rec, meta, 'fcamera.mp4', None, smb), (None, 'storage_unavailable')); self.assertEqual(smb.calls, [])
+  backend.result = None; self.assertEqual(m.resolve(self.rec, meta, 'fcamera.mp4', None, backend), (None, 'missing'))
+  # A local entry without a remote copy stays missing; the backend is not asked.
+  calls = len(backend.calls); m.set_location(meta, 'ecamera.mp4', location='local')
+  self.assertEqual(m.resolve(self.rec, meta, 'ecamera.mp4', None, backend), (None, 'missing'))
+  self.assertEqual(m.indexed_state(self.rec, meta, 'ecamera.mp4', 'connected'), 'missing')
+  self.assertEqual(len(backend.calls), calls)
+
+ def test_resolve_gdrive_states(self):
+  meta = {'id': ID}; kind = 'rlog.zst'
+  m.set_location(meta, kind, location='gdrive', file_id='F2', bytes=12, sha256='ef'*32, md5='01'*16, archived_at=1.0)
+  (self.rec/kind).write_bytes(b'left behind')  # A gdrive entry never resolves to a local leftover.
+  self.assertEqual(m.resolve(self.rec, meta, kind, None), (None, 'storage_unavailable'))
+  self.assertEqual(m.resolve(self.rec, meta, kind, None, FakeBackend('checking')), (None, 'checking'))
+  for state in ['unavailable', 'disabled']: self.assertEqual(m.resolve(self.rec, meta, kind, None, FakeBackend(state)), (None, 'storage_unavailable'))
+  self.assertEqual(m.resolve(self.rec, meta, kind, None, FakeBackend(result=None)), (None, 'missing'))
+  self.assertEqual(m.resolve(self.rec, meta, kind, None, FakeBackend(result=FakeBackend.stat_of(12, trashed=True))), (None, 'missing'))
+  self.assertEqual(m.resolve(self.rec, meta, kind, None, FakeBackend(error=BackendError('unavailable', retryable=True))), (None, 'storage_unavailable'))
+  backend = FakeBackend(result=FakeBackend.stat_of(12))
+  rf, state = m.resolve(self.rec, meta, kind, None, backend)
+  self.assertEqual(state, 'available')
+  self.assertEqual(rf, m.RemoteFile('gdrive', RemoteRef('gdrive', 'F2', 12, 'ef'*32, '01'*16), kind, 12, '"F2:' + 'ef'*8 + '"'))
+  self.assertEqual(backend.calls, [('probe',), ('stat', RemoteRef('gdrive', 'F2', 12, 'ef'*32, '01'*16))])
+  # The remote file must be the one the index verified: a different size or hash is corrupt (dynamic only).
+  stored = json.dumps(meta)
+  for result in [FakeBackend.stat_of(13), FakeBackend.stat_of(12, sha256='00'*32)]:
+   rf, state = m.resolve(self.rec, meta, kind, None, FakeBackend(result=result))
+   self.assertEqual((state, rf.size, rf.ref.bytes), ('corrupt', 12, 12), result)
+  self.assertEqual(json.dumps(meta), stored)
+  rf, state = m.resolve(self.rec, meta, kind, None, FakeBackend(result=FakeBackend.stat_of(12, sha256='ef'*32)))
+  self.assertEqual((state, rf.size), ('available', 12))
+  # Index without a size: the remote's size is used and not compared.
+  m.set_location(meta, kind, location='gdrive', file_id='F2', sha256='ef'*32)
+  rf, state = m.resolve(self.rec, meta, kind, None, FakeBackend(result=FakeBackend.stat_of(30)))
+  self.assertEqual((state, rf.size), ('available', 30))
+  # A backend of another kind is never asked about a Drive file.
+  smb = FakeBackend(kind='smb')
+  self.assertEqual(m.resolve(self.rec, meta, kind, None, smb), (None, 'storage_unavailable')); self.assertEqual(smb.calls, [])
+  m.set_location(meta, kind, location='gdrive', file_id='F2', bytes=12, sha256='ef'*32, error='remote_mismatch')
+  rf, state = m.resolve(self.rec, meta, kind, None, backend); self.assertEqual((state, rf.ref.file_id), ('corrupt', 'F2'))
+  # No sha256 in the index: the etag still has the file id.
+  m.set_location(meta, kind, location='gdrive', file_id='F3', bytes=12)
+  self.assertEqual(m.resolve(self.rec, meta, kind, None, backend)[0].etag, '"F3:"')
+  # An entry without a file id has nothing to stat.
+  m.set_location(meta, kind, location='gdrive', bytes=12); calls = len(backend.calls)
+  self.assertEqual(m.resolve(self.rec, meta, kind, None, backend), (None, 'missing')); self.assertEqual(len(backend.calls), calls + 1)
+  # removed and nas are unchanged by a backend.
+  m.set_location(meta, kind, location='removed', removed_at=1.0)
+  self.assertEqual(m.resolve(self.rec, meta, kind, None, backend), (None, 'missing'))
+  store = self.connected(); m.set_location(meta, kind, location='nas', bytes=3)
+  self.assertEqual(m.resolve(self.rec, meta, kind, store, backend), (None, 'missing'))
+  (self.nas/ID).mkdir(); (self.nas/ID/kind).write_bytes(b'log')
+  self.assertEqual(m.resolve(self.rec, meta, kind, store, backend), (self.nas/ID/kind, 'available'))
+
+ def test_indexed_state_gdrive(self):
+  meta = {'id': ID}; kind = 'fcamera.mp4'
+  m.set_location(meta, kind, location='gdrive', file_id='F1', bytes=9)
+  for share, expected in [('connected', 'available'), ('unavailable', 'storage_unavailable'), ('disabled', 'storage_unavailable'), ('checking', 'checking'), (None, 'checking')]:
+   self.assertEqual(m.indexed_state(self.rec, meta, kind, share), expected, share)
+  meta['storage'][kind]['error'] = 'remote_mismatch'
+  self.assertEqual(m.indexed_state(self.rec, meta, kind, 'connected'), 'corrupt')
+  self.assertEqual(m.media_size(self.rec, meta, kind, None), 9)
+  self.assertEqual((m.archived_bytes(meta), m.remote_copy_totals(meta)), (9, (0, 0)))
+
+ def test_remote_index_helpers(self):
+  meta = {'id': ID}; kind = 'camera.mp4'
+  # Legacy recordings: no storage block at all, or entries without remote fields.
+  for legacy in [{'id': ID}, {'id': ID, 'storage': None}, {'id': ID, 'storage': {kind: {'location': 'local'}}}, {'id': ID, 'storage': {kind: 'junk'}}]:
+   self.assertEqual((m.remote(legacy, kind), m.remote_pending(legacy, kind), m.remote_copy_totals(legacy), m.archived_bytes(legacy)), (None, None, (0, 0), 0), legacy)
+   before = json.dumps(legacy); m.clear_remote_pending(legacy, kind); self.assertEqual(json.dumps(legacy), before)
+  self.assertEqual(m.REMOTE_LOCATIONS, ('nas', 'gdrive'))
+  self.assertEqual([m.is_archived_location(w) for w in ['nas', 'gdrive', 'local', 'removed', None]], [True, True, False, False, False])
+  m.set_remote_pending(meta, kind, backend='gdrive', session='https://upload/x', started_at=1.0, bytes_sent=0, sha256='ab'*32, size=10)
+  self.assertEqual(meta['storage'][kind], {'location': 'local', 'remote_pending': {'backend': 'gdrive', 'session': 'https://upload/x', 'started_at': 1.0, 'bytes_sent': 0, 'sha256': 'ab'*32, 'size': 10}})
+  self.assertEqual(m.remote_pending(meta, kind)['size'], 10); self.assertIsNone(m.remote(meta, kind))
+  with self.assertRaises(ValueError): m.set_remote_pending(meta, kind, sesion='typo')
+  with self.assertRaises(ValueError): m.set_remote(meta, kind, fileid='typo')
+  m.set_remote_pending(meta, kind, backend='gdrive', session='https://upload/x', started_at=1.0, bytes_sent=4, sha256='ab'*32, size=10)
+  self.assertEqual(m.remote_pending(meta, kind)['bytes_sent'], 4)
+  m.set_remote(meta, kind, **self.remote_block(bytes=10)); m.clear_remote_pending(meta, kind)
+  self.assertEqual(meta['storage'][kind], {'location': 'local', 'remote': self.remote_block(bytes=10)})
+  self.assertEqual(m.location(meta, kind), 'local')
+  m.clear_remote_pending(meta, kind)  # Nothing pending: no change.
+  self.assertEqual(meta['storage'][kind], {'location': 'local', 'remote': self.remote_block(bytes=10)})
+  # Other fields of the entry are kept.
+  m.set_location(meta, 'rlog.zst', location='local', error='recovery_mismatch'); m.set_remote(meta, 'rlog.zst', **self.remote_block(bytes=5))
+  self.assertEqual(meta['storage']['rlog.zst']['error'], 'recovery_mismatch')
+  m.set_location(meta, 'fcamera.mp4', location='gdrive', file_id='F', bytes=20); m.set_location(meta, 'ecamera.mp4', location='nas', bytes=3)
+  m.set_remote(meta, 'qcamera.ts', **self.remote_block(bytes='bad'))
+  self.assertEqual((m.archived_bytes(meta), m.remote_copy_totals(meta)), (23, (3, 15)))
+  # A remote block on an archived entry is not a remote copy.
+  meta['storage']['fcamera.mp4']['remote'] = self.remote_block()
+  self.assertEqual(m.remote_copy_totals(meta), (3, 15))
+
+ def test_media_size_remote_copy_without_local(self):
+  meta = {'id': ID}; kind = 'ecamera.mp4'
+  m.set_remote(meta, kind, **self.remote_block(bytes=42))
+  self.assertEqual(m.media_size(self.rec, meta, kind, None), 42)
+  (self.rec/kind).write_bytes(b'abc'); self.assertEqual(m.media_size(self.rec, meta, kind, None), 3)
+  (self.rec/kind).unlink(); m.set_remote(meta, kind, **self.remote_block(bytes=-1))
+  self.assertEqual(m.media_size(self.rec, meta, kind, None), 0)
+
+ def test_nas_activation_keeps_drive_storage_id(self):
+  # Switching backends never removes the other backend's id from the local copy.
+  (self.root/m.LOCAL_COPY).write_text(json.dumps({'gdrive_storage_id': 'g1'}))
+  store = self.connected()
+  data = json.loads((self.root/m.LOCAL_COPY).read_text())
+  self.assertEqual((data['gdrive_storage_id'], data['storage_id']), ('g1', store.local_id()))
+  self.assertEqual(json.loads((self.nas/m.SENTINEL).read_text())['storage_id'], store.local_id())
+
+ def test_config_yaml_has_gdrive_options(self):
+  import re
+  text = (Path(__file__).resolve().parents[1]/'roadviewer/config.yaml').read_text(encoding='utf-8')
+  options = text.split('\noptions:\n', 1)[1].split('\nschema:\n', 1)[0]; schema = text.split('\nschema:\n', 1)[1].split('\nurl:', 1)[0]
+  expected = {'archive_backend': ('smb', 'list(smb|gdrive)'), 'archive_mode': ('move', 'list(move|copy)'), 'archive_allow_local_delete': ('false', 'bool'),
+              'archive_gdrive_client_id': ('""', 'str'), 'archive_gdrive_client_secret': ('""', 'password'), 'archive_gdrive_folder_name': ('"Road Viewer"', 'str')}
+  for key, (default, rule) in expected.items():
+   self.assertRegex(options, rf'(?m)^  {key}: {re.escape(default)}$', key); self.assertRegex(schema, rf'(?m)^  {key}: {re.escape(rule)}$', key)
+  # The defaults parse to the archiving-off settings.
+  defaults = {k: (False if v == 'false' else v.strip('"')) for k, (v, _) in expected.items()}
+  s = m.ArchiveSettings.from_options(defaults)
+  self.assertEqual((s.enabled, s.backend, s.effective_mode, s.gdrive_folder_name, s.error), (False, 'smb', 'move', 'Road Viewer', None))
+
+class FakeBackend:
+ def __init__(self, state='connected', result=..., error=None, kind='gdrive'):
+  self.state, self.error, self.calls = state, error, []
+  self.caps = SimpleNamespace(kind=kind)
+  self.result = FakeBackend.stat_of(7) if result is ... else result
+ @staticmethod
+ def stat_of(size, trashed=False, sha256=None): return RemoteStat(not trashed, size, sha256, None, trashed)
+ def last_state(self): self.calls.append(('last_state',)); return self.state
+ def probe(self): self.calls.append(('probe',)); return self.state, None
+ def stat(self, ref):
+  self.calls.append(('stat', ref))
+  if self.error: raise self.error
+  return self.result
 
 if __name__ == '__main__':
  unittest.main()

@@ -370,6 +370,130 @@ Files of pinned segments and of recordings waiting for or undergoing conversion 
 
 Files on the NAS are not part of Home Assistant backups. The app options (`archive_*`) and `/data/roadviewer/.archive.json`, holding the storage ID, are backed up with the app configuration. Back up the NAS itself separately.
 
+## Google Drive archiving (experimental)
+
+Google Drive can be used as the archive instead of a NAS. It is experimental and off by default (`archive_enabled: false`, `archive_backend: smb`). Nothing changes while archiving is off or uses the NAS.
+
+- **Copy mode is the default.** Each file gets a verified copy on Drive and **the local file is never deleted**, so copy mode frees no local space.
+- **Move mode** (the local original is deleted once a verified copy exists) needs **both** `archive_mode: move` and `archive_allow_local_delete: true`. With either one missing, Drive runs in copy mode. Drive move mode is **not verified against a real account** (mock server tests only).
+- **This version has no automatic Drive cleanup.** Files on Drive are deleted only for recordings the user deletes permanently and, in move mode, for moved files of recordings the storage policy deletes automatically (see [Quota and Drive space](#quota-and-drive-space)).
+- There is no feature that moves files on Drive back to local storage.
+
+### Preparing an OAuth client
+
+Road Viewer signs in with Google's device flow (entering a code), so it needs an OAuth client of your own.
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create or pick a project and enable the **Google Drive API**.
+2. Configure the **OAuth consent screen**. For personal use without publishing the app, add the Google account you will use as a test user.
+3. Choose **Credentials → Create credentials → OAuth client ID** with application type **TV and Limited Input devices**.
+4. Enter the client ID and client secret in the app options `archive_gdrive_client_id` and `archive_gdrive_client_secret`.
+
+Road Viewer asks for a single scope, `drive.file`. With it the app sees **only the folder and files it created**; it cannot read or change any other file in the account's Drive.
+
+### Drive app options
+
+The [common archiving options](#app-options) (`archive_enabled`, `archive_local_threshold_mb`, `archive_min_age_hours`, `archive_interval_minutes`, `archive_batch`) mean the same for Drive. `archive_path` and `archive_nas_*` apply to the NAS only. Options are changed only in the app configuration and apply after a restart.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `archive_backend` | `smb` | `smb` (NAS) or `gdrive` |
+| `archive_mode` | `move` | `move` or `copy`. On Drive, `move` applies only together with `archive_allow_local_delete: true`; otherwise it is always copy, so with the defaults Drive runs in copy mode. Drive move mode is **not verified against a real account** (mock server tests only). The NAS moves as before. |
+| `archive_allow_local_delete` | `false` | Allow deleting the local original once Drive holds a verified copy. Drive only. The Drive move mode it enables is **not verified against a real account** (mock server tests only). |
+| `archive_gdrive_client_id` | empty | OAuth client ID (TV and Limited Input devices type) |
+| `archive_gdrive_client_secret` | empty | OAuth client secret (password field) |
+| `archive_gdrive_folder_name` | `Road Viewer` | Name of the dedicated folder created on Drive at the first connection |
+
+`archive_local_threshold_mb` still applies in copy mode: copies are made only while local usage exceeds it, and since copying deletes nothing, usage does not go down. `0` copies whenever there is something eligible.
+
+### Connecting Drive
+
+1. In the app options set `archive_backend: gdrive` and the client ID and secret, save and restart the app. That is all connecting needs; `archive_enabled: true` is required only to actually copy files. With archiving off the panel shows only “아카이빙이 꺼져 있습니다. 여기서는 Google Drive 계정 연결만 관리하며 파일은 복사하지 않습니다.” (archiving is off; only the Google Drive account connection is managed here and no files are copied) and the **Drive 계정** (Drive account) state; the **지금 아카이브** (Archive now) button and the Drive usage and copy rows do not appear.
+2. Open **저장공간 관리** (Storage management) and press **Google Drive 연결** (Connect Google Drive). The panel shows a code, the address (`https://www.google.com/device`) and the time left.
+3. On any device (phone, PC), open that address in a browser, enter the code and approve with the Google account to use.
+4. While the panel is open it checks for the approval by itself. Once approved the code disappears and **Drive 상태** (Drive status; **Drive 계정** with archiving off) reads **연결됨** (connected). The first connection creates the folder named `archive_gdrive_folder_name`. When connected with archiving off, the folder is created once archiving is turned on and the app restarted.
+
+Without a client ID the panel shows “애드온 옵션에서 Google Drive 클라이언트 ID를 설정하세요” (set the Google Drive client ID in the add-on options) and the connect button is disabled. An expired or refused code shows why, and you can connect again. When the sign-in expires, a **다시 연결** (Reconnect) button appears; reconnecting keeps using the same folder. The device flow needs no redirect address, external port, or router/firewall change.
+
+**연결 해제** (Disconnect) asks for confirmation, deletes the token file on this device at once and asks Google to revoke the token in the background; the device is disconnected even if the revoke fails. **The index, the local files and the files on Drive are left as they are.** An upload in progress stops before its next chunk and shows “연결이 해제되어 업로드를 중단했습니다. 다시 연결하세요” (disconnected, upload stopped; reconnect). Archiving stops while disconnected. After reconnecting, the same folder is found and the stopped upload continues where it left off.
+
+### Copy mode and move mode
+
+**Copy mode** (default): each file is uploaded, verified by comparing the sha256 Drive reports (or its md5 when there is none, or else the sha256 of a downloaded copy) with the local file, and its copy recorded in the index. The local file stays; while it exists, playback, downloads and conversion always use it. The panel shows “복제 모드: 로컬 파일은 보존됩니다” (copy mode: local files are kept). Copy mode has been verified on a real Google account (2026-11-04).
+
+**Move mode** (`archive_mode: move` + `archive_allow_local_delete: true`, **not verified against a real account**, mock server tests only): upload → verify → the index committed to disk, and only then the local original is deleted. The panel warns “이동 모드: 검증된 원격 사본이 있으면 로컬 원본이 삭제됩니다” (move mode: local originals are deleted once a verified remote copy exists). Pinned segments are copied, never moved. Switching from copy to move mode reuses the copies already verified instead of uploading them again, then deletes the local files.
+
+Moved files are streamed from Drive through the same addresses as before for playback and downloads (range requests supported). Work that needs a local file, such as original-format export or reconversion, downloads a temporary copy from Drive, checks its sha256, uses it and deletes it. With less local free space than the file size plus 100MiB, the download fails with “보관된 파일을 내려받을 디스크 공간이 부족합니다.” (not enough disk space to fetch the archived file) and a conversion is postponed with “디스크 공간이 부족해 변환을 미뤘습니다.” (conversion postponed for lack of disk space).
+
+When a conversion replaces an original video with its MP4 and the original's Drive copy has the same content, that copy becomes the stored original and is served from Drive. The new MP4 is uploaded by the next run.
+
+### Drive runs and recovery
+
+Runs follow the same schedule and conditions as the NAS. At startup the app first finishes interrupted work, then every `archive_interval_minutes` it checks Drive and then measures Drive usage → processes postponed Drive deletions → requeues postponed conversions → uploads. Usage is measured before the deletions, so space they free shows in the panel from the next run's figure. There is no step like NAS cleanup. A run stops when Drive is unreachable, the sign-in expired, a rate limit is hit, Drive is full or a verification fails, and the next interval retries. None of these failures causes a local deletion or an index change.
+
+Uploads are resumable, in 1MiB chunks. The upload session is recorded in the index before the first chunk, so after an interrupted run the next start continues from where Drive stopped. If the answer to the last chunk was lost, or the app stopped before verification or the index commit, the completed file on Drive is found, verified and recorded without uploading it again. If move mode stopped after the commit and before deleting the local file, the next start verifies the Drive copy again and then deletes it. If a conversion stopped after replacing a file and before saving the index, the next start drops only the record of the copy that describes the previous content (the Drive file stays) and the new content is copied again. If a moved file's Drive copy no longer verifies but the local file left behind still matches the index, that local file is used again and a fresh copy is uploaded by the next run; the bad Drive file is left in place. Empty (0-byte) files are skipped by Drive archiving with a warning.
+
+### Drive status and errors
+
+**저장공간 관리** shows **저장소 / Drive 상태 / Drive 사용 중 / Drive 여유 / 복제 사본 / 복제 사본 용량 / 검증 실패 / 마지막 아카이브** (storage, Drive status, used, free, copies, copy size, failed verifications, last run). **Drive 상태** is one of **연결 안 됨** (not connected: before signing in or after disconnecting), **연결됨** (connected), **연결 불가** (unavailable), **확인 중** (checking) or **인증 만료** (sign-in expired). The panel does not ask Drive on each request; it shows the last check, and checks run in the background, so the panel opens at once even when Drive does not answer.
+
+Last archive errors:
+
+| Code | Shown |
+|---|---|
+| `storage_unavailable` | Google Drive에 연결할 수 없습니다. (Drive unreachable) |
+| `auth_expired` | Google Drive 인증이 만료되었습니다. 다시 연결하세요. (sign-in expired) |
+| `rate_limited` | Google Drive 요청 한도를 넘었습니다. 다음 주기에 다시 시도합니다. (rate limited, retried next interval) |
+| `remote_full` | Google Drive 공간이 부족합니다. (Drive full) |
+| `hash_mismatch` | Google Drive 사본 검증에 실패했습니다. (copy failed verification) |
+| `os_error` | Google Drive에 파일을 올리지 못했습니다. (upload failed) |
+
+Sign-in errors:
+
+| Code | Shown |
+|---|---|
+| `access_denied` | 사용자가 승인을 거부했습니다 (the user refused) |
+| `code_expired` | 코드가 만료되었습니다. 다시 연결하세요 (code expired) |
+| `auth_expired`, `invalid_grant` | 인증이 만료되었습니다. 다시 연결하세요 (sign-in expired) |
+| `invalid_client` | 클라이언트 ID/비밀키가 올바르지 않습니다 (wrong client ID or secret) |
+| `signed_out` | 연결이 해제되어 업로드를 중단했습니다. 다시 연결하세요 (disconnected during an upload) |
+| any other code | 인증 오류 (code) |
+
+Error codes of the connect and retry requests: `409 gdrive_not_selected` (the archive is not Google Drive), `409 gdrive_not_configured` (no client ID), `409 gdrive_connected` (already connected), `503 gdrive_unavailable` (Google unreachable), `502 gdrive_auth_failed` (Google refused the client; `reason` holds the code), and for retry `409 no_archive_error` (nothing to retry), `400 invalid_archive_retry` (invalid request body) and `404` (unknown recording).
+
+Videos on Drive use the same labels as the [NAS video states](#video-states). When Drive is unreachable the message is “영상 저장소(Google Drive)에 연결할 수 없습니다. 인터넷과 Google Drive 연결을 확인하세요.” (cannot reach Google Drive; check the internet and the Drive connection). A file deleted on Drive answers not found when played, but its index entry is never changed or recorded as removed; recovery at startup counts such files. The list does not check each Drive file. In copy mode a local file plays whatever the Drive state.
+
+**Failed verification**: when an uploaded copy does not match the local file, the file is marked and both the local file and the Drive copy are kept. The local file still plays and is not uploaded again on every run. The recording's row shows “원격 사본 검증에 실패했습니다. 로컬 파일은 유지됩니다.” (the remote copy failed verification; the local file is kept) and a **재시도** (Retry) button, which clears the mark so the next run uploads it again. The mismatching Drive copy is not deleted automatically.
+
+### Quota and Drive space
+
+Drive usage is measured by archive runs, and the panel shows the last figure. When Drive reports a storage limit, used and free space are shown; otherwise **Drive 여유** (Drive free) reads **할당량 확인 불가** (quota unknown, `usage_reliable: false`). A full Drive stops the run with `remote_full`; nothing on Drive is deleted.
+
+Without automatic cleanup, Drive usage goes down only in these cases:
+
+- **완전 삭제** (Delete permanently): the recording's Drive files (moved files and copies) are listed for deletion and removed by the next run. The delete request itself never calls Drive; if Drive is unreachable, they are removed once it answers. Files uploaded by another installation are never deleted.
+- **Automatic deletion by the storage policy** (delete oldest unpinned): in move mode the recording's moved files are deleted (Drive holds the only copy). In copy mode **the Drive files are kept.** Kept copies stay on Drive but are not used again: uploading the same log again registers a new recording and uploads it anew. They keep using Drive quota, so remove them on Drive if they are not needed.
+
+So these files stay on Drive: copies of recordings deleted automatically in copy mode, copies that failed verification, and earlier copies of an MP4 whose content changed by reconversion. Clean them up in Drive yourself if needed; a file still in the index that is deleted on Drive then shows as not found.
+
+### Drive backups and security
+
+- The Drive sign-in (refresh token) is stored in `/data/roadviewer/.gdrive-auth.json` (mode 0600) and the Drive storage ID in `/data/roadviewer/.archive.json`. Both files and the app options (including the client secret) **are part of Home Assistant backups.** Anyone holding a backup can reach Road Viewer's Drive folder, so **keep backups as safe as a password.** Do not delete either file.
+- Files on Drive are not part of Home Assistant backups.
+- No new port is opened. All traffic with Google (sign-in and Drive) is outgoing HTTPS from the app to Google; Google never connects to the app.
+- Changes such as connect, disconnect and retry are accepted only through the Home Assistant Supervisor (Ingress), like every other settings change.
+- Tokens, the client secret, upload session addresses and Drive file IDs are never shown in the UI, API responses or logs.
+
+### Not verified
+
+All tests use a simulated Google server (`tests/fake_drive.py`). Not verified:
+
+- Connecting, uploading and deleting with a real Google account and a real OAuth client
+- The real device code page (`google.com/device`) and the Google Cloud console screens
+- Power loss: interruption tests reproduce a stopped process only, not data that never reached the disk
+- A Drive error in the middle of streaming a Drive video under gunicorn (the response is cut short)
+- Playing a video stored on Drive in a browser (only the server's range responses are tested)
+- Real Drive quota figures and rate limits
+
 ## Connecting a comma device
 
 1. Prepare a trusted certificate and key under Home Assistant `/ssl`.

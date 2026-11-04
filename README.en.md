@@ -201,6 +201,8 @@ An update that changes the analysis format may clear prepared data and reprocess
 
 The experimental **NAS archiving** option moves original videos and logs of converted recordings to network storage attached to Home Assistant with usage Share, freeing local space. It is off by default. Pinned segments are archived too but never removed by NAS cleanup. The library and converted data stay local, an unreachable NAS never causes deletions, and there is no restore back to local storage. Files on the NAS are not part of Home Assistant backups. See [NAS archiving](roadviewer/DOCS.en.md#nas-archiving-experimental) for setup.
 
+**Google Drive** can be used as the archive instead of a NAS (experimental, off by default). It connects with an OAuth client of your own by entering a code, and defaults to copy mode: verified copies go to Drive and local files are never deleted. Move mode, which deletes local originals, needs both `archive_mode: move` and `archive_allow_local_delete: true`, and this version has no automatic Drive cleanup. The sign-in token is part of Home Assistant backups, so keep backups safe. See [Google Drive archiving](roadviewer/DOCS.en.md#google-drive-archiving-experimental).
+
 ## Documentation and validation
 
 - [User guide](roadviewer/DOCS.en.md) · [한국어](roadviewer/DOCS.md): installation, playback, conversion, storage, backups and troubleshooting
