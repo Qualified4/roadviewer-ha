@@ -430,7 +430,7 @@ When a conversion replaces an original video with its MP4 and the original's Dri
 
 Runs follow the same schedule and conditions as the NAS. At startup the app first finishes interrupted work, then every `archive_interval_minutes` it checks Drive and then processes postponed Drive deletions → measures Drive usage → requeues postponed conversions → uploads. There is no step like NAS cleanup. A run stops when Drive is unreachable, the sign-in expired, a rate limit is hit, Drive is full or a verification fails, and the next interval retries. None of these failures causes a local deletion or an index change.
 
-Uploads are resumable, in 1MiB chunks. The upload session is recorded in the index before the first chunk, so after an interrupted run the next start continues from where Drive stopped. If the answer to the last chunk was lost, or the app stopped before verification or the index commit, the completed file on Drive is found, verified and recorded without uploading it again. If move mode stopped after the commit and before deleting the local file, the next start verifies the Drive copy again and then deletes it.
+Uploads are resumable, in 1MiB chunks. The upload session is recorded in the index before the first chunk, so after an interrupted run the next start continues from where Drive stopped. If the answer to the last chunk was lost, or the app stopped before verification or the index commit, the completed file on Drive is found, verified and recorded without uploading it again. If move mode stopped after the commit and before deleting the local file, the next start verifies the Drive copy again and then deletes it. If a conversion stopped after replacing a file and before saving the index, the next start drops only the record of the copy that describes the previous content (the Drive file stays) and the new content is copied again.
 
 ### Drive status and errors
 
@@ -471,7 +471,7 @@ Drive usage is measured by archive runs, and the panel shows the last figure. Wh
 Without automatic cleanup, Drive usage goes down only in these cases:
 
 - **완전 삭제** (Delete permanently): the recording's Drive files (moved files and copies) are listed for deletion and removed by the next run. The delete request itself never calls Drive; if Drive is unreachable, they are removed once it answers. Files uploaded by another installation are never deleted.
-- **Automatic deletion by the storage policy** (delete oldest unpinned): in move mode the recording's moved files are deleted (Drive holds the only copy). In copy mode **the Drive files are kept.** Such a kept copy is reused instead of uploaded again when the same content of the same recording ID is archived again.
+- **Automatic deletion by the storage policy** (delete oldest unpinned): in move mode the recording's moved files are deleted (Drive holds the only copy). In copy mode **the Drive files are kept.** If a file with the same content (same hash) is uploaded again, the Drive copy left there is reused.
 
 So these files stay on Drive: copies of recordings deleted automatically in copy mode, copies that failed verification, and earlier copies of an MP4 whose content changed by reconversion. Clean them up in Drive yourself if needed; a file still in the index that is deleted on Drive then shows as not found.
 
