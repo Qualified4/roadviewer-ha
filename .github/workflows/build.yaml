@@ -80,6 +80,7 @@ jobs:
       - run: node tests/bookmarks.cjs
       - run: node tests/recording_names.cjs
       - run: node tests/storage_devices.cjs
+      - run: node tests/info_panels.cjs
       - run: node tests/archive_status.cjs
       - run: node tests/gdrive_panel.cjs
       - run: node tests/archive_settings.cjs

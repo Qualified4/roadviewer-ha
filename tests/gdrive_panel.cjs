@@ -33,12 +33,12 @@ async function serve(dir,env){
  return {python,command,base:`http://127.0.0.1:${port}/api/hassio_ingress/test/`,stderr:()=>stderr};
 }
 async function stop(server){if(server?.python.exitCode===null){server.python.kill();await once(server.python,'exit')}}
-const metrics=page=>page.locator('#storageUsage>div').evaluateAll(rows=>Object.fromEntries(rows.map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent])));
+const metrics=page=>page.locator('#storageUsage>div,#archiveUsage>div').evaluateAll(rows=>Object.fromEntries(rows.map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent])));
 async function openPanel(page){
  // (Re)opens the panel and waits for a fresh rendering: the archive rows are cleared first and come back with it.
  if(await page.locator('#storageSettings').evaluate(el=>el.open))await page.locator('#storageSettings summary').click();
- await page.evaluate(()=>document.querySelectorAll('#storageUsage>.archive-metric').forEach(row=>row.remove()));
- await page.locator('#storageSettings summary').click();await page.waitForFunction(()=>!document.getElementById('storageSave').disabled&&document.querySelector('#storageUsage>.archive-metric'));
+ await page.evaluate(()=>document.querySelectorAll('#archiveUsage>.archive-metric').forEach(row=>row.remove()));
+ await page.locator('#storageSettings summary').click();await page.waitForFunction(()=>!document.getElementById('storageSave').disabled&&document.querySelector('#archiveUsage>.archive-metric'));
 }
 (async()=>{
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'rv-gdrive-ui-')),driveDir=path.join(temp,'drive'),offDir=path.join(temp,'off'),nasDir=path.join(temp,'nas'),nas=path.join(temp,'nas-share');
@@ -105,7 +105,7 @@ async function openPanel(page){
   await page.unroute('**/api/settings/storage');
   await drive.command('grant');
   await page.waitForFunction(()=>document.getElementById('gdriveCode').hidden,null,{timeout:15000});
-  await page.waitForFunction(()=>[...document.querySelectorAll('#storageUsage>div')].some(row=>row.querySelector('dt').textContent==='Drive 상태'&&row.querySelector('dd').textContent==='연결됨'),null,{timeout:15000});
+  await page.waitForFunction(()=>[...document.querySelectorAll('#storageUsage>div,#archiveUsage>div')].some(row=>row.querySelector('dt').textContent==='Drive 상태'&&row.querySelector('dd').textContent==='연결됨'),null,{timeout:15000});
   assert(await page.locator('#gdriveDisconnect').isVisible());assert(await page.locator('#gdriveConnect').isHidden());assert(await page.locator('#gdriveAuthError').isHidden());
   // Polling stops with the code gone.
   const settled=polls.length;await page.waitForTimeout(3500);assert.equal(polls.length,settled,'no polling once nothing waits');
@@ -197,7 +197,7 @@ async function openPanel(page){
   const plain=await context.newPage();plain.on('pageerror',error=>errors.push(error.message));
   await plain.goto(smb.base);await plain.locator('.log-row').first().waitFor();
   await openPanel(plain);await plain.locator('#archiveRun').waitFor();
-  assert.deepEqual(await plain.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약','NAS 상태','NAS 사용 중','NAS 여유','마지막 아카이브']);
+  assert.deepEqual(await plain.locator('#storageUsage>div dt,#archiveUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약','NAS 상태','NAS 사용 중','NAS 여유','마지막 아카이브']);
   for(const id of ['gdrivePanel','gdriveConnect','gdriveDisconnect','gdriveCode','archiveMode'])assert.equal(await plain.locator('#'+id).count(),0,id);
   assert.equal(await plain.locator('.archive-retry').count(),0);
   assert.deepEqual(errors,[]);

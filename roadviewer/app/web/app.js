@@ -737,8 +737,8 @@ $('boundaryDistance').onclick=()=>{
  const enabled=$('boundaryDistance').getAttribute('aria-pressed')!=='true';
  $('boundaryDistance').setAttribute('aria-pressed',String(enabled));
  $('boundaryMode').textContent=enabled?'첫 점 y[0] · 왼쪽 − / 오른쪽 + · m':'차선 확률 · 로드엣지 표준편차';
- $('edge0Label').textContent=enabled?'왼쪽 로드엣지 y[0]':'왼쪽 로드엣지 Std';
- $('edge1Label').textContent=enabled?'오른쪽 로드엣지 y[0]':'오른쪽 로드엣지 Std';
+ $('edge0Label').textContent=enabled?'왼쪽 로드엣지 y[0]':'왼쪽 로드엣지';
+ $('edge1Label').textContent=enabled?'오른쪽 로드엣지 y[0]':'오른쪽 로드엣지';
  render();
 };
 

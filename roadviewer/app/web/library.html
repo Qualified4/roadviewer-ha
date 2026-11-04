@@ -47,12 +47,13 @@
 
 <p class="settings-note"><span>영상 보관 방식</span>새로 완료하는 변환은 q·f·e 영상을 재압축 없이 MP4로 포장하고, 전체 디코딩 없이 압축 데이터·헤더·프레임 수·시간을 검증한 뒤 원본 TS·HEVC를 정리합니다. 검증에 실패한 영상은 원본을 유지합니다. 자동 변환이 꺼져 있으면 새 업로드는 파일만 보관하며, 직접 변환한 영상은 MP4로 보관합니다. 원본 로그는 유지합니다. 다운로드 팝업에서 MP4 또는 원본 형식을 선택할 수 있습니다.</p>
 <details id="storageSettings" class="managed-settings"><summary><div><h3>저장공간 관리</h3><span class="disclosure-description">사용량 한도와 공간 부족 시 동작</span></div><span class="disclosure-hint" aria-hidden="true"><span class="when-closed">펼치기</span><span class="when-open">접기</span></span></summary>
-<div class="storage-settings-body"><dl id="storageUsage" class="storage-metrics" role="status" aria-label="저장공간 현황">
+<div class="storage-settings-body"><div class="storage-overview"><section class="storage-local" aria-labelledby="storageLocalTitle"><div class="storage-section-heading"><h4 id="storageLocalTitle">로컬 저장공간</h4><span id="storageUsagePercent"></span></div><dl id="storageUsage" class="storage-metrics" role="status" aria-label="저장공간 현황">
 <div><dt>사용 중</dt><dd id="storageUsed">—</dd></div>
 <div><dt>설정 한도</dt><dd id="storageMaximum">—</dd></div>
 <div><dt>디스크 여유</dt><dd id="storageFree">—</dd></div>
 <div><dt>업로드 예약</dt><dd id="storageReserved">—</dd></div>
-</dl>
+</dl><div id="storageMeter" class="storage-meter" role="meter" aria-label="설정 한도 대비 로컬 사용량" aria-valuemin="0" aria-valuemax="100" hidden><span id="storageMeterFill"></span></div></section>
+<section id="archiveSummary" class="storage-archive" aria-labelledby="archiveSummaryTitle" hidden><div class="storage-section-heading"><h4 id="archiveSummaryTitle">아카이브 저장소</h4></div><dl id="archiveUsage" class="archive-metrics" role="status" aria-label="원격 저장소와 사본 현황"></dl></section></div>
 <p>제한은 원본·변환·임시 파일을 합산하며 업로드 전에 배치 전체 용량을 예약합니다. 저장 한도를 낮춰도 즉시 삭제하지 않습니다. 변환 결과의 크기는 달라질 수 있어 파일시스템의 강제 용량 제한은 아닙니다.</p>
 <form id="storageForm"><div class="settings-fields"><label>최대 사용량<select id="storageLimit"><option value="0">제한 없음</option><option value="10">10 GB</option><option value="20">20 GB</option><option value="50">50 GB</option><option value="100">100 GB</option><option value="custom">사용자 지정</option></select></label><label id="storageCustomLabel" hidden>사용자 지정 (GB)<input id="storageCustom" type="number" min="0.001" step="0.001" max="8388607"></label><label>공간 부족 시<select id="storagePolicy"><option value="reject_new">새 업로드 거부 · 기존 로그 유지</option><option value="delete_oldest">오래된 미고정 구간 삭제</option></select></label></div><p>자동 삭제는 최초 업로드 시각이 오래된 주행부터 고정하지 않은 구간을 삭제합니다. 고정한 구간은 남기며, 같은 주행의 나머지 구간은 삭제될 수 있습니다. 업로드 중이거나 대기·변환 중인 주행은 보호합니다.</p><button id="storageSave" type="submit" disabled>저장공간 설정 저장</button><p id="storageStatus" role="status"></p></form>
 <form id="archiveForm">

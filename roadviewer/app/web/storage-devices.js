@@ -14,6 +14,10 @@ function showStorage(s){
  $('storageMaximum').textContent=s.max_bytes?storageSize(s.max_bytes):'제한 없음';
  $('storageFree').textContent=storageSize(s.free_bytes);
  $('storageReserved').textContent=storageSize(s.reserved_bytes);
+ const percent=s.max_bytes>0&&Number.isFinite(s.used_bytes)?s.used_bytes/s.max_bytes*100:null;
+ $('storageUsagePercent').textContent=percent===null?'제한 없음':`${Math.round(percent)}% 사용`;
+ $('storageMeter').hidden=percent===null;
+ if(percent!==null){const value=Math.max(0,Math.min(100,percent));$('storageMeter').setAttribute('aria-valuenow',String(value));$('storageMeter').setAttribute('aria-valuetext',`${Math.round(percent)}% 사용`);$('storageMeterFill').style.width=value+'%';$('storageMeter').classList.toggle('is-near-limit',percent>=90)}
  showArchive(s.archive);
 }
 const ARCHIVE_STATES={connected:'연결됨',unavailable:'연결 불가',checking:'확인 중'},ARCHIVE_ERRORS={storage_unavailable:'NAS에 연결할 수 없습니다.',nas_full:'NAS 공간이 부족합니다.',nas_full_no_candidates:'NAS가 가득 찼지만 정리할 수 있는 파일이 없습니다.',hash_mismatch:'NAS 사본 검증에 실패했습니다.',os_error:'NAS에 파일을 복사하지 못했습니다.'};
@@ -28,17 +32,19 @@ const gdriveRequestError=e=>e.code==='gdrive_auth_failed'?gdriveAuthText(e.reaso
 let gdriveTimer=null,gdriveTick=0,gdriveExpires=0,gdriveBusy=false,gdriveFetching=false,gdriveGeneration=0,gdriveState=null,gdriveSkew=null,gdriveDeadline=null,gdriveShownCode='';
 function showArchive(a){
  if(a?.settings_error)$('archiveSettingsStatus').textContent='아카이빙 설정을 읽지 못해 꺼졌습니다. 설정을 확인하고 저장하세요. ('+a.settings_error+')';
- // Archiving off: the panel keeps exactly its four local metrics. The share's path is never shown.
- for(const row of document.querySelectorAll('#storageUsage>.archive-metric'))row.remove();
- $('archiveRun')?.remove();
+ // Local usage and archive metrics have separate sections. Never show the share's path.
+ for(const row of document.querySelectorAll('#archiveUsage>.archive-metric'))row.remove();
+ $('archiveRun')?.remove();$('archiveSummary').hidden=!a?.enabled;
  // A block without a backend is the NAS and shows as before; nothing of Drive is created for it.
  // Drive's sign-in does not need archiving on: with it off, only the connection panel is shown.
  const drive=a?.backend==='gdrive';
  if(!drive)hideGdrive();
  if(!a?.enabled){if(drive)showGdrive(a);return}
  const rows=drive?gdriveRows(a):[['NAS 상태',ARCHIVE_STATES[a.state]||'확인 중'],['NAS 사용 중',storageSize(a.used_bytes)],['NAS 여유',storageSize(a.free_bytes)],['마지막 아카이브',a.last_cycle_at?new Date(a.last_cycle_at*1000).toLocaleString():'—']];
- $('storageUsage').append(...rows.map(([label,value])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');row.className='archive-metric';dt.textContent=label;dd.textContent=value;row.append(dt,dd);return row}));
- const button=document.createElement('button');button.id='archiveRun';button.type='button';button.textContent='지금 아카이브';button.disabled=!!a.running;button.onclick=runArchive;$('storageUsage').after(button);
+ $('archiveSummary').dataset.backend=drive?'gdrive':'smb';
+ const kinds={'저장소':'destination','Drive 상태':'state','NAS 상태':'state','Drive 사용 중':'capacity','NAS 사용 중':'capacity','Drive 여유':'capacity','NAS 여유':'capacity','복제 사본':'copies','복제 사본 용량':'copies','검증 실패':'errors','마지막 아카이브':'updated'};
+ $('archiveUsage').append(...rows.map(([label,value])=>{const row=document.createElement('div'),dt=document.createElement('dt'),dd=document.createElement('dd');row.className='archive-metric';row.dataset.kind=kinds[label];if(kinds[label]==='errors')row.dataset.hasErrors=String((Number(a.archive_errors?.remote_mismatch)||0)>0);dt.textContent=label;dd.textContent=value;if(kinds[label]==='state')row.dataset.state=drive?gdriveStatusText(a.gdrive||{},a.state):ARCHIVE_STATES[a.state]||'확인 중';row.append(dt,dd);return row}));
+ const button=document.createElement('button');button.id='archiveRun';button.type='button';button.textContent='지금 아카이브';button.disabled=!!a.running;button.onclick=runArchive;$('archiveSummary').append(button);
  if(a.last_error)$('storageStatus').textContent='마지막 아카이브 오류: '+((drive?DRIVE_ERRORS:ARCHIVE_ERRORS)[a.last_error]||a.last_error);
  if(drive)showGdrive(a);
 }
@@ -65,7 +71,7 @@ function gdrivePanel(){
  connect.onclick=()=>gdriveRequest('connect');disconnect.onclick=()=>gdriveRequest('disconnect');
  actions.append(connect,disconnect);
  panel.append(el('p',{id:'gdriveArchiveOff',className:'archive-mode',textContent:GDRIVE_ARCHIVE_OFF,hidden:true}),el('p',{id:'gdriveAccount',className:'archive-mode',hidden:true}),el('p',{id:'archiveMode',className:'archive-mode'}),el('p',{id:'gdriveSetup',className:'gdrive-setup',textContent:GDRIVE_SETUP,hidden:true}),el('p',{id:'gdriveAuthError',className:'gdrive-auth-error',hidden:true}),code,actions,status);
- ($('archiveRun')||$('storageUsage')).after(panel);
+ $('archiveSummary').after(panel);
  return panel;
 }
 function showGdrive(a){
