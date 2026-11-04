@@ -106,7 +106,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - run: pip install flask
+      - run: pip install -r roadviewer/requirements.txt
       - name: Validate AppArmor policy
         run: |
           sudo apt-get update
