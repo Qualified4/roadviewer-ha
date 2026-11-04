@@ -75,6 +75,14 @@ async function waitForStorageRefresh(page,action){
   let m=await metrics(page);
   assert.equal(m['저장소'],'Google Drive');assert.equal(m['Drive 상태'],'연결 안 됨');assert.equal(m['Drive 여유'],'할당량 확인 불가');
   assert.equal(m['복제 사본'],'0개');assert.equal(m['검증 실패'],'1개');assert.equal(Object.keys(m).length,13);
+  // A usage measured in the background (opening the panel starts one) shows as such, then settles without reopening.
+  let usageCalls=0;
+  await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();if(++usageCalls===1)Object.assign(body.archive,{usage_measuring:true,usage_known:false});await route.fulfill({response,json:body})});
+  await openPanel(page);
+  await page.waitForFunction(()=>[...document.querySelectorAll('#archiveUsage .archive-metric')].some(row=>row.querySelector('dt').textContent==='Drive 여유'&&row.querySelector('dd').textContent==='측정 중'));
+  await waitForStorageRefresh(page,()=>page.clock.runFor(2500));
+  assert.equal((await metrics(page))['Drive 여유'],'할당량 확인 불가');
+  assert(usageCalls>=2);await page.unroute('**/api/settings/storage');
   assert.equal(await page.locator('#archiveMode').textContent(),'복제 모드: 로컬 파일은 보존됩니다');
   // COPY: the manual run says copy, and its confirmation that nothing local is deleted.
   assert.equal(await page.locator('#archiveRun').textContent(),'복사 가능한 데이터 모두 복사');

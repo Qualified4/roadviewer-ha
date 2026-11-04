@@ -111,7 +111,10 @@ class StoragePolicy:
         remote = s.remote_backend()
         if remote:
             # The panel polls: the state comes from the cache, refreshed in the background, never a probe here;
-            # Drive's usage is the archiver's latest measurement (zero and unreliable until there is one).
+            # Drive's usage is the latest measurement (zero and unreliable until there is one), never asked here:
+            # the archiver measures it each cycle, and the panel starts one in the background when there is no
+            # recent figure (at most every 5 min).
+            measuring = settings.enabled and s.backend.refresh_usage()
             (state, reason), usage = s.remote_result(), s.backend.last_usage()
             used, free = (usage.used, usage.free or 0) if usage else (0, 0)
         else:
@@ -134,6 +137,7 @@ class StoragePolicy:
         # did not verify (retry: POST /api/logs/<id>/archive/retry) and the connection. Never a token or secret.
         return dict(block, backend=settings.backend, mode=settings.mode, effective_mode=settings.effective_mode,
                     local_delete_allowed=settings.allow_local_delete, usage_reliable=bool(usage and usage.reliable),
+                    usage_known=usage is not None, usage_measuring=bool(measuring),
                     remote_copies_files=copies, remote_copies_bytes=copied, archive_errors={'remote_mismatch': errors},
                     gdrive=s.gdrive_status(reason))
 

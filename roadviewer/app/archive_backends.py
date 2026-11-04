@@ -264,6 +264,7 @@ class DriveAuth:
 FOLDER_MIME = 'application/vnd.google-apps.folder'
 CHUNK = 2**20  # Resumable chunks must be multiples of 256 KiB, except the last.
 CACHE_SECONDS = media_store.CACHE_SECONDS
+USAGE_REFRESH_SECONDS = 300  # The settings panel measures Drive's usage at most this often.
 FILE_FIELDS = 'id,size,sha256Checksum,md5Checksum,appProperties'
 # A 403 that only reconnecting fixes (scope removed, app no longer authorized).
 AUTH_REASONS = ('insufficientPermissions', 'authError', 'access_denied', 'forbidden')
@@ -487,6 +488,7 @@ class DriveBackend(_Availability):
         self.settings, self.root, self.auth, self.client = settings, Path(root), auth, client
         self._init_cache(clock)
         self.usage_seen = None  # (measured_at, Usage): the panel's figure, kept across invalidate().
+        self.usage_guard, self.usage_thread, self.usage_tried_at = threading.Lock(), None, None
 
     def __repr__(self): return 'DriveBackend(connected=%r)' % self.auth.connected
 
@@ -703,6 +705,24 @@ class DriveBackend(_Availability):
         result = Usage(used=_int_or(quota.get('usageInDrive'), usage), free=max(limit - usage, 0) if limit else None, limit=limit, reliable=bool(limit))
         self.usage_cached = self.usage_seen = (self.clock(), result)
         return result
+
+    def refresh_usage(self):
+        # For the settings panel: measures in the background (never on the caller's thread) when there is no figure
+        # or it is older than USAGE_REFRESH_SECONDS, at most once per that period even when Drive fails. True while
+        # a measurement runs.
+        if not self._enabled() or not self.auth.connected: return False
+        with self.usage_guard:
+            if self.usage_thread and self.usage_thread.is_alive(): return True
+            now, seen, tried = self.clock(), self.usage_seen, self.usage_tried_at
+            if seen and now - seen[0] < USAGE_REFRESH_SECONDS or tried is not None and now - tried < USAGE_REFRESH_SECONDS: return False
+            self.usage_tried_at = now
+            self.usage_thread = threading.Thread(target=self._measure, name='drive-usage', daemon=True)
+            self.usage_thread.start()
+            return True
+
+    def _measure(self):
+        try: self.usage()
+        except BackendError: pass  # The panel keeps its last figure; the next period tries again.
 
     def last_usage(self):
         # The latest measured usage whatever its age, for the settings panel (the archiver measures it, a request
