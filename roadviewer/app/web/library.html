@@ -47,34 +47,55 @@
 
 <p class="settings-note"><span>영상 보관 방식</span>새로 완료하는 변환은 q·f·e 영상을 재압축 없이 MP4로 포장하고, 전체 디코딩 없이 압축 데이터·헤더·프레임 수·시간을 검증한 뒤 원본 TS·HEVC를 정리합니다. 검증에 실패한 영상은 원본을 유지합니다. 자동 변환이 꺼져 있으면 새 업로드는 파일만 보관하며, 직접 변환한 영상은 MP4로 보관합니다. 원본 로그는 유지합니다. 다운로드 팝업에서 MP4 또는 원본 형식을 선택할 수 있습니다.</p>
 <details id="storageSettings" class="managed-settings"><summary><div><h3>저장공간 관리</h3><span class="disclosure-description">사용량 한도와 공간 부족 시 동작</span></div><span class="disclosure-hint" aria-hidden="true"><span class="when-closed">펼치기</span><span class="when-open">접기</span></span></summary>
-<div class="storage-settings-body"><div class="storage-overview"><section class="storage-local" aria-labelledby="storageLocalTitle"><div class="storage-section-heading"><h4 id="storageLocalTitle">로컬 저장공간</h4><span id="storageUsagePercent"></span></div><dl id="storageUsage" class="storage-metrics" role="status" aria-label="저장공간 현황">
+<div class="storage-settings-body"><div class="storage-editor-intro"><span class="settings-step">01</span><div><h4>저장공간 및 연결 상태</h4><p>현재 사용량과 저장된 설정의 동작 상태입니다.</p></div><span id="archiveActivity" class="archive-activity" role="status">확인 중</span></div>
+<div class="storage-overview"><section class="storage-local" aria-labelledby="storageLocalTitle"><div class="storage-section-heading"><h4 id="storageLocalTitle">로컬 저장공간</h4><span id="storageUsagePercent"></span></div><dl id="storageUsage" class="storage-metrics" role="status" aria-label="저장공간 현황">
 <div><dt>사용 중</dt><dd id="storageUsed">—</dd></div>
-<div><dt>설정 한도</dt><dd id="storageMaximum">—</dd></div>
+<div><dt id="storageMaximumLabel">설정 한도</dt><dd id="storageMaximum">—</dd></div>
 <div><dt>디스크 여유</dt><dd id="storageFree">—</dd></div>
 <div><dt>업로드 예약</dt><dd id="storageReserved">—</dd></div>
 </dl><div id="storageMeter" class="storage-meter" role="meter" aria-label="설정 한도 대비 로컬 사용량" aria-valuemin="0" aria-valuemax="100" hidden><span id="storageMeterFill"></span></div></section>
-<section id="archiveSummary" class="storage-archive" aria-labelledby="archiveSummaryTitle" hidden><div class="storage-section-heading"><h4 id="archiveSummaryTitle">아카이브 저장소</h4></div><dl id="archiveUsage" class="archive-metrics" role="status" aria-label="원격 저장소와 사본 현황"></dl></section></div>
-<p>제한은 원본·변환·임시 파일을 합산하며 업로드 전에 배치 전체 용량을 예약합니다. 저장 한도를 낮춰도 즉시 삭제하지 않습니다. 변환 결과의 크기는 달라질 수 있어 파일시스템의 강제 용량 제한은 아닙니다.</p>
-<form id="storageForm"><div class="settings-fields"><label>최대 사용량<select id="storageLimit"><option value="0">제한 없음</option><option value="10">10 GB</option><option value="20">20 GB</option><option value="50">50 GB</option><option value="100">100 GB</option><option value="custom">사용자 지정</option></select></label><label id="storageCustomLabel" hidden>사용자 지정 (GB)<input id="storageCustom" type="number" min="0.001" step="0.001" max="8388607"></label><label>공간 부족 시<select id="storagePolicy"><option value="reject_new">새 업로드 거부 · 기존 로그 유지</option><option value="delete_oldest">오래된 미고정 구간 삭제</option></select></label></div><p id="storagePolicyInfo">자동 삭제는 최초 업로드 시각이 오래된 주행부터 고정하지 않은 구간을 삭제합니다. 고정한 구간은 남기며, 같은 주행의 나머지 구간은 삭제될 수 있습니다. 업로드 중이거나 대기·변환 중인 주행은 보호합니다.</p><button id="storageSave" type="submit" disabled>저장공간 설정 저장</button><p id="storageStatus" role="status"></p></form>
-<form id="archiveForm">
-<h4>아카이빙 설정</h4>
-<div class="setting-row"><div class="setting-copy"><h3><label for="archiveEnabled">아카이빙 사용</label></h3></div><div class="setting-control"><label class="auto-convert-control"><input id="archiveEnabled" name="archive_enabled" type="checkbox" role="switch" aria-label="아카이빙 사용"><span aria-hidden="true"></span></label></div></div>
-<div class="settings-fields">
-<label>저장소<select name="archive_backend"><option value="gdrive">Google Drive</option><option value="smb">NAS(SMB)</option></select></label>
-<label>모드<select name="archive_mode"><option value="copy">복제(COPY)</option><option value="move">이동(MOVE)</option></select></label>
-<label data-archive-backend="gdrive">로컬 원본 삭제 허용<input name="archive_allow_local_delete" type="checkbox"></label>
-<label>최소 보관 기간(시간)<input name="archive_min_age_hours" type="number" min="0" max="8760" step="1" required></label>
-<label>실행 주기(분)<input name="archive_interval_minutes" type="number" min="1" max="1440" step="1" required></label>
-<label>배치 개수<input name="archive_batch" type="number" min="1" max="64" step="1" required></label>
-<label>로컬 사용량 임계값(MB)<input name="archive_local_threshold_mb" type="number" min="0" step="1" required></label>
-<label data-archive-backend="gdrive">폴더 이름<input name="archive_gdrive_folder_name" type="text" maxlength="255" required></label>
-<label data-archive-backend="smb">경로<input name="archive_path" type="text" placeholder="/share/NAS/roadviewer"></label>
-<label data-archive-backend="smb">NAS 최대 사용량(MB)<input name="archive_nas_max_mb" type="number" min="0" step="1" required></label>
-<label data-archive-backend="smb">NAS 여유 공간 여유분(MB)<input name="archive_nas_margin_mb" type="number" min="0" step="1" required></label>
-</div>
+<section id="archiveSummary" class="storage-archive" aria-labelledby="archiveSummaryTitle" hidden><div class="storage-section-heading"><h4 id="archiveSummaryTitle">아카이브 저장소</h4></div><dl id="archiveUsage" class="archive-metrics" role="status" aria-label="원격 저장공간 현황"></dl><details id="archiveHealth" class="archive-health"><summary>실행 · 사본 정보</summary><dl id="archiveSecondaryUsage" class="archive-secondary" aria-label="아카이빙 보조 정보"></dl></details></section></div>
+<p id="storageStatus" role="status" class="storage-operation-status"></p>
+<form id="archiveForm" class="storage-editor" aria-describedby="storageEditorNote">
+<fieldset id="storageEditorFields" disabled>
+<section class="storage-editor-section" aria-labelledby="storageBasicTitle">
+<div class="storage-editor-heading"><span class="settings-step">02</span><div><h4 id="storageBasicTitle">아카이빙 기본 설정</h4><p>어디에, 어떤 방식으로 보관할지 선택하세요.</p></div></div>
+<div class="setting-row archive-enable-row"><div class="setting-copy"><h3><label for="archiveEnabled">자동 아카이빙</label></h3><p>저장한 실행 간격과 사용량 기준에 따라 동작합니다.</p></div><label class="auto-convert-control"><input id="archiveEnabled" name="archive_enabled" type="checkbox" role="switch"><span aria-hidden="true"></span></label></div>
+<fieldset class="storage-choice-group"><legend>저장소</legend><div class="storage-choices">
+<label class="storage-option"><input type="radio" name="archive_backend" value="gdrive"><span><b>Google Drive</b><small>연결한 계정을 확장 저장공간으로 사용</small></span></label>
+<label class="storage-option"><input type="radio" name="archive_backend" value="smb"><span><b>NAS · 네트워크 저장소</b><small>Home Assistant에 연결한 공유 폴더 사용</small></span></label>
+</div></fieldset>
+<fieldset id="archiveModeChoices" class="storage-choice-group"><legend>보관 방식</legend><div class="storage-choices">
+<label class="storage-option"><input type="radio" name="archive_mode" value="copy"><span><b>복제 · COPY</b><small>Drive에 사본을 만들고 로컬 원본도 유지합니다. 로컬 공간은 줄어들지 않습니다.</small></span></label>
+<label class="storage-option"><input type="radio" name="archive_mode" value="move"><span><b>이동 · MOVE</b><small>Drive에 안전하게 보관한 뒤 로컬 공간을 확보합니다. 주행 기록은 계속 이용합니다.</small></span></label>
+</div></fieldset>
+<p id="archiveNasMode" class="storage-inline-note" hidden>NAS는 항상 이동(MOVE)합니다. 검증이 끝난 파일만 NAS에 보관하고 로컬 원본을 삭제합니다.</p>
+<div id="archiveRemoval" class="archive-removal" hidden><label><input name="archive_allow_local_delete" type="checkbox"><span><b>검증 후 로컬 원본 삭제 허용</b><small>이동에 필요한 권한입니다. 허용하지 않으면 COPY로 동작합니다.</small></span></label></div>
 <p id="archiveWarning" class="archive-mode"></p>
-<button id="archiveSave" type="submit" disabled>아카이빙 설정 저장</button><p id="archiveSettingsStatus" role="status"></p>
+<div class="storage-basic-fields">
+<div class="storage-field"><label for="archiveAgePreset">로컬에 최소 보관할 기간</label><select id="archiveAgePreset" aria-describedby="archiveAgeHelp"><option value="0">기간 제한 없음</option><option value="24">1일</option><option value="168">7일</option><option value="336">14일</option><option value="720">30일</option><option value="custom">직접 입력</option></select><label id="archiveAgeCustom" class="storage-custom" hidden>보관 시간<input name="archive_min_age_hours" type="number" min="0" max="8760" step="1" required></label><p id="archiveAgeHelp">업로드한 지 이 기간이 지난 주행 데이터가 대상입니다.</p></div>
+<div class="storage-field"><label for="archiveThresholdPreset">아카이빙을 시작할 로컬 사용량</label><select id="archiveThresholdPreset" aria-describedby="archiveThresholdHelp"><option value="0">사용량 조건 없음</option><option value="1024">1 GB</option><option value="3072">3 GB</option><option value="5120">5 GB</option><option value="10240">10 GB</option><option value="custom">직접 입력</option></select><label id="archiveThresholdCustom" class="storage-custom" hidden>시작 기준 (MB)<input name="archive_local_threshold_mb" type="number" min="0" step="1" required></label><p id="archiveThresholdHelp">정기 실행 시 이 사용량을 넘으면 적격 파일을 보관합니다. 0이면 사용량 조건을 두지 않습니다.</p></div>
+<div class="storage-field"><label for="storageLimit">로컬 최대 사용량</label><select id="storageLimit" aria-describedby="storagePolicyInfo"><option value="0">제한 없음</option><option value="10">10 GB</option><option value="20">20 GB</option><option value="50">50 GB</option><option value="100">100 GB</option><option value="custom">직접 입력</option></select><label id="storageCustomLabel" class="storage-custom" hidden>한도 (GB)<input id="storageCustom" type="number" min="0" step="any" required></label></div>
+</div>
+<div class="capacity-explainer"><div id="capacityScale" class="capacity-scale" aria-hidden="true"><span id="capacityThresholdMarker" class="capacity-marker threshold"></span><span id="capacityLimitMarker" class="capacity-marker limit"></span></div><div class="capacity-legend"><span><i class="threshold"></i>아카이빙 시작 <b id="capacityThresholdText">—</b></span><span><i class="limit"></i>로컬 한도 <b id="capacityLimitText">—</b></span></div><p id="storagePolicyInfo">Google Drive MOVE에서는 한도가 소프트 리밋입니다. COPY와 NAS는 기존 용량 정책을 사용합니다.</p></div>
+<label id="storagePolicyField" class="storage-field">COPY · NAS에서 로컬 한도가 부족하면<select id="storagePolicy"><option value="reject_new">새 업로드 거부 · 기존 로그 유지</option><option value="delete_oldest">오래된 미고정 구간 삭제</option></select></label>
+</section>
+<section class="storage-editor-section" aria-labelledby="storageExecutionTitle">
+<div class="storage-editor-heading"><span class="settings-step">03</span><div><h4 id="storageExecutionTitle">실행 및 고급 설정</h4><p>실행 간격을 정하고 필요한 항목만 상세하게 조절하세요.</p></div></div>
+<div class="archive-execution-layout"><div class="storage-field"><label for="archiveIntervalPreset">자동 실행 간격</label><select id="archiveIntervalPreset"><option value="60">1시간</option><option value="360">6시간</option><option value="720">12시간</option><option value="1440">24시간</option><option value="custom">직접 입력</option></select><label id="archiveIntervalCustom" class="storage-custom" hidden>실행 간격 (분)<input name="archive_interval_minutes" type="number" min="1" max="1440" step="1" required></label></div><div id="archiveExecution" class="archive-execution"><p id="archiveRunHint">지금 아카이브는 저장된 설정으로 실행합니다.</p></div></div>
+<details id="archiveAdvanced" class="archive-advanced"><summary>고급 설정 <span>배치 크기 · 저장 경로 · NAS 용량</span></summary><div class="storage-advanced-fields">
+<label class="storage-field">한 번에 처리할 파일 수<input name="archive_batch" type="number" min="1" max="64" step="1" required><small>1~64개. 나머지는 다음 실행에서 이어갑니다.</small></label>
+<label class="storage-field" data-archive-backend="gdrive">Drive 폴더 이름<input name="archive_gdrive_folder_name" type="text" maxlength="255" required></label>
+<label class="storage-field" data-archive-backend="smb">NAS 공유 경로<input name="archive_path" type="text" placeholder="/share/NAS/roadviewer"><small>Home Assistant의 네트워크 저장소를 연결한 경로입니다.</small></label>
+<label class="storage-field" data-archive-backend="smb">NAS 최대 사용량 (MB)<input name="archive_nas_max_mb" type="number" min="0" step="1" required><small>0이면 용량 한도를 두지 않습니다.</small></label>
+<label class="storage-field" data-archive-backend="smb">NAS에 남겨 둘 여유 공간 (MB)<input name="archive_nas_margin_mb" type="number" min="0" step="1" required></label>
+</div></details>
+</section>
+<section class="storage-editor-section storage-policy-preview" aria-labelledby="storagePreviewTitle"><div class="storage-editor-heading"><span class="settings-step">04</span><div><h4 id="storagePreviewTitle">현재 설정 요약</h4><p id="storagePreviewState">저장된 설정</p></div></div><p id="storageBehaviorSummary" aria-live="polite">설정을 불러오고 있습니다.</p><p id="storageBehaviorDetail"></p><p id="storageEditorNote">설정을 저장하는 것만으로 전송을 시작하지 않습니다. 미저장 변경은 자동 실행에 반영되지 않습니다.</p></section>
+</fieldset>
+<div class="storage-editor-footer"><p id="archiveSettingsStatus" role="status" aria-live="polite">설정을 불러오는 중입니다.</p><div><button id="storageRetry" type="button" hidden>다시 불러오기</button><button id="storageReset" type="button" hidden>변경 취소</button><button id="storageSave" type="submit" disabled>설정 저장</button></div></div>
 </form>
+
 </div></details>
 <details class="managed-settings usage-guide"><summary><div><h3>상태 및 파일 관리 안내</h3><span class="disclosure-description">처리 상태, 다운로드, 제거와 완전 삭제의 차이</span></div><span class="disclosure-hint" aria-hidden="true"><span class="when-closed">펼치기</span><span class="when-open">접기</span></span></summary>
 <div class="usage-guide-body"><div><h4>처리 상태</h4><dl class="status-guide"><div><dt>미변환</dt><dd>로그와 보관 영상을 유지한 상태입니다. 변환하면 재생할 수 있습니다.</dd></div><div><dt>대기 중</dt><dd>변환 순서를 기다립니다.</dd></div><div><dt>처리 중</dt><dd>로그 분석 또는 영상 변환을 진행합니다.</dd></div><div><dt>재생 가능</dt><dd>변환이 완료되어 재생할 수 있습니다.</dd></div><div><dt>변환 실패</dt><dd>변환 버튼으로 다시 시도할 수 있습니다.</dd></div></dl></div><div><h4>로그 작업</h4><p class="action-guide">재생·변환 버튼 옆 펼침 메뉴(⌄)에서 선택합니다. 미변환 항목에는 제거가 표시되지 않으며, 처리 중에는 제거할 수 없습니다.</p><dl class="action-guide-grid"><div><dt>변환</dt><dd>재생용 데이터를 생성합니다.</dd></div><div><dt>제거</dt><dd>대기 중인 항목은 변환 예약을 취소합니다. 분석·그래프와 원본으로 다시 만들 수 있는 MP4를 삭제하며, 원본 로그·영상 및 원본 없이 보관하는 MP4는 유지합니다.</dd></div><div><dt>다운로드</dt><dd>팝업에서 선택한 파일만 받습니다. 선택한 파일이 하나면 그대로, 여러 개면 ZIP으로 받습니다. 각 파일 옆의 받기로도 개별 다운로드할 수 있으며, 없는 카메라는 제외합니다.</dd></div><div><dt>로그 다운로드</dt><dd>업로드한 ZST 로그를 내려받습니다.</dd></div><div><dt>영상 다운로드</dt><dd>팝업에서 카메라와 MP4·원본 형식(HEVC·TS)을 선택합니다. 원본 형식은 재압축 없이 다시 만들며 화질은 같지만 업로드한 파일과 바이트까지 같지는 않습니다.</dd></div><div><dt>완전 삭제</dt><dd>원본과 변환 데이터를 모두 삭제합니다.</dd></div></dl><p class="action-guide">수동으로 제거한 항목은 자동으로 다시 변환되지 않습니다. 재시작 후에도 직접 변환해야 합니다.</p></div>

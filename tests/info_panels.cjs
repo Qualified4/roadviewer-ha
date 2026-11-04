@@ -10,6 +10,7 @@ const {settleLayout}=require('./browser-helpers.cjs');
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
    if(p==='/api/logs')return route.fulfill({json:{logs:[],max_upload_mb:512,storage_used_bytes:storage.used_bytes,concurrency:1}});
+   if(p==='/api/settings/archive')return route.fulfill({json:{archive_enabled:true,archive_backend:'gdrive',archive_mode:'copy',archive_allow_local_delete:false,archive_path:'',archive_local_threshold_mb:3072,archive_min_age_hours:168,archive_interval_minutes:1440,archive_batch:2,archive_nas_max_mb:0,archive_nas_margin_mb:1024,archive_gdrive_folder_name:'Road Viewer'}});
    if(p==='/api/settings/storage')return route.fulfill({json:storage});
    if(p.endsWith('/data'))return route.fulfill({json:{route:'preview',key:'ui',duration:60,warnings:[],video:null,frames:[frame]}});
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
@@ -18,12 +19,23 @@ const {settleLayout}=require('./browser-helpers.cjs');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.woff2')?'font/woff2':'image/svg+xml'});
   });
   await page.goto('https://rv.test/');await page.locator('#storageSettings>summary').click();await page.locator('#archiveRun').waitFor();
-  assert.equal(await page.locator('#storageUsage>div').count(),4);assert.equal(await page.locator('#archiveUsage>div').count(),8);
+  assert.equal(await page.locator('#storageUsage>div').count(),4);assert.equal(await page.locator('#archiveUsage>div,#archiveSecondaryUsage>div').count(),9);
   assert.equal(await page.locator('#storageMeter').getAttribute('aria-valuenow'),'95');
-  for(const width of [320,390,768,1440]){
+  for(const width of [320,390,768,1024,1100,1440,1920]){
    await page.setViewportSize({width,height:1000});await settleLayout(page,'#storageSettings');
    assert(await page.locator('#storageSettings').evaluate(el=>el.scrollWidth<=el.clientWidth),'storage does not overflow '+width);
-   if(width===390&&process.env.RV_PANEL_CAPTURE)await page.locator('.storage-overview').screenshot({path:'/tmp/roadviewer-storage-panel.png'});
+   const cards=await page.locator('.storage-overview').evaluate(el=>{
+    const box=selector=>{const r=el.querySelector(selector).getBoundingClientRect();return {left:r.left,top:r.top,bottom:r.bottom,width:r.width}};
+    return {local:box('.storage-local'),archive:box('.storage-archive'),connection:box('.gdrive-panel'),bottom:el.getBoundingClientRect().bottom};
+   });
+   assert(cards.connection.left>=cards.local.left&&cards.connection.left+cards.connection.width<=cards.local.left+cards.local.width,'connection is grouped within local storage '+width);
+   assert(cards.connection.bottom<=cards.local.bottom,'connection does not create a separate empty grid row '+width);
+   if(width>=1100){
+    assert(Math.abs(cards.archive.top-cards.local.top)<1,'remote storage stays aligned with local storage '+width);
+    assert(Math.abs(cards.archive.bottom-cards.local.bottom)<1,'desktop storage cards have matching heights '+width);
+    assert(Math.abs(cards.bottom-Math.max(cards.archive.bottom,cards.local.bottom))<1,'no trailing panel margin '+width);
+   }else assert(cards.archive.top>=cards.local.bottom,'mobile and tablet stack capacity groups '+width);
+   if(process.env.RV_PANEL_CAPTURE&&[390,1440,1920].includes(width)){await page.locator('.storage-settings-body').screenshot({path:`/tmp/roadviewer-storage-${width}-after.png`});await page.locator('.storage-overview').screenshot({path:`/tmp/roadviewer-storage-overview-${width}.png`})}
   }
   await page.evaluate(()=>showStorage({used_bytes:120,max_bytes:100,free_bytes:0,reserved_bytes:0,archive:{enabled:false}}));
   assert.equal(await page.locator('#storageMeter').getAttribute('aria-valuenow'),'100');assert.equal(await page.locator('#storageUsagePercent').textContent(),'120% 사용');
