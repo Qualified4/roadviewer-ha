@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Road Viewer — Home Assistant용 openpilot 주행 기록 뷰어</title>
+<meta name="description" content="Road Viewer는 Home Assistant에서 openpilot 주행 영상과 로그를 조회하고 주행 데이터를 시각화하며, 선택적으로 Google Drive에 보관하는 자체 호스팅 앱입니다.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Crect width='256' height='256' rx='52' fill='%230c1822'/%3E%3Cpath d='M0 205 103 29h8L0 239Zm256 0L153 29h-8l111 210Z' fill='%2357d9b0'/%3E%3Cpath d='m78 171 10-33q4-16 20-16h40q16 0 20 16l10 33q12 10 12 24v21q0 8-8 8H74q-8 0-8-8v-21q0-14 12-24Z' fill='%23e6edf5'/%3E%3C/svg%3E">
+<style>
+:root{color-scheme:dark;--bg:#0c1118;--panel:#131c27;--text:#e6edf5;--muted:#94a5b8;--line:#29394a;--lane:#57d9b0;--edge:#f45b60;--lead:#81b5ff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.7 system-ui,-apple-system,"Segoe UI","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+a{color:var(--lane)}
+main,header,footer{max-width:1040px;margin:auto;padding:0 24px}
+header{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;padding-top:28px}
+.brand{display:flex;align-items:center;gap:12px;color:var(--text);text-decoration:none;font-weight:700;font-size:20px}
+.brand svg{width:44px;height:44px;flex-shrink:0}
+nav{display:flex;flex-wrap:wrap;gap:18px;font-size:14px}
+nav a{color:var(--muted);text-decoration:none}
+nav a:hover{color:var(--text)}
+.hero{padding:72px 0 48px}
+.eyebrow{color:var(--lane);font-size:13px;font-weight:700;letter-spacing:.12em}
+h1{font-size:clamp(30px,5vw,46px);line-height:1.25;margin:10px 0 18px}
+.lead{color:var(--muted);font-size:18px;max-width:720px;margin:0}
+.actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+.button{display:inline-block;padding:12px 20px;border-radius:12px;text-decoration:none;font-weight:600;border:1px solid var(--line);color:var(--text);background:var(--panel)}
+.button.primary{background:var(--lane);border-color:var(--lane);color:#08251d}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin:16px 0 56px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
+.card h3{margin:0 0 8px;font-size:18px}
+.card p{margin:0;color:var(--muted);font-size:15px}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;vertical-align:1px}
+section h2{font-size:24px;margin:0 0 6px}
+section>p{color:var(--muted);margin:0 0 4px}
+.drive{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--lane);border-radius:14px;padding:24px;margin:16px 0 56px}
+.drive ul{margin:0;padding-left:20px;color:var(--muted)}
+.drive li{margin:4px 0}
+.drive p{margin:14px 0 0}
+code{background:#0c1822;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:14px}
+ol.steps{color:var(--muted);padding-left:20px;margin:12px 0 56px}
+ol.steps li{margin:6px 0}
+footer{border-top:1px solid var(--line);padding-top:20px;padding-bottom:40px;color:var(--muted);font-size:14px;display:flex;flex-wrap:wrap;gap:8px 20px;justify-content:space-between}
+footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+ <a class="brand" href="./">
+  <svg viewBox="0 0 256 256" aria-hidden="true"><defs><clipPath id="tile"><rect width="256" height="256" rx="52"/></clipPath></defs><g clip-path="url(#tile)"><rect width="256" height="256" fill="#0c1822"/><path d="M0 205 103 29h8L0 239Zm256 0L153 29h-8l111 210Z" fill="#57d9b0"/><path d="m126 29-.5 9h5l-.5-9Zm-1 19-1 13h8l-1-13Zm-2 25-1 17h12l-1-17Z" fill="#e6edf5"/><path d="m78 171 10-33q4-16 20-16h40q16 0 20 16l10 33q12 10 12 24v21q0 8-8 8H74q-8 0-8-8v-21q0-14 12-24Z" fill="#e6edf5"/><path d="m94 166 9-26q2-5 7-5h36q5 0 7 5l9 26Z" fill="#0c1822"/><rect x="76" y="183" width="34" height="14" rx="5" fill="#f45b60"/><rect x="146" y="183" width="34" height="14" rx="5" fill="#f45b60"/></g></svg>
+  Road Viewer
+ </a>
+ <nav aria-label="주요 링크"><a href="#features">기능</a><a href="#google-drive">Google Drive</a><a href="privacy.html">개인정보처리방침</a><a href="https://github.com/Qualified4/roadviewer-ha">GitHub</a></nav>
+</header>
+<main>
+ <section class="hero">
+  <div class="eyebrow">HOME ASSISTANT 앱</div>
+  <h1>openpilot 주행 기록을<br>내 Home Assistant에서 다시 봅니다</h1>
+  <p class="lead">Road Viewer는 openpilot 주행 로그(<code>rlog.zst</code>)와 카메라 영상을 Home Assistant에 올려 재생하고, 차선·선행 차량·조향 같은 주행 데이터를 영상과 함께 시각화하는 자체 호스팅 앱입니다. 기록은 사용자의 Home Assistant 기기에 저장됩니다.</p>
+  <div class="actions"><a class="button primary" href="https://github.com/Qualified4/roadviewer-ha">GitHub 저장소 보기</a><a class="button" href="privacy.html">개인정보처리방침</a></div>
+ </section>
+
+ <section id="features">
+  <h2>주요 기능</h2>
+  <p>Home Assistant 사이드바(Ingress)에서 바로 사용하며, 별도의 외부 서버나 Road Viewer 계정이 필요하지 않습니다.</p>
+  <div class="grid">
+   <article class="card"><h3><span class="dot" style="background:var(--lane)"></span>주행 영상·로그 조회</h3><p>openpilot 장치나 PC에서 로그와 영상(qcamera, 전방·광각 카메라)을 올리면 주행·구간별로 정리해 태그, 북마크와 함께 보여 줍니다. 원본 로그와 MP4 영상을 내려받을 수 있습니다.</p></article>
+   <article class="card"><h3><span class="dot" style="background:var(--lead)"></span>주행 데이터 시각화</h3><p>영상과 시간을 맞춰 차선, 도로 경계, 선행 차량과 레이더 대상을 겹쳐 보여 주고, 조향과 속도 같은 텔레메트리를 함께 표시하며, 주행 장면을 위에서 본 도로 화면으로 재구성합니다.</p></article>
+   <article class="card"><h3><span class="dot" style="background:var(--edge)"></span>저장공간 관리와 아카이빙</h3><p>로컬 사용량 한도와 정리 정책을 정할 수 있고, 오래된 기록을 NAS 또는 사용자의 Google Drive에 보관할 수 있습니다. 아카이빙은 기본적으로 꺼져 있습니다.</p></article>
+  </div>
+ </section>
+
+ <section id="google-drive">
+  <h2>Google Drive 아카이빙</h2>
+  <p>사용자가 직접 설정한 경우에만 동작하는 선택 기능입니다. Google 로그인 화면에 표시되는 앱 이름 <strong>harv-gdrive</strong>는 Road Viewer의 이 기능에서 쓰는 OAuth 클라이언트입니다.</p>
+  <div class="drive">
+   <ul>
+    <li>Google의 기기 인증(코드 입력) 방식으로 연결하며, 요청하는 권한은 <code>drive.file</code> 하나입니다. Road Viewer가 만든 폴더와 파일만 다룰 수 있고, 같은 계정의 다른 Drive 파일은 읽거나 바꿀 수 없습니다.</li>
+    <li>사용자의 Drive에 전용 폴더를 만들어 주행 로그와 영상 파일을 올리고, Drive가 알려 주는 체크섬으로 사본을 검증합니다.</li>
+    <li>기본은 로컬 파일을 그대로 두는 복제 모드입니다. 로컬 원본을 지우는 이동 모드는 사용자가 두 가지 옵션을 모두 설정해야만 켜집니다.</li>
+    <li>통신은 사용자의 Home Assistant 기기와 Google 사이에서만 일어납니다. Road Viewer 개발자는 사용자의 Google 데이터나 토큰을 받는 서버를 운영하지 않습니다.</li>
+   </ul>
+   <p>자세한 데이터 처리 방식은 <a href="privacy.html">개인정보처리방침</a>을 확인하세요.</p>
+  </div>
+ </section>
+
+ <section id="install">
+  <h2>설치</h2>
+  <ol class="steps">
+   <li>Home Assistant에서 <strong>설정 → 애드온 → 애드온 스토어 → 저장소</strong>를 엽니다.</li>
+   <li><code>https://github.com/Qualified4/roadviewer-ha</code>를 추가합니다.</li>
+   <li><strong>Road Viewer</strong>를 설치하고 시작한 뒤 사이드바에서 엽니다. 자세한 사용법은 <a href="https://github.com/Qualified4/roadviewer-ha">저장소 문서</a>를 참고하세요.</li>
+  </ol>
+ </section>
+</main>
+<footer>
+ <span>Road Viewer · Home Assistant용 openpilot 주행 기록 뷰어</span>
+ <span><a href="privacy.html">개인정보처리방침</a> · <a href="https://github.com/Qualified4/roadviewer-ha">GitHub</a> · <a href="https://github.com/Qualified4/roadviewer-ha/issues">문의</a></span>
+</footer>
+</body>
+</html>
