@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [drive, replay-coverage, navigation, replay-layout, motion-video, telemetry-storage]
+        group: [g1, g2, g3, g4, g5, g6]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -81,75 +81,75 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install flask
       - run: node tests/navigation.cjs
-        if: matrix.group == 'navigation'
+        if: matrix.group == 'g2'
       - run: node tests/video_sources.cjs
-        if: matrix.group == 'motion-video'
+        if: matrix.group == 'g3'
       - run: node tests/replay_ready.cjs
-        if: matrix.group == 'telemetry-storage'
+        if: matrix.group == 'g4'
       - run: node tests/replay_coverage.cjs
-        if: matrix.group == 'replay-coverage'
+        if: matrix.group == 'g1'
       - run: node tests/replay_play_request.cjs
-        if: matrix.group == 'navigation'
+        if: matrix.group == 'g4'
       - run: node tests/replay_end_seek.cjs
-        if: matrix.group == 'replay-layout'
+        if: matrix.group == 'g2'
       - run: node tests/choices.cjs
-        if: matrix.group == 'replay-coverage'
+        if: matrix.group == 'g2'
       - run: node tests/display_preferences.cjs
-        if: matrix.group == 'navigation'
+        if: matrix.group == 'g6'
       - run: node tests/concurrency.cjs
-        if: matrix.group == 'navigation'
+        if: matrix.group == 'g1'
       - run: node tests/conversion_controls.cjs
-        if: matrix.group == 'motion-video'
+        if: matrix.group == 'g6'
       - run: node tests/bulk_actions.cjs
-        if: matrix.group == 'replay-layout'
+        if: matrix.group == 'g6'
       - run: node tests/tags.cjs
-        if: matrix.group == 'telemetry-storage'
+        if: matrix.group == 'g1'
       - run: node tests/bookmarks.cjs
-        if: matrix.group == 'replay-layout'
+        if: matrix.group == 'g4'
       - run: node tests/recording_names.cjs
-        if: matrix.group == 'telemetry-storage'
+        if: matrix.group == 'g5'
       - run: node tests/storage_devices.cjs
-        if: matrix.group == 'telemetry-storage'
+        if: matrix.group == 'g6'
       - run: node tests/info_panels.cjs
-        if: matrix.group == 'replay-layout'
+        if: matrix.group == 'g6'
       - run: node tests/archive_status.cjs
-        if: matrix.group == 'replay-layout'
+        if: matrix.group == 'g1'
       - run: node tests/gdrive_panel.cjs
-        if: matrix.group == 'drive'
+        if: matrix.group == 'g5'
       - run: node tests/archive_settings.cjs
-        if: matrix.group == 'motion-video'
+        if: matrix.group == 'g3'
       - run: node tests/pairing_refresh.cjs
-        if: matrix.group == 'navigation'
+        if: matrix.group == 'g5'
       - run: node tests/device_test_page.cjs
-        if: matrix.group == 'replay-coverage'
+        if: matrix.group == 'g3'
       - run: node tests/video_overlay.cjs
-        if: matrix.group == 'motion-video'
+        if: matrix.group == 'g6'
       - run: node tests/camera_info.cjs
-        if: matrix.group == 'replay-layout'
+        if: matrix.group == 'g3'
       - run: node tests/telemetry.cjs
-        if: matrix.group == 'telemetry-storage'
+        if: matrix.group == 'g5'
       - run: node tests/replay_layout.cjs
-        if: matrix.group == 'replay-layout'
+        if: matrix.group == 'g3'
       - run: node tests/disclosure_animation.cjs
-        if: matrix.group == 'navigation'
+        if: matrix.group == 'g2'
       - run: node tests/replay_gzip.cjs
-        if: matrix.group == 'telemetry-storage'
+        if: matrix.group == 'g4'
       - run: node tests/lane_marking.cjs
-        if: matrix.group == 'telemetry-storage'
+        if: matrix.group == 'g4'
       - run: node tests/motion.cjs
-        if: matrix.group == 'motion-video'
+        if: matrix.group == 'g4'
       - run: node tests/replay_downloads.cjs
-        if: matrix.group == 'replay-coverage'
+        if: matrix.group == 'g5'
       - run: node tests/download_dialog.cjs
-        if: matrix.group == 'replay-coverage'
+        if: matrix.group == 'g5'
       - run: node tests/upload_timeout.cjs
-        if: matrix.group == 'replay-layout'
+        if: matrix.group == 'g1'
       - run: node tests/upload_stall.cjs
-        if: matrix.group == 'replay-coverage'
+        if: matrix.group == 'g2'
       - run: node tests/upload_mobile.cjs
-        if: matrix.group == 'motion-video'
+        if: matrix.group == 'g4'
       - run: node tests/upload_drop.cjs
-        if: matrix.group == 'navigation'
+        if: matrix.group == 'g6'
   browser-tests:
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs: [browser-test-groups]
@@ -164,9 +164,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # pip downloads are cached per requirements file (PyPI downloads varied from 5 to 40 s); main refreshes it.
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: roadviewer/requirements.txt
       - run: pip install -r roadviewer/requirements.txt
       - name: Validate AppArmor policy
         run: |
@@ -346,6 +349,14 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: '0'
           ignore-unfixed: true
+      - if: matrix.arch == 'amd64'
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: roadviewer/requirements.txt
+      - if: matrix.arch == 'amd64'
+        run: pip install -r roadviewer/requirements.txt
       - if: matrix.arch == 'amd64'
         uses: actions/setup-node@v7
         with:

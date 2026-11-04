@@ -40,6 +40,15 @@ async function openPanel(page){
  await page.evaluate(()=>document.querySelectorAll('#archiveUsage>.archive-metric').forEach(row=>row.remove()));
  await page.locator('#storageSettings > summary').click();await page.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true'&&document.querySelector('#archiveUsage>.archive-metric'));
 }
+async function settle(page){
+ // An absence check: a fetch a fake timer started may not have reached the request event yet, so wait in real time.
+ await page.waitForTimeout(500);
+}
+async function waitForStorageRefresh(page,action){
+ // A timer starts an async fetch; wait for its rendering, not just the clock advance.
+ const row=await page.locator('#archiveUsage>.archive-metric').first().elementHandle();
+ await action();await page.waitForFunction(row=>!row.isConnected,row);await row.dispose();
+}
 (async()=>{
  const temp=fs.mkdtempSync(path.join(os.tmpdir(),'rv-gdrive-ui-')),driveDir=path.join(temp,'drive'),offDir=path.join(temp,'off'),nasDir=path.join(temp,'nas'),nas=path.join(temp,'nas-share');
  for(const dir of [driveDir,offDir,nasDir,nas])fs.mkdirSync(dir);
@@ -55,6 +64,9 @@ async function openPanel(page){
   const context=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'reduce'}),page=await context.newPage(),errors=[],posts=[];
   page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.accept());
   page.on('request',request=>{if(request.method()==='POST')posts.push([new URL(request.url()).pathname.replace('/api/hassio_ingress/test',''),request.headers()['x-roadviewer-request']])});
+  // runFor fires every one-second tick (fastForward would coalesce them). Pause before
+  // navigation so only explicit advances can poll; Python's OAuth clock stays real.
+  const clockTime=Date.now();await page.clock.install({time:clockTime});await page.clock.pauseAt(clockTime+1000);
   await page.goto(drive.base);await page.locator('.log-row').first().waitFor();
   // Per recording: the retry shows only where the copy did not verify.
   assert.equal(await page.locator(`.log-row[data-id="${ids[0]}"] .archive-retry`).textContent(),'재시도');
@@ -89,26 +101,35 @@ async function openPanel(page){
   for(const width of [320,390]){await page.setViewportSize({width,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no overflow at '+width)}
   await page.setViewportSize({width:1280,height:900});
   const first=await page.locator('#gdriveCountdown').textContent();
+  await page.clock.runFor(1000);
   await page.waitForFunction(text=>document.getElementById('gdriveCountdown').textContent!==text,first);
   // The panel follows the sign-in (every 3 s) until Google grants it.
   const polls=[];page.on('request',request=>{if(request.url().endsWith('/api/settings/storage'))polls.push(Date.now())});
-  await page.waitForTimeout(3500);assert(polls.length>=1,'polls while the code waits');
+  await waitForStorageRefresh(page,()=>page.clock.runFor(3500));assert(polls.length>=1,'polls while the code waits');
   // Closing the panel or hiding the page stops it; reopening or returning resumes it after a fresh fetch.
   await page.locator('#storageSettings > summary').click();
-  let mark=polls.length;await page.waitForTimeout(4000);assert.equal(polls.length,mark,'no polling with the panel closed');
+  let mark=polls.length;await page.clock.runFor(4000);await settle(page);assert.equal(polls.length,mark,'no polling with the panel closed');
   await openPanel(page);await page.locator('#gdriveCode').waitFor();
-  mark=polls.length;await page.waitForTimeout(3500);assert(polls.length>mark,'polling resumes on reopen');
+  mark=polls.length;await waitForStorageRefresh(page,()=>page.clock.runFor(3500));assert(polls.length>mark,'polling resumes on reopen');
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'))});
-  mark=polls.length;await page.waitForTimeout(4000);assert.equal(polls.length,mark,'no polling while the page is hidden');
-  await page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'))});
-  await page.waitForTimeout(3500);assert(polls.length>=mark+2,'a fresh fetch on return, then polling again');
+  mark=polls.length;await page.clock.runFor(4000);await settle(page);assert.equal(polls.length,mark,'no polling while the page is hidden');
+  // The return fetch must finish before advancing: it restarts the polling interval.
+  await waitForStorageRefresh(page,()=>page.evaluate(()=>{delete document.hidden;document.dispatchEvent(new Event('visibilitychange'))}));
+  await waitForStorageRefresh(page,()=>page.clock.runFor(3500));assert(polls.length>=mark+2,'a fresh fetch on return, then polling again');
   await page.unroute('**/api/settings/storage');
   await drive.command('grant');
+  // OAuth still polls on Python's real clock. Give it real time to finish, while advancing
+  // browser polls instead of waiting another three real seconds for each status update.
+  const grantDeadline=Date.now()+15000;
+  while(!await page.locator('#gdriveCode').evaluate(el=>el.hidden)&&Date.now()<grantDeadline){
+   await new Promise(resolve=>setTimeout(resolve,100));
+   await waitForStorageRefresh(page,()=>page.clock.runFor(3000));
+  }
   await page.waitForFunction(()=>document.getElementById('gdriveCode').hidden,null,{timeout:15000});
   await page.waitForFunction(()=>[...document.querySelectorAll('#storageUsage>div,#archiveUsage>div,#archiveSecondaryUsage>div')].some(row=>row.querySelector('dt').textContent==='Drive 상태'&&row.querySelector('dd').textContent==='연결됨'),null,{timeout:15000});
   assert(await page.locator('#gdriveDisconnect').isVisible());assert(await page.locator('#gdriveConnect').isHidden());assert(await page.locator('#gdriveAuthError').isHidden());
   // Polling stops with the code gone.
-  const settled=polls.length;await page.waitForTimeout(3500);assert.equal(polls.length,settled,'no polling once nothing waits');
+  const settled=polls.length;await page.clock.runFor(3500);await settle(page);assert.equal(polls.length,settled,'no polling once nothing waits');
   assert(fs.existsSync(path.join(driveDir,'.gdrive-auth.json')));
   await page.locator('#gdriveDisconnect').click();
   await page.waitForFunction(()=>document.getElementById('gdriveStatus').textContent==='Google Drive 연결을 해제했습니다.');
@@ -142,21 +163,27 @@ async function openPanel(page){
   assert.equal(await page.evaluate(()=>window.__x),undefined);
   assert.equal(await page.locator('#gdriveUrl').textContent(),'javascript:alert(1)');assert.equal(await page.locator('#gdriveUrl').getAttribute('href'),null);
   // The countdown follows the server's clock, not the browser's (which would read 50 minutes past expiry).
+  await waitForStorageRefresh(page,()=>page.clock.runFor(3000));
+  // The HTTP Date header rounds down to seconds; allow the next countdown tick as before.
+  await page.clock.runFor(1000);
   await page.waitForFunction(()=>/^코드 유효 시간 (9:5\d|10:00) 남음$/.test(document.getElementById('gdriveCountdown').textContent),null,{timeout:8000});
   await page.unroute('**/api/settings/storage');
   // A plain-http address is text too; a code the server still reports is never called expired.
   await handed('WXYZ-1234','http://www.google.com/device',-5);await openPanel(page);await page.locator('#gdriveCode').waitFor();
   assert.equal(await page.locator('#gdriveUrl').textContent(),'http://www.google.com/device');assert.equal(await page.locator('#gdriveUrl').getAttribute('href'),null);
-  await page.waitForTimeout(3500);
+  await waitForStorageRefresh(page,()=>page.clock.runFor(3500));
   assert.equal(await page.locator('#gdriveCountdown').textContent(),'코드 유효 시간을 확인하는 중입니다');
   assert(!(await page.locator('#gdriveCode').textContent()).includes('만료'));
   await page.locator('#storageSettings > summary').click();
   await page.unroute('**/api/settings/storage');
   assert.deepEqual(errors,[]);
   await stop(drive);drive=null;
+  // Clock installation is context-wide; the remaining backends use an ordinary clock.
+  await context.close();
+  const otherContext=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'reduce'});
   // Drive selected with archiving off: the sign-in panel alone, with a note; no run button and no archive rows.
   off=await serve(offDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:false,archive_backend:'gdrive',archive_gdrive_client_id:'client-id',archive_gdrive_client_secret:'shh-client-secret'})});
-  const offPage=await context.newPage(),offPosts=[];offPage.on('pageerror',error=>errors.push(error.message));offPage.on('dialog',dialog=>dialog.accept());
+  const offPage=await otherContext.newPage(),offPosts=[];offPage.on('pageerror',error=>errors.push(error.message));offPage.on('dialog',dialog=>dialog.accept());
   offPage.on('request',request=>{if(request.method()==='POST')offPosts.push(new URL(request.url()).pathname.replace('/api/hassio_ingress/test',''))});
   await offPage.goto(off.base);await offPage.locator('.log-row').first().waitFor();
   await offPage.locator('#storageSettings > summary').click();await offPage.locator('#gdrivePanel').waitFor();
@@ -183,7 +210,7 @@ async function openPanel(page){
   await offPage.close();await stop(off);off=null;
   // The NAS with archiving off: the four local rows and nothing of Drive.
   smb=await serve(nasDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:false,archive_path:nas}),RV_ARCHIVE_ALLOW_ANY_PATH:'1'});
-  const smbOff=await context.newPage();smbOff.on('pageerror',error=>errors.push(error.message));
+  const smbOff=await otherContext.newPage();smbOff.on('pageerror',error=>errors.push(error.message));
   await smbOff.goto(smb.base);await smbOff.locator('.log-row').first().waitFor();
   await smbOff.locator('#storageSettings > summary').click();await smbOff.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true');
   assert.deepEqual(await smbOff.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약']);
@@ -194,7 +221,7 @@ async function openPanel(page){
   const prefs=JSON.parse(fs.readFileSync(path.join(nasDir,'.archive-settings.json'),'utf8'));prefs.archive_enabled=true;
   fs.writeFileSync(path.join(nasDir,'.archive-settings.json'),JSON.stringify(prefs));
   smb=await serve(nasDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:true,archive_path:nas}),RV_ARCHIVE_ALLOW_ANY_PATH:'1'});
-  const plain=await context.newPage();plain.on('pageerror',error=>errors.push(error.message));
+  const plain=await otherContext.newPage();plain.on('pageerror',error=>errors.push(error.message));
   await plain.goto(smb.base);await plain.locator('.log-row').first().waitFor();
   await openPanel(plain);await plain.locator('#archiveRun').waitFor();
   assert.deepEqual(await plain.locator('#storageUsage>div dt,#archiveUsage>div dt,#archiveSecondaryUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약','NAS 상태','NAS 사용 중','NAS 여유','마지막 아카이브','최근 실행 결과']);
