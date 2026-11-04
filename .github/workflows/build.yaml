@@ -187,7 +187,8 @@ jobs:
       - run: python tests/test_prepared_migration.py
   build:
     if: github.event_name == 'pull_request'
-    needs: [metadata, dependency-audit]
+    # Release reuse requires the entire PR run, including dependency-audit, to succeed.
+    needs: [metadata]
     permissions:
       contents: read
     name: build (${{ matrix.arch }}, ${{ matrix.ha_arch }})
