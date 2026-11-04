@@ -82,6 +82,13 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   await page.locator('#archiveRun').click();
   await page.waitForFunction(()=>document.getElementById('storageStatus').textContent==='아카이빙이 이미 실행 중입니다. 끝난 뒤 다시 시도하세요.');
   assert(await page.locator('#archiveRun').isEnabled());await page.unroute('**/api/settings/archive/run');
+  // 'checking' (the server probing in the background) is not left on screen: the panel asks again until it settles.
+  let storageCalls=0;
+  await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();if(++storageCalls===1)body.archive={...body.archive,state:'checking',reason:'probe_pending'};await route.fulfill({response,json:body})});
+  await page.locator('#storageSettings > summary').click();await page.locator('#storageSettings > summary').click();
+  await page.waitForFunction(()=>document.querySelector('#archiveUsage .archive-metric[data-kind="state"] dd')?.textContent==='확인 중');
+  await page.waitForFunction(()=>document.querySelector('#archiveUsage .archive-metric[data-kind="state"] dd')?.textContent==='연결 불가',null,{timeout:10000});
+  assert(storageCalls>=2);await page.unroute('**/api/settings/storage');
   assert(!(await page.content()).includes('nas-share-secret'),'the share path never reaches the page');
   // Replay: the front video is on the unreachable share; the notice shows and the log still plays.
   await page.goto(on.base+'view/'+ids[0]+'/');
@@ -104,6 +111,6 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.deepEqual(await plain.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약']);
   assert.equal(await plain.locator('#archiveRun').count(),0);assert.equal(await plain.locator('#storageStatus').textContent(),'');
   assert.deepEqual(errors,[]);
-  console.log('PASS: media state badges, NAS status panel with confirmed move-all run and progress, replay storage notice, archiving-off UI unchanged');
+  console.log('PASS: media state badges, NAS status panel with confirmed move-all run and progress, settled checking state, replay storage notice, archiving-off UI unchanged');
  }finally{await browser?.close();await stop(on);await stop(off);fs.rmSync(temp,{recursive:true,force:true})}
 })().catch(error=>{console.error(error);process.exitCode=1});
