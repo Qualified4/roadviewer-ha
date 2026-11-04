@@ -315,6 +315,28 @@ class GdriveCrashTests(unittest.TestCase):
             self.assert_never_removed(writes + [json.loads(before)], 'recovery crash')
         self.assertEqual(len(self.sessions(ID, 'fcamera.mp4')), 1)
 
+    def test_corrupt_drive_copy_before_recovery_unlink_keeps_local(self):
+        # Move mode stopped before its unlink, and the Drive copy is damaged meanwhile (same size; Drive reports the
+        # checksums of what it holds). Recovery's Drive verify fails, so the local file, the only good copy, stays.
+        p = self.moved_with_local()
+        e = media_store.entry(server.read_meta(p), 'fcamera.mp4')
+        with self.drive.lock:
+            f = self.drive.files[e['file_id']]
+            f['content'] = bytes([f['content'][0] ^ 1]) + f['content'][1:]
+            f['sha256'], f['md5'] = sha(f['content']), hashlib.md5(f['content']).hexdigest()
+        with contextlib.ExitStack() as stack:
+            writes, unlinks = self.watch(stack, p)
+            for _ in range(2):  # Every later start decides the same way.
+                with self.assertLogs(server.app.logger, 'WARNING') as logs:
+                    archiver = self.restart(**MOVE); archiver.run_cycle()
+                self.assertTrue(any('does not match its index; the local file is kept' in line for line in logs.output), logs.output)
+                self.assertEqual((p / 'fcamera.mp4').read_bytes(), VIDEO)
+                self.assertEqual(media_store.entry(server.read_meta(p), 'fcamera.mp4'), e)  # The video's index is unchanged.
+            # Only the log (not yet moved at the crash) went, once its own copy verified.
+            self.assertEqual([(name, where, verified) for name, where, verified in unlinks], [('rlog.zst', 'gdrive', True)])
+            if writes: self.assert_never_removed(writes, 'corrupt copy')
+        self.assertEqual(len(self.sessions(ID, 'fcamera.mp4')), 1); self.assertEqual(list(self.drive_files(ID, 'fcamera.mp4')), [e['file_id']])
+
     def test_disconnect_mid_upload_then_reconnect_resumes_one_file(self):
         # (c) Signed out from the panel after the first chunk: the upload stops, its session stays recorded;
         # after signing in again the restart resumes the same session.
