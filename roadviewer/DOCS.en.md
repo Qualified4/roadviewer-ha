@@ -97,6 +97,8 @@ The bar stays visible from preparation until the large compressed files have bee
 
 ### Individual and bulk actions
 
+<img src="../docs/images/roadviewer-bulk-selection.png" alt="Route/segment selection and pin protection" width="530">
+
 The primary action is Play or Convert. The adjacent dropdown contains removal, downloads and complete deletion when applicable.
 
 | Action | Effect |
@@ -115,6 +117,8 @@ During a bulk operation selection and closing are locked. Results show completed
 
 ## Segment tags
 
+<img src="../docs/images/roadviewer-tags-editor.png" alt="Segment tag editor" width="490">
+
 Use the tag icon beside a recording name in the library or replay screen. A segment supports up to 100 tags, each up to 32 characters, with 12 colors and suggestions from existing tags. Click a selected tag to edit its name or color. Whitespace is normalized and names differing only by letter case are deduplicated.
 
 Use **태그 필터** (Tag filter) to show a particular tag or **태그 없음** (Untagged). For bulk editing, open **로그 선택**, select segments, then choose **태그 편집** and Add or Remove. Only the selected tags change; unrelated tags and pins remain intact. Partial failures retain successful changes, and retry targets only the failed segments.
@@ -124,6 +128,8 @@ Tags are stored in server-side segment metadata and survive conversion, reconver
 The web UI bundles Pretendard Variable 1.3.9 for Korean text without contacting an external CDN. The initial font transfer is approximately 1.96 MiB; subsequent loads use the browser cache. Its SIL Open Font License is included with the [official release](https://github.com/orioncactus/pretendard/releases/tag/v1.3.9).
 
 ## Scene bookmarks
+
+<img src="../docs/images/roadviewer-bookmarks-editor.png" alt="Bookmarks based on log timestamps" width="490">
 
 Choose **북마크** (Bookmarks) beside the seek bar to capture the current log time. Enter a title (up to 80 characters) and an optional note (up to 1,000 characters). The captured time stays fixed during playback; **현재 시각으로** updates it to the current playhead. Each segment supports up to 100 bookmarks.
 
@@ -157,6 +163,12 @@ Actual width never exceeds the viewport. Each category is remembered separately.
 
 ### Lanes, edges and range
 
+Probability and y[0] distance modes share aligned type, rows, and road-edge/lead values.
+
+![Lane probabilities](../docs/images/roadviewer-boundaries-probability.png)
+
+![Lateral y[0] distances](../docs/images/roadviewer-boundaries-distance.png)
+
 In the video overlay, mint lane bands grow up to 75% confidence, reaching a maximum physical width of **0.225m**. Above 75%, width stays fixed while fill opacity grows from **7.5% to 20%**. The 1px outline's opacity follows confidence. Projection makes distant bands narrower.
 
 Coral red road-edge bands use confidence `1/(1+standard deviation)`; maximum fill opacity remains 10%. Glow is video-only.
@@ -186,6 +198,8 @@ Height is adjustable from 0–3m (zero draws a ground rectangle); fill opacity i
 LF/FF/RF display is enabled by default, with saved selections respected. Their messages lack TrackID and speed; those labels show an unavailable value. A missing/stale command is not treated as a valid detection.
 
 ### Road signals, BSD and overlay settings
+
+<img src="../docs/images/roadviewer-overlay-settings.png" alt="Overlay settings with ground-anchored box explanation" width="530">
 
 TARGET uses the configured path width (default 1.86m), with softly fading ends. Its video trail length follows smoothed actual deceleration `carState.aEgo`, reaching 8m at 3m/s² over the available lane geometry. It is not measured brake force. No acceleration data means no braking trail.
 
@@ -219,7 +233,7 @@ Switch to **차량 정보** beside the road tab. The summary shows speed, accele
 
 **그래프 선택** chooses and reorders graphs by dragging the handle. Reset order keeps checkbox selections. Selection/order are remembered; additional graphs scroll inside the panel.
 
-There are **23 graphs**:
+There are **24 graphs**:
 
 | Group | Graphs |
 |---|---|
@@ -234,6 +248,8 @@ Initially selected: speed, acceleration, driver pedal input, angle, intervention
 Driver pedal values differ from automatic requests and final commands. Some vehicles report brake pressed but no brake amount. Torque is a sensor/command value, not proof of driver intervention; `steeringPressed` provides that state. Target steering angle and RPM availability depend on the vehicle. Zero-only valid fields cannot distinguish true zeros from unpopulated defaults; missing fields are not fabricated. The LATERAL graph shows LF_LATERAL/FF_LATERAL/RF_LATERAL cluster commands before path/lane restoration; FF uses the signed −6.4–6.3m range. The separate yRel graph shows the restored box positions, positive left and negative right. Both can differ from raw radar coordinates. Existing replay data supplies the pre-restoration values without reanalysis; missing values remain unavailable.
 
 ## Camera information and steering icon
+
+<img src="../docs/images/roadviewer-camera-info.png" alt="Camera information with synthetic device ID" width="530">
 
 The camera dialog reports device type, dongle ID when available, sensor, calibration status, roll/pitch/yaw and height at the current sample. It distinguishes calibrated/default height. Installation translation offsets cannot be determined from the displayed information.
 
@@ -271,6 +287,14 @@ Restart cleans incomplete processing outputs and requeues eligible work; manual 
 
 ## Storage budget and pins
 
+**Google Drive MOVE is extension storage for local data.** With Drive MOVE and permission to delete local originals configured, the local maximum is a **soft limit**. When archiving is enabled, reaching that limit or the archive start threshold requests a background move through the existing archiver; when both are positive, the lower value is used. Uploads can temporarily exceed the limit while physical disk space covers other uploads’ outstanding reservations, temporary files, and a **100 MiB safety margin**. Admission does not wait for a Drive transfer to finish.
+
+MOVE deletes only the corresponding local file after remote transfer, integrity verification, and index commit. Minimum age, pin/in-use protection, batch limits, and the shared cycle lock remain enforced. Drive outages and verification failures preserve originals and records. Uploads continue while physical headroom is sufficient; otherwise new uploads are rejected without deleting existing records. Disabling archiving prevents moves; configured Drive MOVE still uses the soft limit, with physical disk headroom controlling upload admission.
+
+Moved recordings **remain listed, playable, and downloadable**. Automatic local reclamation never deletes Drive files or recordings referencing them, including COPY references. Only explicit **Delete permanently** can enqueue remote deletion. Unattributed deletion intents from older versions are retained without automatic execution.
+
+The rejection/eviction rules below describe the existing policies outside effective Drive MOVE. Recordings referencing Drive are always excluded from automatic eviction.
+
 Under **저장공간 관리**, select unlimited or a byte budget and the full-storage policy. Defaults are unlimited and reject new uploads. Usage, budget, actual free disk and reservations are shown separately.
 
 - **Reject new:** retain existing recordings.
@@ -302,11 +326,34 @@ On first connection, and only while `/share/<name>` is actually mounted, the app
 
 ### Web UI settings
 
+### Reading the storage screen
+
+1. **Storage and connection status:** compare local usage, soft limit, actual disk headroom, and outstanding reservations. The selected Drive/NAS has its own connection and capacity display. Expand secondary details for the last run and copy statistics. A full usage bar does not necessarily mean the physical disk is full.
+2. **Archiving basics:** choose the backend and COPY/MOVE. COPY keeps both verified remote copies and local files. Drive MOVE additionally requires permission to delete local originals, and removes them only after verification. NAS always uses verified moves. Minimum local age offers 7, 14, or 30 days and custom input.
+3. **Execution and advanced settings:** choose 1, 6, 12, or 24 hours, or a custom interval. Batch size, NAS path/capacity, and the Drive folder belong under advanced settings. Existing custom values are preserved; stored units remain MB, hours, and minutes.
+4. **Current settings summary:** preview the behavior in plain language, then choose **설정 저장** (Save settings). Unsaved, saving, saved, failed, and partially saved states are distinct. A retry saves only remaining changes; manual archiving is disabled while changes are unsaved. Editing the summary alone never starts a MOVE.
+
+**The maximum and start threshold serve different purposes.** In Drive MOVE the maximum is a local soft limit that may be exceeded temporarily, while the archive threshold requests a move. Maximum 0 means unlimited; threshold 0 adds no separate start threshold. If both are positive, admission requests a move at the lower value. Minimum age and protection rules can leave no eligible files.
+
+![Local usage and extension-storage connection](../docs/images/roadviewer-storage-overview.png)
+
+<details>
+<summary>Full settings, mobile layout, and advanced settings</summary>
+
+![Four sections of storage settings](../docs/images/roadviewer-library-settings.png)
+
+<img src="../docs/images/roadviewer-storage-mobile.png" alt="Mobile storage status and settings" width="390">
+
+![Advanced settings expanded when needed](../docs/images/roadviewer-storage-advanced.png)
+
+</details>
+
+
 Use **Storage management → 아카이빙 기본 설정** (Archive basics) for enabled, backend, mode, local deletion permission, minimum age and local usage criteria. **실행 및 고급 설정** contains the interval and an expandable advanced section for batch size, NAS path/capacity and the Drive folder. Presets and custom inputs preserve the existing hour/minute/MB values. **현재 설정 요약** previews draft behavior; only **설정 저장** applies it. Partial saves identify remaining changes and retries save only those changes. MB means 1024² bytes. NAS always moves after verification regardless of the mode selector. The keys below identify saved preferences, rather than add-on options.
 
 Preferences are written atomically to `/data/roadviewer/.archive-settings.json` with mode 0600. Only `archive_gdrive_client_id` and `archive_gdrive_client_secret` remain add-on options; neither value is returned by the API or shown in the web UI. On the first update, if the file is absent, the old archive options in `/data/options.json` are migrated once. Enabled and disabled values are preserved, with defaults for missing fields. Afterwards the file is authoritative: old keys are ignored and can be cleared. They remain optional schema entries for migration compatibility in this release.
 
-An unreadable/corrupt file or invalid migrated values disable archiving and show `settings_error`. The bad file is left untouched until the user saves from the UI. Saving is refused while a cycle runs. Saving starts no archive, deletion or eviction: startup and each save wait a full configured interval. **지금 아카이브** (Archive now) can run it manually. Migration never changes the token, storage identity or recordings.
+An unreadable/corrupt file or invalid migrated values disable archiving and show `settings_error`. The bad file is left untouched until the user saves from the UI. Saving is refused while a cycle runs. Saving starts no archive, deletion or eviction: startup and each save wait a full configured interval. **이동 가능한 데이터 모두 이동 / 복사 가능한 데이터 모두 복사** (Archive now) can run it manually. Migration never changes the token, storage identity or recordings.
 
 | Option | Default | Range | Meaning |
 |---|---|---|---|
@@ -318,6 +365,16 @@ An unreadable/corrupt file or invalid migrated values disable archiving and show
 | `archive_batch` | `4` | 1–64 | Maximum files moved per run |
 | `archive_nas_max_mb` | `0` | 0 or more | Usage limit of the NAS folder; `0` means unlimited |
 | `archive_nas_margin_mb` | `1024` | 0 or more | Clean up when NAS free space falls below this. Free space is measured on the whole NAS volume. |
+
+### Manually move or copy all eligible data
+
+Choose **이동 가능한 데이터 모두 이동** (Move all eligible data) or **복사 가능한 데이터 모두 복사** (Copy all eligible data) to open a confirmation based on saved settings. Review file/segment counts, size, expected freed space for MOVE, and exclusions. No transfer or deletion occurs before confirmation.
+
+Only the scheduled **batch size and start threshold** are bypassed while the existing engine repeats. Minimum age and in-use protection remain; manual MOVE keeps pins local. Drive MOVE without local-delete permission is presented as COPY. Only verified, committed local files are removed; remote files are never deleted, and verified copies are not uploaded again.
+
+Progress and success/failure counts are shown; settings changes and duplicate runs are blocked. Reload restores server-side job state. A restart-interrupted run is shown as interrupted, not successful. Failed or unprocessed files retain their originals.
+
+<img src="../docs/images/roadviewer-archive-confirm.png" alt="Manual MOVE confirmation: counts, capacity, and exclusions" width="530">
 
 ### What moves, in which order
 
@@ -412,7 +469,7 @@ The [common web UI settings](#web-ui-settings) (`archive_enabled`, `archive_loca
 
 ### Connecting Drive
 
-1. Set client ID and secret in the add-on options, save and restart the app. Then select **Google Drive** in the web UI archive settings and save. Enable archiving there to copy files. With archiving off the account can still connect; the **지금 아카이브** (Archive now) button and Drive usage and copy rows are hidden.
+1. Set client ID and secret in the add-on options, save and restart the app. Then select **Google Drive** in the web UI archive settings and save. Enable archiving there to copy files. With archiving off the account can still connect; the **이동 가능한 데이터 모두 이동 / 복사 가능한 데이터 모두 복사** (Archive now) button and Drive usage and copy rows are hidden.
 2. Open **저장공간 관리** (Storage management) and press **Google Drive 연결** (Connect Google Drive). The panel shows a code, the address (`https://www.google.com/device`) and the time left.
 3. On any device (phone, PC), open that address in a browser, enter the code and approve with the Google account to use.
 4. While the panel is open it checks for approval. Once approved the code disappears and **Drive 상태** (Drive status; **Drive 계정** with archiving off) reads **연결됨** (connected). The first connection creates the folder named in the settings. When connected with archiving off, the folder is created in the first run after archiving is enabled.
@@ -471,14 +528,17 @@ Videos on Drive use the same labels as the [NAS video states](#video-states). Wh
 
 ### Quota and Drive space
 
-Drive usage is measured by archive runs, and the panel shows the last figure. When Drive reports a storage limit, used and free space are shown; otherwise **Drive 여유** (Drive free) reads **할당량 확인 불가** (quota unknown, `usage_reliable: false`). A full Drive stops the run with `remote_full`; nothing on Drive is deleted.
+Drive is **extension storage, not a backup**. Archive runs measure usage; the panel displays the most recent measurement. Unknown quota is shown as **할당량 확인 불가** (`usage_reliable: false`). A full Drive stops the cycle with `remote_full` and preserves originals.
 
-Without automatic cleanup, Drive usage goes down only in these cases:
+### Local quota with Google Drive MOVE
 
-- **완전 삭제** (Delete permanently): the recording's Drive files (moved files and copies) are listed for deletion and removed by the next run. The delete request itself never calls Drive; if Drive is unreachable, they are removed once it answers. Files uploaded by another installation are never deleted.
-- **Automatic deletion by the storage policy** (delete oldest unpinned): in move mode the recording's moved files are deleted (Drive holds the only copy). In copy mode **the Drive files are kept.** Kept copies stay on Drive but are not used again: uploading the same log again registers a new recording and uploads it anew. They keep using Drive quota, so remove them on Drive if they are not needed.
+**Google Drive MOVE is extension storage for local data.** With Drive MOVE and permission to delete local originals configured, the local maximum is a **soft limit**. When archiving is enabled, reaching that limit or the archive start threshold requests a background move through the existing archiver; when both are positive, the lower value is used. Uploads can temporarily exceed the limit while physical disk space covers other uploads’ outstanding reservations, temporary files, and a **100 MiB safety margin**. Admission does not wait for a Drive transfer to finish.
 
-So these files stay on Drive: copies of recordings deleted automatically in copy mode, copies that failed verification, and earlier copies of an MP4 whose content changed by reconversion. Clean them up in Drive yourself if needed; a file still in the index that is deleted on Drive then shows as not found.
+MOVE deletes only the corresponding local file after remote transfer, integrity verification, and index commit. Minimum age, pin/in-use protection, batch limits, and the shared cycle lock remain enforced. Drive outages and verification failures preserve originals and records. Uploads continue while physical headroom is sufficient; otherwise new uploads are rejected without deleting existing records. Disabling archiving prevents moves; configured Drive MOVE still uses the soft limit, with physical disk headroom controlling upload admission.
+
+Moved recordings **remain listed, playable, and downloadable**. Automatic local reclamation never deletes Drive files or recordings referencing them, including COPY references. Only explicit **Delete permanently** can enqueue remote deletion. Unattributed deletion intents from older versions are retained without automatic execution.
+
+An explicit **Delete permanently** queues the recording’s moved files and verified copies for remote deletion. The request itself does not call Drive synchronously; the existing engine processes it when connected. Files from another installation are never deleted. Failed verification copies and superseded copies after reconversion are not automatically cleaned up. Removing an indexed file directly in Drive makes playback/download report not found.
 
 ### Drive backups and security
 
@@ -488,16 +548,11 @@ So these files stay on Drive: copies of recordings deleted automatically in copy
 - Changes such as connect, disconnect and retry are accepted only through the Home Assistant Supervisor (Ingress), like every other settings change.
 - Tokens, the client secret, upload session addresses and Drive file IDs are never shown in the UI, API responses or logs.
 
-### Not verified
+### Validation scope and limits
 
-All tests use a simulated Google server (`tests/fake_drive.py`). Not verified:
+The 0.13.1 work verified connection, COPY/MOVE, integrity checks, local deletion, Range playback, and original-format download against real Google Drive in a test environment. Automated regression tests use `tests/fake_drive.py`. These real-account checks were not repeated for this documentation/screenshots update, and no operational data was changed.
 
-- Connecting, uploading and deleting with a real Google account and a real OAuth client
-- The real device code page (`google.com/device`) and the Google Cloud console screens
-- Power loss: interruption tests reproduce a stopped process only, not data that never reached the disk
-- A Drive error in the middle of streaming a Drive video under gunicorn (the response is cut short)
-- Playing a video stored on Drive in a browser (only the server's range responses are tested)
-- Real Drive quota figures and rate limits
+This does not establish recovery from unwritten data lost on power failure, long-term real quota/rate-limit behavior, every mid-stream remote failure under gunicorn, or every Google Cloud/OAuth account configuration.
 
 ## Connecting a comma device
 
@@ -531,10 +586,7 @@ CI covers both platforms, dependency/image security, real container HTTPS isolat
 
 The bundled openpilot schema may need updating for sufficiently different log formats. See [schema licensing](schema/OPENPILOT-LICENSE) and the historical [changelog](CHANGELOG.md).
 
-### Local quota with Google Drive MOVE
 
-Google Drive MOVE provides extension storage. Its local quota is a soft limit: reaching the quota or the local archive threshold immediately requests reclamation through the existing archiver, without waiting for the scheduled interval. When both are configured, the lower value is the target. Uploads may exceed it when real disk space covers other uploads' outstanding reservations, temporary registration copies, and a 100 MiB safety margin. At registration commit, only the already received/staged upload's own reservation is excluded; other uploads remain reserved.
+## Documentation screenshots
 
-MOVE runs alongside uploads under the same cycle lock, preventing concurrent transfers of the same file. Minimum age, pin/in-use protection, and the batch limit remain enforced. A later upload request or scheduled cycle continues when a batch is insufficient. Missing eligible files, Drive outages, and verification failures preserve records and originals. Uploads remain permitted while physical space is safe and are rejected only when physical space is insufficient. Disabling archiving prevents MOVE from running.
-
-Moved recordings remain listed, playable, and downloadable. Automatic local reclamation never deletes Drive files or their recordings. Only a user's explicit complete deletion may enqueue remote deletion. Unattributed Drive deletion intents from older versions are retained without automatic execution. NAS and COPY transfer behavior is unchanged; recordings referencing Drive files are excluded from automatic eviction.
+New UI screenshots use main `6631968` (version 0.13.3) and example data, not real devices, accounts, or private driving logs. Pairing codes cannot connect a device. See the [image inventory and capture scope](../docs/images/README.en.md).

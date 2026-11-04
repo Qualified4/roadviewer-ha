@@ -120,6 +120,18 @@ Overlay settings control box height/opacity, path width, BSD wall height and ind
 
 Layout, display selections, graph order and collapsed sections are remembered in the current browser. Library and playback pins share the same per-segment setting.
 
+### Current UI details
+
+Open **설정** beside the overlay switch to adjust individual box/BSD/TARGET labels, dimensions, and opacity. The ground-anchor and estimated-size explanation is inside this dialog.
+
+<img src="docs/images/roadviewer-overlay-settings.png" alt="Camera overlay settings" width="530">
+
+Lane probability and lateral y[0] distance share the same layout alongside road-edge and lead information.
+
+![Lane probabilities and road information](docs/images/roadviewer-boundaries-probability.png)
+
+![Lateral y[0] values in the same layout](docs/images/roadviewer-boundaries-distance.png)
+
 ## Organize segments with tags
 
 Tags **classify a whole segment**. Use labels such as “Lane change”, “Rain” or “Needs review” to describe driving conditions and follow-up work, then choose the **tag filter** above the saved recordings to narrow the library. Colored badges appear next to the recording name/pin and are also visible during playback.
@@ -160,7 +172,7 @@ Bookmarks use log time rather than a camera file’s timestamp, so changing came
 
 Set automatic conversion and concurrent jobs in **Conversion and storage settings**. Storage management controls the budget and full-storage policy.
 
-![Conversion settings and storage management](docs/images/roadviewer-library-settings.png)
+![Conversion settings and storage management](docs/images/roadviewer-storage-overview.png)
 
 Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 without re-encoding. Verification compares SHA-256 hashes of compressed pictures and headers, packet counts and timestamps without decoding every frame; it does not screen the source for every possible decoding error. Originals are removed only after compressed-picture, decoder-header, packet-count and log-clock verification; failed sources and rlog.zst are preserved. With automatic conversion off, uploads remain in their uploaded form until manual conversion. HEVC playback requires browser/device support; playback failure switches to the low-resolution camera when available.
 
@@ -195,7 +207,18 @@ ZIPs stream without retaining a download copy on the server. Each camera’s sol
 
 Use **로그 선택** (Select logs) at the bottom of settings for bulk conversion/removal/deletion. Pinned segments are excluded from bulk removal/deletion by default. **고정 항목도 삭제** explicitly includes them for that dialog session; reopening restores protection. Individual menus allow explicit deletion of pinned recordings.
 
-Storage management sets a budget and chooses rejection of new uploads or deletion of old unpinned segments. Automatic deletion groups by original route and orders by upload time. Reservations alone never delete recordings: eviction happens only after receipt and validation, during registration. Pins, queued/processing routes and other protected data remain excluded. Actual disk headroom is still required. The budget is an upload admission check, not a hard filesystem quota for subsequent conversion output.
+Storage management follows four steps: status and connections, archiving basics, execution/advanced settings, and a live behavior summary. Choose presets or custom values, review the summary, and save together. Manual archiving is disabled while settings are unsaved.
+
+**Google Drive MOVE is extension storage for local data.** With Drive MOVE and permission to delete local originals configured, the local maximum is a **soft limit**. When archiving is enabled, reaching that limit or the archive start threshold requests a background move through the existing archiver; when both are positive, the lower value is used. Uploads can temporarily exceed the limit while physical disk space covers other uploads’ outstanding reservations, temporary files, and a **100 MiB safety margin**. Admission does not wait for a Drive transfer to finish.
+
+MOVE deletes only the corresponding local file after remote transfer, integrity verification, and index commit. Minimum age, pin/in-use protection, batch limits, and the shared cycle lock remain enforced. Drive outages and verification failures preserve originals and records. Uploads continue while physical headroom is sufficient; otherwise new uploads are rejected without deleting existing records. Disabling archiving prevents moves; configured Drive MOVE still uses the soft limit, with physical disk headroom controlling upload admission.
+
+Moved recordings **remain listed, playable, and downloadable**. Automatic local reclamation never deletes Drive files or recordings referencing them, including COPY references. Only explicit **Delete permanently** can enqueue remote deletion. Unattributed deletion intents from older versions are retained without automatic execution.
+
+Outside Drive MOVE, the existing policy offers upload rejection or deletion of old unpinned segments after receipt and validation, never at reservation creation. Pins, active routes, and recordings referencing Drive are protected. See the [settings walkthrough](roadviewer/DOCS.en.md#reading-the-storage-screen). Manual move/copy-all first shows target files, size, and exclusions for confirmation; see the [manual-run safeguards](roadviewer/DOCS.en.md#manually-move-or-copy-all-eligible-data).
+
+<img src="docs/images/roadviewer-bulk-selection.png" alt="Route and segment selection in bulk management" width="530">
+
 
 ## Storage, backups and updates
 
@@ -209,16 +232,22 @@ The experimental **NAS archiving** option moves original videos and logs of conv
 
 ## Documentation and validation
 
+New UI details were captured from main `6631968` (version **0.13.3**) using example data. Previously selected driving/wide illustrations are retained and may show older UI. Device, capacity, and pairing values are synthetic; the displayed code cannot connect a device. See the [screenshot guide](docs/images/README.en.md).
+
 - [User guide](roadviewer/DOCS.en.md) · [한국어](roadviewer/DOCS.md): installation, playback, conversion, storage, backups and troubleshooting
 - [roadviewer-mcp](https://github.com/Qualified4/roadviewer-mcp): MCP server for AI agents, using only the existing Ingress login and API
 - [Device API v1](docs/device-api.en.md) · [한국어](docs/device-api.md): HTTPS, pairing/signing, upload recovery and tests without openpilot
-- [Changelog (Korean)](roadviewer/CHANGELOG.md)
+- [AppArmor security](docs/apparmor-security.en.md) · [한국어](docs/apparmor-security.md)
+- [Historical Android picker analysis](docs/android-multiple-file-fix/README.en.md) · [한국어](docs/android-multiple-file-fix/README.md)
+- [Current release notes](roadviewer/CHANGELOG.en.md) · [Full Korean history](roadviewer/CHANGELOG.md)
 
 `roadviewer/` is the Docker build context. GitHub Actions checks both architectures, Python dependencies, container vulnerabilities, real container HTTPS isolation, uploads, conversion and browser behavior. Actual Home Assistant devices and Android's native file picker may behave differently from browser tests.
 
 ### Prebuilt release workflow
 
-The version comes from `roadviewer/config.yaml`. Full validation runs on the PR. Successful Python/browser/security/container tests produce both tested images as artifacts. Manual publication reuses these images without rebuilding. Ordinary branch pushes do not duplicate testing; `main` verifies the published image/source match instead of rebuilding or publishing again.
+**Do not add `[skip ci]` to merge commits.** Main must run image verification and cache warming so subsequent PRs can use current caches.
+
+The version comes from `roadviewer/config.yaml`. Full validation runs on the PR. Successful Python/browser/security/container tests produce both tested images as artifacts. Manual publication reuses these images without rebuilding. Ordinary branch pushes do not duplicate testing; `main` verifies the published image/source match and separately warms both platform build caches, Trivy databases, and browser caches. Warming is not another full PR test run or release-image publication.
 
 1. Update the app version, Dockerfile default, UI version and changelog on a release branch. Never reuse a published version.
 2. Push and open a PR against `main`. After full validation succeeds, manually run **Build, test and publish app** on that branch. It requires the latest successful PR validation for the current commit and uses that run/attempt's image artifacts.

@@ -1,84 +1,28 @@
-<!--
-    Please review the contributing guide before submitting: https://developers.home-assistant.io/docs/android/submit
-    Please, complete the following sections to help the processing and review of your changes.
-    Please, DO NOT DELETE ANY TEXT from this template! (unless instructed).
+# 상위 저장소 PR 초안 (과거 기록, 미제출)
 
-    Thank you for submitting a Pull Request and helping to improve Home Assistant. You are amazing!
--->
+한국어 · [English / 원본 제출 템플릿](upstream-pr-draft.en.md)
 
-## Summary
+[분석 기록](README.md)에 명시한 버전·커밋 기준입니다. 최신 upstream의 상태를 뜻하지 않으며 아래 항목을 완료한 것으로 간주하지 않습니다. 외부 프로젝트의 원본 영문 템플릿은 영어 문서에 보존했습니다.
 
-Selecting two or more files in a WebView file input can return no files even when the picker reports success. `ShowWebFileChooser` delegates to `WebChromeClient.FileChooserParams.parseResult`, whose Chromium 151.0.7922.199 implementation reads only `Intent.data` and ignores ClipData-only results.
+## 변경 요약
 
-Use the existing AndroidX GetMultipleContents result parser and map an empty list to null. This handles both single and multiple URI results while preserving cancellation behavior and the existing chooser intent.
+WebView에서 여러 파일을 선택하고 완료해도 파일 0개로 반환될 수 있습니다. 기존 `ShowWebFileChooser`는 Chromium 151.0.7922.199에서 `Intent.data`만 읽고 ClipData-only 결과를 놓치는 기본 파서에 위임합니다.
 
-Reproduced against the extracted Chromium parser and fixed Kotlin class in an isolated JVM harness using AndroidX activity 1.13.0: the old parser returns null for two ClipData URIs; the fixed parser returns both. Seven regression cases also pass. Full Companion Gradle checks and device testing remain outstanding. The attached backport targets 2026.6.5; the equivalent current-main change is in FileChooserEffect.kt.
+이미 포함된 AndroidX `GetMultipleContents` 파서로 바꾸고 빈 결과를 null로 바꿉니다. 선택창 생성과 취소 계약은 유지하며 단일·다중 URI를 모두 처리합니다.
 
-<!--
-    Provide a brief summary of the changes you have made and most importantly what they aim to achieve.
-    Don't forget any links that could be useful to the reader. (Github issues, PRs, documentation, articles, ...)
+추출한 기존 파서와 수정 Kotlin 클래스를 AndroidX activity 1.13.0 기반 독립 JVM에서 비교했습니다. 기존 파서는 두 ClipData URI에 null, 수정 파서는 두 URI를 반환했고 회귀 검사 7개도 통과했습니다. 전체 Gradle 검사와 실제 기기 검증은 남아 있습니다. 백포트는 2026.6.5용이며 분석 당시 main에서는 `FileChooserEffect.kt`가 대응 위치입니다.
 
-    * What was the motivation behind this change?
-    * What is the impact of the changes on the application?
--->
+## 제출 전 확인 (미완료)
 
-## Checklist
-<!--
-    Put an `x` in the boxes that apply. You can also fill these out after
-    creating the PR. If you're unsure about any of them, don't hesitate to ask.
-    We're here to help! This is simply a reminder of what we are going to look
-    for before merging your code.
--->
+- [ ] upstream 지침에 맞는 테스트 연결과 실행
+- [ ] upstream 코드 스타일·모범 사례 확인
+- [ ] 실제 기기를 포함한 충분한 경계 조건 검증
+- [ ] 호환성과 사용자 영향 설명
+- [ ] Open Home Foundation AI 정책 확인
+- [ ] 실제 AI 사용 형태를 정확히 선택·표시
+- [ ] 사람이 모든 변경을 검토하고 이해하며 직접 설명할 수 있음
+- [ ] 필요한 사용자·개발자 문서 PR 연결 또는 해당 없음 확인
 
-- [ ] New or updated tests have been added to cover the changes following the testing [guidelines](https://developers.home-assistant.io/docs/android/testing/introduction).
-- [ ] The code follows the project's [code style](https://developers.home-assistant.io/docs/android/codestyle) and [best_practices](https://developers.home-assistant.io/docs/android/best_practices).
-- [ ] The changes have been thoroughly tested, and edge cases have been considered.
-- [ ] Changes are backward compatible whenever feasible. Any breaking changes are documented in the changelog for users and/or in the code for developers depending on the relevance.
-- [ ] I have read the [Open Home Foundation AI Policy](https://developers.home-assistant.io/docs/ai_policy).
+## 화면 및 관련 문서
 
-Select exactly one option that describes AI usage in this contribution:
-
-- [ ] I have not used AI for this contribution.
-- [ ] AI assistance was used for this contribution.
-- [ ] AI fully generated the code for this contribution, but I've reviewed and understood it before submitting and will respond without AI during review.
-
-## Screenshots
-<!--
-    If this is a user-facing change not in the frontend, please include screenshots in light and dark mode.
-
-    Note: Remove this section if there are no screenshots.
--->
-
-## Link to pull request in documentation repositories
-<!-- 
-    This pull request introduces, changes, or removes user-facing functionality.
-    A corresponding update to the Companion App documentation in the documentation repository (https://github.com/home-assistant/companion.home-assistant) is required.
-
-    Instructions:
-    1. Create a pull request in the documentation repository.
-    2. Add the documentation pull request number after the "#" below.
-    3. Add the `<span class='beta'>BETA</span> ` flag in the documentation to mark it as such.
-
-    Note: Remove this section if there is no PR.
--->
-User Documentation: home-assistant/companion.home-assistant#
-
-<!-- 
-    This pull request introduces, changes, or removes developer-facing functionality.
-    A corresponding update to the Developer documentation in the documentation repository (https://github.com/home-assistant/developers.home-assistant) is required.
-
-    Instructions:
-    1. Create a pull request in the documentation repository.
-    2. Add the documentation pull request number after the "#" below.
-
-    Note: Remove this section if there is no PR.
--->
-Developer Documentation: home-assistant/developers.home-assistant#
-
-## Any other notes
-
-This is an unsubmitted draft prepared with AI. The human review and AI policy acknowledgments below must be completed by the person submitting it. No physical-device validation or full-project CI result is claimed.
-
-<!-- 
-    If there is any other information of note, like if this Pull Request is part of a bigger change, please include it here.
--->
+물리적 Android 선택창의 새 화면 캡처나 연결된 upstream 문서 PR은 없습니다. 외부 제출은 사람이 원본 영문 템플릿과 현재 upstream 지침을 확인한 뒤 별도로 진행해야 합니다. 이 파일의 존재는 PR 제출 또는 승인을 의미하지 않습니다.
