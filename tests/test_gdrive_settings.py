@@ -278,6 +278,42 @@ class GdriveSettingsTests(unittest.TestCase):
         r = self.post('/api/settings/archive/gdrive/connect')
         self.assertEqual(r.status_code, 202); self.assertEqual(len(self.requests('/device/code')), 2)
 
+    def test_sign_in_works_with_archiving_off(self):
+        # archive_backend: gdrive with archive_enabled false: the account can be connected, checked and disconnected,
+        # but nothing is ever copied or moved (a manual run is refused, a cycle stops, no thread starts).
+        self.make_backend(enabled=False, mode='move', allow_local_delete=True)
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100})
+        before = (p / 'meta.json').read_bytes()
+        block = self.block()
+        self.assertEqual(set(block), GDRIVE_KEYS)
+        self.assertEqual((block['enabled'], block['backend'], block['state']), (False, 'gdrive', 'disabled'))
+        self.assertEqual(block['gdrive'], {'configured': True, 'connected': False, 'folder_ok': False, 'pending': None, 'last_auth_error': None})
+        with self.drive.lock: self.drive.scenario.device_poll_responses = ['authorization_pending']
+        r = self.post('/api/settings/archive/gdrive/connect')
+        self.assertEqual(r.status_code, 202, r.json)
+        self.assertEqual(r.json['user_code'], 'ABCD-EFGH')
+        server.connection.thread.join(5)
+        self.assertTrue(self.auth.connected)
+        gdrive = self.block()['gdrive']
+        self.assertEqual((gdrive['connected'], gdrive['pending'], gdrive['last_auth_error']), (True, None, None))
+        self.assertEqual((self.post('/api/settings/archive/gdrive/connect').status_code), 409)
+        # Archiving stays off: the run route refuses, a cycle and the thread do nothing, the state is never probed.
+        r = self.post('/api/settings/archive/run')
+        self.assertEqual((r.status_code, r.json['error']), (409, 'archive_disabled'))
+        self.assertEqual(self.archiver.run_cycle()['stopped'], 'disabled')
+        self.archiver.start(); self.assertIsNone(self.archiver.thread)
+        self.assertEqual(self.backend.probe(), ('disabled', None))
+        self.assertEqual(self.requests('/upload'), [])
+        with self.drive.lock: self.assertEqual([f for f in self.drive.files.values() if f['mimeType'] != ab.FOLDER_MIME], [])
+        self.assertEqual((p / 'meta.json').read_bytes(), before)
+        for kind in ('rlog.zst', 'fcamera.mp4'): self.assertTrue((p / kind).is_file())
+        r = self.post('/api/settings/archive/gdrive/disconnect')
+        self.assertEqual((r.status_code, r.json), (200, {'connected': False}))
+        server.connection.revoker.join(5)
+        self.assertFalse((self.root / '.gdrive-auth.json').exists())
+        self.assertEqual(self.block()['gdrive']['connected'], False)
+        self.assertEqual((p / 'meta.json').read_bytes(), before)
+
     def test_gdrive_block_usage_unreliable(self):
         self.make_backend(); self.connect_directly()
         self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100})

@@ -41,14 +41,14 @@ async function openPanel(page){
  await page.locator('#storageSettings summary').click();await page.waitForFunction(()=>!document.getElementById('storageSave').disabled&&document.querySelector('#storageUsage>.archive-metric'));
 }
 (async()=>{
- const temp=fs.mkdtempSync(path.join(os.tmpdir(),'rv-gdrive-ui-')),driveDir=path.join(temp,'drive'),nasDir=path.join(temp,'nas'),nas=path.join(temp,'nas-share');
- for(const dir of [driveDir,nasDir,nas])fs.mkdirSync(dir);
- for(const dir of [driveDir,nasDir])fs.writeFileSync(path.join(dir,'.processing-settings.json'),JSON.stringify({auto_convert:false}));
+ const temp=fs.mkdtempSync(path.join(os.tmpdir(),'rv-gdrive-ui-')),driveDir=path.join(temp,'drive'),offDir=path.join(temp,'off'),nasDir=path.join(temp,'nas'),nas=path.join(temp,'nas-share');
+ for(const dir of [driveDir,offDir,nasDir,nas])fs.mkdirSync(dir);
+ for(const dir of [driveDir,offDir,nasDir])fs.writeFileSync(path.join(dir,'.processing-settings.json'),JSON.stringify({auto_convert:false}));
  const ids=['a'.repeat(32),'b'.repeat(32)];
  // One recording whose Drive copy did not verify (the local file is kept), one plain.
  recording(driveDir,ids[0],0,{'rlog.zst':{location:'local',error:'remote_mismatch'}});recording(driveDir,ids[1],1);
- recording(nasDir,ids[0],0);
- let drive,smb,browser;
+ recording(nasDir,ids[0],0);recording(offDir,ids[1],1);
+ let drive,off,smb,browser;
  try{
   drive=await serve(driveDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:true,archive_backend:'gdrive',archive_mode:'copy',archive_gdrive_client_id:'client-id',archive_gdrive_client_secret:'shh-client-secret',archive_min_age_hours:8760})});
   browser=await chromium.launch({headless:true});
@@ -154,6 +154,41 @@ async function openPanel(page){
   await page.unroute('**/api/settings/storage');
   assert.deepEqual(errors,[]);
   await stop(drive);drive=null;
+  // Drive selected with archiving off: the sign-in panel alone, with a note; no run button and no archive rows.
+  off=await serve(offDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:false,archive_backend:'gdrive',archive_gdrive_client_id:'client-id',archive_gdrive_client_secret:'shh-client-secret'})});
+  const offPage=await context.newPage(),offPosts=[];offPage.on('pageerror',error=>errors.push(error.message));offPage.on('dialog',dialog=>dialog.accept());
+  offPage.on('request',request=>{if(request.method()==='POST')offPosts.push(new URL(request.url()).pathname.replace('/api/hassio_ingress/test',''))});
+  await offPage.goto(off.base);await offPage.locator('.log-row').first().waitFor();
+  await offPage.locator('#storageSettings summary').click();await offPage.locator('#gdrivePanel').waitFor();
+  assert.deepEqual(await offPage.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약']);
+  assert.equal(await offPage.locator('#archiveRun').count(),0);assert.equal(await offPage.locator('.archive-metric').count(),0);
+  assert.equal(await offPage.locator('#gdriveArchiveOff').textContent(),'아카이빙이 꺼져 있습니다. 여기서는 Google Drive 계정 연결만 관리하며 파일은 복사하지 않습니다.');
+  assert.equal(await offPage.locator('#gdriveAccount').textContent(),'Drive 계정: 연결 안 됨');
+  assert(await offPage.locator('#archiveMode').isHidden());
+  assert(await offPage.locator('#gdriveConnect').isEnabled());assert(await offPage.locator('#gdriveDisconnect').isHidden());
+  await offPage.locator('#gdriveConnect').click();await offPage.locator('#gdriveCode').waitFor();
+  assert.equal(await offPage.locator('#gdriveUserCode').textContent(),'ABCD-EFGH');
+  assert.equal(await offPage.locator('#gdriveAccount').textContent(),'Drive 계정: 연결 대기 중');
+  await off.command('grant');
+  await offPage.waitForFunction(()=>document.getElementById('gdriveCode').hidden&&document.getElementById('gdriveAccount').textContent==='Drive 계정: 연결됨',null,{timeout:15000});
+  assert(await offPage.locator('#gdriveDisconnect').isVisible());assert(await offPage.locator('#gdriveConnect').isHidden());
+  assert(fs.existsSync(path.join(offDir,'.gdrive-auth.json')));
+  assert.equal(await offPage.locator('#archiveRun').count(),0);assert.equal(await offPage.locator('.archive-metric').count(),0);
+  await offPage.locator('#gdriveDisconnect').click();
+  await offPage.waitForFunction(()=>document.getElementById('gdriveStatus').textContent==='Google Drive 연결을 해제했습니다.');
+  assert.equal(await offPage.locator('#gdriveAccount').textContent(),'Drive 계정: 연결 안 됨');
+  assert(!fs.existsSync(path.join(offDir,'.gdrive-auth.json')));
+  assert.deepEqual([...new Set(offPosts)].sort(),['/api/settings/archive/gdrive/connect','/api/settings/archive/gdrive/disconnect']);
+  assert.deepEqual(errors,[]);
+  await offPage.close();await stop(off);off=null;
+  // The NAS with archiving off: the four local rows and nothing of Drive.
+  smb=await serve(nasDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:false,archive_path:nas}),RV_ARCHIVE_ALLOW_ANY_PATH:'1'});
+  const smbOff=await context.newPage();smbOff.on('pageerror',error=>errors.push(error.message));
+  await smbOff.goto(smb.base);await smbOff.locator('.log-row').first().waitFor();
+  await smbOff.locator('#storageSettings summary').click();await smbOff.waitForFunction(()=>!document.getElementById('storageSave').disabled);
+  assert.deepEqual(await smbOff.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약']);
+  for(const id of ['archiveRun','gdrivePanel','gdriveConnect','gdriveDisconnect','gdriveCode','archiveMode','gdriveArchiveOff','gdriveAccount'])assert.equal(await smbOff.locator('#'+id).count(),0,id);
+  await smbOff.close();await stop(smb);smb=null;
   // The NAS: its four rows as before and no Drive element at all.
   smb=await serve(nasDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:true,archive_path:nas}),RV_ARCHIVE_ALLOW_ANY_PATH:'1'});
   const plain=await context.newPage();plain.on('pageerror',error=>errors.push(error.message));
@@ -163,6 +198,6 @@ async function openPanel(page){
   for(const id of ['gdrivePanel','gdriveConnect','gdriveDisconnect','gdriveCode','archiveMode'])assert.equal(await plain.locator('#'+id).count(),0,id);
   assert.equal(await plain.locator('.archive-retry').count(),0);
   assert.deepEqual(errors,[]);
-  console.log('PASS: Drive panel (backend, mode, connect errors, device code, grant, disconnect), per-recording retry, NAS panel without Drive elements');
- }finally{await browser?.close();await stop(drive);await stop(smb);fs.rmSync(temp,{recursive:true,force:true})}
+  console.log('PASS: Drive panel (backend, mode, connect errors, device code, grant, disconnect), sign-in with archiving off, per-recording retry, NAS panel without Drive elements');
+ }finally{await browser?.close();await stop(drive);await stop(off);await stop(smb);fs.rmSync(temp,{recursive:true,force:true})}
 })().catch(error=>{console.error(error);process.exitCode=1});
