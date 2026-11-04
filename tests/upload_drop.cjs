@@ -1,20 +1,22 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+const {EventEmitter,once}=require('node:events');
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
   const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
+  const requests=new EventEmitter();
   let uploads=0,manifest=null,heldChunk=null,heldCleanup=null,holdChunk=true;
   await page.route('https://rv.test/**',route=>{
    const req=route.request(),p=new URL(req.url()).pathname;
    if(p==='/api/logs')return route.fulfill({json:{logs:[],max_upload_mb:512,storage_used_bytes:0,concurrency:1}});
    if(p==='/api/uploads'){uploads++;manifest=req.postDataJSON();return route.fulfill({json:{id:'a'.repeat(32),chunk_size:262144}})}
    if(p.includes('/files/')){
-    if(holdChunk){holdChunk=false;heldChunk=route;return}
+    if(holdChunk){holdChunk=false;heldChunk=route;requests.emit('chunk');return}
     return route.fulfill({json:{received:req.postDataBuffer().length}});
    }
    if(p.endsWith('/finish'))return route.fulfill({json:{logs:[],duplicates:[],updated:[{id:'existing',status:'ready',original_restored:true}]}});
-   if(p==='/api/storage/cleanup'){heldCleanup=route;return}
+   if(p==='/api/storage/cleanup'){heldCleanup=route;requests.emit('cleanup');return}
    const name=p==='/'?'library.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
@@ -57,8 +59,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    return !document.querySelector('.picker-surface').dispatchEvent(new DragEvent('drop',{dataTransfer:dt,bubbles:true,cancelable:true}));
   });
   assert(!textCancelled);assert.equal(await page.locator('#selectedFiles li').count(),2);
-  await page.locator('#upload').click();
-  for(let i=0;i<100&&!heldChunk;i++)await page.waitForTimeout(50);assert(heldChunk);
+  const chunkReady=once(requests,'chunk',{signal:AbortSignal.timeout(5000)});
+  await page.locator('#upload').click();await chunkReady;assert(heldChunk);
   assert.deepEqual(manifest.files,[{name:'rlog.zst',size:15},{name:'qcamera.ts',size:5}]);
   assert.equal(heldChunk.request().postDataBuffer().toString(),'replacement-log');
   await zone.dispatchEvent('dragover',{dataTransfer:transfer});assert(!await zone.evaluate(e=>e.classList.contains('is-dragover')));
@@ -68,8 +70,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('#selectedFiles li').count(),0);
   assert((await page.locator('#uploadStatus').textContent()).includes('원본 영상 복원 1개'));
   assert(!(await page.locator('#uploadStatus').textContent()).includes('준비가 끝나면'));
-  await page.locator('#cleanupStorage').click();
-  for(let i=0;i<100&&!heldCleanup;i++)await page.waitForTimeout(50);assert(heldCleanup);
+  const cleanupReady=once(requests,'cleanup',{signal:AbortSignal.timeout(5000)});
+  await page.locator('#cleanupStorage').click();await cleanupReady;assert(heldCleanup);
   await zone.dispatchEvent('drop',{dataTransfer:transfer});assert.equal(await page.locator('#selectedFiles li').count(),0);
   await heldCleanup.fulfill({json:{removed_bytes:0}});await page.waitForFunction(()=>!document.getElementById('cleanupStorage').disabled);
   await zone.dispatchEvent('drop',{dataTransfer:transfer});assert.equal(await page.locator('#selectedFiles li').count(),2);

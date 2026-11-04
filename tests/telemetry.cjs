@@ -1,6 +1,6 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
 // Dialog, sheet and view transitions animate; measure geometry once they have settled.
-const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition')&&document.getAnimations().every(a=>a.playState!=='running'||a.effect.getTiming().iterations===Infinity));
+const {settleLayout:settle}=require('./browser-helpers.cjs');
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
@@ -69,7 +69,13 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
   assert((await page.locator('#graphTime').textContent()).includes('0.0–2.0'),'reduced motion reset is immediate');
   await page.emulateMedia({reducedMotion:'no-preference'});
   await page.locator('#graphZoomIn').click();
-  await page.waitForTimeout(300); // Wait beyond 240ms: rounded axis text can match before zoom finishes.
+  // Advance the same clock used by the zoom renderer; rounded axis labels alone
+  // can match the final range while the motion is still running.
+  await page.evaluate(()=>{
+   const finished=performance.now()+240;
+   Object.defineProperty(performance,'now',{configurable:true,value:()=>finished});
+   try{renderTelemetry()}finally{delete performance.now}
+  });
   const displayedRange=async()=>(await page.locator('#graphTime').textContent()).split(' · ')[1];
   const centered=async()=>assert(await canvas.evaluate(c=>Math.abs(parseFloat(c.parentElement.querySelector('.telemetry-cursor').style.left)-(48+(c.getBoundingClientRect().width-56)/2))<2),'zoomed playhead should be centered');
   await page.evaluate(()=>setTime(.7));assert.equal(await displayedRange(),'0.2–1.2s');await centered();
@@ -113,7 +119,7 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
   assert((await page.locator('[data-graph="angle"] .telemetry-source-note').textContent()).includes('출력 기록: 이 로그에 유효한 기록 없음'));
   assert(await page.locator('#telemetryGraphs').evaluate(e=>e.scrollHeight>e.clientHeight));
   const videoTop=await page.locator('#video').evaluate(e=>e.getBoundingClientRect().top);
-  await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=e.scrollHeight);await page.waitForTimeout(100);
+  await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=e.scrollHeight);await settle(page);
   assert.equal(await page.locator('#video').evaluate(e=>e.getBoundingClientRect().top),videoTop,'graph scroll must not move the video');
   await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=0);
   if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-desktop.png'});

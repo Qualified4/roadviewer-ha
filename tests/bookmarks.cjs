@@ -1,4 +1,5 @@
 const fs=require('fs'),os=require('os'),path=require('path'),assert=require('node:assert/strict'),{spawn}=require('child_process'),{once}=require('events'),{chromium}=require('playwright');
+const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'rv-tags-')),ids=['a'.repeat(32),'b'.repeat(32)];
  fs.writeFileSync(path.join(dir,'.processing-settings.json'),JSON.stringify({auto_convert:false}));
@@ -35,7 +36,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   await seek(2.5);await open();assert.equal(await modal.locator('.bookmark-time').textContent(),'0:02.50');
   await modal.locator('.bookmark-title').fill('앞차 확인');await modal.locator('.bookmark-note').fill('<img src=x>\n상세 메모');await save();
   assert.equal(read(ids[0]).bookmarks[0].time,2.5);assert.equal(await modal.locator('.bookmark-list img').count(),0);
-  for(const [width,height] of [[320,568],[768,844],[1440,900],[844,390]]){await page.setViewportSize({width,height});const box=await modal.boundingBox();assert(box.x>=0&&box.y>=0&&box.x+box.width<=width&&box.y+box.height<=height);assert(await modal.evaluate(e=>e.scrollWidth<=e.clientWidth))}
+  for(const [width,height] of [[320,568],[768,844],[1440,900],[844,390]]){await page.setViewportSize({width,height});await settleLayout(page,'.bookmark-dialog');const box=await modal.boundingBox();assert(box.x>=0&&box.y>=0&&box.x+box.width<=width&&box.y+box.height<=height);assert(await modal.evaluate(e=>e.scrollWidth<=e.clientWidth))}
   await page.setViewportSize({width:390,height:844});if(process.env.RV_BOOKMARK_SCREENSHOT)await page.screenshot({path:process.env.RV_BOOKMARK_SCREENSHOT});await modal.locator('.bookmark-close').click();await seek(6);await open();
   await modal.locator('.bookmark-title').fill('두 번째');await save();assert.equal(read(ids[0]).bookmarks.length,2);
   await modal.getByRole('button',{name:'앞차 확인 수정',exact:true}).click();await modal.locator('.bookmark-title').fill('수정된 장면');await save();assert.equal(read(ids[0]).bookmarks[0].title,'수정된 장면');

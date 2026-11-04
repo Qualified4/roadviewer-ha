@@ -1,9 +1,12 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+const {EventEmitter,once}=require('node:events');
+const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
+  const requests=new EventEmitter();
   let pairing={status:'cancelled'},issued=0,fail=false,deleted=0,hold=false,held=null;
   await page.route('https://rv.test/**',async route=>{
    const req=route.request(),p=new URL(req.url()).pathname;
@@ -16,7 +19,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
      pairing={status:'waiting',code:String(++issued).padStart(24,'A'),expires_at:Date.now()/1000+300};
     }
     if(req.method()==='DELETE'){deleted++;pairing={status:'cancelled'}}
-    if(req.method()==='GET'&&hold){hold=false;held={route,json:{...pairing}};return}
+    if(req.method()==='GET'&&hold){hold=false;held={route,json:{...pairing}};requests.emit('held');return}
     return route.fulfill({json:pairing});
    }
    const name=p==='/'?'library.html':p.replace('/assets/','');
@@ -27,9 +30,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   fail=false;await page.locator('#pairOpen').click();await page.locator('#pairDialog[open]').waitFor();
   assert.equal(await page.locator('#pairClose').textContent(),'취소');assert.equal(await page.locator('#pairDialog').getAttribute('data-state'),'waiting');
   // A status response started before renewal must not replace the newly issued code.
-  hold=true;for(let i=0;i<100&&!held;i++)await page.waitForTimeout(50);assert(held);
+  const heldReady=once(requests,'held',{signal:AbortSignal.timeout(5000)});hold=true;await heldReady;assert(held);
   await page.locator('#pairRenew').click();await page.waitForFunction(()=>document.getElementById('pairCode').textContent.endsWith('2'));
-  await held.route.fulfill({json:held.json});await page.waitForTimeout(100);
+  await held.route.fulfill({json:held.json});await page.waitForFunction(()=>!pairingBusy);
   assert.equal(await page.locator('#pairCode').textContent(),pairing.code);assert.equal(issued,2);
   fail=true;await page.locator('#pairRenew').click();await page.waitForFunction(()=>document.getElementById('pairStatus').textContent==='코드 발급 실패'&&!document.getElementById('pairRenew').disabled);assert.equal(issued,2);
   fail=false;await page.locator('#pairRenew').click();await page.waitForFunction(()=>document.getElementById('pairCode').textContent.endsWith('3'));
@@ -38,7 +41,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#pairRenew').click();await page.waitForFunction(()=>document.getElementById('pairCode').textContent.endsWith('4'));assert.equal(await page.locator('#pairClose').textContent(),'취소');
   // Narrow phones, tablets and desktop keep the complete code and footer reachable.
   for(const [width,height] of [[320,640],[390,844],[768,1024],[1440,900],[844,390]]){
-   await page.setViewportSize({width,height});
+   await page.setViewportSize({width,height});await settleLayout(page,'#pairDialog');
    assert(await page.locator('#pairDialog').evaluate(el=>el.scrollWidth<=el.clientWidth));
    assert(await page.locator('#pairCode').evaluate(el=>el.scrollWidth<=el.clientWidth));
    await page.locator('#pairClose').scrollIntoViewIfNeeded();const box=await page.locator('#pairClose').boundingBox();assert(box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=height);

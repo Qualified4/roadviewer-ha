@@ -1,9 +1,11 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[],conversions=[];
   page.on('pageerror',e=>errors.push(e.message));
+  let deleteGate=null,releaseDelete;
   let logs=Array.from({length:30},(_,i)=>({id:String(i),name:`00000395--${i<15?'aaaaaaaaaa':'bbbbbbbbbb'}--${i%15}`,status:i===0?'processing':'ready',bytes:10,prepared_bytes:20,uploaded:i,video:true,log_bytes:1048576,video_downloads:i%2?[{source:'qcamera',kind:'qcamera.ts',bytes:2097152},{source:'front',kind:'fcamera.hevc',bytes:52428800}]:[]})),failLoad=false,failConvert=true,expectPinProtection=true;
   await page.route('https://rv.test/**',async route=>{
    const p=new URL(route.request().url()).pathname,request=route.request();
@@ -15,7 +17,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     const row=logs.find(row=>row.id===id);row.status='queued';return route.fulfill({json:{status:'queued'}});
    }
    if(request.method()==='DELETE'){
-    calls.push(p);await new Promise(r=>setTimeout(r,15));
+    calls.push(p);if(deleteGate){const gate=deleteGate;deleteGate=null;await gate}
     const id=p.split('/')[3],row=logs.find(row=>row.id===id);
     assert.equal(new URL(request.url()).searchParams.get('skip_pinned'),expectPinProtection?'1':null);
     if(row.pinned&&expectPinProtection)return route.fulfill({json:{skipped:'pinned'}});
@@ -42,8 +44,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await page.locator('#bulkAll').evaluate(e=>e.indeterminate));
   await page.locator('#bulkAll').check();assert.equal(await inputs.evaluateAll(els=>els.filter(e=>e.checked).length),30);
   // Group folding changes the dialog height; measure scroll-fixed controls only after it settles.
-  await page.evaluate(()=>document.fonts.ready);
-  await page.waitForFunction(()=>!document.querySelector('.bulk-route')._foldAnimation&&document.getElementById('bulkDialog').getAnimations({subtree:true}).every(animation=>animation.playState!=='running'));
+  await settleLayout(page,'#bulkDialog');
   const top=await page.locator('.bulk-select').boundingBox(),footer=await page.locator('.bulk-footer').boundingBox();
   await page.locator('#bulkList').evaluate(e=>e.scrollTop=e.scrollHeight);
   assert.equal((await page.locator('.bulk-select').boundingBox()).y,top.y);
@@ -56,14 +57,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.deepEqual(menu.map(m=>m.size.split('약 ')[1]),['30.0 MB','60.0 MB','810.0 MB']);
   assert(menu.every(m=>m.download&&m.href.startsWith('api/logs/download.zip?ids='+logs.map(l=>l.id).join(','))));
   assert.deepEqual(menu.map(m=>m.href.split('parts=')[1]),['rlog','rlog,qcamera','rlog,front,wide,qcamera']);
+  await settleLayout(page,'#bulkDialog');
   const menuBox=await page.locator('#bulkDownloadMenu').boundingBox(),dialogBox=await page.locator('#bulkDialog').boundingBox();
   assert(menuBox.x>=dialogBox.x&&menuBox.x+menuBox.width<=dialogBox.x+dialogBox.width&&menuBox.y>=dialogBox.y,'menu stays inside the dialog');
   await page.keyboard.press('Escape');assert(await page.locator('#bulkDownloadMenu').isHidden());assert(await page.locator('#bulkDialog').evaluate(d=>d.open),'Escape closes only the menu');
   await page.locator('#bulkDownload').click();await page.locator('.bulk-select').click({position:{x:5,y:5}});assert(await page.locator('#bulkDownloadMenu').isHidden(),'outside tap closes the menu');
   page.once('dialog',d=>d.dismiss());await page.locator('#bulkDelete').click();assert.equal(calls.length,0);
+  deleteGate=new Promise(resolve=>releaseDelete=resolve);
   page.once('dialog',d=>d.accept());await page.locator('#bulkRemove').click();
   await page.waitForFunction(()=>document.getElementById('bulkClose').disabled);assert(await routeSelects.first().isDisabled());await page.keyboard.press('Escape');
-  assert(await page.locator('#bulkDialog').evaluate(e=>e.open));
+  assert(await page.locator('#bulkDialog').evaluate(e=>e.open));releaseDelete();
   await page.waitForFunction(()=>!document.getElementById('bulkClose').disabled);
   assert.equal(calls.length,30);assert.equal(logs.length,30);assert.equal(logs.filter(l=>l.prepared_bytes===0).length,29);
   assert((await page.locator('#bulkStatus').textContent()).includes('29개 완료'));
@@ -83,7 +86,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>document.getElementById('bulkStatus').textContent.includes('건너뜀 29개'));
   assert.equal(conversions.length,30,'queued jobs are not resubmitted');
   for(const width of [320,1280]){
-   await page.setViewportSize({width,height:844});const box=await page.locator('#bulkDialog').boundingBox();
+   await page.setViewportSize({width,height:844});await settleLayout(page,'#bulkDialog');const box=await page.locator('#bulkDialog').boundingBox();
    assert(box.x>=0&&box.x+box.width<=width&&box.y>=0&&box.y+box.height<=844);
   }
   await page.keyboard.press('Escape');await page.locator('#bulkDialog').waitFor({state:'hidden'});
@@ -113,9 +116,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await page.locator('#bulkDelete').isEnabled());assert(await page.locator('#bulkRemove').isEnabled());
   const beforeOverride=calls.length;
   page.once('dialog',d=>{assert(d.message().includes('고정된 항목도 삭제 대상에 포함'));d.dismiss()});await page.locator('#bulkDelete').click();assert.equal(calls.length,beforeOverride);
-  expectPinProtection=false;
+  expectPinProtection=false;deleteGate=new Promise(resolve=>releaseDelete=resolve);
   page.once('dialog',d=>d.accept());await page.locator('#bulkRemove').click();
-  await page.waitForFunction(()=>document.getElementById('bulkClose').disabled);assert(await include.isDisabled());
+  await page.waitForFunction(()=>document.getElementById('bulkClose').disabled);assert(await include.isDisabled());releaseDelete();
   await page.waitForFunction(()=>document.getElementById('bulkStatus').textContent.includes('변환 데이터 제거 1개 완료'));
   assert.equal(logs[0].prepared_bytes,0);assert.equal(logs[0].pinned,true);
   await page.locator('#bulkClose').click();await page.locator('#bulkOpen').click();await page.waitForSelector('.bulk-log');
@@ -126,6 +129,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   for(const [width,height] of [[320,568],[768,844],[1280,844],[844,390]]){
    await page.setViewportSize({width,height});
    await page.locator('.bulk-help').evaluate(e=>e.open=true);
+   await settleLayout(page,'#bulkDialog');
    const bounds=await page.locator('#bulkDialog').boundingBox(),footerBox=await page.locator('.bulk-footer').boundingBox();
    assert(bounds.x>=0&&bounds.y>=0&&bounds.x+bounds.width<=width&&bounds.y+bounds.height<=height);
    assert(footerBox.y+footerBox.height<=height,'actions fit with expanded help '+width+'x'+height+' '+(footerBox.y+footerBox.height));
