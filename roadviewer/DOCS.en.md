@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.12.2**.
+This guide describes **0.13.0**.
 
 [한국어](DOCS.md) · English
 
@@ -262,6 +262,7 @@ Home Assistant app backups exclude originals (ZST, TS, HEVC), MP4s, analysis/gra
 | Processing options | `/data/roadviewer/.processing-settings.json` |
 | Storage policy and segment pins | `/data/roadviewer/.storage-settings.json` |
 | Device authentication | `/data/roadviewer/.devices.json` |
+| NAS archive storage ID (files on the NAS are not backed up) | `/data/roadviewer/.archive.json` |
 
 Supervisor manages external port mappings. Browser preferences are not included in app backups. Restoring a backup does not restore recordings: keep originals separately. Previously created backup archives are unchanged.
 
@@ -282,6 +283,216 @@ Reservation requests never delete existing recordings. Chunk uploads reserve dec
 Deletion can occur only after all files have arrived, passed validation/checksums and need registration. Duplicate-only uploads do not trigger eviction. Capacity is preflighted before deleting; locks keep concurrent admission consistent. Completion, cancellation, terminal failure and expiry release reservations. Status polling and device token renewal do not extend idle expiry.
 
 This is an upload-admission budget, not a filesystem quota: conversion output or other disk users can exceed estimates. Lowering the budget does not immediately delete files.
+
+## NAS archiving (experimental)
+
+Archiving moves original videos and log files of converted recordings to network storage (NAS) attached to Home Assistant, freeing local space. It is off by default; while off, nothing changes. There is no feature that moves archived files back to local storage.
+
+### Setup
+
+1. In Home Assistant **Settings → System → Storage**, add network storage with usage **Share**. The app sees it as `/share/<name>`.
+2. Create a folder for Road Viewer on the NAS first, for example `/share/<name>/roadviewer`. The app does not create it.
+3. In the app options, set `archive_path` to that folder, turn on `archive_enabled`, save and restart the app.
+4. Open **저장공간 관리** (Storage management) and check that **NAS 상태** (NAS status) reads **연결됨** (connected).
+
+`archive_path` must be below `/share/`, and a sub-folder is required, e.g. `/share/<name>/roadviewer`; the share itself (`/share/<name>`) is rejected. The first folder name may use letters, digits and underscores; later names may also use dots and hyphens; `..` is rejected. With an invalid path the app starts with archiving off and logs `invalid_archive_path`.
+
+On first connection, and only while `/share/<name>` is actually mounted, the app writes `.roadviewer-storage.json` into the NAS folder and `.archive.json`, holding the same storage ID, into `/data/roadviewer`. The share counts as connected only when both IDs match, so an empty unmounted folder or another installation's folder is never used by mistake. Pointing `archive_path` at a different folder after the first connection shows **연결 불가** (unavailable). Do not delete either file.
+
+### App options
+
+Options are changed only in the app configuration and apply after a restart. MB means 1024² bytes.
+
+| Option | Default | Range | Meaning |
+|---|---|---|---|
+| `archive_enabled` | `false` | — | Enable archiving |
+| `archive_path` | empty | below `/share/` | NAS folder |
+| `archive_local_threshold_mb` | `0` | 0 or more | Move files only while Road Viewer's local usage exceeds this. `0` moves whenever there is something eligible. |
+| `archive_min_age_hours` | `24` | 0–8760 | Only recordings uploaded at least this long ago |
+| `archive_interval_minutes` | `10` | 1–1440 | Interval between automatic runs |
+| `archive_batch` | `4` | 1–64 | Maximum files moved per run |
+| `archive_nas_max_mb` | `0` | 0 or more | Usage limit of the NAS folder; `0` means unlimited |
+| `archive_nas_margin_mb` | `1024` | 0 or more | Clean up when NAS free space falls below this. Free space is measured on the whole NAS volume. |
+
+### What moves, in which order
+
+Converted (playable) recordings older than `archive_min_age_hours` move oldest upload first. Within a recording, videos (MP4, HEVC, TS) move first and `rlog.zst` last. **Pinned segments are archived too:** a pin protects from deletion, not from moving.
+
+`meta.json` and the converted replay/graph data never leave local storage. The library and road/vehicle replay therefore keep working while the NAS is unreachable.
+
+Each file is copied to the NAS, flushed to disk, read back and compared by hash, renamed into place and recorded in the index; only then is the local file deleted. If any step fails or the app stops, the local original stays, and leftover partial copies are cleaned up on the next start.
+
+### When it runs
+
+At startup the app first finishes any interrupted work, then runs every `archive_interval_minutes`. Each run checks the NAS connection and then:
+
+1. Completes deletions postponed because the NAS was unreachable.
+2. Cleans up the NAS if it is over its limit or low on free space (see below).
+3. Requeues conversions postponed because the NAS was unreachable.
+4. Moves files. Nothing is moved this time while an upload is being received, a conversion is running, or local usage is at or below `archive_local_threshold_mb`.
+
+A run stops when the NAS is unreachable, NAS free space is below the file size plus 100MiB, a hash does not match, or copying fails; the next interval retries. An upload starting during a run lets the current file finish and then ends the run.
+
+**저장공간 관리** shows **NAS 상태 / NAS 사용 중 / NAS 여유 / 마지막 아카이브** (status, used, free, last run) and the latest error. **지금 아카이브** (Archive now) runs once without waiting for the interval; the button is disabled while a run is in progress. The NAS path is never shown in the UI.
+
+### Video states
+
+With archiving on, the library's video label has these states.
+
+| Label | Meaning | Playback, download, conversion |
+|---|---|---|
+| 영상 있음 (video available) | Stored locally, or on the connected NAS according to the index. The list does not check each NAS file, so a NAS copy that went missing shows as no video when played. | As usual |
+| 저장소 연결 불가 (storage unavailable) | The video is on the NAS, which cannot be reached now | Playback switches to another camera or, if none, shows “영상 저장소에 연결할 수 없습니다. NAS 연결을 확인하세요.” and continues without video. Downloads fail; ZIPs are never built partially. Conversion is refused with “저장소 연결 후 다시 시도하세요.” |
+| 영상 없음 (no video) | No video registered, removed by NAS cleanup, or not found on the connected NAS. A file not found is never recorded as removed: its index entry stays, so it shows as available again once the NAS shows it. Only NAS cleanup records a removal. | Replay without video |
+| 영상 확인 중 (checking) | The NAS connection is being checked | Retry shortly |
+| 영상 읽기 오류 (read error) | The stored copy failed verification during recovery: neither the copy present on the NAS nor the leftover local file matches the record. A missing NAS copy alone never leads here, and the state clears at the next start once the NAS copy matches the record again. | Cannot be played or downloaded. Conversion of the recording is refused so its converted video is kept. |
+
+### When the NAS is unreachable
+
+An unreachable NAS never causes file deletion, removal of converted data or reconversion. Restarting the app keeps converted data of recordings with files on the NAS. Such recordings are checked once when the NAS first connects after the restart, and are reconverted (after a log analysis format change or with converted data missing) only if all their files on the NAS can be read. Queued conversions are postponed with “저장소에 연결할 수 없어 변환을 미뤘습니다.” and requeued once the NAS answers. Adding a new camera video to a recording with files on the NAS is refused while the NAS is unreachable (“저장소 연결 후 다시 시도하세요.”) and is not queued; upload it again once connected. Adding a camera video to a recording whose original log on the NAS is damaged or missing is refused (“원본 로그가 없어 영상을 추가할 수 없습니다. 로그와 영상을 함께 다시 업로드하세요.”) and its converted data is kept; delete the recording completely, then upload the log and videos together again.
+
+With the **delete oldest unpinned** storage policy, recordings with files on the NAS are excluded from automatic deletion while it is unreachable; when it is connected, automatic deletion removes their NAS files too. **Reject new** is recommended together with archiving.
+
+### Deletion
+
+**완전 삭제** (Delete permanently) removes local data immediately and the NAS files as well. If the NAS is unreachable, the files to delete are recorded in `/data/roadviewer` and removed by the next run after it reconnects.
+
+### NAS cleanup
+
+When the NAS folder exceeds `archive_nas_max_mb` or NAS free space falls below `archive_nas_margin_mb`, NAS files are removed in this order. Free space is measured on the whole NAS volume, so other data growing on the same volume can trigger cleanup of archived videos.
+
+1. Videos of unpinned recordings, oldest upload first.
+2. If still short, `rlog.zst` of unpinned recordings, oldest first.
+
+Files of pinned segments and of recordings waiting for or undergoing conversion are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. Restarting the app keeps the converted data of such recordings. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). Cleanup records its intent in the index before removing a file and records the removal after it. If the app stops in between, the next start clears the intent when the file is still there and records the removal when it is gone. A file that is merely not visible on a connected NAS (for example right after a reconnect) shows as no video but is never recorded as removed. Files an earlier version recorded as removed because it could not find them are restored at the next start when the NAS holds their recorded content. SMB-specific behaviours (stale file handles, cache delays, power loss) were only simulated, not tested on a real SMB share. While space stays short, runs continue on every interval and retry cleanup; only moving files pauses until space is freed, and Storage management shows the error.
+
+### Backups
+
+Files on the NAS are not part of Home Assistant backups. The app options (`archive_*`) and `/data/roadviewer/.archive.json`, holding the storage ID, are backed up with the app configuration. Back up the NAS itself separately.
+
+## Google Drive archiving (experimental)
+
+Google Drive can be used as the archive instead of a NAS. It is experimental and off by default (`archive_enabled: false`, `archive_backend: smb`). Nothing changes while archiving is off or uses the NAS.
+
+- **Copy mode is the default.** Each file gets a verified copy on Drive and **the local file is never deleted**, so copy mode frees no local space.
+- **Move mode** (the local original is deleted once a verified copy exists) needs **both** `archive_mode: move` and `archive_allow_local_delete: true`. With either one missing, Drive runs in copy mode. Drive move mode is **not verified against a real account** (mock server tests only).
+- **This version has no automatic Drive cleanup.** Files on Drive are deleted only for recordings the user deletes permanently and, in move mode, for moved files of recordings the storage policy deletes automatically (see [Quota and Drive space](#quota-and-drive-space)).
+- There is no feature that moves files on Drive back to local storage.
+
+### Preparing an OAuth client
+
+Road Viewer signs in with Google's device flow (entering a code), so it needs an OAuth client of your own.
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create or pick a project and enable the **Google Drive API**.
+2. Configure the **OAuth consent screen**. For personal use without publishing the app, add the Google account you will use as a test user.
+3. Choose **Credentials → Create credentials → OAuth client ID** with application type **TV and Limited Input devices**.
+4. Enter the client ID and client secret in the app options `archive_gdrive_client_id` and `archive_gdrive_client_secret`.
+
+Road Viewer asks for a single scope, `drive.file`. With it the app sees **only the folder and files it created**; it cannot read or change any other file in the account's Drive.
+
+### Drive app options
+
+The [common archiving options](#app-options) (`archive_enabled`, `archive_local_threshold_mb`, `archive_min_age_hours`, `archive_interval_minutes`, `archive_batch`) mean the same for Drive. `archive_path` and `archive_nas_*` apply to the NAS only. Options are changed only in the app configuration and apply after a restart.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `archive_backend` | `smb` | `smb` (NAS) or `gdrive` |
+| `archive_mode` | `move` | `move` or `copy`. On Drive, `move` applies only together with `archive_allow_local_delete: true`; otherwise it is always copy, so with the defaults Drive runs in copy mode. Drive move mode is **not verified against a real account** (mock server tests only). The NAS moves as before. |
+| `archive_allow_local_delete` | `false` | Allow deleting the local original once Drive holds a verified copy. Drive only. The Drive move mode it enables is **not verified against a real account** (mock server tests only). |
+| `archive_gdrive_client_id` | empty | OAuth client ID (TV and Limited Input devices type) |
+| `archive_gdrive_client_secret` | empty | OAuth client secret (password field) |
+| `archive_gdrive_folder_name` | `Road Viewer` | Name of the dedicated folder created on Drive at the first connection |
+
+`archive_local_threshold_mb` still applies in copy mode: copies are made only while local usage exceeds it, and since copying deletes nothing, usage does not go down. `0` copies whenever there is something eligible.
+
+### Connecting Drive
+
+1. In the app options set `archive_backend: gdrive` and the client ID and secret, save and restart the app. That is all connecting needs; `archive_enabled: true` is required only to actually copy files. With archiving off the panel shows only “아카이빙이 꺼져 있습니다. 여기서는 Google Drive 계정 연결만 관리하며 파일은 복사하지 않습니다.” (archiving is off; only the Google Drive account connection is managed here and no files are copied) and the **Drive 계정** (Drive account) state; the **지금 아카이브** (Archive now) button and the Drive usage and copy rows do not appear.
+2. Open **저장공간 관리** (Storage management) and press **Google Drive 연결** (Connect Google Drive). The panel shows a code, the address (`https://www.google.com/device`) and the time left.
+3. On any device (phone, PC), open that address in a browser, enter the code and approve with the Google account to use.
+4. While the panel is open it checks for the approval by itself. Once approved the code disappears and **Drive 상태** (Drive status; **Drive 계정** with archiving off) reads **연결됨** (connected). The first connection creates the folder named `archive_gdrive_folder_name`. When connected with archiving off, the folder is created once archiving is turned on and the app restarted.
+
+Without a client ID the panel shows “애드온 옵션에서 Google Drive 클라이언트 ID를 설정하세요” (set the Google Drive client ID in the add-on options) and the connect button is disabled. An expired or refused code shows why, and you can connect again. When the sign-in expires, a **다시 연결** (Reconnect) button appears; reconnecting keeps using the same folder. The device flow needs no redirect address, external port, or router/firewall change.
+
+**연결 해제** (Disconnect) asks for confirmation, deletes the token file on this device at once and asks Google to revoke the token in the background; the device is disconnected even if the revoke fails. **The index, the local files and the files on Drive are left as they are.** An upload in progress stops before its next chunk and shows “연결이 해제되어 업로드를 중단했습니다. 다시 연결하세요” (disconnected, upload stopped; reconnect). Archiving stops while disconnected. After reconnecting, the same folder is found and the stopped upload continues where it left off.
+
+### Copy mode and move mode
+
+**Copy mode** (default): each file is uploaded, verified by comparing the sha256 Drive reports (or its md5 when there is none, or else the sha256 of a downloaded copy) with the local file, and its copy recorded in the index. The local file stays; while it exists, playback, downloads and conversion always use it. The panel shows “복제 모드: 로컬 파일은 보존됩니다” (copy mode: local files are kept). Copy mode has been verified on a real Google account (2026-11-04).
+
+**Move mode** (`archive_mode: move` + `archive_allow_local_delete: true`, **not verified against a real account**, mock server tests only): upload → verify → the index committed to disk, and only then the local original is deleted. The panel warns “이동 모드: 검증된 원격 사본이 있으면 로컬 원본이 삭제됩니다” (move mode: local originals are deleted once a verified remote copy exists). Pinned segments are copied, never moved. Switching from copy to move mode reuses the copies already verified instead of uploading them again, then deletes the local files.
+
+Moved files are streamed from Drive through the same addresses as before for playback and downloads (range requests supported). Work that needs a local file, such as original-format export or reconversion, downloads a temporary copy from Drive, checks its sha256, uses it and deletes it. With less local free space than the file size plus 100MiB, the download fails with “보관된 파일을 내려받을 디스크 공간이 부족합니다.” (not enough disk space to fetch the archived file) and a conversion is postponed with “디스크 공간이 부족해 변환을 미뤘습니다.” (conversion postponed for lack of disk space).
+
+When a conversion replaces an original video with its MP4 and the original's Drive copy has the same content, that copy becomes the stored original and is served from Drive. The new MP4 is uploaded by the next run.
+
+### Drive runs and recovery
+
+Runs follow the same schedule and conditions as the NAS. At startup the app first finishes interrupted work, then every `archive_interval_minutes` it checks Drive and then measures Drive usage → processes postponed Drive deletions → requeues postponed conversions → uploads. Usage is measured before the deletions, so space they free shows in the panel from the next run's figure. There is no step like NAS cleanup. A run stops when Drive is unreachable, the sign-in expired, a rate limit is hit, Drive is full or a verification fails, and the next interval retries. None of these failures causes a local deletion or an index change.
+
+Uploads are resumable, in 1MiB chunks. The upload session is recorded in the index before the first chunk, so after an interrupted run the next start continues from where Drive stopped. If the answer to the last chunk was lost, or the app stopped before verification or the index commit, the completed file on Drive is found, verified and recorded without uploading it again. If move mode stopped after the commit and before deleting the local file, the next start verifies the Drive copy again and then deletes it. If a conversion stopped after replacing a file and before saving the index, the next start drops only the record of the copy that describes the previous content (the Drive file stays) and the new content is copied again. If a moved file's Drive copy no longer verifies but the local file left behind still matches the index, that local file is used again and a fresh copy is uploaded by the next run; the bad Drive file is left in place. Empty (0-byte) files are skipped by Drive archiving with a warning.
+
+### Drive status and errors
+
+**저장공간 관리** shows **저장소 / Drive 상태 / Drive 사용 중 / Drive 여유 / 복제 사본 / 복제 사본 용량 / 검증 실패 / 마지막 아카이브** (storage, Drive status, used, free, copies, copy size, failed verifications, last run). **Drive 상태** is one of **연결 안 됨** (not connected: before signing in or after disconnecting), **연결됨** (connected), **연결 불가** (unavailable), **확인 중** (checking) or **인증 만료** (sign-in expired). The panel does not ask Drive on each request; it shows the last check, and checks run in the background, so the panel opens at once even when Drive does not answer.
+
+Last archive errors:
+
+| Code | Shown |
+|---|---|
+| `storage_unavailable` | Google Drive에 연결할 수 없습니다. (Drive unreachable) |
+| `auth_expired` | Google Drive 인증이 만료되었습니다. 다시 연결하세요. (sign-in expired) |
+| `rate_limited` | Google Drive 요청 한도를 넘었습니다. 다음 주기에 다시 시도합니다. (rate limited, retried next interval) |
+| `remote_full` | Google Drive 공간이 부족합니다. (Drive full) |
+| `hash_mismatch` | Google Drive 사본 검증에 실패했습니다. (copy failed verification) |
+| `os_error` | Google Drive에 파일을 올리지 못했습니다. (upload failed) |
+
+Sign-in errors:
+
+| Code | Shown |
+|---|---|
+| `access_denied` | 사용자가 승인을 거부했습니다 (the user refused) |
+| `code_expired` | 코드가 만료되었습니다. 다시 연결하세요 (code expired) |
+| `auth_expired`, `invalid_grant` | 인증이 만료되었습니다. 다시 연결하세요 (sign-in expired) |
+| `invalid_client` | 클라이언트 ID/비밀키가 올바르지 않습니다 (wrong client ID or secret) |
+| `signed_out` | 연결이 해제되어 업로드를 중단했습니다. 다시 연결하세요 (disconnected during an upload) |
+| any other code | 인증 오류 (code) |
+
+Error codes of the connect and retry requests: `409 gdrive_not_selected` (the archive is not Google Drive), `409 gdrive_not_configured` (no client ID), `409 gdrive_connected` (already connected), `503 gdrive_unavailable` (Google unreachable), `502 gdrive_auth_failed` (Google refused the client; `reason` holds the code), and for retry `409 no_archive_error` (nothing to retry), `400 invalid_archive_retry` (invalid request body) and `404` (unknown recording).
+
+Videos on Drive use the same labels as the [NAS video states](#video-states). When Drive is unreachable the message is “영상 저장소(Google Drive)에 연결할 수 없습니다. 인터넷과 Google Drive 연결을 확인하세요.” (cannot reach Google Drive; check the internet and the Drive connection). A file deleted on Drive answers not found when played, but its index entry is never changed or recorded as removed; recovery at startup counts such files. The list does not check each Drive file. In copy mode a local file plays whatever the Drive state.
+
+**Failed verification**: when an uploaded copy does not match the local file, the file is marked and both the local file and the Drive copy are kept. The local file still plays and is not uploaded again on every run. The recording's row shows “원격 사본 검증에 실패했습니다. 로컬 파일은 유지됩니다.” (the remote copy failed verification; the local file is kept) and a **재시도** (Retry) button, which clears the mark so the next run uploads it again. The mismatching Drive copy is not deleted automatically.
+
+### Quota and Drive space
+
+Drive usage is measured by archive runs, and the panel shows the last figure. When Drive reports a storage limit, used and free space are shown; otherwise **Drive 여유** (Drive free) reads **할당량 확인 불가** (quota unknown, `usage_reliable: false`). A full Drive stops the run with `remote_full`; nothing on Drive is deleted.
+
+Without automatic cleanup, Drive usage goes down only in these cases:
+
+- **완전 삭제** (Delete permanently): the recording's Drive files (moved files and copies) are listed for deletion and removed by the next run. The delete request itself never calls Drive; if Drive is unreachable, they are removed once it answers. Files uploaded by another installation are never deleted.
+- **Automatic deletion by the storage policy** (delete oldest unpinned): in move mode the recording's moved files are deleted (Drive holds the only copy). In copy mode **the Drive files are kept.** Kept copies stay on Drive but are not used again: uploading the same log again registers a new recording and uploads it anew. They keep using Drive quota, so remove them on Drive if they are not needed.
+
+So these files stay on Drive: copies of recordings deleted automatically in copy mode, copies that failed verification, and earlier copies of an MP4 whose content changed by reconversion. Clean them up in Drive yourself if needed; a file still in the index that is deleted on Drive then shows as not found.
+
+### Drive backups and security
+
+- The Drive sign-in (refresh token) is stored in `/data/roadviewer/.gdrive-auth.json` (mode 0600) and the Drive storage ID in `/data/roadviewer/.archive.json`. Both files and the app options (including the client secret) **are part of Home Assistant backups.** Anyone holding a backup can reach Road Viewer's Drive folder, so **keep backups as safe as a password.** Do not delete either file.
+- Files on Drive are not part of Home Assistant backups.
+- No new port is opened. All traffic with Google (sign-in and Drive) is outgoing HTTPS from the app to Google; Google never connects to the app.
+- Changes such as connect, disconnect and retry are accepted only through the Home Assistant Supervisor (Ingress), like every other settings change.
+- Tokens, the client secret, upload session addresses and Drive file IDs are never shown in the UI, API responses or logs.
+
+### Not verified
+
+All tests use a simulated Google server (`tests/fake_drive.py`). Not verified:
+
+- Connecting, uploading and deleting with a real Google account and a real OAuth client
+- The real device code page (`google.com/device`) and the Google Cloud console screens
+- Power loss: interruption tests reproduce a stopped process only, not data that never reached the disk
+- A Drive error in the middle of streaming a Drive video under gunicorn (the response is cut short)
+- Playing a video stored on Drive in a browser (only the server's range responses are tested)
+- Real Drive quota figures and rate limits
 
 ## Connecting a comma device
 
