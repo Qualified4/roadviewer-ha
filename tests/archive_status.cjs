@@ -49,8 +49,8 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.match(await row(ids[1]).textContent(),/ · 영상 없음$/);assert.equal(await row(ids[1]).locator('.media-state').count(),0,'local-only rows keep the plain text');
   assert.equal(await row(ids[2]).locator('span.media-state.media-state-available').textContent(),'영상 있음','an available camera outranks a missing one');
   assert.equal(await row(ids[3]).locator('span.media-state.media-state-missing').textContent(),'영상 없음','every camera missing');
-  await page.locator('#storageSettings summary').click();await page.locator('#storageUsage>.archive-metric').nth(3).waitFor();
-  const metrics=await page.locator('#storageUsage>div').evaluateAll(rows=>rows.map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent]));
+  await page.locator('#storageSettings summary').click();await page.locator('#archiveUsage>.archive-metric').nth(3).waitFor();
+  const metrics=await page.locator('#storageUsage>div,#archiveUsage>div').evaluateAll(rows=>rows.map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent]));
   assert.equal(metrics.length,8);assert.deepEqual(metrics.slice(4).map(([label])=>label),['NAS 상태','NAS 사용 중','NAS 여유','마지막 아카이브']);
   assert.deepEqual(metrics[4],['NAS 상태','연결 불가']);assert.deepEqual(metrics[7],['마지막 아카이브','—']);
   assert(await page.locator('#archiveRun').isEnabled());

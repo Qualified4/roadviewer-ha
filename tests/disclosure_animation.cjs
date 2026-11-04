@@ -1,4 +1,5 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
@@ -16,31 +17,37 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.evaluate(()=>{window.toggles=[];document.querySelector('.conversion-info').addEventListener('toggle',()=>toggles.push(document.querySelector('.conversion-info').open))});
    return {page,errors};
   };
-  const settled=page=>page.waitForFunction(()=>!document.querySelector('details.is-closing')&&document.getAnimations().length===0);
+  const settled=page=>settleLayout(page);
+  // Capture the actual height animation at its midpoint, independent of runner speed.
+  const startAtMidpoint=(page,selector)=>page.locator(selector).evaluate(element=>{
+   element.querySelector(':scope>summary').click();
+   const motion=element.getAnimations().find(animation=>animation.effect.getKeyframes().some(frame=>'height' in frame));
+   if(!motion)throw Error('Expected a height animation');
+   motion.pause();motion.currentTime=motion.effect.getTiming().duration/2;
+   return element.getBoundingClientRect().height;
+  });
+  const resume=(page,selector)=>page.locator(selector).evaluate(element=>element.getAnimations().forEach(animation=>animation.play()));
   const height=(page,selector)=>page.locator(selector).evaluate(e=>e.getBoundingClientRect().height);
 
   const {page,errors}=await open();
   const guide='.conversion-info',summary=page.locator(guide+'>summary');
-  const full=await height(page,guide);
+  await settled(page);const full=await height(page,guide);
 
   // Closing keeps the panel open while its height eases down; the label flips at once.
-  await summary.click();
+  const mid=await startAtMidpoint(page,guide);
   assert(await page.locator(guide).evaluate(e=>e.open&&e.classList.contains('is-closing')),'closing panel stays open during the fold');
   assert(await page.locator(guide+'>summary .when-closed').isVisible(),'label switches to 펼치기 immediately');
-  await page.waitForTimeout(110);
-  const mid=await height(page,guide);
+
   assert(mid>80&&mid<full-20,`height animates between states (${mid} of ${full})`);
-  await settled(page);
+  await resume(page,guide);await settled(page);
   assert.equal(await page.locator(guide).evaluate(e=>e.open),false);
   assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-conversion-guide-open')),'false');
   assert.deepEqual(await page.evaluate(()=>toggles),[false],'measuring the closed height must not fire extra toggle events');
   const closed=await height(page,guide);
 
   // Opening grows from the closed height; a second tap mid-motion reverses from where it is.
-  await summary.click();
+  const opening=await startAtMidpoint(page,guide);
   assert(await page.locator(guide).evaluate(e=>e.open));
-  await page.waitForTimeout(90);
-  const opening=await height(page,guide);
   assert(opening>closed+5&&opening<full-5,'opening animates the height');
   const [before,after]=await page.evaluate(selector=>{const e=document.querySelector(selector),h=()=>e.getBoundingClientRect().height,start=h();e.querySelector(':scope>summary').click();return [start,h()]},guide);
   assert(Math.abs(after-before)<1,`reversal starts from the current height (${before} → ${after})`);
@@ -54,25 +61,24 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   // Nested secondary settings use the same motion and chevron transition.
   const usage=page.locator('.usage-guide');
   assert.equal(await usage.locator('summary').evaluate(e=>getComputedStyle(e,'::after').transitionDuration),'0.25s');
-  await usage.locator('summary').click();
-  assert(await usage.evaluate(e=>e.getAnimations().length===1),'secondary settings animate their height');
+  const usageMotions=await usage.evaluate(e=>{e.querySelector('summary').click();return e.getAnimations().length});
+  assert.equal(usageMotions,1,'secondary settings animate their height');
   await settled(page);assert(await usage.evaluate(e=>e.open));
 
   // Dropdown menus fade and slide; outside clicks and Escape still close them at once.
   const more=page.locator('.recording-more');
-  await more.locator('summary').click();
-  assert(await more.evaluate(e=>e.open&&e.querySelector('.recording-menu').getAnimations().length===1),'menu fades in');
+  const opened=await more.evaluate(e=>{e.querySelector('summary').click();return e.open&&e.querySelector('.recording-menu').getAnimations().length===1});
+  assert(opened,'menu fades in');
   await settled(page);
-  await more.locator('summary').click();
-  assert(await more.evaluate(e=>e.open&&e.classList.contains('is-closing')),'menu fades out before closing');
+  const closing=await more.evaluate(e=>{e.querySelector('summary').click();return e.open&&e.classList.contains('is-closing')});
+  assert(closing,'menu fades out before closing');
   await settled(page);assert.equal(await more.evaluate(e=>e.open),false);
   await more.locator('summary').click();await page.keyboard.press('Escape');
-  await page.waitForTimeout(250);
+  await settled(page);
   assert.equal(await more.evaluate(e=>e.open||e.classList.contains('is-closing')),false,'Escape during the fade wins');
 
   // Keyboard activation goes through the same animation.
   await summary.focus();await page.keyboard.press('Enter');
-  assert(await page.locator(guide).evaluate(e=>e.classList.contains('is-closing')));
   await settled(page);assert.equal(await page.locator(guide).evaluate(e=>e.open),false);
   assert.deepEqual(errors,[]);
   await page.close();

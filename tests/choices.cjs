@@ -1,6 +1,6 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
 // Dialog, sheet and view transitions animate; measure geometry once they have settled.
-const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition')&&document.getAnimations().every(a=>a.playState!=='running'||a.effect.getTiming().iterations===Infinity));
+const {settleLayout:settle}=require('./browser-helpers.cjs');
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{

@@ -1,4 +1,5 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
@@ -51,7 +52,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   }
   for(const width of [320,390]){
    await page.setViewportSize({width,height:844});await page.locator('.recording-more summary').first().click();await page.getByRole('button',{name:'다운로드',exact:true}).first().click();await dialog.waitFor();await dialog.getByRole('button',{name:/^원본 형식/}).click();
-   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const box=await dialog.boundingBox();assert(box.x>=0&&box.x+box.width<=width);await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});
+   await settleLayout(page,'.rv-download-dialog');assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const box=await dialog.boundingBox();assert(box.x>=0&&box.x+box.width<=width);await page.keyboard.press('Escape');await page.locator('.rv-download-dialog').waitFor({state:'detached'});
   }
   // Replay uses the same compact popup, with no segment selection.
   await page.evaluate(log=>openRecordingDownload([log],'../../','videos'),logs[0]);await dialog.waitFor();

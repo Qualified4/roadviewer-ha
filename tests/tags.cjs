@@ -1,4 +1,5 @@
 const fs=require('fs'),os=require('os'),path=require('path'),assert=require('node:assert/strict'),{spawn}=require('child_process'),{once}=require('events'),{chromium}=require('playwright');
+const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'rv-tags-')),ids=['a'.repeat(32),'b'.repeat(32)];
  fs.writeFileSync(path.join(dir,'.processing-settings.json'),JSON.stringify({auto_convert:false}));
@@ -35,7 +36,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   await open(ids[0]);await add('  야간   주행  ','파랑');await add('검토 필요','보라');await add('<img src=x onerror=alert(1)>','분홍');
   assert.equal(await dialog.locator('.tag-draft-chip').count(),3);assert.equal(await dialog.locator('.tag-draft img').count(),0,'names are text, never HTML');
   for(const [width,height] of [[320,568],[768,844],[1440,900],[844,390]]){
-   await page.setViewportSize({width,height});const box=await dialog.boundingBox();assert(box.x>=0&&box.y>=0&&box.x+box.width<=width&&box.y+box.height<=height);assert(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth),'no dialog overflow');assert(await dialog.locator('.tag-save').isVisible());
+   await page.setViewportSize({width,height});await settleLayout(page,'.tag-dialog');const box=await dialog.boundingBox();assert(box.x>=0&&box.y>=0&&box.x+box.width<=width&&box.y+box.height<=height);assert(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth),'no dialog overflow');assert(await dialog.locator('.tag-save').isVisible());
   }
   await page.setViewportSize({width:390,height:844});
   if(process.env.RV_TAG_SCREENSHOT)await page.screenshot({path:process.env.RV_TAG_SCREENSHOT});
@@ -43,7 +44,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   await row(ids[0]).locator('.recording-tags').waitFor();await page.reload();await row(ids[0]).locator('.recording-tags').waitFor();
   // Web-owned filter works in the Ingress shell and remains applied during polling.
   await page.locator('#tagFilterChoice').click();await page.getByRole('option',{name:'야간 주행',exact:true}).click();assert(await row(ids[0]).isVisible());assert(await row(ids[1]).isHidden());
-  await page.locator('#refresh').click();await page.waitForResponse(r=>r.url().endsWith('/api/logs'));assert(await row(ids[1]).isHidden());
+  await Promise.all([page.waitForResponse(r=>r.url().endsWith('/api/logs')),page.locator('#refresh').click()]);await page.waitForFunction(()=>!document.getElementById('refresh').disabled);assert(await row(ids[1]).isHidden());
   await page.locator('#tagFilterChoice').click();await page.getByRole('option',{name:'태그 없음',exact:true}).click();assert(await row(ids[0]).isHidden());assert(await row(ids[1]).isVisible());
   await page.locator('#tagFilterChoice').click();await page.getByRole('option',{name:'전체 태그',exact:true}).click();
   // Existing tags are searchable and selecting one reuses its color.

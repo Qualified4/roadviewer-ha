@@ -1,6 +1,6 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
 // Dialog, sheet and view transitions animate; measure geometry once they have settled.
-const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition')&&document.getAnimations().every(a=>a.playState!=='running'||a.effect.getTiming().iterations===Infinity));
+const {settleLayout:settle}=require('./browser-helpers.cjs');
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
@@ -78,7 +78,8 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
    await page.mouse.up();await page.locator('#foldHeading').click();await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));
    const arrow=await page.locator('#foldHeading svg').boundingBox();
    assert(Math.abs(arrow.x+arrow.width/2-(row.x+row.width/2))<1,'arrow must be centered');
-   const contentBefore=await page.locator('.views').boundingBox();
+   await settle(page);
+   const contentBefore=await page.locator('.views').boundingBox(),scrollBefore=await page.evaluate(()=>scrollY);
    await page.locator('#foldHeading').click({position:{x:4,y:row.height/2}});
    assert(await page.locator('.replay-heading').evaluate(el=>el.classList.contains('is-folding')),'folding animates the pinned bar');
    await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));
@@ -86,7 +87,8 @@ const settle=page=>page.waitForFunction(()=>!document.documentElement.classList.
    assert(await page.locator('#logNavigation').isHidden());
    const compact=await page.locator('.replay-heading').evaluate(el=>el.getBoundingClientRect().bottom-el.querySelector('.route').getBoundingClientRect().top);
    assert(compact<=28,'collapsed title and bottom padding stay compact');
-   assert(Math.abs(await page.evaluate(()=>scrollY)-220)<1,'collapse must not shift scroll');
+   const scrollAfter=await page.evaluate(()=>scrollY);
+   assert(Math.abs(scrollAfter-scrollBefore)<1,`collapse must not shift scroll (${scrollBefore} → ${scrollAfter})`);
    // Return to the top with a remembered fold state, then cross the sticky boundary slowly.
    for(const y of [...Array.from({length:56},(_,i)=>i*4),...Array.from({length:56},(_,i)=>220-i*4),220]){
     await page.evaluate(y=>scrollTo(0,y),y);

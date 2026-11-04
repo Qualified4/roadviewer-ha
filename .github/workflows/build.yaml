@@ -49,56 +49,107 @@ jobs:
           python -m pip install pip-audit
       - name: Audit application requirements
         run: python -m pip_audit -r roadviewer/requirements.txt
-  browser-tests:
+  browser-test-groups:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [drive, replay-coverage, navigation, replay-layout, motion-video, telemetry-storage]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - run: npm install --no-save playwright
-      - run: npx playwright install --with-deps chromium
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: ffmpeg -f lavfi -i color=c=black:s=160x90:r=10 -t 2 -c:v libx264 -pix_fmt yuv420p /tmp/roadviewer-test.mp4
+      - run: npx playwright install --with-deps --only-shell chromium
+      # Regenerate the 2 KiB fixture with:
+      # ffmpeg -f lavfi -i color=c=black:s=160x90:r=10 -t 2 -c:v libx264 -pix_fmt yuv420p tests/fixtures/black.mp4
+      - name: Prepare browser video fixture
+        run: cp tests/fixtures/black.mp4 /tmp/roadviewer-test.mp4
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - run: python -m pip install flask
       - run: node tests/navigation.cjs
+        if: matrix.group == 'navigation'
       - run: node tests/video_sources.cjs
+        if: matrix.group == 'motion-video'
       - run: node tests/replay_ready.cjs
+        if: matrix.group == 'telemetry-storage'
       - run: node tests/replay_coverage.cjs
+        if: matrix.group == 'replay-coverage'
       - run: node tests/replay_play_request.cjs
+        if: matrix.group == 'navigation'
       - run: node tests/replay_end_seek.cjs
+        if: matrix.group == 'replay-layout'
       - run: node tests/choices.cjs
+        if: matrix.group == 'replay-coverage'
       - run: node tests/display_preferences.cjs
+        if: matrix.group == 'navigation'
       - run: node tests/concurrency.cjs
+        if: matrix.group == 'navigation'
       - run: node tests/conversion_controls.cjs
+        if: matrix.group == 'motion-video'
       - run: node tests/bulk_actions.cjs
+        if: matrix.group == 'replay-layout'
       - run: node tests/tags.cjs
+        if: matrix.group == 'telemetry-storage'
       - run: node tests/bookmarks.cjs
+        if: matrix.group == 'replay-layout'
       - run: node tests/recording_names.cjs
+        if: matrix.group == 'telemetry-storage'
       - run: node tests/storage_devices.cjs
+        if: matrix.group == 'telemetry-storage'
+      - run: node tests/info_panels.cjs
+        if: matrix.group == 'replay-layout'
       - run: node tests/archive_status.cjs
+        if: matrix.group == 'replay-layout'
       - run: node tests/gdrive_panel.cjs
+        if: matrix.group == 'drive'
       - run: node tests/archive_settings.cjs
+        if: matrix.group == 'motion-video'
       - run: node tests/pairing_refresh.cjs
+        if: matrix.group == 'navigation'
       - run: node tests/device_test_page.cjs
+        if: matrix.group == 'replay-coverage'
       - run: node tests/video_overlay.cjs
+        if: matrix.group == 'motion-video'
       - run: node tests/camera_info.cjs
+        if: matrix.group == 'replay-layout'
       - run: node tests/telemetry.cjs
+        if: matrix.group == 'telemetry-storage'
       - run: node tests/replay_layout.cjs
+        if: matrix.group == 'replay-layout'
       - run: node tests/disclosure_animation.cjs
+        if: matrix.group == 'navigation'
       - run: node tests/replay_gzip.cjs
+        if: matrix.group == 'telemetry-storage'
       - run: node tests/lane_marking.cjs
+        if: matrix.group == 'telemetry-storage'
       - run: node tests/motion.cjs
+        if: matrix.group == 'motion-video'
       - run: node tests/replay_downloads.cjs
+        if: matrix.group == 'replay-coverage'
       - run: node tests/download_dialog.cjs
+        if: matrix.group == 'replay-coverage'
       - run: node tests/upload_timeout.cjs
+        if: matrix.group == 'replay-layout'
       - run: node tests/upload_stall.cjs
+        if: matrix.group == 'replay-coverage'
       - run: node tests/upload_mobile.cjs
+        if: matrix.group == 'motion-video'
       - run: node tests/upload_drop.cjs
+        if: matrix.group == 'navigation'
+  browser-tests:
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [browser-test-groups]
+    runs-on: ubuntu-slim
+    steps:
+      - name: Require every browser group to pass
+        env:
+          GROUP_RESULT: ${{ needs.browser-test-groups.result }}
+        run: test "$GROUP_RESULT" = success
   upload-tests:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -146,21 +197,24 @@ jobs:
       - run: python tests/test_prepared_migration.py
   build:
     if: github.event_name == 'pull_request'
-    needs: [metadata, dependency-audit]
+    # Release reuse requires the entire PR run, including dependency-audit, to succeed.
+    needs: [metadata]
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    name: build (${{ matrix.arch }}, ${{ matrix.ha_arch }})
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: amd64
             ha_arch: amd64
+            runner: ubuntu-latest
           - arch: arm64
             ha_arch: aarch64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
