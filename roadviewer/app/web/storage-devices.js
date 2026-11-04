@@ -68,8 +68,9 @@ function gdriveStatusText(g,state){
 // With archiving off the state is 'disabled' and says nothing of the account: the sign-in block alone does.
 const gdriveAccountText=g=>g.pending&&typeof g.pending==='object'?'연결 대기 중':gdriveStatusText(g,'connected');
 function gdriveRows(a){
- const g=a.gdrive||{};
- return [['저장소','Google Drive'],['Drive 상태',gdriveStatusText(g,a.state)],['Drive 사용 중',storageSize(a.used_bytes)],['Drive 여유',a.usage_reliable?storageSize(a.free_bytes):'할당량 확인 불가'],
+ // Without a figure yet, the one being measured in the background (opening the panel starts it) shows as such.
+ const g=a.gdrive||{},measuring=!!a.usage_measuring&&!a.usage_known;
+ return [['저장소','Google Drive'],['Drive 상태',gdriveStatusText(g,a.state)],['Drive 사용 중',measuring?'측정 중':storageSize(a.used_bytes)],['Drive 여유',measuring?'측정 중':a.usage_reliable?storageSize(a.free_bytes):'할당량 확인 불가'],
   ['복제 사본',`${Number(a.remote_copies_files)||0}개`],['복제 사본 용량',storageSize(Number(a.remote_copies_bytes)||0)],['검증 실패',`${Number(a.archive_errors?.remote_mismatch)||0}개`],['마지막 아카이브',a.last_cycle_at?new Date(a.last_cycle_at*1000).toLocaleString():'—']];
 }
 function gdrivePanel(){
@@ -247,18 +248,19 @@ function archiveJobPoll(on){
  if(!on){clearInterval(archiveJobTimer);archiveJobTimer=null;return}
  if(!archiveJobTimer)archiveJobTimer=setInterval(()=>void archiveJobRefresh(),2000);
 }
-// The server answers 'checking' while it probes the archive in the background (it never waits on the internet):
-// the panel asks again shortly until the state is settled, at most ARCHIVE_CHECK_TRIES times in a row.
+// The server answers 'checking' while it probes the archive, and usage_measuring while it measures Drive's usage, in
+// the background (it never waits on the internet): the panel asks again shortly until both are settled, at most ARCHIVE_CHECK_TRIES times in a row.
 const ARCHIVE_CHECK_TRIES=20;let archiveCheckTimer=null,archiveCheckTries=0;
 function archiveCheckPoll(a){
- const checking=!!a?.enabled&&a.state==='checking'&&storageDetails.open&&!document.hidden;
- if(!checking){clearTimeout(archiveCheckTimer);archiveCheckTimer=null;if(a?.state!=='checking')archiveCheckTries=0;return}
+ const pending=!!a?.enabled&&(a.state==='checking'||!!a.usage_measuring);
+ const checking=pending&&storageDetails.open&&!document.hidden;
+ if(!checking){clearTimeout(archiveCheckTimer);archiveCheckTimer=null;if(!pending)archiveCheckTries=0;return}
  if(archiveCheckTimer||archiveCheckTries>=ARCHIVE_CHECK_TRIES)return;
  archiveCheckTries++;
  archiveCheckTimer=setTimeout(()=>{archiveCheckTimer=null;void archiveJobRefresh()},2000);
 }
 storageDetails.addEventListener('toggle',()=>{archiveCheckTries=0;if(!storageDetails.open){archiveJobPoll(false);archiveCheckPoll(null)}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){archiveJobPoll(false);archiveCheckPoll(null)}else if(storageDetails.open&&(manualActive()||storageSnapshotState?.archive?.state==='checking')){archiveCheckTries=0;void archiveJobRefresh()}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){archiveJobPoll(false);archiveCheckPoll(null)}else if(storageDetails.open&&(manualActive()||storageSnapshotState?.archive?.state==='checking'||storageSnapshotState?.archive?.usage_measuring)){archiveCheckTries=0;void archiveJobRefresh()}});
 const archiveForm=$('archiveForm');
 let editorLoaded=false,editorLoading=false,editorSaving=false,archiveSettingsNeedsSave=false,savedStorage=null,savedArchive=null,storageSnapshotState=null;
 const archivePresets=[['archiveAgePreset','archive_min_age_hours','archiveAgeCustom'],['archiveThresholdPreset','archive_local_threshold_mb','archiveThresholdCustom'],['archiveIntervalPreset','archive_interval_minutes','archiveIntervalCustom']];

@@ -16,7 +16,8 @@ SMB_KEYS = {'enabled', 'state', 'reason', 'path_configured', 'used_bytes', 'free
             'last_error', 'consecutive_failures', 'pending_deletes', 'archived_files', 'archived_bytes', 'running', 'missing_archived',
             'manual', 'manual_active'}
 GDRIVE_KEYS = SMB_KEYS | {'backend', 'mode', 'effective_mode', 'local_delete_allowed', 'usage_reliable', 'remote_copies_files',
-                          'remote_copies_bytes', 'archive_errors', 'gdrive'}
+                          'remote_copies_bytes', 'archive_errors', 'gdrive',
+                          'usage_known', 'usage_measuring'}
 GDRIVE_BLOCK_KEYS = {'configured', 'connected', 'folder_ok', 'pending', 'last_auth_error'}
 
 class GdriveSettingsTests(unittest.TestCase):
@@ -321,18 +322,26 @@ class GdriveSettingsTests(unittest.TestCase):
     def test_gdrive_block_usage_unreliable(self):
         self.make_backend(); self.connect_directly()
         self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100})
-        # No usage known yet: zero and unreliable, and the request does not ask Drive for it.
+        # No usage known yet: zero and unreliable; opening the panel measures it in the background.
         self.settle()
         block = self.block()
-        self.assertEqual((block['used_bytes'], block['free_bytes'], block['usage_reliable']), (0, 0, False))
-        self.assertEqual(self.requests('/about'), [])
-        # The archiver cycle measures it. No limit reported (unlimited or unknown): free 0, unreliable.
+        self.assertEqual((block['used_bytes'], block['free_bytes'], block['usage_reliable'], block['usage_known'], block['usage_measuring']),
+                         (0, 0, False, False, True))
+        self.backend.usage_thread.join(5)
+        self.assertEqual(len(self.requests('/about')), 1)
+        # No limit reported (unlimited or unknown): known, free 0, unreliable. Within 5 minutes it is not measured again.
+        block = self.block()
+        self.assertEqual((block['used_bytes'], block['free_bytes'], block['usage_reliable'], block['usage_known'], block['usage_measuring']),
+                         (0, 0, False, True, False))
+        self.assertEqual(len(self.requests('/about')), 1)
+        # The archiver cycle measures it as before (once the short cache has passed).
+        self.backend.usage_cached = None
         self.assertEqual(self.archiver.run_cycle()['archived'], 2)
-        self.assertEqual(len(self.requests('/about')), 1)
+        self.assertEqual(len(self.requests('/about')), 2)
         self.settle()
         block = self.block()
         self.assertEqual((block['used_bytes'], block['free_bytes'], block['usage_reliable']), (0, 0, False))
-        self.assertEqual(len(self.requests('/about')), 1)
+        self.assertEqual(len(self.requests('/about')), 2)
         # With a limit: used and free as Drive reports them.
         self.drive.scenario.quota_limit = 10000
         self.backend.usage_cached = None
@@ -345,6 +354,30 @@ class GdriveSettingsTests(unittest.TestCase):
         self.backend.invalidate()
         self.assertEqual(self.block()['used_bytes'], 800)
         self.assertEqual(len(self.requests('/about')), about)
+
+    def test_panel_measures_usage_in_background_at_most_every_five_minutes(self):
+        self.make_backend(); self.connect_directly(); self.settle()
+        release, threads = threading.Event(), []
+        def slow():
+            threads.append(threading.current_thread()); release.wait(5)
+            raise ab.BackendError('unavailable')
+        with patch.object(self.backend.client, 'about', side_effect=slow):
+            t0 = time.monotonic(); block = self.block(); elapsed = time.monotonic() - t0
+            try:
+                self.assertLess(elapsed, 2)  # The request never waits on Drive.
+                self.assertEqual((block['usage_known'], block['usage_measuring'], block['used_bytes']), (False, True, 0))
+                self.assertTrue(self.block()['usage_measuring'])  # One measurement at a time.
+            finally: release.set()
+            self.backend.usage_thread.join(5)
+        self.assertEqual(len(threads), 1); self.assertIsNot(threads[0], threading.main_thread())
+        # A failed measurement is not retried on every open: the next one waits the same 5 minutes.
+        block = self.block()
+        self.assertEqual((block['usage_known'], block['usage_measuring']), (False, False))
+        self.assertEqual(len(threads), 1)
+        self.backend.usage_tried_at -= ab.USAGE_REFRESH_SECONDS + 1
+        self.assertTrue(self.block()['usage_measuring'])
+        self.backend.usage_thread.join(5)
+        self.assertEqual((self.block()['usage_known'], len(self.requests('/about'))), (True, 1))
 
     def test_retry_remote_mismatch_reuploads(self):
         self.make_backend(); self.connect_directly()

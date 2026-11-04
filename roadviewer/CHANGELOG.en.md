@@ -4,6 +4,10 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.6
+
+- Opening storage management now measures Google Drive usage in the background when there is no figure or it is older than 5 minutes. It shows "measuring" meanwhile and refreshes when done, fixing "0 B / quota unknown" after a restart until the first archive cycle. Nothing is moved or copied; accounts for which Google reports no total quota still show it as unknown.
+
 ## 0.13.5
 
 - Fixed the Drive/NAS status staying at "checking" in storage management. While the server probes the archive in the background, the panel asks again shortly, so it settles to connected/unavailable without reopening. Connection and archiving behavior are unchanged.
