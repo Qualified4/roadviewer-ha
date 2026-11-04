@@ -375,7 +375,7 @@ Files on the NAS are not part of Home Assistant backups. The app options (`archi
 Google Drive can be used as the archive instead of a NAS. It is experimental and off by default (`archive_enabled: false`, `archive_backend: smb`). Nothing changes while archiving is off or uses the NAS.
 
 - **Copy mode is the default.** Each file gets a verified copy on Drive and **the local file is never deleted**, so copy mode frees no local space.
-- **Move mode** (the local original is deleted once a verified copy exists) needs **both** `archive_mode: move` and `archive_allow_local_delete: true`. With either one missing, Drive runs in copy mode.
+- **Move mode** (the local original is deleted once a verified copy exists) needs **both** `archive_mode: move` and `archive_allow_local_delete: true`. With either one missing, Drive runs in copy mode. Drive move mode is **not verified against a real account** (mock server tests only).
 - **This version has no automatic Drive cleanup.** Files on Drive are deleted only for recordings the user deletes permanently and, in move mode, for moved files of recordings the storage policy deletes automatically (see [Quota and Drive space](#quota-and-drive-space)).
 - There is no feature that moves files on Drive back to local storage.
 
@@ -397,8 +397,8 @@ The [common archiving options](#app-options) (`archive_enabled`, `archive_local_
 | Option | Default | Meaning |
 |---|---|---|
 | `archive_backend` | `smb` | `smb` (NAS) or `gdrive` |
-| `archive_mode` | `move` | `move` or `copy`. On Drive, `move` applies only together with `archive_allow_local_delete: true`; otherwise it is always copy, so with the defaults Drive runs in copy mode. The NAS moves as before. |
-| `archive_allow_local_delete` | `false` | Allow deleting the local original once Drive holds a verified copy. Drive only. |
+| `archive_mode` | `move` | `move` or `copy`. On Drive, `move` applies only together with `archive_allow_local_delete: true`; otherwise it is always copy, so with the defaults Drive runs in copy mode. Drive move mode is **not verified against a real account** (mock server tests only). The NAS moves as before. |
+| `archive_allow_local_delete` | `false` | Allow deleting the local original once Drive holds a verified copy. Drive only. The Drive move mode it enables is **not verified against a real account** (mock server tests only). |
 | `archive_gdrive_client_id` | empty | OAuth client ID (TV and Limited Input devices type) |
 | `archive_gdrive_client_secret` | empty | OAuth client secret (password field) |
 | `archive_gdrive_folder_name` | `Road Viewer` | Name of the dedicated folder created on Drive at the first connection |
@@ -407,10 +407,10 @@ The [common archiving options](#app-options) (`archive_enabled`, `archive_local_
 
 ### Connecting Drive
 
-1. In the app options set `archive_backend: gdrive`, `archive_enabled: true` and the client ID and secret, save and restart the app.
+1. In the app options set `archive_backend: gdrive` and the client ID and secret, save and restart the app. That is all connecting needs; `archive_enabled: true` is required only to actually copy files. With archiving off the panel shows only “아카이빙이 꺼져 있습니다. 여기서는 Google Drive 계정 연결만 관리하며 파일은 복사하지 않습니다.” (archiving is off; only the Google Drive account connection is managed here and no files are copied) and the **Drive 계정** (Drive account) state; the **지금 아카이브** (Archive now) button and the Drive usage and copy rows do not appear.
 2. Open **저장공간 관리** (Storage management) and press **Google Drive 연결** (Connect Google Drive). The panel shows a code, the address (`https://www.google.com/device`) and the time left.
 3. On any device (phone, PC), open that address in a browser, enter the code and approve with the Google account to use.
-4. While the panel is open it checks for the approval by itself. Once approved the code disappears and **Drive 상태** (Drive status) reads **연결됨** (connected). The first connection creates the folder named `archive_gdrive_folder_name`.
+4. While the panel is open it checks for the approval by itself. Once approved the code disappears and **Drive 상태** (Drive status; **Drive 계정** with archiving off) reads **연결됨** (connected). The first connection creates the folder named `archive_gdrive_folder_name`. When connected with archiving off, the folder is created once archiving is turned on and the app restarted.
 
 Without a client ID the panel shows “애드온 옵션에서 Google Drive 클라이언트 ID를 설정하세요” (set the Google Drive client ID in the add-on options) and the connect button is disabled. An expired or refused code shows why, and you can connect again. When the sign-in expires, a **다시 연결** (Reconnect) button appears; reconnecting keeps using the same folder. The device flow needs no redirect address, external port, or router/firewall change.
 
@@ -418,9 +418,9 @@ Without a client ID the panel shows “애드온 옵션에서 Google Drive 클�
 
 ### Copy mode and move mode
 
-**Copy mode** (default): each file is uploaded, verified by comparing the sha256 Drive reports (or its md5 when there is none, or else the sha256 of a downloaded copy) with the local file, and its copy recorded in the index. The local file stays; while it exists, playback, downloads and conversion always use it. The panel shows “복제 모드: 로컬 파일은 보존됩니다” (copy mode: local files are kept).
+**Copy mode** (default): each file is uploaded, verified by comparing the sha256 Drive reports (or its md5 when there is none, or else the sha256 of a downloaded copy) with the local file, and its copy recorded in the index. The local file stays; while it exists, playback, downloads and conversion always use it. The panel shows “복제 모드: 로컬 파일은 보존됩니다” (copy mode: local files are kept). Copy mode has been verified on a real Google account (2026-11-04).
 
-**Move mode** (`archive_mode: move` + `archive_allow_local_delete: true`): upload → verify → the index committed to disk, and only then the local original is deleted. The panel warns “이동 모드: 검증된 원격 사본이 있으면 로컬 원본이 삭제됩니다” (move mode: local originals are deleted once a verified remote copy exists). Pinned segments are copied, never moved. Switching from copy to move mode reuses the copies already verified instead of uploading them again, then deletes the local files.
+**Move mode** (`archive_mode: move` + `archive_allow_local_delete: true`, **not verified against a real account**, mock server tests only): upload → verify → the index committed to disk, and only then the local original is deleted. The panel warns “이동 모드: 검증된 원격 사본이 있으면 로컬 원본이 삭제됩니다” (move mode: local originals are deleted once a verified remote copy exists). Pinned segments are copied, never moved. Switching from copy to move mode reuses the copies already verified instead of uploading them again, then deletes the local files.
 
 Moved files are streamed from Drive through the same addresses as before for playback and downloads (range requests supported). Work that needs a local file, such as original-format export or reconversion, downloads a temporary copy from Drive, checks its sha256, uses it and deletes it. With less local free space than the file size plus 100MiB, the download fails with “보관된 파일을 내려받을 디스크 공간이 부족합니다.” (not enough disk space to fetch the archived file) and a conversion is postponed with “디스크 공간이 부족해 변환을 미뤘습니다.” (conversion postponed for lack of disk space).
 
