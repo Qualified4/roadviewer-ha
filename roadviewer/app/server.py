@@ -139,10 +139,15 @@ def local_content(p,m,kind):
  # ((size, mtime_ns), sha256) of a local file, reusing the recorded hash while the file is unchanged; None if absent.
  # Reads the file otherwise: never under a lock.
  try:st=(p/kind).stat()
- except FileNotFoundError:return None
+ except OSError:return None  # Gone, or unreadable: the lock-time stat decides.
  known=(m.get('content_hashes') or {}).get(kind)
  fresh=isinstance(known,dict) and known.get('size')==st.st_size and known.get('mtime_ns')==st.st_mtime_ns and isinstance(known.get('sha256'),str)
- return (st.st_size,st.st_mtime_ns),known['sha256'] if fresh else file_digest(p/kind)
+ if fresh:return (st.st_size,st.st_mtime_ns),known['sha256']
+ try:return (st.st_size,st.st_mtime_ns),file_digest(p/kind)
+ except OSError:
+  # Unverifiable: the copy is not promoted (the registration drops it); the conversion itself goes on.
+  app.logger.warning('Reading %s/%s failed; its remote copy cannot be checked against it',p.name,kind)
+  return None
 def unstage(path):
  shutil.rmtree(path.parent,ignore_errors=True)
  try:path.parent.parent.rmdir()  # .staging itself, once no other download or conversion uses it.
@@ -952,10 +957,13 @@ def delete_recording(id,remote=False):
  except (OSError,ValueError):m={}  # A broken meta.json is still deletable; it records no archived files.
  if not isinstance(m,dict):m={}
  kinds=[kind for kind in media_store.MEDIA_KINDS if media_store.location(m,kind)=='nas']
- # A remote backend's files (moved files and verified copies) are recorded by reference.
- refs=media_store.remote_refs(m,copies=remote)
+ # A remote backend's files (moved files and verified copies) are recorded by reference. Eviction removes them
+ # only in move mode, where Drive holds the recording's only copy; in copy mode Drive is the backup that outlives
+ # local cleanup, including originals a conversion promoted to the stored copy.
+ move=remote_backend() and getattr(getattr(backend,'settings',None),'effective_mode',None)=='move'
+ refs=media_store.remote_refs(m,copies=remote) if remote or move else []
  kept=len(media_store.remote_refs(m))-len(refs)
- if kept:app.logger.info('Recording %s removed for space; its %d Google Drive copies are kept',id,kept)
+ if kept:app.logger.info('Recording %s removed for space; its %d Google Drive files are kept',id,kept)
  if kinds or refs:media_store.PendingDeletes(ROOT).add(id,kinds,refs or None)
  shutil.rmtree(p)
 

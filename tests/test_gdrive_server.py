@@ -547,6 +547,83 @@ class GdriveServerTests(unittest.TestCase):
         REAL_CLEANUP(startup=True)
         self.assertFalse((p / '.staging').exists()); self.assertTrue((p / 'rlog.zst').is_file()); self.assertTrue(other.is_dir())
 
+    # Fix round 2
+
+    def promoted(self, ids):
+        # Converted copy-mode recordings: each original's identical Drive copy became the stored file. Their
+        # Drive files: the log's copy and the promoted original (the new MP4 is not copied yet).
+        ps = [self.log(id, {'rlog.zst': os.urandom(1000), 'fcamera.hevc': HEVC + os.urandom(2000), 'fcamera.mp4': os.urandom(1500)}) for id in ids]
+        for p in ps: self.ready(p)
+        self.archive(batch=64)  # Every file in one cycle.
+        for p in ps:
+            self.convert(p, {'fcamera.mp4': os.urandom(1600)})
+            m = server.read_meta(p)
+            self.assertEqual(media_store.location(m, 'fcamera.hevc'), 'gdrive'); self.assertIsNotNone(media_store.remote(m, 'rlog.zst'))
+            self.assertEqual(len(media_store.remote_refs(m)), 2)
+        return ps
+
+    def evict(self, p):
+        # As storage_policy evicts for space: delete_recording(id) with remote=False, under both locks.
+        with server.registration_lock, server.lock: server.delete_recording(p.name)
+
+    def test_eviction_keeps_drive_files_in_copy_mode_only(self):
+        pending = media_store.PendingDeletes(self.root)
+        a, b, c, d = self.promoted([ch * 32 for ch in 'abcd'])
+        # Copy mode: eviction keeps every Drive file, the promoted original included, and says so.
+        with self.assertLogs(server.app.logger, 'INFO') as logs: self.evict(a)
+        self.assertFalse(a.exists()); self.assertEqual(pending.count(), 0)
+        self.assertTrue(any(a.name in line and '2 Google Drive files are kept' in line for line in logs.output), logs.output)
+        # The user's delete queues them all (the promoted original and the log's copy).
+        r = self.send('delete', f'/api/logs/{b.name}')
+        self.assertEqual(r.status_code, 200); self.assertEqual(pending.count(), 2)
+        # Move mode: Drive holds the only copy of the promoted original, so eviction queues it; copies stay.
+        self.make_backend(mode='move', allow_local_delete=True)
+        self.evict(c); self.assertEqual(pending.count(), 3)
+        r = self.send('delete', f'/api/logs/{d.name}')
+        self.assertEqual(r.status_code, 200); self.assertEqual(pending.count(), 5)
+        with self.drive.lock: self.assertEqual(len([f for f in self.drive.files.values() if f['appProperties'].get('rv_id') == a.name]), 3)
+
+    def test_unreadable_original_skips_promotion_without_failing_the_conversion(self):
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.hevc': HEVC + os.urandom(2000), 'fcamera.mp4': os.urandom(1500)}); self.ready(p)
+        self.archive()
+        m = server.read_meta(p); m.pop('content_hashes', None); server.save_meta(p, m)  # The original must be read.
+        with patch.object(server, 'file_digest', side_effect=OSError(5, 'Input/output error')), self.assertLogs(server.app.logger, 'WARNING') as logs:
+            self.convert(p, {'fcamera.mp4': b'new mp4'})
+        m = server.read_meta(p)
+        self.assertEqual(m['status'], 'ready'); self.assertEqual((p / 'fcamera.mp4').read_bytes(), b'new mp4')
+        self.assertEqual(media_store.location(m, 'fcamera.hevc'), 'local'); self.assertIsNone(media_store.remote(m, 'fcamera.hevc'))
+        self.assertTrue(any('fcamera.hevc' in line for line in logs.output))
+
+    def test_original_changed_after_hashing_is_not_promoted(self):
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.hevc': HEVC + os.urandom(2000), 'fcamera.mp4': os.urandom(1500)}); self.ready(p)
+        self.archive()
+        real = server.local_content
+        def hashed_then_changed(path, m, kind):
+            result = real(path, m, kind)
+            # The original changes (same size) after it was hashed and before the registration's lock.
+            f = path / kind; f.write_bytes(HEVC + os.urandom(2000)); st = f.stat(); os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+            return result
+        with patch.object(server, 'local_content', side_effect=hashed_then_changed): self.convert(p, {'fcamera.mp4': b'new mp4'})
+        m = server.read_meta(p)
+        self.assertEqual(m['status'], 'ready')
+        self.assertEqual(media_store.location(m, 'fcamera.hevc'), 'local'); self.assertIsNone(media_store.remote(m, 'fcamera.hevc'))
+
+    def test_reupload_restore_clears_stale_remote_state(self):
+        # A camera whose upload was pending and whose copy failed to verify, then lost locally: re-uploading it
+        # brings new local content, so neither the session nor the error may stay on the entry.
+        log, hevc = os.urandom(3000), HEVC + os.urandom(2000)
+        p = self.log('a' * 32, {'rlog.zst': log, 'fcamera.hevc': hevc}); self.ready(p)
+        m = server.read_meta(p)
+        media_store.set_location(m, 'fcamera.hevc', location='local', error='remote_mismatch',
+                                 remote_pending={'backend': 'gdrive', 'session': 'https://x/upload?upload_id=s', 'started_at': 1.0, 'bytes_sent': 0, 'sha256': 'x', 'size': 1})
+        server.save_meta(p, m); (p / 'fcamera.hevc').unlink()
+        self.assertFalse(server.stored(p, server.read_meta(p), 'fcamera.hevc'))
+        r = self.send('post', '/api/upload', data={'files': [(io.BytesIO(log), 'x/rlog.zst'), (io.BytesIO(hevc), 'x/fcamera.hevc')]})
+        self.assertEqual(r.status_code, 201, r.json); self.assertEqual([u['id'] for u in r.json['updated']], [p.name])
+        m = server.read_meta(p)
+        self.assertEqual((p / 'fcamera.hevc').read_bytes(), hevc)
+        self.assertNotIn('fcamera.hevc', m.get('storage', {}))
+
     def test_zip_streams_remote_entries_without_buffering(self):
         video = os.urandom(3 * MIB)
         p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': video}); self.ready(p)
