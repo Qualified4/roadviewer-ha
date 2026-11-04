@@ -404,7 +404,10 @@ class MediaStoreTests(unittest.TestCase):
   expected = {'archive_backend': ('smb', 'list(smb|gdrive)'), 'archive_mode': ('move', 'list(move|copy)'), 'archive_allow_local_delete': ('false', 'bool'),
               'archive_gdrive_client_id': ('""', 'str'), 'archive_gdrive_client_secret': ('""', 'password'), 'archive_gdrive_folder_name': ('"Road Viewer"', 'str')}
   for key, (default, rule) in expected.items():
-   self.assertRegex(options, rf'(?m)^  {key}: {re.escape(default)}$', key); self.assertRegex(schema, rf'(?m)^  {key}: {re.escape(rule)}$', key)
+   credential = key in ('archive_gdrive_client_id', 'archive_gdrive_client_secret')
+   if credential: self.assertRegex(options, rf'(?m)^  {key}: {re.escape(default)}$', key)
+   else: self.assertNotRegex(options, rf'(?m)^  {key}:', key)
+   self.assertRegex(schema, rf'(?m)^  {key}: {re.escape(rule)}' + ('' if credential else r'\?') + '$', key)
   # The defaults parse to the archiving-off settings.
   defaults = {k: (False if v == 'false' else v.strip('"')) for k, (v, _) in expected.items()}
   s = m.ArchiveSettings.from_options(defaults)

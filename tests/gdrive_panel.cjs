@@ -190,6 +190,9 @@ async function openPanel(page){
   for(const id of ['archiveRun','gdrivePanel','gdriveConnect','gdriveDisconnect','gdriveCode','archiveMode','gdriveArchiveOff','gdriveAccount'])assert.equal(await smbOff.locator('#'+id).count(),0,id);
   await smbOff.close();await stop(smb);smb=null;
   // The NAS: its four rows as before and no Drive element at all.
+  // Explicit UI save: options.json is ignored after the first migration.
+  const prefs=JSON.parse(fs.readFileSync(path.join(nasDir,'.archive-settings.json'),'utf8'));prefs.archive_enabled=true;
+  fs.writeFileSync(path.join(nasDir,'.archive-settings.json'),JSON.stringify(prefs));
   smb=await serve(nasDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:true,archive_path:nas}),RV_ARCHIVE_ALLOW_ANY_PATH:'1'});
   const plain=await context.newPage();plain.on('pageerror',error=>errors.push(error.message));
   await plain.goto(smb.base);await plain.locator('.log-row').first().waitFor();

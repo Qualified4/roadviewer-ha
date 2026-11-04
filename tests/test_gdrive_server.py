@@ -40,6 +40,8 @@ class GdriveServerTests(unittest.TestCase):
         self.backend = ab.DriveBackend(self.settings, self.root, auth, ab.DriveClient(self.http, auth))
         for name, value in (('backend', self.backend), ('store', media_store.ArchiveStore(self.settings, self.root))):
             patcher = patch.object(server, name, value); patcher.start(); self.addCleanup(patcher.stop)
+        patcher = patch.object(server, 'archiver', media_store.Archiver(server, server.store, self.settings, backend=self.backend))
+        patcher.start(); self.addCleanup(patcher.stop)
         return self.backend
 
     def archive(self, **fields):

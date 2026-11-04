@@ -661,8 +661,11 @@ class MediaIntegrationTests(unittest.TestCase):
             'archive_backend':('smb','list(smb|gdrive)'),'archive_mode':('move','list(move|copy)'),'archive_allow_local_delete':('false','bool'),
             'archive_gdrive_client_id':('""','str'),'archive_gdrive_client_secret':('""','password'),'archive_gdrive_folder_name':('"Road Viewer"','str')}
   for key,(default,rule) in expected.items():
-   self.assertRegex(options,rf'(?m)^  {key}: {re.escape(default)}$',key);self.assertRegex(schema,rf'(?m)^  {key}: {re.escape(rule)}$',key)
-  self.assertEqual(len(re.findall(r'(?m)^  archive_',options)),14);self.assertEqual(len(re.findall(r'(?m)^  archive_',schema)),14)
+   credential=key in ('archive_gdrive_client_id','archive_gdrive_client_secret')
+   if credential:self.assertRegex(options,rf'(?m)^  {key}: {re.escape(default)}$',key)
+   else:self.assertNotRegex(options,rf'(?m)^  {key}:',key)
+   self.assertRegex(schema,rf'(?m)^  {key}: {re.escape(rule)}'+('' if credential else r'\?')+'$',key)
+  self.assertEqual(len(re.findall(r'(?m)^  archive_',options)),2);self.assertEqual(len(re.findall(r'(?m)^  archive_',schema)),14)
   # Existing options stay; the version is a release's, not this test's.
   for line in ('  max_upload_mb: 512','  max_upload_mb: int(16,2048)','hassio_api: true'):self.assertIn(line+'\n',text)
   self.assertRegex(text,r'(?m)^version: "\d+\.\d+\.\d+"$')

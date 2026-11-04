@@ -38,7 +38,7 @@ class ArchiverTests(unittest.TestCase):
   self.assertEqual(archiver.run_cycle(),{'archived':0,'bytes':0,'stopped':'disabled'})
   self.assert_untouched(p,['rlog.zst','fcamera.mp4']);self.assertFalse((self.nas/p.name).exists())
   with patch.object(media_store.threading,'Thread') as thread:archiver.start()
-  thread.assert_not_called()
+  thread.assert_called_once();thread.return_value.start.assert_called_once()
   self.assertFalse(archiver.status()['running']);self.assertIsNone(archiver.status()['last_cycle_at'])
 
  def test_module_import_starts_no_archiver_thread(self):
@@ -672,21 +672,17 @@ class ArchiverTests(unittest.TestCase):
   stop=server.threading.Event();stop.set()
   with patch.object(server,'cleanup_stop',stop),patch.object(archiver,'run_cycle') as cycle,patch.object(archiver,'recover_startup') as recover:
    archiver.start();archiver.thread.join(5)
-  self.assertFalse(archiver.thread.is_alive());recover.assert_called_once_with();cycle.assert_not_called()
+  self.assertFalse(archiver.thread.is_alive());recover.assert_not_called();cycle.assert_not_called()
 
- def test_loop_activates_before_recovery(self):
-  # Activation moved from import to the archiver thread: first the share is checked (and logged), then recovery.
+ def test_activation_waits_until_first_cycle(self):
+  # Starting the scheduler never recovers or deletes immediately; the first scheduled/manual cycle activates.
   archiver=self.archiver(interval_seconds=60);order=[]
   stop=server.threading.Event();stop.set()
-  with patch.object(server,'cleanup_stop',stop),patch.object(self.store,'activate',side_effect=lambda:order.append('activate')),       patch.object(archiver,'recover_startup',side_effect=lambda:order.append('recover')),patch.object(self.store,'available',return_value=False),       patch.object(self.store,'reason',return_value='sentinel_missing'),patch.object(server.app.logger,'warning') as warning:
+  with patch.object(server,'cleanup_stop',stop),patch.object(archiver,'activate',side_effect=lambda:order.append('activate')),patch.object(archiver,'_cycle',side_effect=lambda result:order.append('cycle')):
    archiver.start();archiver.thread.join(5)
-  self.assertEqual(order,['activate','recover'])
-  warning.assert_called_once_with('Video archive is not connected: %s','sentinel_missing')
-  # A failing activation is logged and recovery still runs.
-  archiver=self.archiver(interval_seconds=60);order.clear()
-  with patch.object(server,'cleanup_stop',stop),patch.object(self.store,'activate',side_effect=OSError('hung')),       patch.object(archiver,'recover_startup',side_effect=lambda:order.append('recover')),patch.object(server.app.logger,'exception') as logged:
-   archiver.start();archiver.thread.join(5)
-  self.assertEqual(order,['recover']);logged.assert_called_once_with('Archive activation failed')
+   self.assertEqual(order,[])
+   archiver.run_cycle();archiver.run_cycle()
+  self.assertEqual(order,['activate','cycle','cycle'])
 
  # Inconclusive signals from the share (a lookup that misses, a stale handle, a share lost mid-check) never
  # record a file as removed or corrupt: only cleanup's recorded intent confirms a removal.

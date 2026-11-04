@@ -280,7 +280,7 @@ class GdriveSettingsTests(unittest.TestCase):
 
     def test_sign_in_works_with_archiving_off(self):
         # archive_backend: gdrive with archive_enabled false: the account can be connected, checked and disconnected,
-        # but nothing is ever copied or moved (a manual run is refused, a cycle stops, no thread starts).
+        # but nothing is ever copied or moved (a manual run is refused, a cycle stops, the scheduler waits).
         self.make_backend(enabled=False, mode='move', allow_local_delete=True)
         p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100})
         before = (p / 'meta.json').read_bytes()
@@ -301,7 +301,10 @@ class GdriveSettingsTests(unittest.TestCase):
         r = self.post('/api/settings/archive/run')
         self.assertEqual((r.status_code, r.json['error']), (409, 'archive_disabled'))
         self.assertEqual(self.archiver.run_cycle()['stopped'], 'disabled')
-        self.archiver.start(); self.assertIsNone(self.archiver.thread)
+        stop = threading.Event()
+        with patch.object(server, 'cleanup_stop', stop), patch.object(self.archiver, 'activate') as activate:
+            self.archiver.start(); self.assertTrue(self.archiver.thread.is_alive())
+            stop.set(); self.archiver.thread.join(5); activate.assert_not_called()
         self.assertEqual(self.backend.probe(), ('disabled', None))
         self.assertEqual(self.requests('/upload'), [])
         with self.drive.lock: self.assertEqual([f for f in self.drive.files.values() if f['mimeType'] != ab.FOLDER_MIME], [])

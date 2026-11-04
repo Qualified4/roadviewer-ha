@@ -589,6 +589,8 @@ class Archiver:
         self.remote_copies_total, self.last_auth_error = 0, None
         self.cycle = threading.Lock()  # One cycle (or recovery) at a time.
         self.thread = None
+        self.settings_changed = threading.Event()
+        self.needs_activation = False
         self.manual = None  # The latest manual run (start_cycle).
         self.running, self.last_cycle_at, self.last_error, self.consecutive_failures = False, None, None, 0
         self.archived_files_total, self.requeued_deferred, self.removed_files_total = 0, 0, 0
@@ -614,7 +616,8 @@ class Archiver:
                 'remote_copies_total': self.remote_copies_total, 'last_auth_error': self.last_auth_error}
 
     def start(self):
-        if not self.settings.enabled or self.thread: return
+        if self.thread: return
+        self.needs_activation = True
         self.thread = threading.Thread(target=self._loop, name='archiver', daemon=True)
         self.thread.start()
 
@@ -629,15 +632,16 @@ class Archiver:
         if not self.store.available(): self.server.app.logger.warning('Video archive is not connected: %s', self.store.reason())
 
     def _loop(self):
-        # Activation and recovery run here rather than at import: a hung mount or hashing copies on a
-        # slow share must not delay startup.
-        try: self.activate()
-        except Exception: self.server.app.logger.exception('Archive activation failed')
-        try: self.recover_startup()
-        except Exception: self.server.app.logger.exception('Archive recovery failed')
-        while not self.server.cleanup_stop.wait(self.settings.interval_seconds):
+        # Startup and each settings save wait a full interval, including recovery (which can delete files).
+        deadline = time.monotonic() + self.settings.interval_seconds
+        while not self.server.cleanup_stop.wait(min(1, max(0, deadline - time.monotonic()))):
+            if self.settings_changed.is_set():
+                self.settings_changed.clear()
+                deadline = time.monotonic() + self.settings.interval_seconds
+            if time.monotonic() < deadline: continue
             try: self.run_cycle()
             except Exception: self.server.app.logger.exception('Archive cycle failed')
+            deadline = time.monotonic() + self.settings.interval_seconds
 
     def run_cycle(self):
         result = {'archived': 0, 'bytes': 0, 'stopped': None}
@@ -667,7 +671,13 @@ class Archiver:
         # Caller holds self.cycle; it is released here.
         result = {'archived': 0, 'bytes': 0, 'stopped': None}
         try:
+            if not self.settings.enabled: return {**result, 'stopped': 'disabled'}
+            # A save racing the timer gets a full new interval, even if the old deadline just expired.
+            if threading.current_thread() is self.thread and self.settings_changed.is_set(): return result
             self.running = True
+            if self.needs_activation:
+                self.activate()
+                self.needs_activation = False
             result['stopped'] = self._cycle(result)
         finally:
             self.running = False

@@ -27,6 +27,7 @@ const gdriveAuthText=code=>GDRIVE_AUTH_ERRORS[code]||`인증 오류 (${code})`;
 const gdriveRequestError=e=>e.code==='gdrive_auth_failed'?gdriveAuthText(e.reason||e.code):GDRIVE_REQUEST_ERRORS[e.code]||e.message;
 let gdriveTimer=null,gdriveTick=0,gdriveExpires=0,gdriveBusy=false,gdriveFetching=false,gdriveGeneration=0,gdriveState=null,gdriveSkew=null,gdriveDeadline=null,gdriveShownCode='';
 function showArchive(a){
+ if(a?.settings_error)$('archiveSettingsStatus').textContent='아카이빙 설정을 읽지 못해 꺼졌습니다. 설정을 확인하고 저장하세요. ('+a.settings_error+')';
  // Archiving off: the panel keeps exactly its four local metrics. The share's path is never shown.
  for(const row of document.querySelectorAll('#storageUsage>.archive-metric'))row.remove();
  $('archiveRun')?.remove();
@@ -161,8 +162,44 @@ async function runArchive(){
 }
 storageDetails.addEventListener('toggle',async()=>{
  if(!storageDetails.open)return;
+ void loadArchiveSettings();
  try{const s=await api('api/settings/storage');showStorage(s);const gb=s.max_bytes/1073741824;$('storageLimit').value=[0,10,20,50,100].includes(gb)?String(gb):'custom';$('storageCustom').value=gb||10;$('storageCustomLabel').hidden=$('storageLimit').value!=='custom';$('storagePolicy').value=s.policy;for(const id of ['storageLimit','storagePolicy'])$(id).dispatchEvent(new Event('rv:sync'));$('storageSave').disabled=false}catch(e){$('storageStatus').textContent=e.message}
 });
+const archiveForm=$('archiveForm');
+function archiveFields(){
+ const drive=archiveForm.elements.archive_backend.value==='gdrive',move=archiveForm.elements.archive_mode.value==='move',remove=archiveForm.elements.archive_allow_local_delete.checked;
+ for(const label of archiveForm.querySelectorAll('[data-archive-backend]')){
+  label.hidden=(label.dataset.archiveBackend==='gdrive')!==drive;
+  // Hidden inputs retain their values, but do not block the visible form's native validation.
+  for(const input of label.querySelectorAll('input'))input.disabled=label.hidden;
+ }
+ const warning=drive?(move?(remove?'이동 모드 + 로컬 원본 삭제 허용: Google Drive에 검증된 사본이 생기면 이 기기의 원본이 삭제됩니다':'로컬 원본 삭제를 허용하지 않아 COPY로 동작합니다.'):'복제(COPY): 로컬 원본을 유지합니다.'):'NAS는 모드 선택과 관계없이 항상 이동(MOVE)하며, 검증 후 로컬 원본을 삭제합니다.';
+ $('archiveWarning').textContent=warning;$('archiveWarning').className=drive&&move&&remove?'archive-mode archive-warning':'archive-mode';
+}
+function showArchiveSettings(data){
+ for(const field of archiveForm.querySelectorAll('[name]')){
+  if(!(field.name in data))continue;
+  if(field.type==='checkbox')field.checked=data[field.name];else field.value=String(data[field.name]);
+  field.dispatchEvent(new Event('rv:sync'));
+ }
+ archiveFields();$('archiveSave').disabled=false;
+ $('archiveSettingsStatus').textContent=data.settings_error?'아카이빙 설정을 읽지 못해 꺼졌습니다. 설정을 확인하고 저장하세요. ('+data.settings_error+')':'';
+}
+async function loadArchiveSettings(){
+ try{showArchiveSettings(await api('api/settings/archive'))}catch(e){$('archiveSettingsStatus').textContent=e.message}
+}
+archiveForm.addEventListener('change',archiveFields);
+archiveForm.onsubmit=async e=>{
+ e.preventDefault();const data={};
+ for(const field of archiveForm.querySelectorAll('[name]'))data[field.name]=field.type==='checkbox'?field.checked:field.type==='number'?Number(field.value):field.value;
+ $('archiveSave').disabled=true;
+ try{
+  showArchiveSettings(await settingsRequest('api/settings/archive',data));
+  showStorage(await api('api/settings/storage'));
+  $('archiveSettingsStatus').textContent='저장했습니다. 재시작 없이 적용되었습니다.';
+ }catch(e){$('archiveSettingsStatus').textContent=e.code==='archive_running'?'아카이빙이 실행 중입니다. 완료 후 저장하세요.':e.message}
+ finally{$('archiveSave').disabled=false}
+};
 $('storageLimit').onchange=()=>{$('storageCustomLabel').hidden=$('storageLimit').value!=='custom'};
 $('storageForm').onsubmit=async e=>{
  e.preventDefault();const gb=Number($('storageLimit').value==='custom'?$('storageCustom').value:$('storageLimit').value),bytes=Math.round(gb*1073741824);
