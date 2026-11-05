@@ -103,7 +103,7 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    if(!reduced)assert(await page.locator('#bulkDialog').evaluate(d=>!d.open&&getComputedStyle(d).display!=='none'),'closing dialog animates out');
    await page.locator('#bulkDialog').waitFor({state:'hidden'});
    // The tapped log name is handed to the replay page for the page transition.
-   await page.locator('a.replay').click();await page.waitForURL(/view\/two\//);
+   await page.locator('.log-row a.replay').click();await page.waitForURL(/view\/two\//);
    await page.waitForFunction(()=>typeof data!=='undefined'&&data);
    logs=[{...logs[0],id:'newer',name:'00000395--0d0eda17c5 / 구간 9'},logs[0],{...logs[0],id:'older',name:'00000396--0d0eda17c5 / 구간 0'}];
    await page.evaluate(()=>loadLogNavigation());
@@ -142,7 +142,7 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     await page.locator('#previousLog').click();await page.waitForURL('**/view/older/');
     await page.waitForFunction(()=>typeof data!=='undefined'&&data);
     await page.locator('.back').click();await page.waitForURL('https://rv.test/');
-    await page.locator('a.replay').first().click();await page.waitForURL('**/view/newer/');
+    await page.locator('.log-row a.replay').first().click();await page.waitForURL('**/view/newer/');
     await page.waitForFunction(()=>typeof data!=='undefined'&&data);
     assert.equal(await page.evaluate(()=>sessionStorage.getItem('snapshot-navigation')),null,'touch page navigation never uses snapshots');
     // Even before external CSS is available, a newly loaded document has an opaque dark canvas.

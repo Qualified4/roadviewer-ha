@@ -4,6 +4,13 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.8
+
+- Keep route-header buttons visible in both fold states. The header height and button elements stay stable while only the segment list expands/collapses, and rapid reversals continue from the current height.
+- Prevent row-insertion effects from replaying on expansion. Changes to another segment’s processing state no longer replace header buttons unnecessarily, preserving focus and avoiding flicker.
+- Distinguish pins using icons only: yellow background and pin for all pinned, a yellow pin without highlighted background for partial pins, and a neutral pin for none. Remove the tiny partial label while preserving counts in accessible labels and tooltips.
+- Preserve per-segment playback, pins, conversion, and downloads, and strengthen browser regression coverage. No log analysis or video reconversion is required.
+
 ## 0.13.7
 
 - Group stored segments by full route ID with collapsible sections. The first segment’s upload date/time and segment count stay visible when collapsed; the browser remembers fold state.

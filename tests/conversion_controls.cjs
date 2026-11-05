@@ -30,12 +30,12 @@ async function checkRemovalRefresh(browser){
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
   try{
-   await page.goto('https://rv.test/');await page.locator('.replay').waitFor();assert(await page.locator('.pin-badge').isVisible());
+   await page.goto('https://rv.test/');await page.locator('.log-row .replay').waitFor();assert(await page.locator('.pin-badge').isVisible());
    if(scenario==='stale'){holdNext=true;await page.evaluate(()=>{void refresh()});await staleSeen.promise}
    const postRemovalRead=page.waitForRequest(r=>new URL(r.url()).pathname==='/api/logs'&&removed>0,{timeout:2000});
    await page.locator('.recording-more>summary').click();await page.getByRole('button',{name:'제거',exact:true}).click();
    await postRemovalRead;await freshSeen.promise;
-   await page.getByRole('button',{name:'변환',exact:true}).waitFor({timeout:2000});
+   await page.locator('.log-row').getByRole('button',{name:'변환',exact:true}).waitFor({timeout:2000});
    assert.equal(removed,1);assert.equal(await page.locator('.replay').count(),0,scenario+': successful removal immediately removes the replay action');
    assert((await page.locator('.state').textContent()).includes('수동 변환 필요'));assert(await page.locator('.pin-badge').isVisible());
    if(scenario==='stale'){
@@ -92,13 +92,13 @@ async function checkRemovalRefresh(browser){
   assert.equal(await guide.locator('#autoConvert, #concurrency').count(),2);
   assert.equal(await page.locator('#keepOriginalVideo').count(),0);
   assert((await guide.textContent()).includes('재압축 없이 MP4'));
-  page.on('dialog',d=>d.accept());await more.click();await page.getByRole('button',{name:'제거',exact:true}).click();await page.getByRole('button',{name:'변환',exact:true}).waitFor();assert.equal(removed,1);assert.equal(await page.locator('.replay').count(),0);assert((await page.locator('.state').textContent()).includes('수동 변환 필요'));
+  page.on('dialog',d=>d.accept());await more.click();await page.getByRole('button',{name:'제거',exact:true}).click();await page.locator('.log-row').getByRole('button',{name:'변환',exact:true}).waitFor();assert.equal(removed,1);assert.equal(await page.locator('.replay').count(),0);assert((await page.locator('.state').textContent()).includes('수동 변환 필요'));
   await more.click();assert.equal(await page.getByRole('button',{name:'제거',exact:true}).count(),0);assert(await page.getByRole('button',{name:'완전 삭제',exact:true}).isVisible());
-  await page.keyboard.press('Escape');await page.getByRole('button',{name:'변환',exact:true}).click();await page.getByRole('button',{name:'대기 중',exact:true}).waitFor();assert.equal(converted,1);assert(await page.getByRole('button',{name:'대기 중',exact:true}).isDisabled());
-  await more.click();assert(await page.getByRole('button',{name:'제거',exact:true}).isEnabled());await page.getByRole('button',{name:'제거',exact:true}).click();await page.getByRole('button',{name:'변환',exact:true}).waitFor();assert.equal(removed,2,'queued conversion can be cancelled from the menu');
-  status='processing';await page.evaluate(()=>refresh());assert(await page.getByRole('button',{name:'처리 중',exact:true}).isDisabled());
-  status='error';await page.evaluate(()=>refresh());assert(await page.getByRole('button',{name:'변환',exact:true}).isEnabled());
-  status='ready';await page.evaluate(()=>refresh());await more.click();assert(await page.getByRole('button',{name:'제거',exact:true}).isEnabled());assert(await page.getByRole('link',{name:'재생',exact:true}).isVisible());
+  await page.keyboard.press('Escape');await page.locator('.log-row').getByRole('button',{name:'변환',exact:true}).click();await page.locator('.log-row').getByRole('button',{name:'대기 중',exact:true}).waitFor();assert.equal(converted,1);assert(await page.locator('.log-row').getByRole('button',{name:'대기 중',exact:true}).isDisabled());
+  await more.click();assert(await page.getByRole('button',{name:'제거',exact:true}).isEnabled());await page.getByRole('button',{name:'제거',exact:true}).click();await page.locator('.log-row').getByRole('button',{name:'변환',exact:true}).waitFor();assert.equal(removed,2,'queued conversion can be cancelled from the menu');
+  status='processing';await page.evaluate(()=>refresh());assert(await page.locator('.log-row').getByRole('button',{name:'처리 중',exact:true}).isDisabled());
+  status='error';await page.evaluate(()=>refresh());assert(await page.locator('.log-row').getByRole('button',{name:'변환',exact:true}).isEnabled());
+  status='ready';await page.evaluate(()=>refresh());await more.click();assert(await page.getByRole('button',{name:'제거',exact:true}).isEnabled());assert(await page.locator('.log-row').getByRole('link',{name:'재생',exact:true}).isVisible());
   for(const width of [320,390,1280]){await page.setViewportSize({width,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const box=await page.locator('.recording-menu').boundingBox();assert(box.x>=0&&box.x+box.width<=width);}
   await page.getByRole('button',{name:'완전 삭제',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.log-row').length===0);assert.equal(deleted,1);assert.deepEqual(errors,[]);
   await checkRemovalRefresh(browser);

@@ -44,11 +44,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await page.evaluate(()=>savedProcessingRow===document.querySelector('.log-row')));
   assert.equal(await page.locator('.state-processing').first().textContent(),'영상 패킷 검증 중 · 79%');
   logs[0].status='ready';await page.evaluate(()=>refresh());
-  await page.evaluate(()=>window.savedReplay=document.querySelector('.replay'));
-  await page.evaluate(()=>refresh());assert(await page.evaluate(()=>savedReplay===document.querySelector('.replay')));
+  await page.evaluate(()=>window.savedReplay=document.querySelector('.log-row .replay'));
+  await page.evaluate(()=>refresh());assert(await page.evaluate(()=>savedReplay===document.querySelector('.log-row .replay')));
   // Another row finishing must not replace this row's replay link during a click.
-  await page.locator('.replay').hover();await page.mouse.down();
-  logs[1].status='ready';await page.evaluate(()=>refresh());assert(await page.evaluate(()=>savedReplay===document.querySelector('.replay')));
+  await page.locator('.log-row .replay').hover();await page.mouse.down();
+  logs[1].status='ready';await page.evaluate(()=>refresh());assert(await page.evaluate(()=>savedReplay===document.querySelector('.log-row .replay')));
   await page.mouse.up();await page.waitForURL('**/view/one/');
   await page.waitForFunction(()=>document.getElementById('status').textContent.includes('로그 준비 중'));
   assert(await page.locator('#play').isDisabled());

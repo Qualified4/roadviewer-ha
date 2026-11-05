@@ -32,7 +32,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const name=p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/png'});
   });
-  await page.goto('https://rv.test/');await page.waitForSelector('.log-row');
+  await page.goto('https://rv.test/');await page.waitForSelector('.log-row');await page.evaluate(()=>document.fonts.ready);
   // Full route IDs group segments without merging equal shortened counters with different hashes.
   const group=page.locator('.log-route[data-route="00000395--0d0eda17c5"]'),summary=group.locator(':scope>summary');
   assert.equal(await page.locator('.log-route').count(),2);
@@ -40,17 +40,44 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await group.locator('.log-route-count').textContent(),'2개 구간');
   const firstDate=await page.evaluate(time=>new Date(time*1000).toLocaleString(),logs[0].uploaded);
   assert.equal(await group.locator('.log-route-first').textContent(),'첫 구간 7 · 업로드 '+firstDate);
-  await page.evaluate(()=>{window.originalGroupedRow=document.querySelector('.log-row[data-id="one"]');window.originalGroupedState=originalGroupedRow.querySelector('.state')});
+  await page.evaluate(()=>{window.originalGroupedRow=document.querySelector('.log-row[data-id="one"]');window.originalGroupedState=originalGroupedRow.querySelector('.state');window.originalHeaderButtons=document.querySelector('.log-route-actions .actions');window.originalHeaderHeight=document.querySelector('.log-route>summary').getBoundingClientRect().height});
+  logs[1].status='processing';await page.evaluate(()=>refresh());
+  assert(await page.evaluate(()=>originalHeaderButtons===document.querySelector('.log-route-actions .actions')),'another segment changing status does not replace the header buttons');
+  logs[1].status='ready';await page.evaluate(()=>refresh());
   await summary.focus();await page.keyboard.press('Enter');
   await page.waitForFunction(()=>!document.querySelector('.log-route').open);
   assert(await group.locator('.log-row').first().isHidden());
+  assert(await page.evaluate(()=>originalHeaderButtons===document.querySelector('.log-route-actions .actions')),'folding never destroys the header buttons');
+  assert(await page.evaluate(()=>Math.abs(originalHeaderHeight-document.querySelector('.log-route>summary').getBoundingClientRect().height)<1),'header height stays fixed across fold states');
+  const midpoint=await page.evaluate(async()=>{
+   const root=document.querySelector('.log-route'),closed=root.getBoundingClientRect().height;
+   root.querySelector('.log-route-name').click();
+   const animation=root.getAnimations().find(a=>a.effect.getKeyframes().some(frame=>'height' in frame));
+   await animation.ready;animation.pause();animation.currentTime=125;
+   await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+   return {closed,height:root.getBoundingClientRect().height,full:root.getAnimations().find(a=>a===animation).effect.getKeyframes().at(-1).height};
+  });
+  assert(midpoint.height>midpoint.closed&&midpoint.height<parseFloat(midpoint.full),'only the segment body expands through intermediate heights');
+  assert(await page.evaluate(()=>originalHeaderButtons===document.querySelector('.log-route-actions .actions')&&Math.abs(originalHeaderHeight-document.querySelector('.log-route>summary').getBoundingClientRect().height)<1),'mid-animation header buttons and geometry remain stable');
+  const reversal=await page.evaluate(()=>{const root=document.querySelector('.log-route'),before=root.getBoundingClientRect().height;root.querySelector('.log-route-name').click();return Math.abs(before-root.getBoundingClientRect().height)});
+  assert(reversal<1,'rapid reversal continues from the current height');
+  await page.waitForFunction(()=>!document.querySelector('.log-route').open&&!document.querySelector('.log-route')._foldAnimation);
+
   const headerActions=group.locator(':scope>summary .log-route-actions');
   assert.equal(await headerActions.locator('.replay').getAttribute('href'),'view/one/');
-  assert.equal(await page.locator('.replay').count(),4,'segment controls remain in their rows while the route has its own header action');
+  assert.equal(await page.locator('.replay').count(),5,'both route headers retain their own action alongside segment rows');
   assert.equal(await headerActions.locator('.pin-recording').getAttribute('aria-pressed'),'mixed');
+  assert.equal(await headerActions.locator('.pin-partial').count(),0,'all pin states are icon-only');
+  assert.equal(await headerActions.locator('.pin-recording').getAttribute('title'),'1/2개 구간 고정됨 · 전체 구간 고정');
+  const partialColor=await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).color);
+  const partialBackground=await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).backgroundColor);
+  assert.equal(await headerActions.locator('.pin-head').evaluate(e=>getComputedStyle(e).fill),'none','partial state is not a filled pin');
   await headerActions.locator('.pin-recording').tap();
   await page.waitForFunction(()=>document.querySelector('.log-route-actions .pin-recording')?.getAttribute('aria-pressed')==='true');
   assert.deepEqual(mutations,[['two','pin']],'partial pin adds protection only to the remaining segment');
+  assert.equal(await headerActions.locator('.pin-partial').count(),0);
+  assert.equal(await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).color),partialColor,'partial and full both use the yellow pin');
+  assert.notEqual(await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).backgroundColor),partialBackground,'only all-pinned has the yellow background');
   assert(logs[0].pinned&&logs[1].pinned&&!logs[2].pinned,'a different route with the same displayed number is untouched');
   assert.equal(await group.getAttribute('open'),null,'pin does not unfold the route');
   // Partial failures retain acknowledged pin changes and never claim all segments were updated.
@@ -63,6 +90,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await headerActions.locator('.pin-recording').tap();
   await page.waitForFunction(()=>document.querySelector('.log-route-actions .pin-recording')?.getAttribute('aria-pressed')==='false');
   assert(logs.every(log=>!log.pinned),'a fully pinned route toggles to fully unpinned');
+  assert.notEqual(await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).color),partialColor,'unpinned uses a neutral pin');
+  assert.equal(await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).backgroundColor),partialBackground,'unpinned and partial have the same neutral background');
+  assert.equal(await headerActions.locator('.pin-partial').count(),0,'unpinned state has no partial label');
   assert(mutations.every(([id,action])=>id!=='other'&&action==='pin'));
   assert.equal(await headerActions.locator('.recording-more').count(),0,'the route uses a direct download button instead of a menu');
   await page.evaluate(()=>refresh());
@@ -97,7 +127,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await group.getAttribute('open'),null,'fold state survives reload');
   await summary.locator('.log-route-name').tap();await page.waitForFunction(()=>document.querySelector('.log-route').open&&!document.querySelector('.log-route')._foldAnimation);
   assert(await group.locator('.log-row').first().isVisible());
-  assert.equal(await headerActions.locator('.actions').count(),0,'expanding hides route controls and keeps segment-specific buttons');
+  assert.equal(await headerActions.locator('.actions').count(),1,'expanding keeps route controls and segment-specific buttons');
+  assert(await group.locator('.log-row').first().evaluate(e=>e.classList.contains('is-update')),'expanding does not replay row-insertion effects');
   assert.equal(await group.locator('.log-row[data-id="one"] .replay').count(),1);
   const rowPin=group.locator('.log-row[data-id="one"] .pin-recording');
   await rowPin.tap();await page.waitForFunction(()=>document.querySelector('.log-row[data-id="one"] .pin-recording')?.getAttribute('aria-pressed')==='true');
@@ -150,6 +181,6 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('#foldHeading').getAttribute('aria-expanded'),expanded,'tag edit must not fold heading');
   assert(await page.locator('dialog[open]').count()>0,'tag editor opens');
   assert.equal(await page.evaluate(()=>copied.length),2);assert.deepEqual(errors,[]);
-  console.log('PASS: route grouping, first-segment upload dates, persistent keyboard/touch disclosure, collapsed playback, whole-route pins/partial-failure recovery/direct download/compact controls, independent row management, polling DOM stability, filtering, responsive headers, shortened names, original copy, leading zero/text cases, clipboard fallback/error, replay copy over fold control and unchanged route grouping');
+  console.log('PASS: route grouping, first-segment upload dates, persistent keyboard/touch disclosure with stable header controls, smooth height/reversal, collapsed playback, whole-route pins/partial-failure recovery/direct download/compact controls, independent row management, polling DOM stability, filtering, responsive headers, shortened names, original copy, leading zero/text cases, clipboard fallback/error, replay copy over fold control and unchanged route grouping');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});
