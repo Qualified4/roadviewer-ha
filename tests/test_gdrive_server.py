@@ -105,7 +105,7 @@ class GdriveServerTests(unittest.TestCase):
         # No Content-Length on playback ranges (Content-Range has the size): Ingress would buffer a short one whole.
         self.assertEqual((r.headers['Content-Range'], r.headers.get('Content-Length'), r.headers['Accept-Ranges']), (f'bytes 10-99/{len(video)}', None, 'bytes'))
         # The browser may keep played ranges (private cache only), so a seek back does not go to Google again.
-        self.assertEqual(r.headers['Cache-Control'], 'private, max-age=86400'); self.assertTrue(r.headers['ETag'])
+        self.assertEqual(r.headers['Cache-Control'], 'private, max-age=3600'); self.assertTrue(r.headers['ETag'])
         self.assertEqual(r.mimetype, 'video/mp4')
         self.assertEqual(r.data, video[10:100])
         # The browser's range is the one asked of Drive: nothing beyond it is downloaded.

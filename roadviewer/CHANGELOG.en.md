@@ -4,6 +4,10 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.14
+
+- Google Drive playback responses now stay in the browser's private cache for one hour instead of a day. Seeks into ranges received while watching stay immediate; after an hour they come from Drive again.
+
 ## 0.13.13
 
 - Fixed seeks in Google Drive videos waiting seconds even into ranges the seek bar shows as loaded (grey). Chromium-based browsers (Whale, Samsung Internet and others) drop played ranges from memory but keep showing them, and the Drive video response forbade the browser cache (no-store), so each such seek went back to Google. Playback responses may now stay in the browser's private cache for a day, so seeks into ranges already received are immediate. Downloads are still never cached.

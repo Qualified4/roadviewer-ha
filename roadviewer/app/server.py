@@ -204,7 +204,7 @@ def remote_response(rf,mimetype,as_attachment=False,name=None):
  response.headers['ETag']='"'+hashlib.sha256(rf.etag.encode()).hexdigest()[:32]+'"'
  # Playback may be kept in the browser's own cache (the ETag names this exact copy): Chromium drops played ranges from
  # memory while its seek bar still shows them as loaded, and only its HTTP cache lets a seek back there skip Google.
- response.headers['Cache-Control']='no-store' if as_attachment else 'private, max-age=86400'
+ response.headers['Cache-Control']='no-store' if as_attachment else 'private, max-age=3600'
  if as_attachment:attachment(response,name)
  return response
 
