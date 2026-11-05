@@ -1,6 +1,7 @@
 from pathlib import Path,PurePosixPath
 import gzip,hashlib,unicodedata,math,zipfile
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
+import playback_cache
 from collections import Counter
 from progress import ProgressChannel
 from work_queue import ProcessingQueue
@@ -180,6 +181,9 @@ RANGE=re.compile(r'bytes=(\d*)-(\d*)')
 # Playback asks for open ranges (bytes=N-). Answering each with at most this much keeps a request the browser
 # dropped on a seek from streaming the rest of the file from Google while it holds one of the server's threads.
 PLAYBACK_RANGE=16*2**20  # Above the ~4 MB under which Home Assistant Ingress buffers a whole response before sending it.
+# Remote videos being watched are copied to a scratch folder (playback_cache.py); outside /data, emptied on start.
+PLAYBACK_DIR=os.environ.get('RV_PLAYBACK_CACHE') or (tempfile.gettempdir()+'/roadviewer-playback' if ROOT==Path('/data/roadviewer') else str(ROOT)+'-playback')
+playback=playback_cache.PlaybackCache(PLAYBACK_DIR)
 def remote_response(rf,mimetype,as_attachment=False,name=None):
  # A file only the remote backend has, served like send_file serves a local one, with one byte range at most.
  size=rf.size;header=request.headers.get('Range');start,end=0,size-1
@@ -193,7 +197,14 @@ def remote_response(rf,mimetype,as_attachment=False,name=None):
    response.headers['Content-Range']=f'bytes */{size}';response.headers['Cache-Control']='no-store'
    return response
  partial=header is not None
- body=remote_chunks(rf,start,end) if partial else remote_chunks(rf)
+ body=None
+ if not as_attachment:
+  # Playback: the part of the local copy already written answers at once (an open range is shortened to it);
+  # the copy of the whole file starts with the first request.
+  local=playback.local_range(rf.ref,start,end) if partial else None
+  if local and (local[1]==end or not (match and match[2])):body=playback.blocks(local[0],start,local[1]);end=local[1]
+  source=backend;playback.ensure(rf.ref,rf.size,lambda:source.open(rf.ref))
+ if body is None:body=remote_chunks(rf,start,end) if partial else remote_chunks(rf)
  response=app.response_class(body,status=206 if partial else 200,mimetype=mimetype,direct_passthrough=True)
  response.headers['Accept-Ranges']='bytes'
  # Playback has no Content-Length (Content-Range carries the size): Ingress buffers a response it knows is under

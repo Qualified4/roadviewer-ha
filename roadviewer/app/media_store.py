@@ -344,8 +344,10 @@ def _resolve_remote(block, backend_kind, kind, backend, corrupt):
     # files are dynamic states.
     # Only the backend the file was stored with can answer for it (another kind may be active after a switch).
     if backend is None or getattr(getattr(backend, 'caps', None), 'kind', None) != backend_kind: return None, 'storage_unavailable'
-    # Playback and downloads wait for a probe another request started rather than failing on first entry.
-    state = (backend.probe(wait=True) if getattr(backend, 'probe_waits', False) else backend.probe())[0]
+    # Playback and downloads trust a recent 'connected' and otherwise wait for a probe another request started
+    # rather than failing on first entry.
+    reader = getattr(backend, 'read_state', None)
+    state = (reader() if reader else backend.probe())[0]
     if state == 'checking': return None, 'checking'
     if state != 'connected': return None, 'storage_unavailable'
     from archive_backends import BackendError, RemoteRef  # archive_backends imports this module.
