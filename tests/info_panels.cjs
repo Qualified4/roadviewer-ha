@@ -28,8 +28,17 @@ const {settleLayout}=require('./browser-helpers.cjs');
     const box=selector=>{const r=el.querySelector(selector).getBoundingClientRect();return {left:r.left,top:r.top,bottom:r.bottom,width:r.width}};
     return {local:box('.storage-local'),archive:box('.storage-archive'),connection:box('.gdrive-panel'),bottom:el.getBoundingClientRect().bottom};
    });
-   assert(cards.connection.left>=cards.local.left&&cards.connection.left+cards.connection.width<=cards.local.left+cards.local.width,'connection is grouped within local storage '+width);
-   assert(cards.connection.bottom<=cards.local.bottom,'connection does not create a separate empty grid row '+width);
+   assert(cards.connection.left>=cards.archive.left&&cards.connection.left+cards.connection.width<=cards.archive.left+cards.archive.width&&cards.connection.top>=cards.archive.top&&cards.connection.bottom<=cards.archive.bottom,'the Drive account is grouped within the Drive card '+width);
+   // Opening the run details moves nothing in the local card and lays its figures out on one grid.
+   const before=await page.locator('.storage-local').evaluate(el=>[...el.querySelectorAll('dd,#storageMeter')].map(n=>n.getBoundingClientRect().top-el.getBoundingClientRect().top));
+   await page.locator('#archiveHealth>summary').click();await settleLayout(page,'#storageSettings');
+   assert.deepEqual(await page.locator('.storage-local').evaluate(el=>[...el.querySelectorAll('dd,#storageMeter')].map(n=>n.getBoundingClientRect().top-el.getBoundingClientRect().top)),before,'local card content stays put '+width);
+   const details=await page.locator('#archiveSecondaryUsage>div').evaluateAll(rows=>rows.map(r=>({kind:r.dataset.kind,top:r.getBoundingClientRect().top,width:r.getBoundingClientRect().width,full:r.parentElement.getBoundingClientRect().width})));
+   const figures=details.filter(d=>['copies','errors'].includes(d.kind)),rows=details.filter(d=>['updated','result'].includes(d.kind));
+   assert(figures.every(d=>Math.abs(d.top-figures[0].top)<1&&Math.abs(d.width-figures[0].width)<1),'copy figures share one row of equal columns '+width);
+   assert(rows.length===2&&rows.every(d=>Math.abs(d.width-d.full)<1),'time and result span the details '+width);
+   assert(await page.locator('#storageSettings').evaluate(el=>el.scrollWidth<=el.clientWidth),'open details do not overflow '+width);
+   await page.locator('#archiveHealth>summary').click();await settleLayout(page,'#storageSettings');
    if(width>=1100){
     assert(Math.abs(cards.archive.top-cards.local.top)<1,'remote storage stays aligned with local storage '+width);
     assert(Math.abs(cards.archive.bottom-cards.local.bottom)<1,'desktop storage cards have matching heights '+width);

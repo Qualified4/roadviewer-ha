@@ -84,12 +84,15 @@ function gdrivePanel(){
  const actions=el('div',{className:'gdrive-actions'}),connect=el('button',{id:'gdriveConnect',type:'button',textContent:'Google Drive 연결'}),disconnect=el('button',{id:'gdriveDisconnect',type:'button',textContent:'연결 해제',hidden:true});
  connect.onclick=()=>gdriveRequest('connect');disconnect.onclick=()=>gdriveRequest('disconnect');
  actions.append(connect,disconnect);
- panel.append(el('p',{id:'gdriveArchiveOff',className:'archive-mode',textContent:GDRIVE_ARCHIVE_OFF,hidden:true}),el('p',{id:'gdriveAccount',className:'archive-mode',hidden:true}),el('p',{id:'archiveMode',className:'archive-mode'}),el('p',{id:'gdriveSetup',className:'gdrive-setup',textContent:GDRIVE_SETUP,hidden:true}),el('p',{id:'gdriveAuthError',className:'gdrive-auth-error',hidden:true}),code,actions,status);
- document.querySelector('.storage-local').append(panel);
+ panel.append(el('h4',{id:'gdriveHeading',className:'gdrive-heading',textContent:'Google Drive',hidden:true}),el('p',{id:'gdriveArchiveOff',className:'archive-mode',textContent:GDRIVE_ARCHIVE_OFF,hidden:true}),el('p',{id:'gdriveAccount',className:'archive-mode',hidden:true}),el('p',{id:'archiveMode',className:'archive-mode'}),el('p',{id:'gdriveSetup',className:'gdrive-setup',textContent:GDRIVE_SETUP,hidden:true}),el('p',{id:'gdriveAuthError',className:'gdrive-auth-error',hidden:true}),code,actions,status);
  return panel;
 }
 function showGdrive(a){
- gdrivePanel();
+ // The account belongs to Drive: with archiving on it sits in the Drive card above the run details; off, it is a card of its own.
+ const panel=gdrivePanel(),card=$('archiveSummary');
+ if(a.enabled){if(panel.parentElement!==card||panel.nextElementSibling!==$('archiveHealth'))card.insertBefore(panel,$('archiveHealth'))}
+ else if(panel.parentElement!==card.parentElement||panel.nextElementSibling)card.parentElement.append(panel);
+ $('gdriveHeading').hidden=!!a.enabled;
  const g=a.gdrive||{},pending=g.pending&&typeof g.pending==='object'?g.pending:null,move=(a.effective_mode||a.mode)==='move';
  gdriveState=g;
  // Archiving off: a note and the account's state instead of the mode (nothing is copied or moved).

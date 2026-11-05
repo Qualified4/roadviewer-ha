@@ -4,6 +4,10 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.10
+
+- In storage management, the Google Drive mode note and Disconnect button moved from the local storage card to the extended storage (Google Drive) card; with archiving off they form a Google Drive card of their own. Opening the run and copy details no longer shifts the local storage card, and its figures line up in equal columns and full-width rows.
+
 ## 0.13.9
 
 - Separate route headers from individual segments with distinct backgrounds, a top divider, indentation, and a vertical guide for the expanded list.
