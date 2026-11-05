@@ -4,6 +4,10 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.17
+
+- Phones and tablets now start on the small front video (qcamera) instead of the high-quality one (fcamera), to save mobile data. Desktops still start on the high-quality front, the selector below the video still switches at any time, and if qcamera cannot be read the high-quality front follows.
+
 ## 0.13.16
 
 - The Google Drive playback cache moved from a scratch folder on disk (up to 1 GB) to memory and now holds only the video being watched. Opening another video or camera drops the previous one at once, and it is freed after 10 minutes unwatched; files over 256 MB are not held and stream from Drive. Nothing is written to the Home Assistant host's storage any more, and seeks into the part already received stay quick.
