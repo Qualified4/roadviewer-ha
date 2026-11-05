@@ -142,6 +142,8 @@ async function waitForStorageRefresh(page,action){
   await page.waitForFunction(()=>document.getElementById('gdriveCode').hidden,null,{timeout:15000});
   await page.waitForFunction(()=>[...document.querySelectorAll('#storageUsage>div,#archiveUsage>div,#archiveSecondaryUsage>div')].some(row=>row.querySelector('dt').textContent==='Drive 상태'&&row.querySelector('dd').textContent==='연결됨'),null,{timeout:15000});
   assert(await page.locator('#gdriveDisconnect').isVisible());assert(await page.locator('#gdriveConnect').isHidden());assert(await page.locator('#gdriveAuthError').isHidden());
+  // The account and its disconnect button belong to the Drive card, not the local storage one.
+  assert(await page.locator('#archiveSummary > #gdrivePanel').isVisible());assert.equal(await page.locator('.storage-local #gdrivePanel').count(),0);assert(await page.locator('#gdriveHeading').isHidden());
   // Polling stops with the code gone.
   const settled=polls.length;await page.clock.runFor(3500);await settle(page);assert.equal(polls.length,settled,'no polling once nothing waits');
   assert(fs.existsSync(path.join(driveDir,'.gdrive-auth.json')));
@@ -202,6 +204,8 @@ async function waitForStorageRefresh(page,action){
   offPage.on('request',request=>{if(request.method()==='POST')offPosts.push(new URL(request.url()).pathname.replace('/api/hassio_ingress/test',''))});
   await offPage.goto(off.base);await offPage.locator('.log-row').first().waitFor();
   await offPage.locator('#storageSettings > summary').click();await offPage.locator('#gdrivePanel').waitFor();
+  // With archiving off the Drive card is hidden: the account is a card of its own, still outside local storage.
+  assert(await offPage.locator('.storage-overview > #gdrivePanel').isVisible());assert.equal(await offPage.locator('#gdriveHeading').textContent(),'Google Drive');assert(await offPage.locator('#gdriveHeading').isVisible());
   assert.deepEqual(await offPage.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약']);
   assert.equal(await offPage.locator('#archiveRun').count(),0);assert.equal(await offPage.locator('.archive-metric').count(),0);
   assert.equal(await offPage.locator('#gdriveArchiveOff').textContent(),'아카이빙이 꺼져 있습니다. 여기서는 Google Drive 계정 연결만 관리하며 파일은 복사하지 않습니다.');
