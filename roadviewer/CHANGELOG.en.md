@@ -4,6 +4,11 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.9
+
+- Separate route headers from individual segments with distinct backgrounds, a top divider, indentation, and a vertical guide for the expanded list.
+- Differentiate route and segment title sizes and refine row spacing. Preserve existing controls and folding on mobile, tablet, and desktop. No log analysis or video reconversion is required.
+
 ## 0.13.8
 
 - Keep route-header buttons visible in both fold states. The header height and button elements stay stable while only the segment list expands/collapses, and rapid reversals continue from the current height.
