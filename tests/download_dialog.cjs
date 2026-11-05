@@ -1,7 +1,7 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
 const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
- const browser=await chromium.launch({headless:true});
+ const browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
  try{
   const page=await browser.newPage({viewport:{width:1280,height:1000}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   const logs=[1,2].map(n=>({id:String(n).repeat(32),name:`0000041b--c6f39793a8--${n}`,files:{'rlog.zst':`0000041b--c6f39793a8--${n}--rlog.zst`},status:'ready',uploaded:1,bytes:87800000,prepared_bytes:1000000,video:true,log_bytes:10200000,duration:60,download_options:['front','wide','qcamera'].map((source,i)=>({source,mp4:true,original:true,bytes:[37800000,37500000,2300000][i]}))}));

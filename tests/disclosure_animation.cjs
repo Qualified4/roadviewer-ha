@@ -1,7 +1,7 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
 const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
- const browser=await chromium.launch({headless:true});
+ const browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
  try{
   const serve=route=>{
    const p=new URL(route.request().url()).pathname;

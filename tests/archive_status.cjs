@@ -38,7 +38,7 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
  let on,off,browser;
  try{
   on=await serve(onDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:true,archive_path:nas}),RV_ARCHIVE_ALLOW_ANY_PATH:'1'});
-  browser=await chromium.launch({headless:true});
+  browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
   const context=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'reduce'}),page=await context.newPage(),errors=[],runs=[];
   page.on('pageerror',error=>errors.push(error.message));
   page.on('response',response=>{if(response.url().endsWith('/api/settings/archive/run'))runs.push([response.request().method(),response.request().headers()['x-roadviewer-request'],response.status()])});

@@ -310,6 +310,25 @@ class DriveBackendTests(BackendTestCase):
     def content(self, file_id):
         with self.drive.lock: return self.drive.files[file_id]['content']
 
+    def test_media_read_waits_for_a_probe_in_flight(self):
+        # First visit after the cache expired: the replay's requests race one probe. A file read waits for it
+        # (and reuses its answer) instead of failing as 'checking'; status requests still never wait.
+        import threading, time as real_time
+        b = self.backend; b.activate(); b.invalidate()
+        self.assertTrue(b.probe_waits)
+        b.lock.acquire()
+        def finish():
+            real_time.sleep(0.3); b.cached = (b.clock(), 'connected', None); b.lock.release()
+        threading.Thread(target=finish, daemon=True).start()
+        self.assertEqual(b.probe(), ('checking', 'probe_pending'))
+        since = len(self.requests())
+        self.assertEqual(b.probe(wait=True), ('connected', None))
+        self.assertEqual(self.requests(since=since), [], 'the waiting read reuses the finished probe')
+        # A probe that does not finish in time still answers 'checking' (the page retries).
+        b.invalidate()
+        with patch.object(ab, 'PROBE_WAIT_SECONDS', 0.05), b.lock:
+            self.assertEqual(b.probe(wait=True), ('checking', 'probe_pending'))
+
     def test_probe_connected_and_folder_trashed(self):
         b = self.backend
         self.assertEqual(b.probe(), ('unavailable', 'folder_missing'))  # Not activated yet.

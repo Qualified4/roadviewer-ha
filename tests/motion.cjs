@@ -4,7 +4,7 @@ const asset=name=>({body:fs.readFileSync('roadviewer/app/web/'+name),contentType
 const replay={route:'motion',key:'motion',duration:1,logStart:0,logEnd:.95,warnings:[],video:null,frames:Array.from({length:20},(_,i)=>({t:i*.05,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false,steering:{angle:i*10,scale:1,state:'active',color:[0,255,0],active:true,pressed:false,torque:.2},overlay:null}))};
 const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playState==='running').map(a=>a.animationName||a.transitionProperty));
 (async()=>{
- const browser=await chromium.launch({headless:true});
+ const browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
  try{
   for(const {width,touch} of [{width:1280,touch:false},{width:390,touch:true},{width:1024,touch:true}])for(const reduced of [false,true]){
    const context=await browser.newContext({viewport:{width,height:900},hasTouch:touch,isMobile:touch,reducedMotion:reduced?'reduce':'no-preference'}),page=await context.newPage(),errors=[];

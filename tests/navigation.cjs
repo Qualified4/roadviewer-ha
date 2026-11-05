@@ -17,7 +17,7 @@ http.serve_forever()
  let browser;
  try{
   const port=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Test server timeout: '+stderr)),15000);python.once('exit',code=>{clearTimeout(timer);reject(Error('Test server exit '+code+': '+stderr))});python.stdout.on('data',x=>{const m=/READY (\d+)/.exec(String(x));if(m){clearTimeout(timer);resolve(Number(m[1]))}})});
-  browser=await chromium.launch({headless:true});
+  browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
   for(const {width,prefix} of [{width:390,prefix:'/api/hassio_ingress/test'},{width:1024,prefix:''},{width:1440,prefix:''}]){
    const context=await browser.newContext({viewport:{width,height:844},hasTouch:width<1200,isMobile:width<1200});
    const page=await context.newPage(),errors=[],documents=[];let listReads=0,delayData=false,releaseData,delayNavigation=false;const videoRequests=[];

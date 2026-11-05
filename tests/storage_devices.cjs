@@ -1,6 +1,6 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
 (async()=>{
- const browser=await chromium.launch({headless:true});
+ const browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
  try{
  const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
  let pinned=false,settings={max_bytes:0,policy:'reject_new',used_bytes:200,free_bytes:5000000,reserved_bytes:0},pair={status:'cancelled'},devices=[],revoke=false,network={configured_port:18443,active_port:18443,restart_required:false,boot_id:'boot-one',restarting:false,restart_error:''},networkSaveError=false,networkRestartError=false,restartPolls=0;

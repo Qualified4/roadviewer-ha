@@ -264,6 +264,7 @@ class DriveAuth:
 FOLDER_MIME = 'application/vnd.google-apps.folder'
 CHUNK = 2**20  # Resumable chunks must be multiples of 256 KiB, except the last.
 CACHE_SECONDS = media_store.CACHE_SECONDS
+PROBE_WAIT_SECONDS = 20  # Longer than one probe (a token refresh and a folder read, each PROBE_TIMEOUT at most).
 USAGE_REFRESH_SECONDS = 300  # The settings panel measures Drive's usage at most this often.
 FILE_FIELDS = 'id,size,sha256Checksum,md5Checksum,appProperties'
 # A 403 that only reconnecting fixes (scope removed, app no longer authorized).
@@ -453,11 +454,13 @@ class _Availability:
 
     def _enabled(self): return getattr(self.settings, 'enabled', True)
 
-    def probe(self):
+    def probe(self, wait=False):
+        # wait: a file read that needs the answer anyway waits for a probe already running (bounded by its
+        # short timeout) instead of failing as 'checking'; status requests never wait.
         if not self._enabled(): return 'disabled', getattr(self.settings, 'error', None)
         cached = self.cached
         if cached and self.clock() - cached[0] < CACHE_SECONDS: return cached[1:]
-        if not self.lock.acquire(blocking=False): return 'checking', 'probe_pending'
+        if not (self.lock.acquire(timeout=PROBE_WAIT_SECONDS) if wait else self.lock.acquire(blocking=False)): return 'checking', 'probe_pending'
         try:
             cached = self.cached
             if cached and self.clock() - cached[0] < CACHE_SECONDS: return cached[1:]
@@ -483,6 +486,7 @@ class _Availability:
 
 class DriveBackend(_Availability):
     caps = Capabilities('gdrive', local_paths=False, checksum=('sha256', 'md5'), range_reads=True, atomic_rename=False, remote_cleanup=False)
+    probe_waits = True  # media_store.resolve may pass wait=True.
 
     def __init__(self, settings, root, auth, client, clock=time.monotonic):
         self.settings, self.root, self.auth, self.client = settings, Path(root), auth, client
