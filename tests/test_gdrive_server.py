@@ -102,7 +102,8 @@ class GdriveServerTests(unittest.TestCase):
         self.assertFalse((p / 'fcamera.mp4').exists())
         r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': 'bytes=10-99'})
         self.assertEqual(r.status_code, 206)
-        self.assertEqual((r.headers['Content-Range'], r.headers['Content-Length'], r.headers['Accept-Ranges']), (f'bytes 10-99/{len(video)}', '90', 'bytes'))
+        # No Content-Length on playback ranges (Content-Range has the size): Ingress would buffer a short one whole.
+        self.assertEqual((r.headers['Content-Range'], r.headers.get('Content-Length'), r.headers['Accept-Ranges']), (f'bytes 10-99/{len(video)}', None, 'bytes'))
         self.assertEqual(r.headers['Cache-Control'], 'no-store'); self.assertTrue(r.headers['ETag'])
         self.assertEqual(r.mimetype, 'video/mp4')
         self.assertEqual(r.data, video[10:100])
@@ -115,6 +116,17 @@ class GdriveServerTests(unittest.TestCase):
         chunks = list(r.response); r.close()
         self.assertTrue(len(chunks) > 1 and all(len(c) <= 65536 for c in chunks))
         self.assertEqual(b''.join(chunks), video[MIB:])
+        # An open range is answered with at most PLAYBACK_RANGE, and only that much is asked of Drive: a request the
+        # browser drops on a seek cannot keep streaming the rest of the file.
+        with patch.object(server, 'PLAYBACK_RANGE', MIB):
+            r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': f'bytes={MIB}-'})
+        self.assertEqual((r.status_code, r.headers['Content-Range'], r.data), (206, f'bytes {MIB}-{2 * MIB - 1}/{len(video)}', video[MIB:2 * MIB]))
+        self.assertEqual(self.media_requests()[-1]['headers'].get('Range'), f'bytes={MIB}-{2 * MIB - 1}')
+        # Seeks reuse the file's metadata for a while: each one is a single request to Drive, not two.
+        with self.drive.lock: before = len(self.drive.requests)
+        r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': 'bytes=5-9'}); self.assertEqual(r.data, video[5:10])
+        with self.drive.lock: asked = [q['path'] for q in self.drive.requests[before:]]
+        self.assertEqual(len(asked), 1); self.assertIn('alt=media', asked[0])
         r = self.get(f'/api/logs/{p.name}/video?source=front', buffered=False)
         self.assertEqual((r.status_code, r.headers['Content-Length']), (200, str(len(video))))
         self.assertNotIn('Content-Range', r.headers)

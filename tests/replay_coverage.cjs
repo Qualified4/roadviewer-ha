@@ -169,8 +169,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
        samples.push({stage:'drag',intent,t,playing,writes:[...writes],decoded});
        window.dispatchEvent(new PointerEvent('pointerup',{pointerId:7}));frame(800);
        samples.push({stage:'released',intent,t,playing,writes:[...writes]});
-       finish();frame(800);samples.push({stage:'latest',intent,t,writes:[...writes],decoded});
-       finish();samples.push({stage:'ready',intent,t,playing,decoded});
+       // The final seek is already the one in flight: when it lands, the frame is the released position.
+       finish();samples.push({stage:'ready',intent,t,playing,decoded,writes:[...writes]});
        frame(20);samples.push({stage:'resumed',intent,t,playing});
        $('seek').dispatchEvent(new PointerEvent('pointerdown',{pointerId:8,button:0}));
        window.dispatchEvent(new PointerEvent('pointercancel',{pointerId:8}));
@@ -189,8 +189,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     for(const intent of [false,true]){
      const get=stage=>result.find(x=>x.stage===stage&&x.intent===intent);
      assert.deepEqual(get('drag'),{stage:'drag',intent,t:.8,playing:intent,writes:[.5],decoded:0});
-     assert.deepEqual(get('released').writes,[.5]);assert.equal(get('released').t,.8);
-     assert.deepEqual(get('latest').writes,[.5,.8]);assert.equal(get('latest').t,.8);assert.equal(get('latest').decoded,.5);
+     // Releasing the bar seeks to the final position at once, replacing the preview seek still in flight.
+     assert.deepEqual(get('released').writes,[.5,.8]);assert.equal(get('released').t,.8);
+     assert.deepEqual(get('ready').writes,[.5,.8],'no second seek after the final one');
      assert.equal(get('cancel').pointer,null);assert.equal(get('cancel').playing,intent);
      assert.equal(get('ready').decoded,.8);assert.equal(get('ready').playing,intent);
      assert(Math.abs(get('resumed').t-(intent?.82:.8))<1e-6,'resume without counting time spent waiting');

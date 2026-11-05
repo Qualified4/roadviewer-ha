@@ -12,7 +12,7 @@ function nearest(time){const f=data.frames;let a=0,b=f.length-1;while(a<b){const
 function pause(){playing=false;pauseVideo();$('play').textContent='재생'}
 let videoPlayPending=false,videoPauseRevision=0,videoSource=null,resumeAfterVideo=false;
 const failedVideos=new Set();
-let pendingVideoSeek=null,seekPointer=null;
+let pendingVideoSeek=null,seekPointer=null,seekReleased=false;
 function pauseVideo(){videoPauseRevision++;v.pause()}
 const LOG_EDGE_TOLERANCE=.1;
 function recordingEndTolerance(cadence){
@@ -61,7 +61,10 @@ function syncVideo(seek=false){
  const target=Math.max(0,Math.min(hold?duration:t-data.video.start,duration-.001));
  // Keep only the latest requested position until the current asynchronous seek finishes.
  if(seek||wasHidden)pendingVideoSeek=target;
- if(v.readyState>=1&&!v.seeking){
+ // Releasing the seek bar goes straight to the final position, replacing a preview seek still in flight: with a
+ // video read over the network (Google Drive) waiting for that one first would cost another round trip.
+ const released=seekReleased;seekReleased=false;
+ if(v.readyState>=1&&(!v.seeking||released)){
   const requested=pendingVideoSeek;pendingVideoSeek=null;
   const next=requested??target,threshold=hold ? .002 : requested!==null ? .0005 : .35;
   if(Math.abs(v.currentTime-next)>threshold)v.currentTime=next;
@@ -284,7 +287,7 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
  data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;t=0;const source=setupVideoSources();if(source){selectVideo(source)}else{videoSource=null;setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 $('seek').addEventListener('pointerdown',e=>{if(loading||e.button!==0)return;seekPointer=e.pointerId;pauseVideo()});
-function finishSeekDrag(){if(seekPointer===null)return;seekPointer=null;setTime(Number($('seek').value));last=performance.now()}
+function finishSeekDrag(){if(seekPointer===null)return;seekPointer=null;seekReleased=true;setTime(Number($('seek').value));seekReleased=false;last=performance.now()}
 for(const event of ['pointerup','pointercancel'])window.addEventListener(event,e=>{if(e.pointerId===seekPointer)finishSeekDrag()});
 window.addEventListener('blur',finishSeekDrag);
 v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
