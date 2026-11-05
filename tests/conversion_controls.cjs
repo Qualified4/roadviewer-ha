@@ -53,7 +53,7 @@ async function checkRemovalRefresh(browser){
 }
 
 (async()=>{
- const browser=await chromium.launch({headless:true});
+ const browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   let keep=true,automatic=true,status='ready',excluded=false,fail=false,converted=0,removed=0,deleted=0;

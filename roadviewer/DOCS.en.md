@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.13.10**.
+This guide describes **0.13.11**.
 
 [한국어](DOCS.md) · English
 

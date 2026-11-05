@@ -5,7 +5,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   const videos={front:{start:0,duration:2,frames:20},qcamera:{start:.1,duration:2,frames:20},wide:{start:.2,duration:2,frames:20}};
   const data={route:'three cameras',key:'cameras',duration:2.2,warnings:[],video:videos.front,videos,defaultVideo:'front',frames:Array.from({length:45},(_,i)=>({t:i/20,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],cameraInfo:{device:'mici',sensor:'os04c10',wideSensor:'os04c10',calibrationStatus:'calibrated',rpy:[.02,.01,-.03],wideRpy:[.01,-.02,.04]},overlay:{geometry:{basis:[[.5,.5,1],[.85,0,0],[0,1.5,0]],height:1.22,lanes:[],edges:[],position:[[5,0,0],[20,1,0],[50,3,0]]}}}))};
-  let failFront=false,legacy=false;const requested=[];
+  let failFront=false,legacy=false,checking=0,driveDown=false;const requested=[];
   await page.route('https://rv.test/**',route=>{
    const url=new URL(route.request().url()),p=url.pathname;
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
@@ -14,6 +14,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(p.endsWith('/video')){
     requested.push(url.searchParams.get('source'));
     if(failFront&&url.searchParams.get('source')==='front')return route.fulfill({status:404,body:'missing'});
+    // The server's answers while Google Drive is being checked (first visit) or unreachable.
+    if(checking>0){checking--;return route.fulfill({status:503,json:{error:'storage_checking',message:'영상 저장소 연결을 확인하는 중입니다. 잠시 후 다시 시도하세요.'},headers:{'Retry-After':'1'}})}
+    if(driveDown)return route.fulfill({status:503,json:{error:'storage_unavailable',message:'영상 저장소(Google Drive)에 연결할 수 없습니다. 인터넷과 Google Drive 연결을 확인하세요.'}});
     const body=fs.readFileSync(process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4'),range=/^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range||'');
     if(range){const start=Number(range[1]),end=range[2]?Math.min(Number(range[2]),body.length-1):body.length-1;return route.fulfill({status:206,body:body.subarray(start,end+1),contentType:'video/mp4',headers:{'Accept-Ranges':'bytes','Content-Range':`bytes ${start}-${end}/${body.length}`}})}
     return route.fulfill({body,contentType:'video/mp4',headers:{'Accept-Ranges':'bytes'}});
@@ -72,7 +75,17 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.match(await page.locator('#errorText').textContent(),/전방 · 저용량/);
   legacy=true;await page.reload();await page.waitForFunction(()=>!loading);
   assert(await page.locator('#videoSourceControl').isHidden());assert.equal(await page.evaluate(()=>videoSource),'qcamera');
-  assert.equal(requested.at(-1),null);assert.deepEqual(errors,[]);
-  console.log('PASS: front preference, independent clocks, paused/playing switches, wide projection/cache/metadata guard, failure fallback, legacy qcamera');
+  assert.equal(requested.at(-1),null);
+  // First visit while the store is still being checked: the same camera loads again by itself and plays, no error.
+  legacy=false;failFront=false;checking=2;await page.reload();
+  await page.waitForFunction(()=>!loading&&videoSource==='front'&&v.readyState>=2,null,{timeout:15000});
+  assert.equal(checking,0);assert(await page.locator('#error').isHidden());assert(await page.locator('#video').isVisible());
+  // Unreachable Drive: the server's message (naming Google Drive) is shown, not a NAS one, and the log still replays.
+  driveDown=true;await page.reload();
+  await page.waitForFunction(()=>document.getElementById('errorText')?.textContent==='영상 저장소(Google Drive)에 연결할 수 없습니다. 인터넷과 Google Drive 연결을 확인하세요.'&&!document.getElementById('error').hidden,null,{timeout:15000});
+  assert(!(await page.locator('#errorText').textContent()).includes('NAS'));
+  await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  assert.deepEqual(errors,[]);
+  console.log('PASS: front preference, independent clocks, paused/playing switches, wide projection/cache/metadata guard, failure fallback, legacy qcamera, storage-checking retry, Drive failure message');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});

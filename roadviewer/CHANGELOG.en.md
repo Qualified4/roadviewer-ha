@@ -4,6 +4,11 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.11
+
+- Saved logs now show their route groups folded by default. Only routes opened by hand are remembered as open; folds saved by earlier versions are not used, so every route starts folded after the update.
+- Fixed Google Drive videos failing on first open with "cannot connect to the video store" until a reload. A video request now waits for a Drive check already in progress, and the replay retries by itself while the store is still being checked. When Drive really is unreachable the message names Google Drive instead of the NAS.
+
 ## 0.13.10
 
 - In storage management, the Google Drive mode note and Disconnect button moved from the local storage card to the extended storage (Google Drive) card; with archiving off they form a Google Drive card of their own. Opening the run and copy details no longer shifts the local storage card, and its figures line up in equal columns and full-width rows.

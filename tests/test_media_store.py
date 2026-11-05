@@ -310,6 +310,11 @@ class MediaStoreTests(unittest.TestCase):
   self.assertEqual(state, 'available')
   self.assertEqual(rf, m.RemoteFile('gdrive', RemoteRef('gdrive', 'F2', 12, 'ef'*32, '01'*16), kind, 12, '"F2:' + 'ef'*8 + '"'))
   self.assertEqual(backend.calls, [('probe',), ('stat', RemoteRef('gdrive', 'F2', 12, 'ef'*32, '01'*16))])
+  # A backend that can wait for a probe already running is asked to (the replay's first request must not fail).
+  waiting = FakeBackend(result=FakeBackend.stat_of(12)); waiting.probe_waits = True
+  waiting.probe = lambda wait=False: (waiting.calls.append(('probe', wait)), ('connected', None))[1]
+  self.assertEqual(m.resolve(self.rec, meta, kind, None, waiting)[1], 'available')
+  self.assertEqual(waiting.calls[0], ('probe', True))
   # The remote file must be the one the index verified: a different size or hash is corrupt (dynamic only).
   stored = json.dumps(meta)
   for result in [FakeBackend.stat_of(13), FakeBackend.stat_of(12, sha256='00'*32)]:

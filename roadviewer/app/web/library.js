@@ -1,6 +1,7 @@
 'use strict';const $=id=>document.getElementById(id);let selected=[],busy=false,cleaning=false,refreshing=false,progressRefreshing=false,listRevision=0,listRequest=null;const logRows=new Map(),logGroups=new Map();
-let collapsedLogRoutes=new Set();
-try{const saved=JSON.parse(localStorage.getItem('roadviewer-collapsed-routes'));if(Array.isArray(saved))collapsedLogRoutes=new Set(saved.filter(key=>typeof key==='string'))}catch{}
+// Routes start folded; only the ones opened by hand are remembered as open.
+let expandedLogRoutes=new Set();
+try{const saved=JSON.parse(localStorage.getItem('roadviewer-expanded-routes'));if(Array.isArray(saved))expandedLogRoutes=new Set(saved.filter(key=>typeof key==='string'))}catch{}
 let uploadController=null,networkRestarting=false;
 let concurrencySaving=false,concurrencyRevision=0,savedConcurrency=1,savedAutoConvert=true;
 const names={unconverted:'미변환',queued:'대기 중',processing:'처리 중',ready:'재생 가능',error:'변환 실패'};
@@ -215,10 +216,10 @@ function arrangeLogGroups(logs,rows){
   const route=logRoute(log);let group=groups.get(route.key);
   if(!group){group=logGroups.get(route.key);if(!group){
    const element=document.createElement('details'),summary=document.createElement('summary'),title=document.createElement('span'),first=document.createElement('span'),count=document.createElement('span'),chevron=document.createElement('span'),body=document.createElement('div'),actions=document.createElement('div');
-   element.className='log-route';element.dataset.route=route.key;element.open=!collapsedLogRoutes.has(route.key);
+   element.className='log-route';element.dataset.route=route.key;element.open=expandedLogRoutes.has(route.key);
    title.className='log-route-name';title.textContent=route.title;title.title=route.key;first.className='log-route-first';count.className='log-route-count';chevron.className='log-route-chevron';chevron.setAttribute('aria-hidden','true');chevron.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>';
    actions.className='log-route-actions';summary.append(title,first,count,actions,chevron);body.className='log-route-segments';element.append(summary,body);
-   element.addEventListener('toggle',event=>{if(event.target!==element)return;const open=element._foldTarget??element.open;if(open)collapsedLogRoutes.delete(route.key);else collapsedLogRoutes.add(route.key);try{localStorage.setItem('roadviewer-collapsed-routes',JSON.stringify([...collapsedLogRoutes]))}catch{}});
+   element.addEventListener('toggle',event=>{if(event.target!==element)return;const open=element._foldTarget??element.open;if(open)expandedLogRoutes.add(route.key);else expandedLogRoutes.delete(route.key);try{localStorage.setItem('roadviewer-expanded-routes',JSON.stringify([...expandedLogRoutes]))}catch{}});
    group={element,body,first,count,actions};logGroups.set(route.key,group);
    summary.addEventListener('click',event=>{if(!event.target.closest('.log-route-actions'))group.rows.forEach(row=>row.classList.add('is-update'))});
   }group.logs=[];group.rows=[];group.firstLog=log;group.firstSegment=route.segment;groups.set(route.key,group)}

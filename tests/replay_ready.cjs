@@ -1,6 +1,6 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
 (async()=>{
- const browser=await chromium.launch({headless:true});
+ const browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
  try{
   const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   const base='https://rv.test';

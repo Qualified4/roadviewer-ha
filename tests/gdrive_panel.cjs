@@ -60,7 +60,7 @@ async function waitForStorageRefresh(page,action){
  let drive,off,smb,browser;
  try{
   drive=await serve(driveDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:true,archive_backend:'gdrive',archive_mode:'copy',archive_gdrive_client_id:'client-id',archive_gdrive_client_secret:'shh-client-secret',archive_min_age_hours:8760})});
-  browser=await chromium.launch({headless:true});
+  browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
   const context=await browser.newContext({viewport:{width:1280,height:900},reducedMotion:'reduce'}),page=await context.newPage(),errors=[],posts=[];
   page.on('pageerror',error=>errors.push(error.message));page.on('dialog',dialog=>dialog.accept());
   page.on('request',request=>{if(request.method()==='POST')posts.push([new URL(request.url()).pathname.replace('/api/hassio_ingress/test',''),request.headers()['x-roadviewer-request']])});

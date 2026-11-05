@@ -1,7 +1,7 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
 const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
- const browser=await chromium.launch({headless:true});
+ const browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}}),errors=[],calls=[],conversions=[];
   page.on('pageerror',e=>errors.push(e.message));

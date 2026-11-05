@@ -249,14 +249,24 @@ function videoFailure(message,keepLog=false){
  // The video store is unreachable: the log replays without video; choosing a camera again retries.
  data.video=null;videoReadyPending=false;v.removeAttribute('src');v.load();setPlaybackState(true,'재생 준비 완료');showError(message);setTime(t);
 }
-const STORAGE_FAILURE='영상 저장소에 연결할 수 없습니다. NAS 연결을 확인하세요.';
+const STORAGE_FAILURE='영상 저장소에 연결할 수 없습니다. 저장소 연결을 확인하세요.',STORAGE_RETRIES=3;
+let storageRetries=0,storageRetryTimer=null;
 async function videoError(){
  // The <video> element hides the HTTP status; only after an error, one byte is requested to read it.
  if(!data?.video)return;
- const src=v.src;let status=0;
- try{const res=await fetch(src,{headers:{Range:'bytes=0-0'},cache:'no-store'});status=res.status;res.body?.cancel()}catch{}
+ const src=v.src;let status=0,body=null,after=5;
+ try{
+  const res=await fetch(src,{headers:{Range:'bytes=0-0'},cache:'no-store'});status=res.status;
+  if(status===503){after=Number(res.headers.get('Retry-After'))||after;body=await res.json().catch(()=>null)}else res.body?.cancel();
+ }catch{}
  if(v.src!==src||!data?.video)return;
- if(status===503)videoFailure(STORAGE_FAILURE,true);
+ // The store was still being checked (first visit after a while): load the same video again shortly.
+ if(status===503&&body?.error==='storage_checking'&&storageRetries<STORAGE_RETRIES){
+  storageRetries++;setPlaybackState(false,'영상 저장소 연결을 확인하는 중입니다. 잠시 기다려 주세요.');
+  clearTimeout(storageRetryTimer);storageRetryTimer=setTimeout(()=>{if(v.src===src&&data?.video)selectVideo(videoSource)},Math.min(after,10)*1000);return;
+ }
+ // The server names the store that failed (Google Drive or the NAS).
+ if(status===503)videoFailure(typeof body?.message==='string'&&body.message?body.message:STORAGE_FAILURE,true);
  else videoFailure('브라우저가 영상을 읽지 못했습니다. Home Assistant 연결을 확인하고 새로고침해 주세요.');
 }
 $('videoSource').onchange=()=>{failedVideos.clear();selectVideo($('videoSource').value)};
@@ -279,7 +289,7 @@ for(const event of ['pointerup','pointercancel'])window.addEventListener(event,e
 window.addEventListener('blur',finishSeekDrag);
 v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});
-v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=videoError;
+v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=videoError;
 for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','ccncRoad','laneMarking','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Space and arrows keep their own meaning on focused controls, links and menus.
 document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};

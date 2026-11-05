@@ -27,7 +27,7 @@ http.serve_forever()`;
    python.stdout.on('data',x=>{stdout+=x;const m=/READY (\d+)/.exec(stdout);if(m){clearTimeout(timer);resolve(Number(m[1]))}});
   });
   const base=`http://127.0.0.1:${port}/api/hassio_ingress/test/`;
-  browser=await chromium.launch({headless:true});
+  browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
   const page=await browser.newPage({viewport:{width:1280,height:900},reducedMotion:'reduce'}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   const field=name=>page.locator(`#archiveForm [name="archive_${name}"]`);
