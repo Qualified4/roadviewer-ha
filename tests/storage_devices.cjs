@@ -38,9 +38,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  assert(await page.locator('.upload > #deviceSettings').count()===1);assert(await page.locator('.conversion-info > #storageSettings').count()===1);
  await page.locator('#storageSettings > summary').click();await page.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true');
  await page.locator('#storageLimitChoice').click();await page.getByRole('option',{name:'직접 입력',exact:true}).click();await page.locator('#storageCustom').fill('12.5');await page.locator('#storagePolicyChoice').click();await page.getByRole('option',{name:'오래된 미고정 구간 삭제',exact:true}).click();await page.locator('#storageSave').click();await page.waitForFunction(()=>document.getElementById('archiveSettingsStatus').textContent==='저장했습니다. 재시작 없이 적용되었습니다.');assert.equal(settings.max_bytes,12.5*1073741824);
- assert.equal(await page.locator('.actions > .pin-recording').count(),1);
+ assert.equal(await page.locator('.log-row .actions > .pin-recording').count(),1);
  await page.getByRole('button',{name:'구간 고정',exact:true}).click();await page.locator('.pin-badge').waitFor();assert(pinned);
- assert.equal(await page.locator('.pin-recording').getAttribute('aria-pressed'),'true');
+ assert.equal(await page.locator('.log-row .pin-recording').getAttribute('aria-pressed'),'true');
  await page.getByRole('button',{name:'구간 고정 해제',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.pin-badge'));assert(!pinned);
  await page.locator('#deviceSettings > summary').click();
  await page.waitForFunction(()=>!document.getElementById('deviceNetworkEnabled').disabled);

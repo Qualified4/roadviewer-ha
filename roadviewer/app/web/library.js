@@ -136,7 +136,7 @@ function recordingActions(m,group=null){
  else for(const item of recordingDownloads(m,''))menu.append(downloadLink(item));
  const pin=document.createElement('button');pin.type='button';pin.className='pin-recording';
  const allPinned=group?group.logs.every(log=>log.pinned):!!m.pinned,partial=group&&!allPinned&&group.logs.some(log=>log.pinned);
- pin.title=group?(partial?'일부 구간 고정됨 · 전체 구간 고정':allPinned?'전체 구간 고정 해제':'전체 구간 고정'):(m.pinned?'구간 고정 해제':'구간 고정');pin.setAttribute('aria-label',pin.title);pin.setAttribute('aria-pressed',partial?'mixed':String(allPinned));pin.disabled=!!logGroups.get(logRoute(m).key)?.pinning;
+ pin.title=group?(partial?`${group.logs.filter(log=>log.pinned).length}/${group.logs.length}개 구간 고정됨 · 전체 구간 고정`:allPinned?'전체 구간 고정 해제':'전체 구간 고정'):(m.pinned?'구간 고정 해제':'구간 고정');pin.setAttribute('aria-label',pin.title);pin.setAttribute('aria-pressed',partial?'mixed':String(allPinned));pin.disabled=!!logGroups.get(logRoute(m).key)?.pinning;
  pin.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="pin-head" d="M8 3h8l-1 7 4 4v2H5v-2l4-4z"/><path d="M12 16v6"/></svg>';
  pin.onclick=group?()=>pinLogGroup(group,!allPinned):async()=>{pin.disabled=true;try{await api(`api/logs/${m.id}/pin`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pinned:!m.pinned})});await refresh()}catch(e){error(e.message);pin.disabled=false}};actions.append(pin);
  if(group){actions.append(groupDownload);return actions}
@@ -192,10 +192,9 @@ function reconcileLogs(parent,children){
  while(parent.children.length>children.length)parent.lastElementChild.remove();
 }
 // The route header has group pin/download actions; individual row actions stay unchanged.
-function syncGroupActions(group,open=group.element._foldTarget??group.element.open){
- if(open){group.actions.replaceChildren();group.actionSignature=null;return}
+function syncGroupActions(group){
  if(group.pinning)return;
- const signature=JSON.stringify(group.logs.map(({progress,...details})=>details));if(group.actionSignature===signature)return;
+ const signature=JSON.stringify([group.firstLog.id,group.firstLog.name,group.firstLog.status,group.logs.map(log=>[log.id,!!log.pinned])]);if(group.actionSignature===signature)return;
  group.actions.replaceChildren(recordingActions(group.firstLog,group));group.actionSignature=signature;
 }
 async function pinLogGroup(group,pinned){
@@ -219,9 +218,9 @@ function arrangeLogGroups(logs,rows){
    element.className='log-route';element.dataset.route=route.key;element.open=!collapsedLogRoutes.has(route.key);
    title.className='log-route-name';title.textContent=route.title;title.title=route.key;first.className='log-route-first';count.className='log-route-count';chevron.className='log-route-chevron';chevron.setAttribute('aria-hidden','true');chevron.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>';
    actions.className='log-route-actions';summary.append(title,first,count,actions,chevron);body.className='log-route-segments';element.append(summary,body);
-   element.addEventListener('toggle',event=>{if(event.target!==element)return;const open=element._foldTarget??element.open;syncGroupActions(group,open);if(open)collapsedLogRoutes.delete(route.key);else collapsedLogRoutes.add(route.key);try{localStorage.setItem('roadviewer-collapsed-routes',JSON.stringify([...collapsedLogRoutes]))}catch{}});
+   element.addEventListener('toggle',event=>{if(event.target!==element)return;const open=element._foldTarget??element.open;if(open)collapsedLogRoutes.delete(route.key);else collapsedLogRoutes.add(route.key);try{localStorage.setItem('roadviewer-collapsed-routes',JSON.stringify([...collapsedLogRoutes]))}catch{}});
    group={element,body,first,count,actions};logGroups.set(route.key,group);
-   summary.addEventListener('click',event=>{if(!event.target.closest('.log-route-actions')&&!(element._foldTarget??element.open))syncGroupActions(group,true)});
+   summary.addEventListener('click',event=>{if(!event.target.closest('.log-route-actions'))group.rows.forEach(row=>row.classList.add('is-update'))});
   }group.logs=[];group.rows=[];group.firstLog=log;group.firstSegment=route.segment;groups.set(route.key,group)}
   if(route.segment!==null&&(group.firstSegment===null||route.segment<group.firstSegment)){group.firstLog=log;group.firstSegment=route.segment}
   group.logs.push(log);group.rows.push(rows[i]);

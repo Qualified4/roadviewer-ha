@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.13.7**.
+This guide describes **0.13.8**.
 
 [한국어](DOCS.md) · English
 
@@ -65,7 +65,7 @@ If Android's native file picker cannot return multiple files, add one at a time.
 
 ## Library and conversion
 
-Segments with the same full route ID share a collapsible group. Select its heading to expand or collapse; the browser remembers that choice. The smallest segment number and that segment’s **upload date/time** remain visible when collapsed; this is not the actual driving timestamp. Playback in the collapsed header starts from the first segment. The header pin applies to every currently stored segment in that route (later uploads do not inherit it): a partial selection becomes fully pinned, and a fully pinned route becomes unpinned. The header download icon directly opens the download dialog for every segment in the route. Expanded-row pins and management menus remain segment-specific. Expand the group for other segments; there is no separate segment selector. Tag filters apply to individual segments and hide groups with no matches.
+Segments with the same full route ID share a collapsible group. Select its heading to expand or collapse; the browser remembers that choice. The smallest segment number and that segment’s **upload date/time** remain visible when collapsed; this is not the actual driving timestamp. The header playback, route pin, and download controls remain visible in both fold states. Only the segment list animates, keeping header height and buttons stable. Header playback starts from the first segment. A yellow background and pin mean all pinned, a yellow pin without highlighted background means partially pinned, and a neutral pin means none. The header pin applies to every currently stored segment in that route (later uploads do not inherit it): a partial selection becomes fully pinned, and a fully pinned route becomes unpinned. The header download icon directly opens the download dialog for every segment in the route. Expanded-row pins and management menus remain segment-specific. Expand the group for other segments; there is no separate segment selector. Tag filters apply to individual segments and hide groups with no matches.
 
 `00000395--0d0eda17c5--7` is displayed as **395 / 구간 7**. The copy icon copies the full original identifier, including leading zeros and the hash.
 

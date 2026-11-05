@@ -41,7 +41,7 @@ http.serve_forever()
     window.requestAnimationFrame=callback=>{const id=request(time=>{pendingFrames.delete(id);callback(time)});pendingFrames.add(id);return id};
     window.cancelAnimationFrame=id=>{pendingFrames.delete(id);cancel(id)};
    });
-   await page.goto(base);await page.locator('.replay').first().waitFor();
+   await page.goto(base);await page.locator('.log-row .replay').first().waitFor();
    const checkSweep=async()=>{
     const badge=page.locator('.state-processing');
     assert(await badge.evaluate(e=>getComputedStyle(e).backgroundImage.includes('linear-gradient')),'processing sweep has a visible gradient in the real shell');
@@ -57,7 +57,7 @@ http.serve_forever()
    await page.evaluate(()=>{window.documentToken={};window.originalToken=documentToken;window.originalBrand=document.querySelector('.app-brand')});
    await page.evaluate(()=>{window.preparedHidden=false;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes)if(node.nodeType===1&&node.classList.contains('replay-page')&&node.hidden)preparedHidden=true}).observe(document.getElementById('pageHost'),{childList:true})});
    delayNavigation=true;
-   await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
+   await page.locator('.log-row .replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
    assert(videoRequests.length&&videoRequests.every(p=>p.startsWith(prefix+'/api/logs/')),'video request must retain ingress prefix while the old page base is active: '+videoRequests.join(', '));
    delayNavigation=false;
    await page.waitForFunction(()=>!document.getElementById('play').disabled);
@@ -80,7 +80,7 @@ http.serve_forever()
    await page.goBack();await page.waitForURL(base+'view/'+ids[0]+'/');await page.waitForFunction(()=>document.getElementById('route').textContent==='first');
    assert.deepEqual(await page.evaluate(()=>liveMorphs),[],'replay-to-replay navigation does not morph even with motion enabled');
    await page.waitForFunction(()=>Math.abs(scrollY-200)<1);
-   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
+   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.log-row .replay').first().waitFor();
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
    assert.deepEqual(await page.evaluate(()=>liveMorphs),[],'returning to the library does not morph');
    await page.waitForFunction(()=>pendingFrames.size===0);assert.equal(await page.evaluate(()=>pendingFrames.size),0,'departed replay RAF loop is cancelled');
@@ -88,48 +88,48 @@ http.serve_forever()
    const before=listReads;await page.waitForTimeout(3200);assert(listReads-before<=2,'only the current library poller survives');
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
    await page.evaluate(()=>{window.savedTransition=document.startViewTransition;document.startViewTransition=undefined});
-   await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
-   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
+   await page.locator('.log-row .replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
+   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.log-row .replay').first().waitFor();
    assert(await page.evaluate(()=>!document.documentElement.classList.contains('rv-navigation-transition')),'unsupported browsers navigate without a transition');
    await page.evaluate(()=>document.startViewTransition=savedTransition);
    // Late replay data must not replace the title that is already moving.
    const dataReady=once(requests,'data-held',{signal:AbortSignal.timeout(5000)});
-   delayData=true;releaseData=null;await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
+   delayData=true;releaseData=null;await page.locator('.log-row .replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
    await page.evaluate(()=>window.movingTitle=document.getElementById('route'));
    await dataReady;assert(releaseData,'data request is pending');delayData=false;releaseData();
    await page.waitForFunction(()=>document.getElementById('route').textContent==='first');
    assert(await page.evaluate(()=>movingTitle===document.getElementById('route')),'late data preserves the animated title node');
-   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
+   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.log-row .replay').first().waitFor();
    // A slow abandoned replay request must not overwrite the next screen or keep its RAF alive.
    const abandonedReady=once(requests,'data-held',{signal:AbortSignal.timeout(5000)});
-   delayData=true;await page.locator('.replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
+   delayData=true;await page.locator('.log-row .replay').first().click();await page.waitForURL(base+'view/'+ids[0]+'/');
    await abandonedReady;await page.waitForFunction(()=>document.querySelector('.back'));
    await page.locator('.back').click();await page.waitForURL(base);delayData=false;
    const abandonedFinished=once(requests,'data-finished',{signal:AbortSignal.timeout(5000)});releaseData();await abandonedFinished;
-   await page.locator('.replay').first().waitFor();
+   await page.locator('.log-row .replay').first().waitFor();
    assert.equal(await page.locator('#play').count(),0);assert.equal(await page.locator('.rv-choice-dialog').count(),1,'dialogs do not accumulate');
    const failedURL=base+'view/'+ids[0]+'/?fragment=1';
    await page.route(failedURL,r=>r.fulfill({status:503,body:'unavailable'}));
-   await page.locator('.replay').first().click();await page.getByRole('button',{name:'다시 시도',exact:true}).waitFor();
-   assert.equal(page.url(),base,'failed navigation keeps the old URL');assert(await page.locator('.replay').first().isVisible(),'failed navigation keeps the old screen');
+   await page.locator('.log-row .replay').first().click();await page.getByRole('button',{name:'다시 시도',exact:true}).waitFor();
+   assert.equal(page.url(),base,'failed navigation keeps the old URL');assert(await page.locator('.log-row .replay').first().isVisible(),'failed navigation keeps the old screen');
    await page.unroute(failedURL);await page.getByRole('button',{name:'다시 시도',exact:true}).click();await page.waitForURL(base+'view/'+ids[0]+'/');
-   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
+   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.log-row .replay').first().waitFor();
    // The newest click wins even if an older fragment responds later.
    let releaseFragment;
    const slowURL=base+'view/'+ids[0]+'/?fragment=1';
    await page.route(slowURL,async r=>{await new Promise(resolve=>{releaseFragment=resolve;requests.emit('fragment-held')});await r.continue().catch(()=>{})});
    const fragmentReady=once(requests,'fragment-held',{signal:AbortSignal.timeout(5000)});
-   await page.locator('.replay').first().click();await fragmentReady;assert(await page.locator('.replay').nth(1).isVisible(),'current screen remains until replacement is available');
-   await page.locator('.replay').nth(1).click();await page.waitForURL(base+'view/'+ids[1]+'/');releaseFragment?.();
+   await page.locator('.log-row .replay').first().click();await fragmentReady;assert(await page.locator('.log-row .replay').nth(1).isVisible(),'current screen remains until replacement is available');
+   await page.locator('.log-row .replay').nth(1).click();await page.waitForURL(base+'view/'+ids[1]+'/');releaseFragment?.();
    await page.waitForFunction(()=>document.getElementById('route').textContent==='second');
-   await page.unroute(slowURL);await page.locator('.back').click();await page.waitForURL(base);await page.locator('.replay').first().waitFor();
+   await page.unroute(slowURL);await page.locator('.back').click();await page.waitForURL(base);await page.locator('.log-row .replay').first().waitFor();
    // Internal navigation must not abort an active upload or strand its server reservation.
    let uploadRequest,releaseUpload;
    await page.route('**/api/uploads',async r=>{uploadRequest=r;await new Promise(resolve=>{releaseUpload=resolve;requests.emit('upload-held')});await r.fulfill({status:400,json:{error:'Test upload cancelled'}})});
    await page.locator('#files').setInputFiles({name:'00000395--0d0eda17c5--9--rlog.zst',mimeType:'application/octet-stream',buffer:Buffer.from('fixture')});
    const uploadReady=once(requests,'upload-held',{signal:AbortSignal.timeout(5000)});
    await page.locator('#upload').click();await uploadReady;await page.waitForFunction(()=>document.getElementById('upload').disabled);
-   await page.locator('.replay').first().click();await page.waitForFunction(()=>document.getElementById('navigationStatus').textContent.includes('업로드 또는 정리'));
+   await page.locator('.log-row .replay').first().click();await page.waitForFunction(()=>document.getElementById('navigationStatus').textContent.includes('업로드 또는 정리'));
    assert.equal(page.url(),base);assert(await page.locator('#upload').isDisabled());
    assert(uploadRequest,'upload request is still active');releaseUpload();
    await page.waitForFunction(()=>!document.getElementById('upload').disabled);
