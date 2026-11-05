@@ -4,6 +4,10 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.13
+
+- Fixed seeks in Google Drive videos waiting seconds even into ranges the seek bar shows as loaded (grey). Chromium-based browsers (Whale, Samsung Internet and others) drop played ranges from memory but keep showing them, and the Drive video response forbade the browser cache (no-store), so each such seek went back to Google. Playback responses may now stay in the browser's private cache for a day, so seeks into ranges already received are immediate. Downloads are still never cached.
+
 ## 0.13.12
 
 - Faster seeking in Google Drive videos. Playback reuses a file's Drive metadata for 30 seconds, so a seek is one round trip to Google; bytes are passed on in 64 KB blocks instead of after each 1 MB; playback ranges are answered at most 16 MB at a time so a request dropped on a seek no longer streams the rest of the file from Drive while holding the server; releasing the seek bar goes straight to the final position instead of waiting for the preview seek in flight.
