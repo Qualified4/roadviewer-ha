@@ -264,6 +264,8 @@ class DriveAuth:
 FOLDER_MIME = 'application/vnd.google-apps.folder'
 CHUNK = 2**20  # Resumable chunks must be multiples of 256 KiB, except the last.
 CACHE_SECONDS = media_store.CACHE_SECONDS
+READ_BLOCK = 2**16  # Downloads are read in small blocks so playback gets its first bytes without waiting for a whole CHUNK.
+STAT_SECONDS = 30  # A file's metadata is reused this long for playback (each seek is a new request).
 PROBE_WAIT_SECONDS = 20  # Longer than one probe (a token refresh and a folder read, each PROBE_TIMEOUT at most).
 USAGE_REFRESH_SECONDS = 300  # The settings panel measures Drive's usage at most this often.
 FILE_FIELDS = 'id,size,sha256Checksum,md5Checksum,appProperties'
@@ -451,6 +453,7 @@ class _Availability:
     def _init_cache(self, clock):
         self.clock, self.lock = clock, threading.Lock()
         self.cached = self.usage_cached = None
+        self.stat_cache = {}
 
     def _enabled(self): return getattr(self.settings, 'enabled', True)
 
@@ -481,7 +484,7 @@ class _Availability:
         cached = self.cached
         return tuple(cached[1:]) if cached and self.clock() - cached[0] < CACHE_SECONDS else None
 
-    def invalidate(self): self.cached = self.usage_cached = None
+    def invalidate(self): self.cached = self.usage_cached = None; self.stat_cache = {}
 
 
 class DriveBackend(_Availability):
@@ -563,6 +566,16 @@ class DriveBackend(_Availability):
 
     def _ref(self, meta):
         return RemoteRef('gdrive', meta.get('id'), _int_or(meta.get('size'), 0), meta.get('sha256Checksum') or None, meta.get('md5Checksum') or None)
+
+    def stat_recent(self, ref):
+        # For playback only: every seek of a video is a new range request, and asking Google for the same file's
+        # metadata each time doubles its wait. Verification and deletes always use stat().
+        now, hit = self.clock(), self.stat_cache.get(ref.file_id)
+        if hit and now - hit[0] < STAT_SECONDS: return hit[1]
+        stat = self.stat(ref)
+        if len(self.stat_cache) > 256: self.stat_cache.clear()
+        self.stat_cache[ref.file_id] = (now, stat)
+        return stat
 
     def stat(self, ref):
         meta = self.client.get(ref.file_id, 'id,size,sha256Checksum,md5Checksum,trashed')
@@ -680,8 +693,11 @@ class DriveBackend(_Availability):
 
     def open(self, ref, start=0, end=None):
         # The request is made now, so a missing file or a bad range raises here rather than on the first chunk.
-        r = self.client.download(ref.file_id, None if not start and end is None else start, end)
-        return r.iter_chunks(CHUNK)
+        try: r = self.client.download(ref.file_id, None if not start and end is None else start, end)
+        except BackendError:
+            self.stat_cache.pop(ref.file_id, None)  # Gone or unreadable: the next request asks Google again.
+            raise
+        return r.iter_chunks(READ_BLOCK)
 
     def download_to(self, ref, dest, sha256): _stage(self.open(ref), dest, sha256 or ref.sha256, ref.bytes)
 
@@ -689,6 +705,7 @@ class DriveBackend(_Availability):
         """True: deleted or already gone (confirmed). False: unsure (network, auth). Only a media file of ours
         is deleted; anything else (another instance's file, our folder, a file without rv_id) raises
         BackendError('io', reason='foreign_file')."""
+        self.stat_cache.pop(ref.file_id, None)
         try:
             if not ref.file_id or ref.file_id == self.auth.folder_id: raise BackendError('io', reason='foreign_file')
             meta = self.client.get(ref.file_id, 'appProperties,trashed,mimeType')

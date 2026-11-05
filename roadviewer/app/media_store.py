@@ -353,7 +353,7 @@ def _resolve_remote(block, backend_kind, kind, backend, corrupt):
     if not isinstance(file_id, str) or not file_id: return None, 'missing'
     sha256, md5 = block.get('sha256'), block.get('md5')
     ref = RemoteRef(backend_kind, file_id, _bytes(block), sha256 if isinstance(sha256, str) else None, md5 if isinstance(md5, str) else None)
-    try: stat = backend.stat(ref)
+    try: stat = getattr(backend, 'stat_recent', backend.stat)(ref)  # Playback reuses recent metadata.
     except BackendError: return None, 'storage_unavailable'
     if stat is None or stat.trashed or not stat.exists: return None, 'missing'
     # The file must still be the one that was verified: a size or hash other than the index's is corrupt

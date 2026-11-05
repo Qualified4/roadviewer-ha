@@ -177,13 +177,16 @@ def attachment(response,name):
  disposition=Message();disposition.add_header('Content-Disposition','attachment',filename=name)
  response.headers['Content-Disposition']=disposition['Content-Disposition']
 RANGE=re.compile(r'bytes=(\d*)-(\d*)')
+# Playback asks for open ranges (bytes=N-). Answering each with at most this much keeps a request the browser
+# dropped on a seek from streaming the rest of the file from Google while it holds one of the server's threads.
+PLAYBACK_RANGE=16*2**20  # Above the ~4 MB under which Home Assistant Ingress buffers a whole response before sending it.
 def remote_response(rf,mimetype,as_attachment=False,name=None):
  # A file only the remote backend has, served like send_file serves a local one, with one byte range at most.
  size=rf.size;header=request.headers.get('Range');start,end=0,size-1
  if header is not None:
   match=RANGE.fullmatch(header.strip())
   first,last=(match[1],match[2]) if match else ('','')
-  if first:start,end=int(first),min(int(last),size-1) if last else size-1
+  if first:start,end=int(first),min(int(last),size-1) if last else size-1 if as_attachment else min(size-1,int(first)+PLAYBACK_RANGE-1)
   elif last:start=max(size-int(last),0)  # bytes=-N: the last N bytes.
   if not (first or last) or not first and int(last)==0 or first and last and int(last)<int(first) or start>=size:
    response=jsonify(error='range_not_satisfiable');response.status_code=416
@@ -192,7 +195,10 @@ def remote_response(rf,mimetype,as_attachment=False,name=None):
  partial=header is not None
  body=remote_chunks(rf,start,end) if partial else remote_chunks(rf)
  response=app.response_class(body,status=206 if partial else 200,mimetype=mimetype,direct_passthrough=True)
- response.headers['Accept-Ranges']='bytes';response.headers['Content-Length']=str(end-start+1)
+ response.headers['Accept-Ranges']='bytes'
+ # Playback has no Content-Length (Content-Range carries the size): Ingress buffers a response it knows is under
+ # ~4 MB before sending a byte, which near a video's end would hold a seek until that part came from Google.
+ if as_attachment or not partial:response.headers['Content-Length']=str(end-start+1)
  if partial:response.headers['Content-Range']=f'bytes {start}-{end}/{size}'
  # Opaque: derived from the file id and hash without showing either.
  response.headers['ETag']='"'+hashlib.sha256(rf.etag.encode()).hexdigest()[:32]+'"'
