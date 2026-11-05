@@ -221,13 +221,15 @@ function expandReplayData(replay){
  return replay;
 }
 const videoLabels={front:'고화질 전방',qcamera:'전방 · 저용량',wide:'와이드'};
+// Phones and tablets (touch, no hover) start on the small qcamera to save mobile data; desktops on the high-quality front.
+const videoOrder=()=>matchMedia('(hover:none),(pointer:coarse)').matches?['qcamera','front','wide']:['front','qcamera','wide'];
 function setupVideoSources(){
  failedVideos.clear();resumeAfterVideo=false;
  const choices=data.videos|| (data.video?{qcamera:data.video}:{}),select=$('videoSource');
  select.replaceChildren(...Object.keys(videoLabels).filter(key=>choices[key]).map(key=>new Option(videoLabels[key],key)));
  $('videoSourceControl').hidden=select.options.length<2;
  select.dispatchEvent(new Event('rv:sync'));
- return Object.keys(videoLabels).find(key=>choices[key])||null;
+ return videoOrder().find(key=>choices[key])||null;
 }
 function selectVideo(source){
  const info=(data.videos||{qcamera:data.video})[source];if(!info)return;
@@ -245,7 +247,7 @@ function selectVideo(source){
 function videoFailure(message,keepLog=false){
  if(!data?.video)return;
  failedVideos.add(videoSource);
- const source=Object.keys(videoLabels).find(key=>data.videos?.[key]&&!failedVideos.has(key));
+ const source=videoOrder().find(key=>data.videos?.[key]&&!failedVideos.has(key));
  if(source){selectVideo(source);showError('선택한 영상을 읽지 못해 '+videoLabels[source]+' 영상으로 전환했습니다.');return}
  resumeAfterVideo=false;
  if(!keepLog){playbackError(message);return}
