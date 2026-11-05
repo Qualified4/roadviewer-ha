@@ -25,9 +25,9 @@ class GdriveServerTests(unittest.TestCase):
                         patch.object(server, 'upload_receiving', return_value=False), patch.object(server, 'submit')):
             patcher.start(); self.addCleanup(patcher.stop)
         (self.root / '.uploads').mkdir()
-        # The scratch copy of watched videos is off (max_bytes=0) unless a test turns it on: it adds its own
+        # The in-memory copy of the watched video is off (max_bytes=0) unless a test turns it on: it adds its own
         # download to what Drive is asked.
-        self.playback = playback_cache.PlaybackCache(self.root / '.playback', max_bytes=0, disk_margin=0)
+        self.playback = playback_cache.PlaybackCache(max_bytes=0, janitor=False)
         playback_patch = patch.object(server, 'playback', self.playback); playback_patch.start(); self.addCleanup(playback_patch.stop)
         self.http = ab.Http(sleep=lambda seconds: None, rand=lambda: 0.0)
         auth = self.auth(); auth.start_device_flow(); self.assertEqual(auth.poll_once(), 'granted')
@@ -99,13 +99,13 @@ class GdriveServerTests(unittest.TestCase):
         for secret in ('upload_id=', 'file_id', 'remote_pending', 'access_token', 'refresh_token', 'Bearer'): self.assertNotIn(secret, text)
 
     def test_watched_video_is_copied_and_seeks_are_answered_locally(self):
-        # Opening a Drive video starts one copy of the whole file; once written, seeks there never ask Google.
+        # Opening a Drive video holds the whole file in memory; once received, seeks there never ask Google.
         video = os.urandom(3 * MIB + 77)
         p = self.log('c' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': video}); self.ready(p)
         self.move(); self.playback.max_bytes = 64 * MIB
         r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': 'bytes=0-'}); self.assertEqual(r.status_code, 206); r.close()
         deadline = time.monotonic() + 10
-        while not all(e.complete for e in self.playback.entries.values()) or not self.playback.entries:
+        while not (self.playback.entry and self.playback.entry.complete):
             self.assertLess(time.monotonic(), deadline, 'the copy did not finish'); time.sleep(0.02)
         with self.drive.lock: before = len(self.drive.requests)
         for start in (2 * MIB, 100, MIB + 5):

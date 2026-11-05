@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.13.15**.
+This guide describes **0.13.16**.
 
 [한국어](DOCS.md) · English
 
@@ -486,7 +486,7 @@ Without a client ID the panel shows “애드온 옵션에서 Google Drive 클�
 
 **Move mode** (`archive_mode: move` + `archive_allow_local_delete: true`, verified on a real Drive account in a test environment): upload → verify → the index committed to disk, and only then the local original is deleted. The panel warns “이동 모드: 검증된 원격 사본이 있으면 로컬 원본이 삭제됩니다” (move mode: local originals are deleted once a verified remote copy exists). Pinned segments are copied, never moved. Switching from copy to move mode reuses the copies already verified instead of uploading them again, then deletes the local files.
 
-Moved files are streamed from Drive through the same addresses as before for playback and downloads (range requests supported). So that seeks are quick, a Drive video being watched is also copied whole to a scratch folder on the Home Assistant host in the background, and ranges already copied are served without Google. Scratch copies hold at most 1 GB (least recently watched go first), are not made with less than 2 GB of free disk, are emptied on restart, are not counted against the storage limit and are never used for downloads. Work that needs a local file, such as original-format export or reconversion, downloads a temporary copy from Drive, checks its sha256, uses it and deletes it. With less local free space than the file size plus 100MiB, the download fails with “보관된 파일을 내려받을 디스크 공간이 부족합니다.” (not enough disk space to fetch the archived file) and a conversion is postponed with “디스크 공간이 부족해 변환을 미뤘습니다.” (conversion postponed for lack of disk space).
+Moved files are streamed from Drive through the same addresses as before for playback and downloads (range requests supported). So that seeks are quick, the Drive video being watched is also fetched whole into memory in the background, and ranges already received are served without Google. Only that one video is held (256 MB at most): opening another drops it, and it is freed after 10 minutes unwatched. Nothing is written to disk, and downloads never use it. Work that needs a local file, such as original-format export or reconversion, downloads a temporary copy from Drive, checks its sha256, uses it and deletes it. With less local free space than the file size plus 100MiB, the download fails with “보관된 파일을 내려받을 디스크 공간이 부족합니다.” (not enough disk space to fetch the archived file) and a conversion is postponed with “디스크 공간이 부족해 변환을 미뤘습니다.” (conversion postponed for lack of disk space).
 
 When a conversion replaces an original video with its MP4 and the original's Drive copy has the same content, that copy becomes the stored original and is served from Drive. The new MP4 is uploaded by the next run.
 
