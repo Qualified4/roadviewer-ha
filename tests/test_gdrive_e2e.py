@@ -27,9 +27,9 @@ class GdriveEndToEnd(unittest.TestCase):
                         patch.object(server, 'connection', None)):
             patcher.start(); self.addCleanup(patcher.stop)
         (self.root / '.uploads').mkdir()
-        # The scratch copy of watched videos is off (max_bytes=0) unless a test turns it on: it adds its own
+        # The in-memory copy of the watched video is off (max_bytes=0) unless a test turns it on: it adds its own
         # download to what Drive is asked.
-        self.playback = playback_cache.PlaybackCache(self.root / '.playback', max_bytes=0, disk_margin=0)
+        self.playback = playback_cache.PlaybackCache(max_bytes=0, janitor=False)
         playback_patch = patch.object(server, 'playback', self.playback); playback_patch.start(); self.addCleanup(playback_patch.stop)
         self.http = ab.Http(sleep=lambda seconds: None, rand=lambda: 0.0)
         self.client = server.app.test_client()

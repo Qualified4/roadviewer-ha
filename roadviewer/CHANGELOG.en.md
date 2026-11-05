@@ -4,6 +4,10 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.16
+
+- The Google Drive playback cache moved from a scratch folder on disk (up to 1 GB) to memory and now holds only the video being watched. Opening another video or camera drops the previous one at once, and it is freed after 10 minutes unwatched; files over 256 MB are not held and stream from Drive. Nothing is written to the Home Assistant host's storage any more, and seeks into the part already received stay quick.
+
 ## 0.13.15
 
 - Fixed seeks in Google Drive videos pausing for seconds. Each request from Home Assistant to Google takes over a second, and a seek chained a connection check, a metadata read and the download.
