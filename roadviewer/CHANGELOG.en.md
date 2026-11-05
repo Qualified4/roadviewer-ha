@@ -4,6 +4,12 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.15
+
+- Fixed seeks in Google Drive videos pausing for seconds. Each request from Home Assistant to Google takes over a second, and a seek chained a connection check, a metadata read and the download.
+  - A read trusts a 'connected' from the last 5 minutes and reuses a file's metadata for 10 minutes; a failed download makes the next read check again.
+  - Opening a Drive video copies the whole file to a scratch folder in the background, and seeks into the part already copied are answered without Google. The scratch copies hold at most 1 GB (least recently watched go first), are not made with less than 2 GB of free disk, are emptied on restart, and a finished copy whose SHA-256 differs from the index is discarded. They are not counted against the storage limit or archived; downloads always come from Drive.
+
 ## 0.13.14
 
 - Google Drive playback responses now stay in the browser's private cache for one hour instead of a day. Seeks into ranges received while watching stay immediate; after an hour they come from Drive again.

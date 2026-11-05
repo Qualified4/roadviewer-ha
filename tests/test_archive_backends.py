@@ -315,7 +315,6 @@ class DriveBackendTests(BackendTestCase):
         # (and reuses its answer) instead of failing as 'checking'; status requests still never wait.
         import threading, time as real_time
         b = self.backend; b.activate(); b.invalidate()
-        self.assertTrue(b.probe_waits)
         b.lock.acquire()
         def finish():
             real_time.sleep(0.3); b.cached = (b.clock(), 'connected', None); b.lock.release()
@@ -328,6 +327,22 @@ class DriveBackendTests(BackendTestCase):
         b.invalidate()
         with patch.object(ab, 'PROBE_WAIT_SECONDS', 0.05), b.lock:
             self.assertEqual(b.probe(wait=True), ('checking', 'probe_pending'))
+
+    def test_reads_trust_a_recent_connected(self):
+        # Playback and downloads do not ask Google for the folder again while a 'connected' is recent; past
+        # READ_TRUST_SECONDS, or after a download failed (not a missing file), they probe again.
+        b = self.backend; b.activate(); self.assertEqual(b.probe(), ('connected', None))
+        since = len(self.requests())
+        self.now += ab.CACHE_SECONDS + 1
+        self.assertEqual(b.read_state(), ('connected', None)); self.assertEqual(self.requests(since=since), [])
+        self.now += ab.READ_TRUST_SECONDS
+        self.assertEqual(b.read_state(), ('connected', None)); self.assertNotEqual(self.requests(since=since), [])
+        ref = ab.RemoteRef('gdrive', 'no-such-file', 1, None, None)
+        with self.assertRaises(ab.BackendError): b.open(ref)
+        self.assertIsNotNone(b.cached, 'a missing file says nothing about the connection')
+        self.drive.scenario.fail_next('/drive/v3/files/' + ref.file_id, 403, times=5)
+        with self.assertRaises(ab.BackendError): b.open(ref)
+        self.assertIsNone(b.cached, 'any other failure probes again on the next read')
 
     def test_probe_connected_and_folder_trashed(self):
         b = self.backend

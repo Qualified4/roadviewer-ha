@@ -265,7 +265,8 @@ FOLDER_MIME = 'application/vnd.google-apps.folder'
 CHUNK = 2**20  # Resumable chunks must be multiples of 256 KiB, except the last.
 CACHE_SECONDS = media_store.CACHE_SECONDS
 READ_BLOCK = 2**16  # Downloads are read in small blocks so playback gets its first bytes without waiting for a whole CHUNK.
-STAT_SECONDS = 30  # A file's metadata is reused this long for playback (each seek is a new request).
+STAT_SECONDS = 600  # A file's metadata is reused this long for playback (each seek is a new request).
+READ_TRUST_SECONDS = 300  # A read trusts a 'connected' this recent: its own download reports an outage anyway.
 PROBE_WAIT_SECONDS = 20  # Longer than one probe (a token refresh and a folder read, each PROBE_TIMEOUT at most).
 USAGE_REFRESH_SECONDS = 300  # The settings panel measures Drive's usage at most this often.
 FILE_FIELDS = 'id,size,sha256Checksum,md5Checksum,appProperties'
@@ -489,7 +490,6 @@ class _Availability:
 
 class DriveBackend(_Availability):
     caps = Capabilities('gdrive', local_paths=False, checksum=('sha256', 'md5'), range_reads=True, atomic_rename=False, remote_cleanup=False)
-    probe_waits = True  # media_store.resolve may pass wait=True.
 
     def __init__(self, settings, root, auth, client, clock=time.monotonic):
         self.settings, self.root, self.auth, self.client = settings, Path(root), auth, client
@@ -566,6 +566,13 @@ class DriveBackend(_Availability):
 
     def _ref(self, meta):
         return RemoteRef('gdrive', meta.get('id'), _int_or(meta.get('size'), 0), meta.get('sha256Checksum') or None, meta.get('md5Checksum') or None)
+
+    def read_state(self):
+        # For playback and downloads: Google answers each request in about a second from a Home Assistant box, so a
+        # recent 'connected' is trusted instead of asking again; a failed download invalidates it (open()).
+        cached = self.cached
+        if cached and cached[1] == 'connected' and self.clock() - cached[0] < READ_TRUST_SECONDS: return 'connected', None
+        return self.probe(wait=True)
 
     def stat_recent(self, ref):
         # For playback only: every seek of a video is a new range request, and asking Google for the same file's
@@ -694,8 +701,9 @@ class DriveBackend(_Availability):
     def open(self, ref, start=0, end=None):
         # The request is made now, so a missing file or a bad range raises here rather than on the first chunk.
         try: r = self.client.download(ref.file_id, None if not start and end is None else start, end)
-        except BackendError:
+        except BackendError as e:
             self.stat_cache.pop(ref.file_id, None)  # Gone or unreadable: the next request asks Google again.
+            if e.code != 'not_found': self.cached = None  # And a trusted 'connected' is probed again.
             raise
         return r.iter_chunks(READ_BLOCK)
 

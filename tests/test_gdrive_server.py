@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_media_integration import make_log, PEER, HEADERS  # Sets RV_DATA and imports the server module.
-import server, media_store
+import server, media_store, playback_cache
 import archive_backends as ab
 from fake_drive import FakeDrive
 
@@ -25,6 +25,10 @@ class GdriveServerTests(unittest.TestCase):
                         patch.object(server, 'upload_receiving', return_value=False), patch.object(server, 'submit')):
             patcher.start(); self.addCleanup(patcher.stop)
         (self.root / '.uploads').mkdir()
+        # The scratch copy of watched videos is off (max_bytes=0) unless a test turns it on: it adds its own
+        # download to what Drive is asked.
+        self.playback = playback_cache.PlaybackCache(self.root / '.playback', max_bytes=0, disk_margin=0)
+        playback_patch = patch.object(server, 'playback', self.playback); playback_patch.start(); self.addCleanup(playback_patch.stop)
         self.http = ab.Http(sleep=lambda seconds: None, rand=lambda: 0.0)
         auth = self.auth(); auth.start_device_flow(); self.assertEqual(auth.poll_once(), 'granted')
         self.make_backend().activate()
@@ -93,6 +97,23 @@ class GdriveServerTests(unittest.TestCase):
         for i in ids:
             for shown in (f'"{i}"', f'{i}:', f'/{i}'): self.assertNotIn(shown, text)
         for secret in ('upload_id=', 'file_id', 'remote_pending', 'access_token', 'refresh_token', 'Bearer'): self.assertNotIn(secret, text)
+
+    def test_watched_video_is_copied_and_seeks_are_answered_locally(self):
+        # Opening a Drive video starts one copy of the whole file; once written, seeks there never ask Google.
+        video = os.urandom(3 * MIB + 77)
+        p = self.log('c' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': video}); self.ready(p)
+        self.move(); self.playback.max_bytes = 64 * MIB
+        r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': 'bytes=0-'}); self.assertEqual(r.status_code, 206); r.close()
+        deadline = time.monotonic() + 10
+        while not all(e.complete for e in self.playback.entries.values()) or not self.playback.entries:
+            self.assertLess(time.monotonic(), deadline, 'the copy did not finish'); time.sleep(0.02)
+        with self.drive.lock: before = len(self.drive.requests)
+        for start in (2 * MIB, 100, MIB + 5):
+            r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': f'bytes={start}-'})
+            self.assertEqual((r.status_code, r.headers['Content-Range'], r.data), (206, f'bytes {start}-{len(video) - 1}/{len(video)}', video[start:]))
+        r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': 'bytes=10-99'}); self.assertEqual(r.data, video[10:100])
+        with self.drive.lock: asked = self.drive.requests[before:]
+        self.assertEqual(asked, [], 'seeks into the copy make no request to Google (state and metadata are recent)')
 
     def test_remote_video_range_streams_without_buffering(self):
         video = os.urandom(3 * MIB + 123)
