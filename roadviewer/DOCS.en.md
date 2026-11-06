@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.13.17**.
+This guide describes **0.13.18**.
 
 [한국어](DOCS.md) · English
 
@@ -141,7 +141,7 @@ Bookmarks use log time rather than camera time and are stored in segment metadat
 
 ## Video playback and layout
 
-On desktops, playback prefers high-quality front, then qcamera, then wide; phones and tablets start on qcamera to save mobile data, then high-quality front, then wide. When multiple sources are available, use the selector below the video. Switching preserves log time and playing/paused state using each camera's time offset. A failing source triggers an attempt to use another available video.
+A video opens on the quality chosen under **재생 화질** (playback quality) at the top of the replay page, qcamera or high-quality front, then the other front video, then wide. The choice is made separately for mobile data (default qcamera) and Wi-Fi/wired (default high-quality) and kept per browser. The connection is told apart only where the browser reports it (Chromium browsers on Android); elsewhere phones and tablets follow the mobile-data choice and other devices the Wi-Fi/wired one. When multiple sources are available, use the selector below the video. Switching preserves log time and playing/paused state using each camera's time offset. A failing source triggers an attempt to use another available video.
 
 Before playback is ready, the control area shows a message instead of active playback controls. The seek bar shows buffered video ranges. Errors provide a refresh action.
 

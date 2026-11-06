@@ -221,8 +221,22 @@ function expandReplayData(replay){
  return replay;
 }
 const videoLabels={front:'고화질 전방',qcamera:'전방 · 저용량',wide:'와이드'};
-// Phones and tablets (touch, no hover) start on the small qcamera to save mobile data; desktops on the high-quality front.
-const videoOrder=()=>matchMedia('(hover:none),(pointer:coarse)').matches?['qcamera','front','wide']:['front','qcamera','wide'];
+// The camera a video opens on follows the per-browser choice for the connection in use (mobile data or Wi-Fi/wired).
+// Only some browsers (Chromium on Android) report the connection type; elsewhere phones and tablets (touch, no hover)
+// count as mobile data and other devices as Wi-Fi/wired.
+const videoQuality={cellular:{key:'roadviewer-video-quality-cellular',default:'qcamera',label:'모바일 데이터'},wifi:{key:'roadviewer-video-quality-wifi',default:'front',label:'와이파이 · 유선'}};
+function videoNetwork(){
+ const type=navigator.connection?.type;
+ if(type==='cellular')return {network:'cellular',known:true};
+ if(['wifi','ethernet','wimax'].includes(type))return {network:'wifi',known:true};
+ return {network:matchMedia('(hover:none),(pointer:coarse)').matches?'cellular':'wifi',known:false};
+}
+function preferredQuality(network){
+ const choice=videoQuality[network];
+ try{const saved=localStorage.getItem(choice.key);if(saved==='front'||saved==='qcamera')return saved}catch{}
+ return choice.default;
+}
+const videoOrder=()=>preferredQuality(videoNetwork().network)==='qcamera'?['qcamera','front','wide']:['front','qcamera','wide'];
 function setupVideoSources(){
  failedVideos.clear();resumeAfterVideo=false;
  const choices=data.videos|| (data.video?{qcamera:data.video}:{}),select=$('videoSource');
@@ -962,14 +976,26 @@ syncLayoutWidth();mobileLayout.addEventListener('change',syncLayoutWidth);tablet
 layoutWidth.oninput=()=>{applyLayoutWidth(layoutWidth.value);try{localStorage.setItem(widthProfile().key,layoutWidth.value)}catch{}};
 $('resetLayoutWidth').onclick=()=>{const profile=widthProfile();layoutWidth.value=String(profile.default);applyLayoutWidth(layoutWidth.value);try{localStorage.removeItem(profile.key)}catch{}};
 
-(()=>{
- const dialog=$('layoutWidthDialog'),button=$('layoutWidthButton');let oldOverflow='';
- button.onclick=()=>{if(dialog.open)return;oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.showModal();layoutWidth.focus({preventScroll:true})};
+function settingsDialog(dialog,button,closeButton,focus,onOpen){
+ let oldOverflow='';
+ button.onclick=()=>{if(dialog.open)return;onOpen?.();oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.showModal();focus().focus({preventScroll:true})};
  const close=()=>dialog.close();
- $('layoutWidthClose').onclick=close;
+ closeButton.onclick=close;
  dialog.addEventListener('close',()=>{document.body.style.overflow=oldOverflow;button.focus({preventScroll:true})});
  dialog.addEventListener('cancel',e=>{e.preventDefault();close()});
  dialog.addEventListener('click',e=>{if(e.target!==dialog)return;const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()});
+}
+settingsDialog($('layoutWidthDialog'),$('layoutWidthButton'),$('layoutWidthClose'),()=>layoutWidth);
+(()=>{
+ const groups={cellular:'qualityCellular',wifi:'qualityWifi'};
+ const sync=()=>{
+  for(const [network,name] of Object.entries(groups)){const value=preferredQuality(network);for(const input of document.getElementsByName(name))input.checked=input.value===value}
+  const {network,known}=videoNetwork();
+  $('videoQualityNetwork').textContent=known?`현재 연결: ${videoQuality[network].label}`:`현재 연결을 확인할 수 없어 ${videoQuality[network].label} 설정을 따릅니다.`;
+ };
+ for(const [network,name] of Object.entries(groups))for(const input of document.getElementsByName(name))input.onchange=()=>{try{localStorage.setItem(videoQuality[network].key,input.value)}catch{}};
+ navigator.connection?.addEventListener?.('change',()=>{if($('videoQualityDialog').open)sync()});
+ settingsDialog($('videoQualityDialog'),$('videoQualityButton'),$('videoQualityClose'),()=>document.querySelector(`input[name="${groups[videoNetwork().network]}"]:checked`),sync);
 })();
 
 // Web fonts may finish after the first paused canvas frame.

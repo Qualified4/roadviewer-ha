@@ -4,6 +4,11 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.18
+
+- A **재생 화질** (playback quality) setting at the top of the replay page chooses, separately for mobile data and for Wi-Fi/wired, whether a video opens on the small front video (qcamera) or the high-quality one (fcamera). Mobile data defaults to qcamera and Wi-Fi/wired to fcamera; the choice is kept per browser.
+  - The connection is told apart only where the browser reports it (Chromium browsers on Android such as Samsung Internet, Whale and Chrome). Elsewhere (iPhone, iPad, desktop browsers) phones and tablets follow the mobile-data choice and other devices the Wi-Fi/wired one; the dialog shows which applies.
+
 ## 0.13.17
 
 - Phones and tablets now start on the small front video (qcamera) instead of the high-quality one (fcamera), to save mobile data. Desktops still start on the high-quality front, the selector below the video still switches at any time, and if qcamera cannot be read the high-quality front follows.
