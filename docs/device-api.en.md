@@ -2,7 +2,7 @@
 
 [한국어](device-api.md) · English
 
-Implementation reference: **Road Viewer 0.13.19**.
+Implementation reference: **Road Viewer 0.13.20**.
 
 This repository provides the Road Viewer server and web UI. Compatible device uploaders are maintained separately. Existing browser uploads and Home Assistant Ingress remain supported. One Gunicorn worker with multiple threads is required; do not add workers/replicas sharing this data directory.
 
@@ -179,7 +179,7 @@ An uploader can send `X-RV-Checksum: sha256-stream` with `sha256: null` in each
 file entry to skip the initial full-file scan. A null checksum without that header
 is rejected as `invalid_file`. Null values remain part of the signed manifest.
 A supporting server returns `checksum_mode: "sha256-stream"` on creation and
-reattachment. Check this response before transferring. An older server rejecting
+reattachment (the default mode reports `"sha256-manifest"`). Check this response before transferring. An older server rejecting
 `invalid_file` or `invalid_batch` can use the original RV1 manifest with precomputed
 hashes for the current segment. Authentication/network errors are not negotiation
 failures.
@@ -187,9 +187,10 @@ failures.
 In this mode `POST .../finish` requires `Content-Type: application/json` and
 `{"sha256":["<file 0 SHA256>","<file 1 SHA256>"]}` in manifest order. The server
 checks the count and lowercase 64-digit hexadecimal format. Any hash also declared
-in the initial manifest must agree. All received lengths and checksums are verified
-before registration, deduplication or eviction. A checksum mismatch returns422
-and discards the session.
+in the initial manifest must agree; a disagreement returns 422 `checksum_mismatch`
+but keeps the session. All received lengths and checksums are verified
+before registration, deduplication or eviction. A mismatch between the received
+content and the final checksum returns 422 and discards the session.
 
 The receiver updates SHA-256 from chunks written in order; retransmitting an
 accepted chunk does not hash it twice. Cached hashes require the same file device,
@@ -197,10 +198,10 @@ inode, size, mtime and ctime. A restart or changed file falls back to a full dis
 hash. Library matching checks rlog first and reads video hashes only for matching
 logs when needed.
 
-Streaming sessions negotiate up to8MiB, bounded by the announced uploader limit.
-Original RV1/browser requests retain the2MiB cap and unannounced uploaders keep
-the256KiB response. Nginx permits8MiB plus headroom; the application enforces the
-negotiated session limit. Carrot starts at1MiB and adapts toward roughly four
+Chunk negotiation is the same in both checksum modes: up to 8 MiB, bounded by the
+announced uploader limit, while unannounced uploaders keep the 256 KiB response.
+Browser uploads keep their separate 2 MiB cap. Nginx permits 8 MiB plus headroom;
+the application enforces the negotiated session limit. Carrot starts at 1 MiB and adapts toward roughly four
 seconds per request, reducing the chunk after errors. Up to three different files
 within a segment transfer concurrently.
 
@@ -212,7 +213,7 @@ a normal new transfer reads each source file only once.
 
 ## Revoke and authentication state
 
-Ingress-only `GET /api/settings/device-network` returns `configured_port`, `active_port`, `restart_required`, `boot_id`, `restarting`, and `restart_error`. `POST` accepts exactly `{ "enabled": true, "port": 18443 }` or `{ "enabled": false, "port": null }`. Other port mappings and app options are preserved. The response never includes Supervisor tokens or raw options. `POST /api/settings/device-network/restart` queues an explicit restart with HTTP 202. The UI only treats a new `boot_id` as restart completion and checks for up to three minutes. TLS/validation failures are 400, changes during restart are 409, and Supervisor failures are 502. These endpoints are inaccessible from the external device listener.
+Ingress-only `GET /api/settings/device-network` returns `configured_port`, `active_port`, `restart_required`, `boot_id`, `restarting`, and `restart_error`. `POST` accepts exactly `{ "enabled": true, "port": <integer 1–65535> }` (for example 18443) or `{ "enabled": false, "port": null }`. Other port mappings and app options are preserved. The response never includes Supervisor tokens or raw options. `POST /api/settings/device-network/restart` queues an explicit restart with HTTP 202. The UI only treats a new `boot_id` as restart completion and checks for up to three minutes. TLS/validation failures are 400, changes during restart are 409, and Supervisor failures are 502. These endpoints are inaccessible from the external device listener.
 
 Ingress-only `GET /api/settings/devices` provides name, optional dongle_id, registered_at, last_seen (last HMAC authentication), revoked flag and device_id, never credentials. The response also includes `enabled`, `host_port` (null when disabled), and `configuration_error` for startup port discovery failures. `POST /api/settings/devices/<device_id>/revoke` permanently revokes that ID. New HMAC requests **and subsequent token requests** are rejected. Idle sessions are removed immediately; an in-flight operation may complete, and its leftover temporary session is removed by expiry cleanup. Existing recordings are not deleted. Re-pair for a new ID; a revoked device cannot reactivate itself. Ingress-only `DELETE /api/settings/devices/<device_id>` removes a revoked device record from the list and frees its registration slot (100 total). Active devices return 409 `device_not_revoked`; unknown IDs return 404 `device_not_found`. Removal persists across restarts and does not delete recordings or restore authentication. The UI shows 목록 제거 after revocation.
 
@@ -225,7 +226,6 @@ MOVE deletes only the corresponding local file after remote transfer, integrity 
 Moved recordings **remain listed, playable, and downloadable**. Automatic local reclamation never deletes Drive files or recordings referencing them, including COPY references. Only explicit **Delete permanently** can enqueue remote deletion. Unattributed deletion intents from older versions are retained without automatic execution.
 
 The logical rejection/eviction policy below applies outside effective Drive MOVE. Insufficient physical space retains the existing HTTP 507 storage error; no new waiting or retry API is introduced.
-
 
 The UI offers unlimited (default), 10/20/50/100 GB and custom; UI GB uses 1024³ bytes. `/data/roadviewer/.storage-settings.json` stores integer `max_bytes`, `policy` and segment UUID pins (`pinned_logs`). No database was added. Settings and pins persist and are backed up. UI exposes used bytes (all regular files below Road Viewer root), disk free bytes and remaining reserved bytes.
 
@@ -280,8 +280,8 @@ An OK result verifies the tested API/storage paths, not real video or log-decodi
 For the real TLS/Nginx/Gunicorn boundary, use Docker:
 
 ```bash
-docker build -t roadviewer:0.13.19 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.13.19 /tests/test_device_tls.py
+docker build -t roadviewer:0.13.20 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.13.20 /tests/test_device_tls.py
 ```
 
 The client trusts a temporary test certificate. Server and client communicate inside the container, so host port publication and router changes are unnecessary. Building needs network access; this does not validate your real DNS/NAT setup.

@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.13.19**
+Feature reference: **0.13.20**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -114,7 +114,7 @@ Upload `ecamera.hevc` with the log to select **와이드** (Wide) below the vide
 
 ![Road Viewer wide-camera video with lanes, model path, FF vehicle box, radar detections and a left turn signal overlay](docs/images/roadviewer-wide-camera.png)
 
-The default camera preference is high-quality front → qcamera → wide. Switching preserves log time and playing/paused state. A failing video triggers an attempt to use another available source. Wide overlays use the wide sensor/calibration; missing information produces an explanation. Older prepared logs may need reanalysis to obtain wide calibration.
+A video opens on the **기본 화질** (default quality) chosen per connection: the small front video (qcamera) on mobile data and the high-quality front on Wi-Fi/wired by default. Change it with **기본 화질** beside 닫기 (close) in the camera list below the video; the choice is kept per browser. Where the browser does not report the connection type (iPhone, iPad, desktop browsers and others), phones and tablets follow the mobile-data choice and other devices the Wi-Fi/wired one. If that video is missing, the other front video is used, then wide. Switching preserves log time and playing/paused state. A failing video triggers an attempt to use another available source. Wide overlays use the wide sensor/calibration; missing information produces an explanation. Older prepared logs may need reanalysis to obtain wide calibration.
 
 Overlay settings control box height/opacity, path width, BSD wall height and individual labels. LF/FF/RF boxes reconstruct supported CCNC display commands recorded in the log. BSD, turn signals and target distance appear when the corresponding data is available. Camera overlays are independent of the road panel's 25/50/80m range; BSD walls retain a 40m limit.
 
@@ -172,7 +172,7 @@ Bookmarks use log time rather than a camera file’s timestamp, so changing came
 
 Set automatic conversion and concurrent jobs in **Conversion and storage settings**. Storage management controls the budget and full-storage policy.
 
-![Conversion settings and storage management](docs/images/roadviewer-storage-overview.png)
+![Local usage and Google Drive connection status](docs/images/roadviewer-storage-overview.png)
 
 Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 without re-encoding. Verification compares SHA-256 hashes of compressed pictures and headers, packet counts and timestamps without decoding every frame; it does not screen the source for every possible decoding error. Originals are removed only after compressed-picture, decoder-header, packet-count and log-clock verification; failed sources and rlog.zst are preserved. With automatic conversion off, uploads remain in their uploaded form until manual conversion. HEVC playback requires browser/device support; playback failure switches to the low-resolution camera when available.
 
@@ -186,13 +186,13 @@ The bar stays visible from preparation until the large compressed files have bee
 
 **Segment status and file management**
 
-The library is sorted by route counter and segment number descending. Each row shows processing status, video availability and retained/prepared file sizes. Ready entries offer **Play**, while entries needing preparation offer **Convert**. Pin individual segments and use the adjacent dropdown for downloads, removal and complete deletion.
+The library is sorted by route counter and segment number descending and groups each route's segments together. Route groups start folded; only routes opened by hand are remembered as open. Each row shows processing status, video availability and retained/prepared file sizes, and chips under each segment show where the log and each camera video (high-quality, low-resolution, wide) are kept: **로컬** (local), **Drive** or **NAS**. Ready entries offer **Play**, while entries needing preparation offer **Convert**. Pin individual segments and use the adjacent dropdown for downloads, removal and complete deletion.
 
 ![Saved recordings with per-segment playback, pinning and management controls](docs/images/roadviewer-library-logs.png)
 
 **Download logs and camera videos**
 
-Open **다운로드** (Download) from a recording’s dropdown or the replay screen. Choose the format and included files, then download individual files or a ZIP.
+Open **다운로드** (Download) from a recording’s dropdown or the replay screen. Choose the format and included files, then download individual files or a ZIP. On the replay screen, the menu beside the pin button offers the same **제거** (Remove), **다운로드** (Download) and **완전 삭제** (Completely delete) as the library; confirming a removal or deletion returns to the library.
 
 - **MP4:** Download the retained camera video as stored. HEVC front/wide playback requires codec support in the browser/device.
 - **Original format:** Remux f/e to HEVC and q to TS without re-encoding. Quality is preserved, but the bytes and hashes may differ from the original upload.
@@ -207,17 +207,17 @@ ZIPs stream without retaining a download copy on the server. Each camera’s sol
 
 Use **로그 선택** (Select logs) at the bottom of settings for bulk conversion/removal/deletion. Pinned segments are excluded from bulk removal/deletion by default. **고정 항목도 삭제** explicitly includes them for that dialog session; reopening restores protection. Individual menus allow explicit deletion of pinned recordings.
 
+<img src="docs/images/roadviewer-bulk-selection.png" alt="Route and segment selection in bulk management" width="530">
+
 Storage management follows four steps: status and connections, archiving basics, execution/advanced settings, and a live behavior summary. Choose presets or custom values, review the summary, and save together. Manual archiving is disabled while settings are unsaved.
 
 **Google Drive MOVE is extension storage for local data.** With Drive MOVE and permission to delete local originals configured, the local maximum is a **soft limit**. When archiving is enabled, reaching that limit or the archive start threshold requests a background move through the existing archiver; when both are positive, the lower value is used. Uploads can temporarily exceed the limit while physical disk space covers other uploads’ outstanding reservations, temporary files, and a **100 MiB safety margin**. Admission does not wait for a Drive transfer to finish.
 
 MOVE deletes only the corresponding local file after remote transfer, integrity verification, and index commit. Minimum age, pin/in-use protection, batch limits, and the shared cycle lock remain enforced. Drive outages and verification failures preserve originals and records. Uploads continue while physical headroom is sufficient; otherwise new uploads are rejected without deleting existing records. Disabling archiving prevents moves; configured Drive MOVE still uses the soft limit, with physical disk headroom controlling upload admission.
 
-Moved recordings **remain listed, playable, and downloadable**. Automatic local reclamation never deletes Drive files or recordings referencing them, including COPY references. Only explicit **Delete permanently** can enqueue remote deletion. Unattributed deletion intents from older versions are retained without automatic execution.
+Moved recordings **remain listed, playable, and downloadable**. Automatic local reclamation never deletes Drive files or recordings referencing them, including COPY references. Only explicit **Completely delete** can enqueue remote deletion. Unattributed deletion intents from older versions are retained without automatic execution.
 
 Outside Drive MOVE, the existing policy offers upload rejection or deletion of old unpinned segments after receipt and validation, never at reservation creation. Pins, active routes, and recordings referencing Drive are protected. See the [settings walkthrough](roadviewer/DOCS.en.md#reading-the-storage-screen). Manual move/copy-all first shows target files, size, and exclusions for confirmation; see the [manual-run safeguards](roadviewer/DOCS.en.md#manually-move-or-copy-all-eligible-data).
-
-<img src="docs/images/roadviewer-bulk-selection.png" alt="Route and segment selection in bulk management" width="530">
 
 
 ## Storage, backups and updates
@@ -226,9 +226,9 @@ Files reside under `/data/roadviewer` inside the app container. **Home Assistant
 
 An update that changes the analysis format may clear prepared data and reprocess recordings. Rendering-only updates do not inherently require reconversion.
 
-The experimental **NAS archiving** option moves original videos and logs of converted recordings to network storage attached to Home Assistant with usage Share, freeing local space. It is off by default. Pinned segments are archived too but never removed by NAS cleanup. The library and converted data stay local, an unreachable NAS never causes deletions, and there is no restore back to local storage. Files on the NAS are not part of Home Assistant backups. See [NAS archiving](roadviewer/DOCS.en.md#nas-archiving-experimental) for setup.
+The experimental **NAS archiving** option, enabled in **저장공간 관리** (storage management), moves original videos and logs of converted recordings to network storage attached to Home Assistant with usage Share, freeing local space. It is off by default. Scheduled archiving moves pinned segments too (a manual move-all keeps them local), but NAS cleanup never removes them. The library and converted data stay local, an unreachable NAS never causes deletions, and there is no restore back to local storage. Files on the NAS are not part of Home Assistant backups. See [NAS archiving](roadviewer/DOCS.en.md#nas-archiving-experimental) for setup.
 
-**Google Drive** can be used as the archive instead of a NAS (experimental, off by default). It connects with an OAuth client of your own by entering a code, and defaults to copy mode: verified copies go to Drive and local files are never deleted. Move mode, which deletes local originals, needs both `archive_mode: move` and `archive_allow_local_delete: true`, and this version has no automatic Drive cleanup. The sign-in token is part of Home Assistant backups, so keep backups safe. See [Google Drive archiving](roadviewer/DOCS.en.md#google-drive-archiving-experimental).
+**Google Drive** can be used as the archive instead of a NAS (experimental, off by default). Enter the ID and secret of an OAuth client of your own in the app options, then press **Google Drive 연결** (Connect Google Drive) in storage management and enter the displayed code on Google's device sign-in page. **연결 해제** (Disconnect) removes only this installation's token; records, local files and Drive files are unchanged. It defaults to copy (COPY) mode: verified copies go to Drive and local files are never deleted. Move (MOVE) mode, which deletes local originals, applies only when storage management sets MOVE together with **검증 후 로컬 원본 삭제 허용** (allow deleting local originals after verification); there is no automatic Drive cleanup. Videos moved to Drive play through the app, which holds only the video being watched (up to 256 MB) in memory so seeks stay quick; nothing is written to disk, and it is freed after 10 minutes unwatched. The sign-in token is part of Home Assistant backups, so keep backups safe. See [Google Drive archiving](roadviewer/DOCS.en.md#google-drive-archiving-experimental).
 
 ## Documentation and validation
 

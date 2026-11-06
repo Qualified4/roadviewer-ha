@@ -8,7 +8,7 @@ Eighteen UI detail screenshots were captured on 2026-11-05 from the real HTML/CS
 
 Device ID `DEMO-DEVICE`, route hash `0000000000`, pairing code `DEMO0123DEMO4567DEMO8901`, capacities, times, tags, and bookmarks are examples. They are not actual credentials, device tokens, or private driving logs. The code cannot pair a device. These layout examples do not replace real-account or playback validation.
 
-The three user-selected driving/wide illustrations are retained and may include older UI/version labels. Current UI detail captures use Korean; the English documents share these images.
+The three user-selected driving/wide illustrations are retained and may include older UI/version labels. The UI detail captures use Korean; the English documents share these images.
 
 ## Image inventory
 

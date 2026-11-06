@@ -2,7 +2,7 @@
 
 한국어 · [English](device-api.en.md)
 
-구현 기준: **Road Viewer 0.13.19**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
+구현 기준: **Road Viewer 0.13.20**. 이 저장소는 서버와 웹 UI를 제공하며 호환 장치 업로더는 별도 저장소에서 관리합니다. 기존 브라우저 업로드와 Home Assistant Ingress는 유지됩니다.
 
 공유 데이터 디렉터리는 **Gunicorn worker 1개와 여러 thread**를 전제로 합니다. 같은 디렉터리를 사용하는 worker나 서버 복제본을 추가하지 마세요.
 
@@ -188,7 +188,7 @@ HEVC는 Annex B parameter-set 헤더가 있어야 합니다. 변환 worker가 �
 업로더는 `X-RV-Checksum: sha256-stream` 헤더와 함께 파일의 `sha256`을
 `null`로 보내 사전 전체 읽기를 생략할 수 있습니다. 헤더 없는 `null`은
 `invalid_file`로 거부합니다. 이 `null`도 서명된 manifest 본문에 포함됩니다.
-지원 서버의 생성/재연결 응답은 `checksum_mode: "sha256-stream"`을 포함합니다.
+지원 서버의 생성/재연결 응답은 `checksum_mode: "sha256-stream"`을 포함합니다(기본 방식은 `"sha256-manifest"`).
 업로더는 이 응답을 확인한 뒤 전송해야 합니다. 구버전 서버가 `invalid_file`
 또는 `invalid_batch`로 거부하면, 현재 구간의 해시를 먼저 계산하는 RV1 기본
 방식으로 전환할 수 있습니다. 인증/네트워크 오류를 협상 실패로 취급하지 않습니다.
@@ -196,9 +196,10 @@ HEVC는 Annex B parameter-set 헤더가 있어야 합니다. 변환 worker가 �
 이 모드의 `POST .../finish`는 `Content-Type: application/json`과
 `{"sha256":["<파일0의 SHA256>","<파일1의 SHA256>"]}`을 보냅니다.
 배열 순서는 manifest의 파일 순서이며 개수와 64자리 소문자 16진수 형식을
-검사합니다. 일부 파일이 manifest에 해시를 선언했다면 그 값도 일치해야 합니다.
+검사합니다. 일부 파일이 manifest에 해시를 선언했다면 그 값도 일치해야 하며,
+다르면 422 `checksum_mismatch`를 반환하지만 세션은 유지합니다.
 모든 파일의 크기와 수신 체크섬을 확인한 뒤에만 등록/중복 검사/저장공간 정리를
-수행합니다. 잘못된 최종 체크섬은422이며 세션을 폐기합니다.
+수행합니다. 수신 내용과 최종 체크섬이 다르면 422이며 세션을 폐기합니다.
 
 수신기는 순서대로 기록한 청크로 SHA-256을 갱신합니다. 동일 청크 재전송은
 다시 더하지 않습니다. 파일의 inode/장치/크기/mtime/ctime이 맞을 때만 이 계산을
@@ -206,11 +207,11 @@ HEVC는 Annex B parameter-set 헤더가 있어야 합니다. 변환 worker가 �
 전체 해시를 다시 계산합니다. 기존 라이브러리의 중복 검사는 우선 rlog만 확인하고,
 같은 로그에 속하는 영상만 필요할 때 확인합니다.
 
-스트리밍 모드는 업로더가 선언한 상한까지, 최대8MiB 청크를 협상합니다.
-기본 RV1/브라우저의 서버 상한2MiB와 미선언 업로더의256KiB 응답은 유지합니다.
-Nginx 요청 상한도8MiB에 여유를 더하며, 앱은 세션마다 협상된 상한을 검사합니다.
-Carrot 업로더는1MiB부터 시작해 응답 속도로 약4초 분량의 청크를 선택하고,
-오류 시 줄입니다. 구간 안의 서로 다른 파일은 최대3개 병렬 전송합니다.
+조각 크기 협상은 체크섬 방식과 관계없이 같습니다. 업로더가 선언한 상한까지 최대 8 MiB이며,
+미선언 업로더는 256 KiB 응답을 받습니다. 브라우저 업로드의 2 MiB 상한은 별도로 유지합니다.
+Nginx 요청 상한도 8 MiB에 여유를 더하며, 앱은 세션마다 협상된 상한을 검사합니다.
+Carrot 업로더는 1 MiB부터 시작해 응답 속도로 약 4초 분량의 청크를 선택하고,
+오류 시 줄입니다. 구간 안의 서로 다른 파일은 최대 3개 병렬 전송합니다.
 
 Carrot Web은 구간마다 별도 세션으로 전송·검증·완료 등록한 다음 다음 구간을
 시작합니다. 앞서 완료된 구간은 다음 구간 실패나 취소와 관계없이 유지됩니다.
@@ -256,7 +257,7 @@ Ingress의 `GET /api/logs/<id>/video?source=<key>`는 기존 접근 권한과 HT
 이 절의 엔드포인트는 모두 Ingress 전용입니다.
 
 - `GET /api/settings/device-network`: configured_port, active_port, restart_required, boot_id, restarting, restart_error.
-- 같은 경로의 POST: 정확히 `{"enabled":true,"port":18443}` 또는 `{"enabled":false,"port":null}`. 다른 포트·옵션은 유지합니다.
+- 같은 경로의 POST: 정확히 `{"enabled":true,"port":<1~65535 정수>}`(예: 18443) 또는 `{"enabled":false,"port":null}`. 다른 포트·옵션은 유지합니다.
 - `POST /api/settings/device-network/restart`: 202, 앱 재시작을 예약합니다. UI는 새 boot_id를 최대 3분 확인합니다. TLS/입력 오류 400, 재시작 중 변경 409, Supervisor 오류 502.
 - `GET /api/settings/devices`: 이름, dongle_id, 등록·최근 HMAC 인증 시각, revoked, device_id와 enabled/host_port/configuration_error. 장기 키나 Supervisor 토큰은 반환하지 않습니다.
 - `POST /api/settings/devices/<device_id>/revoke`: 장치를 영구 연결 해제합니다. 새로운 HMAC과 기존 세션 토큰의 이후 요청도 거부합니다. 유휴 세션은 제거하고 진행 중 요청은 끝날 수 있습니다. 남은 임시 세션은 만료 정리합니다.
@@ -273,7 +274,6 @@ MOVE는 원격 전송·무결성 검증·저장 기록 확정 후 해당 로컬 
 Drive로 옮긴 기록은 **목록·재생·다운로드에 그대로 남습니다.** 자동 로컬 정리는 Drive 파일이나 Drive 파일이 연결된 기록을 삭제하지 않습니다(COPY 사본도 보호). 원격 삭제는 사용자가 **완전 삭제**를 명시한 경우에만 예약합니다. 출처를 확인할 수 없는 이전 버전의 원격 삭제 대기는 자동 실행하지 않습니다.
 
 아래 `reject_new`/`delete_oldest`의 논리적 한도·삭제 설명은 Drive MOVE 이외의 기존 정책에 해당합니다. 물리적 공간 부족 시 기존 저장공간 오류 응답(HTTP 507)을 유지하며, 별도의 대기·재시도 API는 추가하지 않습니다.
-
 
 `.storage-settings.json`에는 max_bytes, policy와 구간 UUID별 pinned_logs를 저장합니다. DB는 사용하지 않습니다. 화면은 전체 파일 사용량·디스크 여유·남은 예약량을 표시하고 GB는 1024³ 바이트입니다. 기본값은 무제한 / reject_new입니다.
 
@@ -326,8 +326,8 @@ python3 -m venv /tmp/roadviewer-test-env
 실제 Nginx/Gunicorn TLS 경계를 검증하려면:
 
 ```bash
-docker build -t roadviewer:0.13.19 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.13.19 /tests/test_device_tls.py
+docker build -t roadviewer:0.13.20 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:0.13.20 /tests/test_device_tls.py
 ```
 
 컨테이너 안에서 임시 인증서로 통신하므로 포트 공개·공유기 변경은 필요하지 않습니다. 빌드는 네트워크가 필요하며 실제 DNS/NAT 검증을 대신하지 않습니다.

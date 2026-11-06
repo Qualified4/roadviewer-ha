@@ -10,7 +10,9 @@ Road Viewer는 전용 `roadviewer/apparmor.txt`를 사용합니다. Supervisor�
 
 일반 파일·실행 파일, TCP/UDP/Unix 소켓과 capability 정책은 Docker 기준을 유지합니다. 추가한 감사 대상 deny 규칙 5개는 IPv4 raw 소켓, IPv6 raw 소켓, AF_PACKET 소켓, NET_RAW 사용, MKNOD 사용을 차단합니다.
 
-AppArmor의 deny는 Docker capability 비트를 제거하지 않습니다. 빈 `privileged` 목록도 capability가 없다는 뜻은 아닙니다. 추가 capability, 호스트 마운트·네트워크, 인증 변경을 요청하지 않습니다.
+AppArmor의 deny는 Docker capability 비트를 제거하지 않습니다. 빈 `privileged` 목록도 capability가 없다는 뜻은 아닙니다. 이 정책 변경은 추가 capability, 호스트 마운트·네트워크, 인증 변경을 요청하지 않습니다.
+
+앱은 Home Assistant의 `share` 폴더를 쓰기 가능으로 마운트합니다(`config.yaml`의 `map`). NAS 아카이빙이 Home Assistant에서 추가한 네트워크 저장소(`/share/<이름>`)에 쓰기 위한 것이며, 앱은 설정한 `archive_path`(`/share/` 아래 하위 폴더) 안에만 씁니다. NAS 아카이빙을 쓰지 않으면 `share`에 아무것도 쓰지 않습니다.
 
 내부 signal·ptrace 상대는 `@{profile_name}`을 사용하여 Supervisor의 이름 치환을 지원합니다. unconfined·runc·crun에서 오는 호스트 signal 수신은 유지합니다. dockerd가 unconfined일 때 기준 daemon 상대 규칙으로 처리합니다. 다른 호스트에서는 실제 레이블을 확인하고, 제한된 daemon에는 와일드카드가 아닌 정확한 수신 상대 규칙이 필요합니다.
 

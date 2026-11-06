@@ -4,6 +4,13 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.20
+
+- Under each segment, the log list now shows where the log and each camera video (high-quality, low-res, wide) are kept: **로컬** (local), **Drive** or **NAS**. Only files moved by archiving show Drive or NAS.
+- The replay page's download button became a menu like the list's, with **제거** (Remove), **다운로드** (Download) and **완전 삭제** (Delete permanently); a confirmed remove or delete returns to the log list.
+- The "재생 화면" label above the replay toolbar is gone, and the list's status and file guide matches the current menu.
+- The user guide, READMEs and device API docs were brought up to date: enabling Drive move mode (in the web UI), automatic cleanup never deleting Drive files, device upload limits and chunk size, and the per-connection default quality; duplicated paragraphs were removed.
+
 ## 0.13.19
 
 - The default playback quality setting moved from a button at the top of the replay page into the camera list below the video: **기본 화질** (default quality) beside 닫기 (close) opens the mobile data and Wi-Fi/wired choices.
