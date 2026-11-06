@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.13.19**
+Feature reference: **0.13.20**
 
 Replay and analyze openpilot logs with front/wide camera video inside Home Assistant.
 
@@ -10,19 +10,23 @@ Replay and analyze openpilot logs with front/wide camera video inside Home Assis
 
 **Add files or drag and drop → Upload → Convert → Play.** Automatic conversion is enabled by default.
 
-Upload the matching rlog with qcamera.ts, fcamera.hevc, ecamera.hevc, or camera MP4 files. MP4 re-upload is supported with the same segment rlog: qcamera uses H.264 and front/wide use HEVC. Log-only uploads are supported; video-only registration is not. Missing extra cameras do not block the rest.
+Select the segment's `rlog.zst` with whichever videos you need (`qcamera.ts`, high-quality front `fcamera.hevc`, wide `ecamera.hevc`). Log-only uploads are supported. Per-camera MP4s can be re-uploaded with the same segment's rlog, but video-only registration is not supported. A qcamera MP4 must be H.264 and front/wide MP4s HEVC. Several segments can be selected together; if a mobile file picker does not allow multiple selection, add files one at a time.
 
 ## Features
 
 - Synchronized video, road view and vehicle graphs, up to 4× speed
-- Front/wide camera switching and calibrated camera overlays
+- Front/wide camera switching and calibrated camera overlays, with a default quality per connection (small qcamera on mobile data, high-quality front on Wi-Fi/wired)
 - Lanes, model paths, radar points, LF/FF/RF boxes, blind spots and turn signals
 - Automatic, side-by-side and stacked layouts, adjustable width and sticky playback controls
 - 24 selectable/reorderable graphs and camera installation information
 - Automatic/manual conversion, up to four concurrent jobs and lossless MP4 retention
 - Later camera attachment, original-format export and log/video downloads
-- Per-segment pins, bulk conversion/removal/deletion, storage budgets and cleanup
+- Segment tags and scene bookmarks
+- Library grouped into folding routes (folded by default) with per-segment storage location chips (local, Drive, NAS)
+- Per-segment pins, bulk conversion/removal/deletion, a remove/download/completely-delete menu on the replay screen, storage budgets and cleanup
+- Experimental archiving that copies or moves older recordings to Google Drive or a NAS, with Drive connect/disconnect
 - Optional HTTPS device uploads with pairing
+- MCP server for AI agents: [roadviewer-mcp](https://github.com/Qualified4/roadviewer-mcp) (separate project, using only the existing Ingress login and API)
 
 ## Managing files
 
@@ -60,6 +64,6 @@ Status, archiving basics, execution/advanced controls, and a live summary make u
 
 MOVE deletes only the corresponding local file after remote transfer, integrity verification, and index commit. Minimum age, pin/in-use protection, batch limits, and the shared cycle lock remain enforced. Drive outages and verification failures preserve originals and records. Uploads continue while physical headroom is sufficient; otherwise new uploads are rejected without deleting existing records. Disabling archiving prevents moves; configured Drive MOVE still uses the soft limit, with physical disk headroom controlling upload admission.
 
-Moved recordings **remain listed, playable, and downloadable**. Automatic local reclamation never deletes Drive files or recordings referencing them, including COPY references. Only explicit **Delete permanently** can enqueue remote deletion. Unattributed deletion intents from older versions are retained without automatic execution.
+Moved recordings **remain listed, playable, and downloadable**. Automatic local reclamation never deletes Drive files or recordings referencing them, including COPY references. Only explicit **Completely delete** can enqueue remote deletion. Unattributed deletion intents from older versions are retained without automatic execution.
 
 Other policies retain upload rejection or validated-commit eviction of eligible unpinned data. See the [full guide](DOCS.en.md#reading-the-storage-screen).

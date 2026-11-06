@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **0.13.19**.
+This guide describes **0.13.20**.
 
 [한국어](DOCS.md) · English
 
@@ -65,7 +65,7 @@ If Android's native file picker cannot return multiple files, add one at a time.
 
 ## Library and conversion
 
-Segments with the same full route ID share a collapsible group. Select its heading to expand or collapse; the browser remembers that choice. The smallest segment number and that segment’s **upload date/time** remain visible when collapsed; this is not the actual driving timestamp. The header playback, route pin, and download controls remain visible in both fold states. Only the segment list animates, keeping header height and buttons stable. Header playback starts from the first segment. A yellow background and pin mean all pinned, a yellow pin without highlighted background means partially pinned, and a neutral pin means none. The header pin applies to every currently stored segment in that route (later uploads do not inherit it): a partial selection becomes fully pinned, and a fully pinned route becomes unpinned. The header download icon directly opens the download dialog for every segment in the route. Expanded-row pins and management menus remain segment-specific. Expand the group for other segments; there is no separate segment selector. Tag filters apply to individual segments and hide groups with no matches.
+Segments with the same full route ID share a collapsible group. Groups are collapsed by default; select a heading to expand or collapse it. The browser remembers only the routes you expanded and keeps them open next time. The smallest segment number and that segment’s **upload date/time** remain visible when collapsed; this is not the actual driving timestamp. The header playback, route pin, and download controls remain visible in both fold states. Only the segment list animates, keeping header height and buttons stable. Header playback starts from the first segment. A yellow background and pin mean all pinned, a yellow pin without highlighted background means partially pinned, and a neutral pin means none. The header pin applies to every currently stored segment in that route (later uploads do not inherit it): a partial selection becomes fully pinned, and a fully pinned route becomes unpinned. The header download icon directly opens the download dialog for every segment in the route. Expanded-row pins and management menus remain segment-specific. Expand the group for other segments; there is no separate segment selector. Tag filters apply to individual segments and hide groups with no matches.
 
 `00000395--0d0eda17c5--7` is displayed as **395 / 구간 7**. The copy icon copies the full original identifier, including leading zeros and the hash.
 
@@ -83,7 +83,6 @@ Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 wit
 
 - **자동 변환:** enabled by default. Eligible recordings are queued oldest-upload first. Disabling clears automatic queued work; running and manually requested work continue.
 - **동시 처리 개수:** 1–4, default 1. Lowering the limit does not interrupt running jobs. Settings survive restart; parallel jobs may finish out of order.
-Choose **다운로드** (Download) in the compact recording menu to select files and MP4/original format in a modal. **전체 선택** (Select all) and **선택 해제** (Clear selection) control the ZIP contents. Use **받기** beside a file to download it individually without ZIP; for multiple segments, expand **개별 받기** to choose a segment’s file. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Selected files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
 Processing options save immediately; storage budget/policy have their own Save button. Failed videos retain their uploaded originals.
 
@@ -113,7 +112,9 @@ Manually removed recordings are excluded from automatic conversion until Convert
 
 Use **로그 선택** at the bottom of settings for bulk actions. Select-all and action controls remain visible while scrolling. **고정 항목도 삭제** is off whenever the dialog opens: pinned segments are protected from bulk removal/deletion unless explicitly included. This does not affect bulk conversion. Individual dropdown actions can explicitly delete pinned recordings.
 
-Choose **다운로드** (Download) in the compact recording menu to select files and MP4/original format in a modal. **전체 선택** (Select all) and **선택 해제** (Clear selection) control the ZIP contents. Use **받기** beside a file to download it individually without ZIP; for multiple segments, expand **개별 받기** to choose a segment’s file. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Selected files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
+Below each segment, chips show where the log and each camera video (high-quality, low-res, wide) are kept: **로컬** (local), **Drive** or **NAS**. Only files moved by archiving show Drive or NAS; everything else is local. A file removed by NAS cleanup shows **삭제됨** (removed). Recordings still uploading show no chips.
+
+The menu beside the pin on the replay page offers the same **제거** (Remove), **다운로드** (Download) and **완전 삭제** (Delete permanently) as the list; a confirmed remove or delete returns to the log list.
 
 During a bulk operation selection and closing are locked. Results show completed, skipped and incomplete counts; failed items remain selected.
 
@@ -141,7 +142,7 @@ Bookmarks use log time rather than camera time and are stored in segment metadat
 
 ## Video playback and layout
 
-A video opens on the quality chosen under **기본 화질** (default quality), beside 닫기 in the camera list below the video, qcamera or high-quality front, then the other front video, then wide. The choice is made separately for mobile data (default qcamera) and Wi-Fi/wired (default high-quality) and kept per browser. The connection is told apart only where the browser reports it (Chromium browsers on Android); elsewhere phones and tablets follow the mobile-data choice and other devices the Wi-Fi/wired one. When multiple sources are available, use the selector below the video. Switching preserves log time and playing/paused state using each camera's time offset. A failing source triggers an attempt to use another available video.
+A video opens on the quality chosen under **기본 화질** (default quality), beside 닫기 in the camera list below the video, qcamera or high-quality front, then the other front video, then wide. The choice is made separately for mobile data (default qcamera) and Wi-Fi/wired (default high-quality), kept per browser, and applied from the next video opened. The connection is told apart only where the browser reports it (Chromium browsers on Android); elsewhere phones and tablets follow the mobile-data choice and other devices the Wi-Fi/wired one. When multiple sources are available, use the selector below the video. Switching preserves log time and playing/paused state using each camera's time offset. A failing source triggers an attempt to use another available video.
 
 Before playback is ready, the control area shows a message instead of active playback controls. The seek bar shows buffered video ranges. Errors provide a refresh action.
 
@@ -289,11 +290,7 @@ Restart cleans incomplete processing outputs and requeues eligible work; manual 
 
 ## Storage budget and pins
 
-**Google Drive MOVE is extension storage for local data.** With Drive MOVE and permission to delete local originals configured, the local maximum is a **soft limit**. When archiving is enabled, reaching that limit or the archive start threshold requests a background move through the existing archiver; when both are positive, the lower value is used. Uploads can temporarily exceed the limit while physical disk space covers other uploads’ outstanding reservations, temporary files, and a **100 MiB safety margin**. Admission does not wait for a Drive transfer to finish.
-
-MOVE deletes only the corresponding local file after remote transfer, integrity verification, and index commit. Minimum age, pin/in-use protection, batch limits, and the shared cycle lock remain enforced. Drive outages and verification failures preserve originals and records. Uploads continue while physical headroom is sufficient; otherwise new uploads are rejected without deleting existing records. Disabling archiving prevents moves; configured Drive MOVE still uses the soft limit, with physical disk headroom controlling upload admission.
-
-Moved recordings **remain listed, playable, and downloadable**. Automatic local reclamation never deletes Drive files or recordings referencing them, including COPY references. Only explicit **Delete permanently** can enqueue remote deletion. Unattributed deletion intents from older versions are retained without automatic execution.
+**Google Drive MOVE is extension storage for local data.** With Drive MOVE and permission to delete local originals configured, the local maximum is a **soft limit**; see [Local quota with Google Drive MOVE](#local-quota-with-google-drive-move) for details.
 
 The rejection/eviction rules below describe the existing policies outside effective Drive MOVE. Recordings referencing Drive are always excluded from automatic eviction.
 
@@ -326,8 +323,6 @@ Archiving moves original videos and log files of converted recordings to network
 
 On first connection, and only while `/share/<name>` is actually mounted, the app writes `.roadviewer-storage.json` into the NAS folder and `.archive.json`, holding the same storage ID, into `/data/roadviewer`. The share counts as connected only when both IDs match, so an empty unmounted folder or another installation's folder is never used by mistake. Pointing `archive_path` at a different folder after the first connection shows **연결 불가** (unavailable). Do not delete either file.
 
-### Web UI settings
-
 ### Reading the storage screen
 
 1. **Storage and connection status:** compare local usage, soft limit, actual disk headroom, and outstanding reservations. The selected Drive/NAS has its own connection and capacity display. Expand secondary details for the last run and copy statistics. A full usage bar does not necessarily mean the physical disk is full.
@@ -350,6 +345,7 @@ On first connection, and only while `/share/<name>` is actually mounted, the app
 
 </details>
 
+### Web UI settings
 
 Use **Storage management → 아카이빙 기본 설정** (Archive basics) for enabled, backend, mode, local deletion permission, minimum age and local usage criteria. **실행 및 고급 설정** contains the interval and an expandable advanced section for batch size, NAS path/capacity and the Drive folder. Presets and custom inputs preserve the existing hour/minute/MB values. **현재 설정 요약** previews draft behavior; only **설정 저장** applies it. Partial saves identify remaining changes and retries save only those changes. MB means 1024² bytes. NAS always moves after verification regardless of the mode selector. The keys below identify saved preferences, rather than add-on options.
 
@@ -374,7 +370,7 @@ Choose **이동 가능한 데이터 모두 이동** (Move all eligible data) or 
 
 Only the scheduled **batch size and start threshold** are bypassed while the existing engine repeats. Minimum age and in-use protection remain; manual MOVE keeps pins local. Drive MOVE without local-delete permission is presented as COPY. Only verified, committed local files are removed; remote files are never deleted, and verified copies are not uploaded again.
 
-Progress and success/failure counts are shown; settings changes and duplicate runs are blocked. Reload restores server-side job state. A restart-interrupted run is shown as interrupted, not successful. Failed or unprocessed files retain their originals.
+Progress and success/failure counts are shown; settings changes and duplicate runs are blocked. The buttons are disabled while automatic archiving runs or settings are unsaved. Reload restores server-side job state. A restart-interrupted run is shown as interrupted, not successful. Failed or unprocessed files retain their originals. A Drive outage or authentication error stops the run.
 
 <img src="../docs/images/roadviewer-archive-confirm.png" alt="Manual MOVE confirmation: counts, capacity, and exclusions" width="530">
 
@@ -397,7 +393,7 @@ Startup and settings saves wait `archive_interval_minutes` before running. Recov
 
 A run stops when the NAS is unreachable, NAS free space is below the file size plus 100MiB, a hash does not match, or copying fails; the next interval retries. An upload starting during a run lets the current file finish and then ends the run.
 
-**저장공간 관리** shows **NAS 상태 / NAS 사용 중 / NAS 여유 / 마지막 아카이브** (status, used, free, last run) and the latest error. **이동 가능한 데이터 모두 이동** (Move all eligible data; **복사 가능한 데이터 모두 복사** in COPY) repeats the same MOVE/COPY engine until every eligible local file is processed, without the scheduled batch size or local threshold. The minimum age still applies and, in MOVE, pinned logs stay local. A confirmation first shows the file and segment counts, size, expected local space freed (MOVE), whether local files are really deleted and which records are excluded; nothing runs until it is confirmed. Drive MOVE without local deletion allowed is announced as a copy. Progress and success/failure counts are shown; a second run and settings changes are refused meanwhile. Only verified and committed files are deleted locally, failed files keep their originals, and a Drive outage or expired sign-in stops the run. Remote files are never deleted and verified remote copies are not uploaded again. The run state is stored on the server, so a reload shows it again, and a run cut short by a restart is shown as interrupted, never as successful. The button is disabled while the scheduled cycle runs or unsaved changes remain. Secondary metrics and the latest run result appear under **실행 · 사본 정보**; the NAS path is under **고급 설정**.
+**저장공간 관리** shows **NAS 상태 / NAS 사용 중 / NAS 여유 / 마지막 아카이브** (status, used, free, last run) and the latest error. Secondary statistics and recent results are under **실행 · 사본 정보** (Run and copy details). To run it by hand, see [Manually move or copy all eligible data](#manually-move-or-copy-all-eligible-data).
 
 ### Video states
 
@@ -408,7 +404,7 @@ With archiving on, the library's video label has these states.
 | 영상 있음 (video available) | Stored locally, or on the connected NAS according to the index. The list does not check each NAS file, so a NAS copy that went missing shows as no video when played. | As usual |
 | 저장소 연결 불가 (storage unavailable) | The video is on the NAS, which cannot be reached now | Playback switches to another camera or, if none, shows “영상 저장소에 연결할 수 없습니다. NAS 연결을 확인하세요.” and continues without video. Downloads fail; ZIPs are never built partially. Conversion is refused with “저장소 연결 후 다시 시도하세요.” |
 | 영상 없음 (no video) | No video registered, removed by NAS cleanup, or not found on the connected NAS. A file not found is never recorded as removed: its index entry stays, so it shows as available again once the NAS shows it. Only NAS cleanup records a removal. | Replay without video |
-| 영상 확인 중 (checking) | The NAS connection is being checked | Retry shortly |
+| 영상 확인 중 (checking) | The NAS connection is being checked | The replay page retries automatically shortly |
 | 영상 읽기 오류 (read error) | The stored copy failed verification during recovery: neither the copy present on the NAS nor the leftover local file matches the record. A missing NAS copy alone never leads here, and the state clears at the next start once the NAS copy matches the record again. | Cannot be played or downloaded. Conversion of the recording is refused so its converted video is kept. |
 
 ### When the NAS is unreachable
@@ -439,8 +435,8 @@ Files on the NAS are not part of Home Assistant backups. `.archive-settings.json
 Google Drive can be used as the archive instead of a NAS. It is experimental and off by default (`archive_enabled: false`, `archive_backend: smb`). Nothing changes while archiving is off or uses the NAS.
 
 - **Copy mode is the default.** Each file gets a verified copy on Drive and **the local file is never deleted**, so copy mode frees no local space.
-- **Move mode** (the local original is deleted once a verified copy exists) needs **both** `archive_mode: move` and `archive_allow_local_delete: true`. With either one missing, Drive runs in copy mode. Drive move mode was verified on a real Drive account with one segment in a test environment. In move mode keep the storage policy on **reject new uploads**: a log removed by the delete-oldest policy also loses its moved Drive copy.
-- **This version has no automatic Drive cleanup.** Files on Drive are deleted only for recordings the user deletes permanently and, in move mode, for moved files of recordings the storage policy deletes automatically (see [Quota and Drive space](#quota-and-drive-space)).
+- **Move mode** (the local original is deleted once a verified copy exists) needs **both** settings saved in the web UI under **저장공간 관리 → 아카이빙 기본 설정**: **보관 방식** (storage mode) set to **이동 · MOVE** and **검증 후 로컬 원본 삭제 허용** (allow deleting local originals after verification) turned on (saved keys `archive_mode: move`, `archive_allow_local_delete: true`; these are not add-on options). With either one missing, Drive runs in copy mode. Drive move mode was verified on a real Drive account with one segment in a test environment. In move mode the local maximum acts as a soft limit, and recordings with Drive files or copies are excluded from automatic deletion (see [Local quota with Google Drive MOVE](#local-quota-with-google-drive-move)).
+- **This version has no automatic Drive cleanup.** Files on Drive are deleted only for recordings the user deletes with **완전 삭제** (Delete permanently).
 - There is no feature that moves files on Drive back to local storage.
 
 ### Preparing an OAuth client
@@ -458,11 +454,11 @@ Road Viewer asks for a single scope, `drive.file`. With it the app sees **only t
 
 The [common web UI settings](#web-ui-settings) (`archive_enabled`, `archive_local_threshold_mb`, `archive_min_age_hours`, `archive_interval_minutes`, `archive_batch`) mean the same for Drive. `archive_path` and `archive_nas_*` apply to the NAS only. Only client ID/secret are add-on options; other settings apply immediately when saved in the web UI. Folder names must contain 1–255 characters after trimming and name the folder created on first setup. Changing the name or switching backends preserves an already bound folder and its token.
 
-| Option | Default | Meaning |
+| Key | Default | Meaning |
 |---|---|---|
-| `archive_backend` | `smb` | `smb` (NAS) or `gdrive` |
-| `archive_mode` | `move` | `move` or `copy`. On Drive, `move` applies only together with `archive_allow_local_delete: true`; otherwise it is always copy, so with the defaults Drive runs in copy mode. Drive move mode was verified on a real Drive account with one segment in a test environment. In move mode keep the storage policy on **reject new uploads**: a log removed by the delete-oldest policy also loses its moved Drive copy. The NAS moves as before. |
-| `archive_allow_local_delete` | `false` | Allow deleting the local original once Drive holds a verified copy. Drive only. The Drive move mode it enables was verified on a real Drive account in a test environment. |
+| `archive_backend` | `smb` | `smb` (NAS) or `gdrive`; **저장소** (storage) in the web UI |
+| `archive_mode` | `move` | `move` or `copy` (**보관 방식** in the web UI). On Drive, `move` applies only together with `archive_allow_local_delete: true`; otherwise it is always copy, so with the defaults Drive runs in copy mode. Drive move mode was verified on a real Drive account with one segment in a test environment. The NAS moves as before. |
+| `archive_allow_local_delete` | `false` | **검증 후 로컬 원본 삭제 허용** in the web UI. Allow deleting the local original once Drive holds a verified copy. Drive only. The Drive move mode it enables was verified on a real Drive account with one segment in a test environment. |
 | `archive_gdrive_client_id` | empty | OAuth client ID (TV and Limited Input devices type) |
 | `archive_gdrive_client_secret` | empty | OAuth client secret (password field) |
 | `archive_gdrive_folder_name` | `Road Viewer` | Name of the dedicated folder created on Drive at the first connection |
@@ -471,22 +467,22 @@ The [common web UI settings](#web-ui-settings) (`archive_enabled`, `archive_loca
 
 ### Connecting Drive
 
-1. Set client ID and secret in the add-on options, save and restart the app. Then select **Google Drive** in the web UI archive settings and save. Enable archiving there to copy files. With archiving off the account can still connect; the **이동 가능한 데이터 모두 이동 / 복사 가능한 데이터 모두 복사** (Archive now) button and Drive usage and copy rows are hidden.
-2. Open **저장공간 관리** (Storage management) and press **Google Drive 연결** (Connect Google Drive). The panel shows a code, the address (`https://www.google.com/device`) and the time left.
+1. Set client ID and secret in the add-on options, save and restart the app. Then select **Google Drive** under **저장공간 관리 → 아카이빙 기본 설정** (Archive basics) and save. Turn on **자동 아카이빙** (automatic archiving) there to copy files. With archiving off the account can still connect; the **이동 가능한 데이터 모두 이동 / 복사 가능한 데이터 모두 복사** (Archive now) button and Drive usage and copy rows are hidden.
+2. Open **저장공간 관리** (Storage management) and press **Google Drive 연결** (Connect Google Drive) in the extension-storage (Google Drive) card; with archiving off it appears in a separate Google Drive card. The panel shows a code, the address (`https://www.google.com/device`) and the time left.
 3. On any device (phone, PC), open that address in a browser, enter the code and approve with the Google account to use.
 4. While the panel is open it checks for approval. Once approved the code disappears and **Drive 상태** (Drive status; **Drive 계정** with archiving off) reads **연결됨** (connected). The first connection creates the folder named in the settings. When connected with archiving off, the folder is created in the first run after archiving is enabled.
 
 Without a client ID the panel shows “애드온 옵션에서 Google Drive 클라이언트 ID를 설정하세요” (set the Google Drive client ID in the add-on options) and the connect button is disabled. An expired or refused code shows why, and you can connect again. When the sign-in expires, a **다시 연결** (Reconnect) button appears; reconnecting keeps using the same folder. The device flow needs no redirect address, external port, or router/firewall change.
 
-**연결 해제** (Disconnect) asks for confirmation, deletes the token file on this device at once and asks Google to revoke the token in the background; the device is disconnected even if the revoke fails. **The index, the local files and the files on Drive are left as they are.** An upload in progress stops before its next chunk and shows “연결이 해제되어 업로드를 중단했습니다. 다시 연결하세요” (disconnected, upload stopped; reconnect). Archiving stops while disconnected. After reconnecting, the same folder is found and the stopped upload continues where it left off.
+**연결 해제** (Disconnect) asks for confirmation, deletes the token file on this device at once and asks Google to revoke the token in the background; the device is disconnected even if the revoke fails. **The index, the local files and the files on Drive are left as they are.** An upload in progress stops before its next chunk and shows “연결이 해제되어 업로드를 중단했습니다. 다시 연결하세요” (disconnected, upload stopped; reconnect). Drive archiving and playback of files moved to Drive stop while disconnected. The **연결 해제** button and the move-mode notice are in the same Drive card. After reconnecting, the same folder is found and the stopped upload continues where it left off.
 
 ### Copy mode and move mode
 
 **Copy mode** (default): each file is uploaded, verified by comparing the sha256 Drive reports (or its md5 when there is none, or else the sha256 of a downloaded copy) with the local file, and its copy recorded in the index. The local file stays; while it exists, playback, downloads and conversion always use it. The panel shows “복제 모드: 로컬 파일은 보존됩니다” (copy mode: local files are kept). Copy mode has been verified on a real Google account (2026-11-04).
 
-**Move mode** (`archive_mode: move` + `archive_allow_local_delete: true`, verified on a real Drive account in a test environment): upload → verify → the index committed to disk, and only then the local original is deleted. The panel warns “이동 모드: 검증된 원격 사본이 있으면 로컬 원본이 삭제됩니다” (move mode: local originals are deleted once a verified remote copy exists). Pinned segments are copied, never moved. Switching from copy to move mode reuses the copies already verified instead of uploading them again, then deletes the local files.
+**Move mode** (**이동 · MOVE** + **검증 후 로컬 원본 삭제 허용** in the web UI, verified on a real Drive account in a test environment): upload → verify → the index committed to disk, and only then the local original is deleted. The panel warns “이동 모드: 검증된 원격 사본이 있으면 로컬 원본이 삭제됩니다” (move mode: local originals are deleted once a verified remote copy exists). Pinned segments are copied, never moved. Switching from copy to move mode reuses the copies already verified instead of uploading them again, then deletes the local files.
 
-Moved files are streamed from Drive through the same addresses as before for playback and downloads (range requests supported). So that seeks are quick, the Drive video being watched is also fetched whole into memory in the background, and ranges already received are served without Google. Only that one video is held (256 MB at most): opening another drops it, and it is freed after 10 minutes unwatched. Nothing is written to disk, and downloads never use it. Work that needs a local file, such as original-format export or reconversion, downloads a temporary copy from Drive, checks its sha256, uses it and deletes it. With less local free space than the file size plus 100MiB, the download fails with “보관된 파일을 내려받을 디스크 공간이 부족합니다.” (not enough disk space to fetch the archived file) and a conversion is postponed with “디스크 공간이 부족해 변환을 미뤘습니다.” (conversion postponed for lack of disk space).
+Moved files are streamed from Drive through the same addresses as before for playback and downloads (range requests supported). So that seeks are quick, the Drive video being watched is also fetched whole into the app's memory in the background, and ranges already received are served without Google. Only that one video is held: opening another video or camera drops it, and it is freed after 10 minutes unwatched. Files larger than 256 MB are not held and stream straight from Drive; a finished copy whose SHA-256 differs from the index is discarded. Nothing is written to disk, and downloads never use it. Playback responses may stay in the browser's private cache for an hour (`private, max-age=3600`), so seeks into ranges already received are immediate; download responses are not cached. Work that needs a local file, such as original-format export or reconversion, downloads a temporary copy from Drive, checks its sha256, uses it and deletes it. With less local free space than the file size plus 100MiB, the download fails with “보관된 파일을 내려받을 디스크 공간이 부족합니다.” (not enough disk space to fetch the archived file) and a conversion is postponed with “디스크 공간이 부족해 변환을 미뤘습니다.” (conversion postponed for lack of disk space).
 
 When a conversion replaces an original video with its MP4 and the original's Drive copy has the same content, that copy becomes the stored original and is served from Drive. The new MP4 is uploaded by the next run.
 

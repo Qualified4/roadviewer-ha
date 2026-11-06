@@ -2,9 +2,7 @@
 
 [한국어](README.md) · English
 
-Historical pinned-version harness; not a full Companion build or a claim about current upstream.
-
-Requires JDK 21 and Maven. This is not the full Companion build.
+Historical pinned-version harness; not a full Companion build or a claim about current upstream. Requires JDK 21 and Maven.
 
 1. Download the official `androidx.activity:activity:1.13.0` AAR from Google Maven and extract `classes.jar` as `activity.jar` beside this pom.xml.
 2. Copy ../ShowWebFileChooser.kt into src/main/kotlin and ../ShowWebFileChooserTest.kt into src/test/kotlin.

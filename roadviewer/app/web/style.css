@@ -376,12 +376,18 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .replay-download[open]>summary{color:var(--text);background:#283b4e}
 @media(hover:hover) and (pointer:fine){.replay-download>summary:hover{color:var(--text);background:#283b4e}}
 .replay-download>summary:focus-visible{outline:2px solid var(--lane);outline-offset:2px}
+.replay-download>summary svg{transition:transform .25s cubic-bezier(.4,0,.2,1)}.replay-download[open]>summary svg{transform:rotate(180deg)}
+@media(prefers-reduced-motion:reduce){.replay-download>summary svg{transition:none}}
 .replay-download.is-empty>summary{opacity:.45;pointer-events:none}
 .replay-download-menu{overflow-y:auto;overscroll-behavior:contain;position:absolute;left:0;top:calc(100% + 6px);z-index:20;display:grid;gap:3px;width:max-content;min-width:200px;max-width:calc(100vw - 32px);padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 8px 24px #0006}
 .replay-download-menu>p{margin:6px 10px 2px;font-size:11px;color:var(--muted)}
 .replay-download-menu>a{display:block;min-height:42px;padding:9px 12px;border-radius:6px;font-size:13px;color:var(--text);text-decoration:none}
 @media(hover:hover) and (pointer:fine){.replay-download-menu>a:hover{background:#283b4e}}
-.replay-download-menu>a:focus-visible{outline:2px solid var(--lane);outline-offset:-2px}
+.replay-download-menu>a:focus-visible,.replay-download-menu>button:focus-visible{outline:2px solid var(--lane);outline-offset:-2px}
+.replay-download-menu>button{display:block;width:100%;min-height:42px;margin:0;padding:9px 12px;border:0;border-radius:6px;background:transparent;text-align:left;font-size:13px;color:var(--text);cursor:pointer}
+@media(hover:hover) and (pointer:fine){.replay-download-menu>button:hover:enabled{background:#283b4e}.replay-download-menu>.delete:hover:enabled{background:#ee756b18}}
+.replay-download-menu>.delete{color:#f3a7a0}
+.replay-download-menu>hr{width:calc(100% - 12px);margin:4px 6px;border:0;border-top:1px solid var(--line)}
 .download-detail{display:block;margin-top:2px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
 /* Cluster LANELINE_LEFT/RIGHT code under the own-lane probabilities. */
 .lane-line-code{display:block;margin-top:2px;font-size:11px;line-height:1.4;color:var(--muted);word-break:keep-all;overflow-wrap:anywhere}

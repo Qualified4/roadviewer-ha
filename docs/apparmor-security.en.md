@@ -27,6 +27,11 @@ An empty `privileged` list does not mean the container has no capabilities.
 No extra capabilities, host mounts, host networking, or authentication changes
 are requested by this change.
 
+The add-on maps Home Assistant's `share` folder read-write (`map` in
+`config.yaml`) so NAS archiving can write to network storage added in Home
+Assistant (`/share/<name>`). It writes only inside the configured `archive_path`
+(a subfolder under `/share/`), and writes nothing there when NAS archiving is not used.
+
 Internal signal and ptrace peers use `@{profile_name}` so Supervisor's profile
 name replacement remains correct. Host signal reception from unconfined,
 runc, and crun is retained. The baseline daemon peer is covered when dockerd
@@ -39,7 +44,8 @@ On 2026-10-24 the policy was tested on HAOS 18.3 / Docker 29.7.2 /
 AppArmor 3.1.7 / Supervisor 2026.10.3 (arm64). The host's loaded docker-default
 binary matched a regeneration using its actual parser, includes and kernel
 features. The dedicated profile ran in enforce mode and Supervisor reported
-security rating 8 (previously 7).
+security rating 8 (previously 7). This operational validation was not repeated
+for the documentation update.
 
 Tests covered Ingress, TLS device authentication, HMAC/Bearer/nonce rejection,
 2 MiB and 8 MiB chunked uploads/retries, conversion, MP4 range streaming,

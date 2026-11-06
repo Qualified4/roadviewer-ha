@@ -810,14 +810,39 @@ $('pinLog').onclick=async()=>{
   const result=await response.json();syncReplayPin(result.pinned);
  }catch(e){showError(e.message)}finally{button.disabled=false}
 };
-// Downloads from the replay screen: the log, and each stored camera video when there are several (f, e, q).
+// The replay screen's menu, as in the log list: remove the converted data, download, delete for good.
+// Downloads open the download dialog; recordings without download options list the log and each camera video.
+function replayMenuButton(text,className){const button=document.createElement('button');button.type='button';button.textContent=text;if(className)button.className=className;return button}
+async function replayDelete(url,expected){
+ const response=await fetch(url,{method:'DELETE',headers:{'X-RoadViewer-Request':'1'}});
+ const body=await response.json().catch(()=>({}));
+ if(!response.ok)throw Error(body.message||'요청을 처리하지 못했습니다. 다시 시도해 주세요.');
+ if(expected&&body.status!==expected)throw Error('변환 데이터 제거가 완료되지 않았습니다. 로그 목록에서 상태를 확인해 주세요.');
+}
 function renderReplayDownloads(log){
  const details=$('replayDownload'),menu=$('replayDownloadMenu');
  details.classList.toggle('is-empty',!log);if(!log){details.open=false;menu.replaceChildren();return}
- const items=recordingDownloads(log,'../../'),videos=items.filter(item=>item.video);
- const nodes=items.filter(item=>!item.video).map(downloadLink);
- if(videos.length>1){const heading=document.createElement('p');heading.textContent='영상 선택';nodes.push(heading)}
- menu.replaceChildren(...nodes,...videos.map(downloadLink));
+ const nodes=[],id=encodeURIComponent(log.id);
+ // Both remove the replay's data, so a confirmed one returns to the log list.
+ const destructive=(text,className,message,url,expected)=>{
+  const button=replayMenuButton(text,className);
+  button.onclick=async()=>{
+   details.open=false;if(!confirm(`${log.name}\n${message}`))return;
+   button.disabled=true;
+   try{await replayDelete(url,expected);location.assign('../../')}catch(e){showError(e.message);button.disabled=false}
+  };
+  return button;
+ };
+ if(log.status==='ready'||log.status==='queued')nodes.push(destructive('제거','','대기 중이면 변환을 취소하고, 변환된 분석·그래프와 재생용 임시 영상을 제거할까요? 원본 로그와 보관 영상은 유지되며 자동으로 다시 변환되지 않습니다.','../../api/logs/'+id+'/prepared','unconverted'));
+ if(log.download_options){const download=replayMenuButton('다운로드');download.onclick=()=>{details.open=false;openRecordingDownload([log],'../../','all')};nodes.push(download)}
+ else{
+  const items=recordingDownloads(log,'../../'),videos=items.filter(item=>item.video);
+  nodes.push(...items.filter(item=>!item.video).map(downloadLink));
+  if(videos.length>1){const heading=document.createElement('p');heading.textContent='영상 선택';nodes.push(heading)}
+  nodes.push(...videos.map(downloadLink));
+ }
+ const del=destructive('완전 삭제','delete','원본 로그·영상과 변환 데이터를 완전히 삭제할까요? 이 작업은 되돌릴 수 없습니다.','../../api/logs/'+id);
+ menu.replaceChildren(...nodes,document.createElement('hr'),del);
 }
 $('replayDownloadMenu').addEventListener('click',e=>{if(e.target.closest('a'))$('replayDownload').open=false});
 // Choose the roomier side on short screens and scroll within the available space.

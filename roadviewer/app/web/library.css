@@ -9,6 +9,12 @@
 .pin-recording[aria-pressed="true"] .pin-head{fill:currentColor;fill-opacity:.2}
 .pin-recording:focus-visible{outline:2px solid var(--lane);outline-offset:-3px}
 .recording-more{position:relative}
+.storage-parts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.storage-part{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border:1px solid var(--line);border-radius:7px;font-size:11px;line-height:18px;color:var(--muted)}
+.storage-part b{font-weight:500}
+.storage-part-gdrive{color:#8fc3ff;border-color:#8fc3ff44}
+.storage-part-nas{color:#c9a8ff;border-color:#c9a8ff44}
+.storage-part-removed{opacity:.6}
 .recording-more>summary{height:100%;min-height:40px;min-width:40px;display:flex;align-items:center;justify-content:center;list-style:none;cursor:pointer;border:1px solid var(--line);border-left:0;border-radius:0 7px 7px 0;background:var(--panel);color:var(--text)}
 .recording-more>summary::-webkit-details-marker{display:none}
 .recording-more[open]>summary{background:#283b4e}@media(hover:hover) and (pointer:fine){.recording-more>summary:hover{background:#283b4e}}
