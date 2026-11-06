@@ -4,6 +4,10 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 0.13.19
+
+- The default playback quality setting moved from a button at the top of the replay page into the camera list below the video: **기본 화질** (default quality) beside 닫기 (close) opens the mobile data and Wi-Fi/wired choices.
+
 ## 0.13.18
 
 - A **재생 화질** (playback quality) setting at the top of the replay page chooses, separately for mobile data and for Wi-Fi/wired, whether a video opens on the small front video (qcamera) or the high-quality one (fcamera). Mobile data defaults to qcamera and Wi-Fi/wired to fcamera; the choice is kept per browser.

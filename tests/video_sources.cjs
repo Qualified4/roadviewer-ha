@@ -96,14 +96,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    return p;
   };
   const choose=async(p,group,value,note)=>{
-   await p.locator('#videoQualityButton').click();assert(await p.locator('#videoQualityDialog').evaluate(d=>d.open));
+   await p.locator('#videoSourceChoice').click();await p.locator('.rv-choice-action').click();
+   assert(await p.locator('#videoQualityDialog').evaluate(d=>d.open));assert(!(await p.locator('.rv-choice-dialog').evaluate(d=>d.open)));
    assert.equal(await p.locator('#videoQualityNetwork').textContent(),note);
    await p.locator(`input[name="${group}"][value="${value}"]`).check();await p.locator('#videoQualityClose').click();
+   assert(await p.locator('#videoSourceChoice').evaluate(e=>e===document.activeElement),'focus returns to the camera choice');
   };
   for(const viewport of [{width:390,height:844},{width:1024,height:1366}]){
    const context=await browser.newContext({hasTouch:true,isMobile:true,viewport});
    let p=await open(context,'qcamera',JSON.stringify(viewport));
-   assert(await p.locator('#videoQualityButton').isVisible());
    await p.evaluate(()=>videoFailure('test error'));await p.waitForFunction(()=>!loading&&videoSource==='front');
    await context.close();
   }
@@ -117,7 +118,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   p=await open(phone,'qcamera','Wi-Fi set to low quality');await phone.close();
   const desktop=await browser.newContext();
   p=await open(desktop,'front','desktop');await choose(p,'qualityWifi','qcamera','현재 연결을 확인할 수 없어 와이파이 · 유선 설정을 따릅니다.');await p.close();
-  await open(desktop,'qcamera','desktop set to low quality');await desktop.close();
+  p=await open(desktop,'qcamera','desktop set to low quality');
+  await p.locator('#speedChoice').click();assert(await p.locator('.rv-choice-action').isHidden(),'only the camera list has 기본 화질');
+  await p.keyboard.press('Escape');await desktop.close();
   assert.deepEqual(errors,[]);
   console.log('PASS: front preference, per-connection default quality (phones, tablets, Android Wi-Fi, desktop), independent clocks, paused/playing switches, wide projection/cache/metadata guard, failure fallback, legacy qcamera, storage-checking retry, Drive failure message');
  }finally{await browser.close()}

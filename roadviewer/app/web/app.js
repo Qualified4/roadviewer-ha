@@ -977,13 +977,15 @@ layoutWidth.oninput=()=>{applyLayoutWidth(layoutWidth.value);try{localStorage.se
 $('resetLayoutWidth').onclick=()=>{const profile=widthProfile();layoutWidth.value=String(profile.default);applyLayoutWidth(layoutWidth.value);try{localStorage.removeItem(profile.key)}catch{}};
 
 function settingsDialog(dialog,button,closeButton,focus,onOpen){
- let oldOverflow='';
- button.onclick=()=>{if(dialog.open)return;onOpen?.();oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.showModal();focus().focus({preventScroll:true})};
+ let oldOverflow='',returnTo=null;
+ const open=()=>{if(dialog.open)return;onOpen?.();returnTo=button||document.activeElement;oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.showModal();focus().focus({preventScroll:true})};
+ if(button)button.onclick=open;
  const close=()=>dialog.close();
  closeButton.onclick=close;
- dialog.addEventListener('close',()=>{document.body.style.overflow=oldOverflow;button.focus({preventScroll:true})});
+ dialog.addEventListener('close',()=>{document.body.style.overflow=oldOverflow;returnTo?.focus?.({preventScroll:true})});
  dialog.addEventListener('cancel',e=>{e.preventDefault();close()});
  dialog.addEventListener('click',e=>{if(e.target!==dialog)return;const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()});
+ return open;
 }
 settingsDialog($('layoutWidthDialog'),$('layoutWidthButton'),$('layoutWidthClose'),()=>layoutWidth);
 (()=>{
@@ -995,7 +997,9 @@ settingsDialog($('layoutWidthDialog'),$('layoutWidthButton'),$('layoutWidthClose
  };
  for(const [network,name] of Object.entries(groups))for(const input of document.getElementsByName(name))input.onchange=()=>{try{localStorage.setItem(videoQuality[network].key,input.value)}catch{}};
  navigator.connection?.addEventListener?.('change',()=>{if($('videoQualityDialog').open)sync()});
- settingsDialog($('videoQualityDialog'),$('videoQualityButton'),$('videoQualityClose'),()=>document.querySelector(`input[name="${groups[videoNetwork().network]}"]:checked`),sync);
+ // Opened from the camera choice list's 기본 화질 button (choices.js).
+ const open=settingsDialog($('videoQualityDialog'),null,$('videoQualityClose'),()=>document.querySelector(`input[name="${groups[videoNetwork().network]}"]:checked`),sync);
+ $('videoSource').addEventListener('rv:choice-action',open);
 })();
 
 // Web fonts may finish after the first paused canvas frame.

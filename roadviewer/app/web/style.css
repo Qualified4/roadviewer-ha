@@ -124,6 +124,7 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 .rv-choice-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-bottom:1px solid var(--line)}
 .rv-choice-header h2{font-size:14px;color:var(--text)}
 .rv-choice-close{padding:6px 10px;font-size:12px}
+.rv-choice-actions{display:flex;gap:8px;flex:none}
 .rv-choice-list{padding:6px;overflow-y:auto;max-height:min(340px,calc(100vh - 100px));overscroll-behavior:contain}
 .rv-choice-option{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;min-height:44px;border:0;border-radius:8px;background:transparent;text-align:left;padding:10px 12px}
 .rv-choice-option[aria-selected=true]{color:var(--lane);background:#17362f}
