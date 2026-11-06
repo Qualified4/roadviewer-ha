@@ -124,6 +124,7 @@ i.raw-target{background:#78e9fa}#rawCount{color:var(--muted);font-size:12px}
 .rv-choice-header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border-bottom:1px solid var(--line)}
 .rv-choice-header h2{font-size:14px;color:var(--text)}
 .rv-choice-close{padding:6px 10px;font-size:12px}
+.rv-choice-actions{display:flex;gap:8px;flex:none}
 .rv-choice-list{padding:6px;overflow-y:auto;max-height:min(340px,calc(100vh - 100px));overscroll-behavior:contain}
 .rv-choice-option{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;min-height:44px;border:0;border-radius:8px;background:transparent;text-align:left;padding:10px 12px}
 .rv-choice-option[aria-selected=true]{color:var(--lane);background:#17362f}
@@ -189,6 +190,12 @@ i.model-path{background:#c4a5ff}
 .camera-info-dialog::backdrop{background:#0008}
 .camera-info-dialog .rv-choice-header{position:sticky;top:0;background:var(--panel)}
 .camera-info-body{padding:14px 18px;font-size:13px}
+.video-quality-body{display:grid;gap:14px}
+.video-quality{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0;padding:0;border:0;min-width:0}
+.video-quality legend{grid-column:1/-1;margin:0 0 8px;padding:0;color:var(--muted);font-size:12px}
+.video-quality label{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.video-quality label:has(input:checked){border-color:var(--lane);color:var(--text)}
+.video-quality input{margin:0;accent-color:var(--lane)}
 #cameraInfoSnapshot,.camera-info-note{margin:0;color:var(--muted);font-size:12px}
 #cameraInfoValues{margin:14px 0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px 16px}
 #cameraInfoValues dt{color:var(--muted)}

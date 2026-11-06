@@ -6,14 +6,17 @@
  const header=document.createElement('div');header.className='rv-choice-header';
  const title=document.createElement('h2');title.id='rv-choice-title';
  const close=document.createElement('button');close.type='button';close.className='rv-choice-close';close.textContent='닫기';
+ // A select's data-choice-action names a button beside 닫기; it closes the list and fires rv:choice-action on the select.
+ const action=document.createElement('button');action.type='button';action.className='rv-choice-close rv-choice-action';action.hidden=true;
+ const actions=document.createElement('div');actions.className='rv-choice-actions';actions.append(action,close);
  const list=document.createElement('div');list.className='rv-choice-list';list.setAttribute('role','listbox');list.setAttribute('aria-labelledby',title.id);
- header.append(title,close);dialog.append(header,list);document.body.append(dialog);
+ header.append(title,actions);dialog.append(header,list);document.body.append(dialog);
  let active=null,opener=null,oldOverflow='';
  const mobile=()=>matchMedia('(max-width:600px)').matches;
  function position(measure=false){
   if(!dialog.open&&measure!==true)return;
   if(mobile()){delete dialog.dataset.placement;dialog.style.left='';dialog.style.top='';dialog.style.width='';return}
-  const rect=opener.getBoundingClientRect(),width=Math.min(Math.max(224,rect.width),innerWidth-24);
+  const rect=opener.getBoundingClientRect(),width=Math.min(Math.max(action.hidden?224:300,rect.width),innerWidth-24);
   dialog.style.width=width+'px';
   dialog.style.left=Math.max(12,Math.min(rect.left,innerWidth-width-12))+'px';
   const height=dialog.offsetHeight,below=rect.bottom+height+8<=innerHeight-12;
@@ -23,6 +26,7 @@
  function open(select,button){
   if(dialog.open||select.disabled)return;
   active=select;opener=button;title.textContent=labels[select.id];
+  action.hidden=!select.dataset.choiceAction;action.textContent=select.dataset.choiceAction||'';
   list.replaceChildren();
   for(const option of select.options){
    const item=document.createElement('button');item.type='button';item.className='rv-choice-option';
@@ -60,6 +64,7 @@
   if(items[next]){items.forEach(item=>item.tabIndex=-1);items[next].tabIndex=0;items[next].focus()}
  };
  close.onclick=()=>closeChoice();
+ action.onclick=()=>{const select=active;closeChoice();select?.dispatchEvent(new Event('rv:choice-action'))};
  dialog.onclick=e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)closeChoice()}};
  function finishClose(){
   if(!active)return;

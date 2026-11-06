@@ -86,17 +86,42 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>document.getElementById('errorText')?.textContent==='영상 저장소(Google Drive)에 연결할 수 없습니다. 인터넷과 Google Drive 연결을 확인하세요.'&&!document.getElementById('error').hidden,null,{timeout:15000});
   assert(!(await page.locator('#errorText').textContent()).includes('NAS'));
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
-  // Phones and tablets start on the small qcamera to save data; if it fails, the high-quality front follows.
+  // Default quality per connection: phones and tablets whose browser does not report it count as mobile data (qcamera),
+  // Android's Wi-Fi uses the Wi-Fi choice (front); both are chosen in the 재생 화질 dialog and kept in this browser.
   driveDown=false;
+  const open=async(context,expected,label)=>{
+   const p=await context.newPage();p.on('pageerror',e=>errors.push(e.message));await p.route('https://rv.test/**',serve);
+   requested.length=0;await p.goto('https://rv.test/view/test/');await p.waitForFunction(()=>!loading&&videoSource);
+   assert.equal(await p.evaluate(()=>videoSource),expected,label);assert.deepEqual(requested.filter(Boolean),[expected],label);
+   return p;
+  };
+  const choose=async(p,group,value,note)=>{
+   await p.locator('#videoSourceChoice').click();await p.locator('.rv-choice-action').click();
+   assert(await p.locator('#videoQualityDialog').evaluate(d=>d.open));assert(!(await p.locator('.rv-choice-dialog').evaluate(d=>d.open)));
+   assert.equal(await p.locator('#videoQualityNetwork').textContent(),note);
+   await p.locator(`input[name="${group}"][value="${value}"]`).check();await p.locator('#videoQualityClose').click();
+   assert(await p.locator('#videoSourceChoice').evaluate(e=>e===document.activeElement),'focus returns to the camera choice');
+  };
   for(const viewport of [{width:390,height:844},{width:1024,height:1366}]){
-   const context=await browser.newContext({hasTouch:true,isMobile:true,viewport}),mobile=await context.newPage();
-   mobile.on('pageerror',e=>errors.push(e.message));await mobile.route('https://rv.test/**',serve);
-   requested.length=0;await mobile.goto('https://rv.test/view/test/');await mobile.waitForFunction(()=>!loading&&videoSource);
-   assert.equal(await mobile.evaluate(()=>videoSource),'qcamera',JSON.stringify(viewport));assert.deepEqual(requested.filter(Boolean),['qcamera']);
-   await mobile.evaluate(()=>videoFailure('test error'));await mobile.waitForFunction(()=>!loading&&videoSource==='front');
+   const context=await browser.newContext({hasTouch:true,isMobile:true,viewport});
+   let p=await open(context,'qcamera',JSON.stringify(viewport));
+   await p.evaluate(()=>videoFailure('test error'));await p.waitForFunction(()=>!loading&&videoSource==='front');
    await context.close();
   }
+  const phone=await browser.newContext({hasTouch:true,isMobile:true,viewport:{width:390,height:844}});
+  let p=await open(phone,'qcamera','unknown network on a phone');
+  await choose(p,'qualityCellular','front','현재 연결을 확인할 수 없어 모바일 데이터 설정을 따릅니다.');await p.close();
+  p=await open(phone,'front','mobile data set to high quality');await p.close();
+  await phone.addInitScript(()=>Object.defineProperty(navigator,'connection',{configurable:true,value:{type:'wifi',addEventListener(){}}}));
+  p=await open(phone,'front','Wi-Fi on Android');
+  await choose(p,'qualityWifi','qcamera','현재 연결: 와이파이 · 유선');await p.close();
+  p=await open(phone,'qcamera','Wi-Fi set to low quality');await phone.close();
+  const desktop=await browser.newContext();
+  p=await open(desktop,'front','desktop');await choose(p,'qualityWifi','qcamera','현재 연결을 확인할 수 없어 와이파이 · 유선 설정을 따릅니다.');await p.close();
+  p=await open(desktop,'qcamera','desktop set to low quality');
+  await p.locator('#speedChoice').click();assert(await p.locator('.rv-choice-action').isHidden(),'only the camera list has 기본 화질');
+  await p.keyboard.press('Escape');await desktop.close();
   assert.deepEqual(errors,[]);
-  console.log('PASS: front preference (qcamera on phones and tablets), independent clocks, paused/playing switches, wide projection/cache/metadata guard, failure fallback, legacy qcamera, storage-checking retry, Drive failure message');
+  console.log('PASS: front preference, per-connection default quality (phones, tablets, Android Wi-Fi, desktop), independent clocks, paused/playing switches, wide projection/cache/metadata guard, failure fallback, legacy qcamera, storage-checking retry, Drive failure message');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});
