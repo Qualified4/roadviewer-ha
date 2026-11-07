@@ -23,14 +23,16 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    await page.waitForFunction(()=>document.getElementById('titleText')?.textContent==='주행 356 · 구간 13');
    assert.equal(await page.locator('#titleCount').textContent(),' (2/3)');assert(await page.locator('#logSegmentChoice').isEnabled());
    // With the route's start time the title says 출발; with only the upload time it says 업로드 (tooltip has the full time).
-   const started=1762415160.25,uploaded=started+86400,clock=t=>new Date(t*1000).toLocaleTimeString('ko-KR',{hour:'numeric',minute:'2-digit'}),full=t=>new Date(t*1000).toLocaleString(),date=t=>new Date(t*1000).toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'short'});
+   const started=1762415160.25,uploaded=started+86400,clock=t=>new Date(t*1000).toLocaleTimeString('ko-KR',{hour:'numeric',minute:'2-digit'}),date=t=>new Date(t*1000).toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'short'});
    logs[0].started_at=uploaded+86400;logs[1].uploaded=uploaded;
    for(const known of [true,false]){
     if(known)logs[1].started_at=started;else delete logs[1].started_at;
     await page.evaluate(()=>loadLogNavigation());
     const when=known?started:uploaded;
     assert.equal(await page.locator('#titleText').textContent(),(known?clock(when)+' 출발':'업로드 '+clock(when))+' · 구간 13','the first segment supplies the route time, even when another segment is active');
-    assert.equal(await page.locator('#titleText').getAttribute('title'),(known?'출발 ':'업로드 ')+full(when));
+    // The tooltip uses the browser locale, which may differ from Node's OS locale on Windows.
+    const full=await page.evaluate(t=>new Date(t*1000).toLocaleString(),when);
+    assert.equal(await page.locator('#titleText').getAttribute('title'),(known?'출발 ':'업로드 ')+full);
     assert.equal(await page.locator('#titleDate').textContent(),date(when));
     assert.equal(await page.locator('#titleCount').textContent(),' (2/3)');
    }

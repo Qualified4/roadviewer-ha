@@ -81,6 +81,22 @@ http.serve_forever()
    if(stackedVideo.compact)assert(Math.abs(stackedVideo.width-stackedVideo.expected)<2,`stacked video takes its room after list entry at ${width}: ${JSON.stringify(stackedVideo)}`);
    assert.equal(stackedVideo.outline,'none','the focused replay title shows no focus ring');
    assert.equal(await page.locator('#navigationStatus').textContent(),'','successful navigation has no top loading notice');
+   // Use real DOM events inside the SPA: its document/window are proxies, unlike direct index.html tests.
+   for(const [id,columns] of [['radarRows',6],['rawRows',7]]){
+    await page.locator('#'+id).evaluate(e=>e.closest('details').open=true);
+    await page.waitForFunction(([id,columns])=>document.getElementById(id).rows[0]?.cells[0]?.colSpan===columns,[id,columns]);
+    assert(await page.locator('#'+id).evaluate(e=>{const row=e.rows[0],seek=document.getElementById('seek');seek.value='.3';seek.dispatchEvent(new Event('input',{bubbles:true}));return e.rows[0]===row}),'shell reuses open table rows');
+    await page.locator('#'+id).evaluate(e=>e.closest('details').open=false);
+   }
+   if(width===1440){
+    await page.evaluate(()=>{window.shellDraws={map:0,overlay:0};window.shellClear=CanvasRenderingContext2D.prototype.clearRect;CanvasRenderingContext2D.prototype.clearRect=function(...args){if(this.canvas.id==='road')shellDraws.map++;if(this.canvas.id==='videoOverlay')shellDraws.overlay++;return shellClear.apply(this,args)}});
+    await page.locator('#fullscreenButton').click();await page.waitForFunction(()=>document.fullscreenElement);
+    const drawn=await page.evaluate(()=>{shellDraws.map=0;shellDraws.overlay=0;document.getElementById('next').click();return {...shellDraws}});
+    assert.equal(drawn.map,0,'shell fullscreen skips map');assert(drawn.overlay>0,'shell fullscreen keeps overlay updates');
+    await page.evaluate(()=>document.exitFullscreen());await page.waitForFunction(()=>shellDraws.map>0);
+    await page.evaluate(()=>{CanvasRenderingContext2D.prototype.clearRect=shellClear});
+   }
+   await page.evaluate(()=>scrollTo(0,0));
    await page.locator('#play').click();await page.waitForFunction(()=>document.getElementById('video').currentTime>.1);
    const leftAt=await page.evaluate(()=>{window.departedVideo=document.getElementById('video');const target=Math.min(200,document.documentElement.scrollHeight-innerHeight-10);scrollTo(0,target);return scrollY});
    assert(leftAt>0,'the replay fixture must have a real scroll position to restore');
@@ -155,6 +171,21 @@ http.serve_forever()
    // Direct replay entry and refresh still load a working shell.
    await page.goto(base+'view/'+ids[1]+'/');await page.waitForFunction(()=>document.getElementById('play')&&!document.getElementById('play').disabled);
    await page.reload();await page.waitForFunction(()=>document.getElementById('play')&&!document.getElementById('play').disabled);
+   if(width===390){
+    // A quarter-turned full screen (orientation lock refused) left by moving to another segment: the next page is upright,
+    // its dialogs are not turned and touches on its seek bar map along the bar's real width.
+    await page.evaluate(()=>{screen.orientation.lock=()=>Promise.reject(new DOMException('refused','NotSupportedError'))});
+    await page.evaluate(()=>document.getElementById('fullscreenButton').click());
+    await page.waitForFunction(()=>document.documentElement.classList.contains('stage-turned'));
+    await page.locator('#nextLog').evaluate(button=>button.click());await page.waitForURL(base+'view/'+ids[0]+'/');
+    await page.waitForFunction(()=>document.getElementById('play')&&!document.getElementById('play').disabled&&!document.fullscreenElement);await page.waitForTimeout(200);
+    const upright=await page.evaluate(()=>{const d=document.createElement('dialog');document.body.append(d);d.showModal();const rotate=getComputedStyle(d).rotate;d.remove();
+     return {root:document.documentElement.classList.contains('stage-turned'),turned:document.querySelector('.camera-panel').classList.contains('is-turned'),rotate}});
+    assert.deepEqual(upright,{root:false,turned:false,rotate:'none'},'the next segment is not left turned');
+    const seek=await page.locator('#seek').boundingBox();await page.touchscreen.tap(seek.x+seek.width*.75,seek.y+seek.height/2);await page.waitForTimeout(150);
+    const fraction=await page.locator('#seek').evaluate(e=>(Number(e.value)-Number(e.min))/(Number(e.max)-Number(e.min)));
+    assert(Math.abs(fraction-.75)<.06,'a touch at 3/4 of the seek bar seeks to 3/4 after leaving the turn: '+fraction);
+   }
    await context.close();
   }
   console.log('PASS: single-document mobile/tablet/desktop navigation, ingress prefix, history, direct replay, video disposal, stale requests and polling cleanup');

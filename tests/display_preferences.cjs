@@ -61,6 +61,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.evaluate(()=>RoadViewerTheme.set('auto'));assert.equal(await page.evaluate(()=>[document.documentElement.hasAttribute('data-theme'),localStorage.getItem('roadviewer-theme')].join()),'false,');
   assert((await laneInk()).includes('#0e9f6e'),'auto follows the system again');await page.emulateMedia({colorScheme:'dark'});
   await page.evaluate(()=>{const f=data.frames[0];f.liveTracksValid=true;f.liveTracksDeltaMs=0;f.liveTracks=[{trackId:1,x:10,y:0,yRel:0,vRel:0,source:'scc',measured:true},{trackId:2,x:12,y:0,yRel:0,vRel:0,source:'frontRadar',measured:true}];render()});
+  await page.locator('#rawRows').evaluate(e=>e.closest('details').open=true);
+  await page.waitForFunction(()=>document.getElementById('rawRows').rows.length===2);
   assert.equal(await page.locator('#rawRows tr').count(),2);
   await layers();await page.locator('#hideScc').check();assert.equal(await page.locator('#rawRows tr').count(),1);
   assert((await page.locator('#rawRows').textContent()).includes('frontRadar'));

@@ -606,6 +606,29 @@ button.time-toggle:active{background:var(--hover)}
 @media(max-width:360px){.replay-page #frame,.time-readout::after{display:none}.time-total::before{content:none}.replay-page .playback{--play:44px;--step:34px}.replay-page .playrow{gap:6px;padding-right:calc(50% + var(--play)/2 + 6px)}.frame-step{padding-right:2px}.replay-page #time{font-size:12px}.replay-page .playrow #speedChoice{min-width:36px;padding:0 8px}
  .frame-step .icon-button{position:relative}.frame-step .icon-button::after{content:"";position:absolute;inset:-2px -5px}}
 @media(max-width:360px) and (pointer:coarse){.replay-page .playrow #speedChoice{min-width:40px}}
+/* Keep navigation at the top left; stack the wheel below the right-aligned speed on narrow phones. */
+@media(max-width:359px){
+ .replay-page .video-hud{flex-direction:column;align-items:flex-end;gap:4px}
+ .replay-page .video-hud .ego-speed{padding-right:0}
+}
+/* At 360px the title row is tightened so the segment arrows clear the speed HUD. */
+@media(max-width:360px){.replay-page .video-title{gap:4px}}
+/* Below 360px (320px phones, Fold cover screens) the centred-play row overlaps, so the controls flow in one row instead.
+   A smaller outer inset makes room for five real 44px targets and the time readout. 360px keeps the centred design. */
+@media(max-width:359px){
+ .replay-page .playback{padding-inline:4px}
+ .replay-page .playrow{display:flex;height:44px;padding:0;gap:3px}
+ .replay-page .time-readout{flex:1 1 auto;min-width:0}
+ .replay-page #time{height:44px;min-height:44px}
+ .replay-page button.time-toggle::after{inset:0}
+ .replay-page #bookmarkOpen{width:44px;height:44px;min-height:44px;margin:0}
+ .replay-page button.play-button{position:static;flex:none}
+ .replay-page .frame-step{position:static;flex:none;gap:0;padding:0;border-radius:22px}
+ .replay-page .frame-step .icon-button{width:44px;height:44px;min-height:44px;flex:none}
+ .replay-page .frame-step .icon-button::after{content:none}
+ .replay-page .playback-speed{position:static;flex:none}
+ .replay-page .playrow #speedChoice{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;margin:0}
+}
 
 /* Quiet controls; card surfaces keep their depth. */
 @media(pointer:fine){button:not(.segment-block):not(.bookmark-marker):not(.tag-edit):not(.copy-recording):not(.app-title-button):not(.lib-tab):not(.time-toggle):not(.tag-colors>button){min-height:36px;padding-block:6px}select,.rv-choice-trigger{min-height:34px}}

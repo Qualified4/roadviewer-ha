@@ -31,6 +31,37 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   // The frame takes the video's aspect ratio once its metadata arrives; let that resize (and the renders it triggers) settle.
   await page.waitForFunction(()=>document.getElementById('video').readyState>=1);await page.waitForTimeout(500);
 
+  // A compact phone must keep navigation clear of the HUD. Also test coarse pointers: their 44px targets
+  // used to overlap even when the mouse layout fitted. Capture both themes with generated test data only.
+  const narrow=await browser.newPage({viewport:{width:320,height:844},hasTouch:true,isMobile:true});
+  await narrow.route('https://rv.test/**',serve);
+  await narrow.route('https://rv.test/view/one/',route=>route.fulfill({body:fs.readFileSync('roadviewer/app/web/index.html'),contentType:'text/html'}));
+  await narrow.goto('https://rv.test/view/one/');await narrow.locator('#play:enabled').waitFor();
+  for(const theme of ['dark','light']){
+   await narrow.emulateMedia({colorScheme:theme});await narrow.reload();await narrow.locator('#play:enabled').waitFor();
+   await narrow.waitForFunction(()=>document.getElementById('video').readyState>=1);
+   await narrow.evaluate(()=>{data.frames[0].egoSpeedKph=123.4;render()});
+   for(const width of [320,360,390]){
+   await narrow.setViewportSize({width,height:844});await settle(narrow);
+   const boxes=await narrow.locator('#nextLog,.video-hud,#play,#prev,#next,#bookmarkOpen,#speedChoice').evaluateAll(es=>es.map(e=>{const r=e.getBoundingClientRect();return {id:e.id||e.className,l:r.left,r:r.right,t:r.top,b:r.bottom,w:r.width,h:r.height}}));
+   const overlap=(a,b)=>Math.min(a.r,b.r)-Math.max(a.l,b.l)>.5&&Math.min(a.b,b.b)-Math.max(a.t,b.t)>.5;
+   assert(!overlap(boxes[0],boxes[1]),'navigation and HUD do not overlap '+width+' '+theme+': '+JSON.stringify(boxes.slice(0,2)));
+   const corner=await narrow.evaluate(()=>{
+    const rect=selector=>{const r=document.querySelector(selector).getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom}};
+    return {title:rect('.video-title'),stage:rect('#videoStage'),speed:rect('.ego-speed'),wheel:rect('#steeringStatus')};
+   });
+   assert(Math.abs(corner.title.top-corner.stage.top-8)<=1,'navigation stays at the top left '+width);
+   if(width<360){
+    assert(corner.wheel.top>=corner.speed.bottom,'wheel sits below speed at 320px');
+    assert(Math.abs(corner.stage.right-corner.speed.right-8)<=1,'speed aligns with the right inset at 320px');
+   }else assert(corner.wheel.left>=corner.speed.right-1,'wider screens keep the wheel beside the speed '+width);
+   const buttons=boxes.slice(2);for(let i=0;i<buttons.length;i++)for(let j=i+1;j<buttons.length;j++)assert(!overlap(buttons[i],buttons[j]),'transport buttons do not overlap '+width+' '+theme+': '+JSON.stringify([buttons[i],buttons[j]]));
+   assert(buttons.every(b=>b.w>=(width<360?43.5:39.5)&&b.h>=39.5),'touch targets (44px below 360px; the 360px design keeps 40px bookmark/speed) '+width);
+   if(process.env.RV_AUDIT_SHOTS){fs.mkdirSync(process.env.RV_AUDIT_SHOTS,{recursive:true});await narrow.screenshot({path:require('path').join(process.env.RV_AUDIT_SHOTS,`replay-${theme}-${width}.png`)})}
+   }
+  }
+  await narrow.close();
+
   // No video-derived glow behind the card; the transport bar follows the page theme.
   assert.equal(await page.locator('#videoAmbient,.ambient-clip').count(),0,'no ambient glow');
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal overflow at 390px');
@@ -107,12 +138,12 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    const rects=await page.locator('#play,#prev,#next,#bookmarkOpen,#speedChoice,#time').evaluateAll(els=>els.map(e=>{const r=e.getBoundingClientRect();return {id:e.id,top:r.top,bottom:r.bottom,left:r.left,right:r.right}}));
    const at=id=>rects.find(r=>r.id===id);
    const middle=r=>(r.top+r.bottom)/2;
-   assert(rects.every(r=>Math.abs(middle(r)-middle(rects[0]))<14),'time, playback controls, bookmark and speed share a row at '+width);
+   assert(rects.filter(r=>width>=360||r.id!=='time').every(r=>Math.abs(middle(r)-middle(at('play')))<14),'playback controls share a row at '+width);
    assert(rects.every(r=>r.left>=0&&r.right<=width),'controls remain inside viewport');
    const seek=await page.locator('#seek').boundingBox(),time=await page.locator('#time').boundingBox();
    assert(time.y>=seek.y+seek.height,'time sits below seek');
    // B6: time · 북마크 on the left, play at the exact centre with the ◀|▶ pill tucked under its right half, 속도 at the right edge.
-   const order=['time','bookmarkOpen','play','prev','next','speedChoice'];
+   const order=width>=360?['time','bookmarkOpen','play','prev','next','speedChoice']:['play','prev','next','time','bookmarkOpen','speedChoice'];
    order.slice(1).forEach((id,i)=>assert(at(order[i]).right<=at(id).left+.5,`${order[i]} sits left of ${id} at ${width}: ${JSON.stringify(rects)}`));
    const row=await page.evaluate(()=>{const s=e=>getComputedStyle(e),q=id=>document.getElementById(id),pill=document.querySelector('.frame-step'),bar=document.querySelector('.playback').getBoundingClientRect();
     const soft=[q('bookmarkOpen'),q('speedChoice')];
@@ -123,12 +154,12 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
      pill:box.height,pillRadius:s(pill).borderRadius,speedEdge:content.right-q('speedChoice').getBoundingClientRect().right,playEdges:s(q('play')).borderTopWidth,grouped:pill.contains(q('prev'))&&pill.contains(q('next'))&&!!pill.querySelector('.frame-step-sep'),
      heights:soft.map(e=>e.getBoundingClientRect().height),fills:soft.map(e=>s(e).backgroundColor),edges:soft.map(e=>s(e).borderTopWidth+' '+s(e).boxShadow),
      fits:[...q('time').children].every(c=>c.scrollWidth<=c.clientWidth),time:q('time').innerText.trim(),label:q('time').getAttribute('aria-label'),title:q('time').title,frameBelow:q('frame').getBoundingClientRect().top>=q('time').getBoundingClientRect().bottom-1}});
-   assert(Math.abs(row.centre)<=1,'play is centred on the bar at '+width+': '+row.centre);
+   if(width>=360)assert(Math.abs(row.centre)<=1,'play is centred on the bar at '+width+': '+row.centre);
    assert(Math.abs(row.play-(width>360?52:44))<1,'play size at '+width+': '+row.play);
-   assert(row.tuck&&row.playOnTop,'the frame pill starts under the right half of play, play on top: '+JSON.stringify(row));
-   assert(row.grouped&&Math.abs(row.pill-44)<.5&&row.pillRadius==='0px 22px 22px 0px','frame steps share one 44px pill, rounded on the right, with a divider');
+   if(width>=360)assert(row.tuck&&row.playOnTop,'the frame pill starts under the right half of play, play on top: '+JSON.stringify(row));
+   assert(row.grouped&&Math.abs(row.pill-44)<.5&&row.pillRadius===(width>=360?'0px 22px 22px 0px':'22px'),'frame steps share one 44px pill, rounded on the right, with a divider');
    assert(Math.abs(row.speedEdge)<1,'speed sits at the right edge: '+row.speedEdge);
-   assert(row.heights.every(h=>Math.abs(h-40)<.5),'bookmark and speed are 40px: '+row.heights);
+   assert(row.heights.every(h=>Math.abs(h-(width>=360?40:44))<.5),'bookmark and speed keep their targets: '+row.heights);
    assert.equal(row.playEdges,'0px','play has no border');
    const pillLook=await page.locator('.frame-step').evaluate(e=>{const c=getComputedStyle(e);return [c.backgroundColor,c.borderTopWidth,c.boxShadow]});
    assert.deepEqual(pillLook,[row.fills[0],'0px','none'],'the pill shares the soft fill without edges');
@@ -318,7 +349,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await touch.route('https://rv.test/**',serve);
   await touch.route('https://rv.test/view/one/',route=>route.fulfill({body:fs.readFileSync('roadviewer/app/web/index.html'),contentType:'text/html'}));
   await touch.goto('https://rv.test/view/one/');await touch.waitForFunction(()=>!document.getElementById('play').disabled);
-  for(const width of [390,768]){
+  for(const width of [320,360,390,768]){
    await touch.setViewportSize({width,height:844});
    for(const expected of [true,false]){
     await touch.locator('#pinLog').tap();
@@ -336,11 +367,14 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    // Touch targets: at least 44px on coarse pointers.
    for(const selector of ['.back','#pinLog','#replayDownload>summary','#play','#prev','#next','#bookmarkOpen','#speedChoice','#videoOverlayToggle','#overlayHeightSettings','#roadTab','#telemetryTab','#bookmarkTab','#layerMenu>summary',...(width>=720?['#previousLog','#nextLog','#viewMenu>summary']:['#previousLog','#nextLog'])]){
     const box=await touch.locator(selector).boundingBox();
-    assert(box.width>=44-.5&&box.height>=44-.5,`${selector} is a 44px touch target at ${width} (${box.width}x${box.height})`);
+    // The 360px design keeps its centred row with 40px-wide bookmark/speed (44px tall); narrower phones get 44px.
+    const minWidth=width===360&&['#bookmarkOpen','#speedChoice'].includes(selector)?40:44;
+    assert(box.width>=minWidth-.5&&box.height>=44-.5,`${selector} is a ${minWidth}px touch target at ${width} (${box.width}x${box.height})`);
    }
    // The text-sized time toggle gets a 44px-tall hit area from a pseudo-element.
    const hit=await touch.evaluate(()=>{const e=document.getElementById('time'),r=e.getBoundingClientRect(),a=getComputedStyle(e,'::after'),top=r.top+parseFloat(a.top),bottom=r.bottom-parseFloat(a.bottom),x=r.left+Math.min(10,r.width/2);return {height:bottom-top,ends:[top+1,bottom-1].map(y=>document.elementFromPoint(x,y)===e)}});
-   assert(hit.height>=44-.5&&hit.ends.every(Boolean),'time toggle has a 44px touch target at '+width+': '+JSON.stringify(hit));
+   // 360px keeps its existing centred row, where the time's hit area stays as it was (about 39px tall).
+   if(width!==360)assert(hit.height>=44-.5&&hit.ends.every(Boolean),'time toggle has a 44px touch target at '+width+': '+JSON.stringify(hit));
   }
   await touch.close();
   assert.deepEqual(errors,[]);console.log('PASS: replay pin persistence and failure recovery, compact phone app bar and transport, sticky app bar/video, view settings in menus, tables without empty space, touch targets and saved layout width');
