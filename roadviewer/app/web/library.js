@@ -320,7 +320,9 @@ function dayLabel(date){
  return [dayKey(date)===dayKey(today)?'오늘':dayKey(date)===dayKey(yesterday)?'어제':'',(date.getFullYear()===today.getFullYear()?'':date.getFullYear()+'년 ')+full];
 }
 const durationText=seconds=>{const s=Math.max(0,Math.round(seconds)),h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}:${String(m).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`:`${m}:${String(s%60).padStart(2,'0')}`};
-const thumbnailUrl=m=>m&&(m.thumbnail||m.thumbnail_available)?`api/logs/${m.id}/thumbnail?v=${m.conversion_revision??0}`:null;
+// A thumbnail not made yet (the backfill makes it from the archive) has its own URL: once the list reports it made,
+// the URL changes and the image is fetched again instead of staying on the failed first try.
+const thumbnailUrl=m=>m&&(m.thumbnail||m.thumbnail_available)?`api/logs/${m.id}/thumbnail?v=${m.conversion_revision??0}${m.thumbnail?'':'&pending=1'}`:null;
 // The camera placeholder stays underneath; a loaded image covers it and a failed one is removed.
 function setThumbnail(box,url){
  if(box.dataset.src===(url||''))return;box.dataset.src=url||'';

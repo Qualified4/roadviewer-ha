@@ -45,7 +45,7 @@ const replay={route:'ripple',key:'ripple',duration:1,warnings:[],video:null,fram
    assert.equal(seen.left,false);
    // Mint primary: white wave.
    if(!reduced){
-    pending=page.evaluate(()=>new Promise(done=>{const el=document.getElementById('play');new MutationObserver((_,o)=>{const w=el.querySelector('.rv-ripple>span');if(w){o.disconnect();done(getComputedStyle(w).backgroundColor)}}).observe(el,{childList:true})}));
+    pending=page.evaluate(()=>new Promise(done=>{const el=document.getElementById('play');new MutationObserver((_,o)=>{const w=el.querySelector('.rv-ripple>span');if(w){o.disconnect();done(getComputedStyle(w).color)}}).observe(el,{childList:true})}));
     await page.locator('#play').click();assert.equal(await pending,'rgb(255, 255, 255)','white ripple on the mint play button');await page.locator('#play').click();
    }
    // None on the time toggle or a disabled button.

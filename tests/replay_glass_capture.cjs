@@ -56,17 +56,17 @@ async function assertFlatControls(page){
    // The card follows the page theme; the floating transport bar is a theme glass pane; only the picture stays dark.
    const card=await page.evaluate(()=>({card:getComputedStyle(document.querySelector('.camera-panel')).backgroundColor,bar:getComputedStyle(document.querySelector('.playback')).backgroundColor,text:getComputedStyle(document.getElementById('time')).color,stage:getComputedStyle(document.querySelector('.video-wrap')).backgroundColor}));
    // Over-video glass follows the screen mode; static cards sit on the page without a lit top edge.
-   const hud=await page.evaluate(()=>{const e=getComputedStyle(document.querySelector('.ego-speed'));return {text:getComputedStyle(document.getElementById('egoSpeed')).color,bg:e.backgroundColor,card:getComputedStyle(document.querySelector('.road-panel')).boxShadow}});
-   assert.equal(hud.text,theme==='light'?'rgb(20, 23, 28)':'rgb(242, 244, 246)','over-video text follows the theme');
-   assert.equal(hud.bg,theme==='light'?'rgba(255, 255, 255, 0.68)':'rgba(18, 20, 24, 0.42)','translucent over-video glass fill');
+   const hud=await page.evaluate(()=>{const e=getComputedStyle(document.querySelector('.ego-speed'));return {text:getComputedStyle(document.getElementById('logSegmentChoice')).color,bg:getComputedStyle(document.getElementById('logSegmentChoice')).backgroundColor,speed:e.backgroundColor,card:getComputedStyle(document.querySelector('.road-panel')).boxShadow}});
+   assert.equal(hud.text,theme==='light'?'rgb(20, 23, 28)':'rgb(242, 244, 246)','over-video text follows the theme');assert.equal(hud.speed,'rgba(0, 0, 0, 0)','speed has no pill');
+   assert.equal(hud.bg,theme==='light'?'rgba(255, 255, 255, 0.6)':'rgba(18, 20, 24, 0.22)','over-video glass is lighter than the floating bars');
    // Over-video text is crisp (no halo) and every pill keeps 4.5:1 against its own fill.
    const crisp=await page.evaluate(()=>[...document.querySelectorAll('.video-wrap .glass,.video-wrap .glass *,.video-tools .rv-choice-trigger')].filter(e=>getComputedStyle(e).textShadow!=='none').map(e=>e.id||e.className));
    assert.deepEqual(crisp,[],'no text halo over the video');
    const contrast=await page.evaluate(()=>{
     const rgba=c=>{const m=c.match(/[\d.]+/g).map(Number);return [m[0],m[1],m[2],m[3]??1]},over=(top,base)=>top.slice(0,3).map((v,i)=>v*top[3]+base[i]*(1-top[3]));
     const lum=c=>{const [r,g,b]=c.map(v=>{v/=255;return v<=.03928?v/12.92:((v+.055)/1.055)**2.4});return .2126*r+.7152*g+.0722*b},ratio=(a,b)=>{const [x,y]=[lum(a),lum(b)].sort((p,q)=>q-p);return (x+.05)/(y+.05)};
-    const pill=getComputedStyle(document.querySelector('.ego-speed')),fill=rgba(pill.backgroundColor),bright=Number(/brightness\(([\d.]+)\)/.exec(pill.backdropFilter)?.[1]??1),worst=[];
-    for(const sel of ['#egoSpeed','.ego-speed span','#videoSourceChoice','#videoOverlayToggle','#overlayStatus'])for(const e of document.querySelectorAll(sel)){if(!e.getBoundingClientRect().width)continue;
+    const pill=getComputedStyle(document.getElementById('logSegmentChoice')),fill=rgba(pill.backgroundColor),bright=Number(/brightness\(([\d.]+)\)/.exec(pill.backdropFilter)?.[1]??1),worst=[];
+    for(const sel of ['#titleText','#titleCount','#videoSourceChoice','#videoOverlayToggle','#overlayStatus'])for(const e of document.querySelectorAll(sel)){if(!e.getBoundingClientRect().width)continue;
      for(const video of [[0,0,0],[255,255,255]]){const bg=over(fill,video.map(v=>Math.min(255,v*bright)));worst.push([sel,+ratio(over(rgba(getComputedStyle(e).color),bg),bg).toFixed(2)])}}
     return worst});
    assert(contrast.every(([,r])=>r>=4.5),'over-video text meets 4.5:1 on its pill over black and white footage: '+JSON.stringify(contrast));

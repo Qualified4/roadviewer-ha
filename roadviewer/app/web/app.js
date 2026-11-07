@@ -775,6 +775,74 @@ const transport=document.querySelector('.playback');
 function sizeTransport(){document.documentElement.style.setProperty('--transport-height',`${Math.ceil(transport.getBoundingClientRect().height)}px`)}
 new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
 
+// While playing, the controls over the video (title, camera/overlay, full screen) fade out and, on short or touch screens,
+// the app bar folds away so the picture gets the room. A touch, mouse movement or keyboard focus on the video shows the video
+// controls for a few seconds; pausing shows everything. Open menus and focused controls keep them up.
+(()=>{
+ const root=document.body,stage=$('videoStage'),short=matchMedia('(max-height:820px),(pointer:coarse)'),SHOW=3000;
+ let timer=0;
+ const playing=()=>$('play').dataset.playing==='true';
+ const busy=()=>!!(appBar.querySelector('details[open]')||stage.querySelector(':focus-visible')||document.querySelector('.rv-choice-dialog[open]'));
+ function sync(){
+  const idle=playing()&&!root.classList.contains('hud-awake');
+  root.classList.toggle('hud-idle',idle);
+  // The bar stays folded for the whole playback (touches only bring back the video controls), so the picture does not
+  // jump on every tap; keyboard focus in the bar unfolds it.
+  root.classList.toggle('bar-folded',playing()&&short.matches&&!document.fullscreenElement&&!appBar.contains(document.activeElement));
+ }
+ function sleepLater(){clearTimeout(timer);timer=setTimeout(()=>{if(busy())return sleepLater();root.classList.remove('hud-awake');sync()},SHOW)}
+ function wake(){root.classList.add('hud-awake');sleepLater();sync()}
+ stage.addEventListener('pointerdown',wake,true);
+ stage.addEventListener('pointermove',e=>{if(e.pointerType==='mouse')wake()});
+ stage.addEventListener('focusin',wake);appBar.addEventListener('focusin',sync);appBar.addEventListener('focusout',()=>setTimeout(sync));
+ new MutationObserver(()=>{if(!playing()){clearTimeout(timer);root.classList.remove('hud-awake')}sync()}).observe($('play'),{attributes:true,attributeFilter:['data-playing']});
+ short.addEventListener?.('change',sync);document.addEventListener('fullscreenchange',sync);sync();
+})();
+
+// The video stays in view while the analysis scrolls: beside it (side by side) or above it (stacked). Stacked, scrolling down
+// into the analysis shrinks the sticky video to 60% (narrower and centred on wide screens, letterboxed on phones), and on short
+// phone screens (Fold cover display) the transport bar also folds into one row (play · seek · time). Scrolling back up
+// restores the bar, the top of the page restores the video, and a tap on the folded bar's free area opens it again.
+(()=>{
+ const root=document.body,stage=$('videoStage'),road=document.querySelector('.road-panel'),shortPhone=matchMedia('(max-width:719px) and (max-height:720px)');
+ function set(name,on){if(root.classList.contains(name)!==on)root.classList.toggle(name,on)}
+ // Side by side (analysis to the right of the video) or stacked, from the actual layout; horizontal offsets ignore sticky shifts.
+ function layout(){
+  const stacked=road.offsetLeft<cameraPanel.offsetLeft+cameraPanel.offsetWidth-1;
+  set('layout-stacked',stacked);set('layout-side',!stacked);
+ }
+ let lastY=scrollY,travel=0;
+ function sizeVideo(){
+  const width=stage.getBoundingClientRect().width;if(!width)return;
+  root.style.setProperty('--video-full-h',`${Math.round(width*330/526)}px`);
+ }
+ function update(){
+  const on=root.classList.contains('layout-stacked')&&!document.fullscreenElement;
+  set('compact-media',on);
+  if(!on){set('media-shrunk',false);set('transport-mini',false);return}
+  const y=scrollY,delta=y-lastY;lastY=y;
+  travel=Math.sign(delta)===Math.sign(travel)?travel+delta:delta;
+  if(y<8){set('media-shrunk',false);set('transport-mini',false);travel=0;return}
+  if(y>60)set('media-shrunk',true);
+  if(travel>24&&y>80&&shortPhone.matches)set('transport-mini',true);
+  else if(travel<-32)set('transport-mini',false);
+ }
+ addEventListener('scroll',update,{passive:true});shortPhone.addEventListener?.('change',update);document.addEventListener('fullscreenchange',update);
+ new ResizeObserver(()=>{layout();update()}).observe(document.getElementById('replayViews'));
+ new ResizeObserver(()=>{if(!root.classList.contains('media-shrunk'))sizeVideo()}).observe(stage);
+ transport.addEventListener('pointerdown',e=>{if(root.classList.contains('transport-mini')&&!e.target.closest('button,input,select,label,a,.seekbar')){root.classList.remove('transport-mini');travel=0}});
+ layout();sizeVideo();update();
+})();
+
+// Touch: a tapped button must not keep focus. On Android a focused control left behind by a tap can stop the next fling
+// dead instead of letting it coast, so focus is dropped when the next touch starts (outside open dialogs and text fields).
+// Keyboard and screen-reader focus are untouched: they do not start with a touch on the page.
+document.addEventListener('touchstart',()=>{
+ const el=document.activeElement;
+ if(!el||el===document.body||document.querySelector('dialog[open]'))return;
+ if(el.matches('button,summary,a,[role=tab],[role=option],[role=menuitem]')&&!el.closest('details[open]>:not(summary)'))el.blur();
+},{capture:true,passive:true});
+
 // Layout changes leave the video element and playback state intact.
 const splitView=$('splitView'),stackView=$('stackView'),layoutPreferenceKey='roadviewer-replay-layout';
 function setReplayLayout(mode){

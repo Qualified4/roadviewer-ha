@@ -526,76 +526,107 @@ def recording_order(m):
  return (0,m.get('uploaded',0),'',0,m['id'])
 
 SKIPPED_EVENTS_WARNING='지원하지 않는 새 로그 이벤트'
-SUMMARY_BUDGET=2.0  # Seconds per list request spent filling in summary fields of logs converted before 0.14.
-MISSING=object()  # Not computed now (no input yet, or a read that may work later): nothing is cached.
-def computed_drive_summary(p,m):
- telemetry_file,compressed=prepared_file(p,'telemetry.json')
- if telemetry_file is None:return MISSING
- try:
-  raw=telemetry_file.read_bytes()
-  return drive_summary(json.loads(gzip.decompress(raw) if compressed else raw))
- except FileNotFoundError:return MISSING
- except Exception:
-  app.logger.warning('Drive summary of %s could not be computed',p.name,exc_info=True);return None
-def computed_started_at(p,m):
- # Only a local log is read, and only its first messages; a Drive/NAS copy is never fetched for this.
- if media_store.location(m,'rlog.zst')!='local' or not (p/'rlog.zst').is_file():return MISSING
- try:return wall_clock.scan(p/'rlog.zst')
- except OSError:return MISSING
- except Exception:
-  app.logger.warning('Start time of %s could not be read',p.name,exc_info=True);return None
-SUMMARY_FIELDS={'drive_summary':computed_drive_summary,'started_at':computed_started_at}
-
-def recording_summary(p,m,deadline):
- # Fields of prepared/summary.json shown in the list. A log converted before a field existed gets it computed,
- # within the request's time budget, and cached into summary.json (null = unknown, never retried). The remaining
- # logs follow on the next list requests once the budget is spent.
+LIST_FIELDS=('drive_summary','started_at')  # Of prepared/summary.json, shown in the list.
+def recording_summary(p,m):
+ # Read only: conversion writes these fields, and the backfill (backfill.py) fills them in for older logs.
+ # The list never opens telemetry, logs or videos.
  if m['status']!='ready':return {}
- file=p/'prepared/summary.json'
- try:summary=json.loads(file.read_text())
+ try:summary=json.loads((p/'prepared/summary.json').read_text())
  except (OSError,ValueError):return {}
- updates={}
- for key,compute in SUMMARY_FIELDS.items():
-  if key in summary or time.monotonic()>deadline:continue
-  value=compute(p,m)
-  if value is not MISSING:updates[key]=value
- if updates:
-  try:commit_prepared(p,m,lambda:atomic_json(file,{**json.loads(file.read_text()),**updates}))
-  except (OSError,ValueError):pass
- return {key:value for key,value in {**summary,**updates}.items() if key in SUMMARY_FIELDS and value is not None}
+ return {key:summary[key] for key in LIST_FIELDS if summary.get(key) is not None}
 
-@app.route('/api/logs')
-def logs():
- cleanup_uploads()
- deadline=time.monotonic()+SUMMARY_BUDGET
- def item(p):
-  # Metadata is atomically replaced. Slow file/stat scans must not hold the
-  # lock shared with upload chunks and conversion progress.
-  m=read_meta(p);m.pop('bookmarks',None)
-  with lock:pinned=storage_policy.pinned(m);progress=job_progress.get(p.name)
-  # Logs converted before 0.9.6 stored a warning for skipped new event types; it was never a problem.
-  m['warnings']=[w for w in m.get('warnings') or [] if not str(w).startswith(SKIPPED_EVENTS_WARNING)]
-  row=dict(m,pinned=pinned,bytes=original_bytes(p,m),video=has_video(p,m),video_download=video_download_kind(p,m),video_downloads=video_downloads(p,m),download_options=download_options(p,m),log_bytes=media_store.media_size(p,m,'rlog.zst',store) if stored(p,m,'rlog.zst') else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
-  if (p/'prepared/thumbnail.jpg').is_file():row['thumbnail']=True
-  elif thumbnail_pending(p,m):row['thumbnail_available']=True
-  row.update(recording_summary(p,m,deadline))
-  # Only recordings touched by the archive carry the new fields; local-only rows stay as before.
-  if any(media_store.location(m,kind)!='local' for kind in media_store.MEDIA_KINDS):row.update(video_state=video_states(p,m,share_state()),storage_locations=storage_locations(p,m))
-  # Remote copies of local files and copies that did not verify: only on rows that have them.
-  copies=remote_copies(p,m);errors=archive_errors(m)
-  if copies:row['remote_copies']=copies
-  if errors:row['archive_error']=errors
-  return public_meta(row)
+# The list row of each log, kept in memory (one Gunicorn worker) and reused while the log's folder, meta.json,
+# prepared/ and summary.json are unchanged: 4 stats per log instead of reading and statting all of its files.
+# Every change of a log goes through one of them (files are added, renamed or removed; metadata is replaced).
+# A stat newer than LIST_RACY_SECONDS is not trusted (coarse file timestamps), and rows still being converted
+# are never kept. pinned and progress are not part of the row: they are read per request.
+LIST_RACY_SECONDS=2.0
+list_rows={}  # id -> (signature, row, archive state the row was built with or None, (folder bytes, prepared bytes))
+def list_signature(p):
+ out=[]
+ for f in (p,p/'meta.json',p/'prepared',p/'prepared/summary.json'):
+  try:st=os.stat(f);out.append((st.st_mtime_ns,st.st_size,st.st_ino))
+  except FileNotFoundError:out.append(None)
+ return tuple(out)
+def log_folder_bytes(p):
+ # (the whole folder, prepared/ alone), as storage_used_bytes counts them.
+ prepared=storage_used_bytes(p/'prepared');total=prepared
+ try:
+  with os.scandir(p) as entries:
+   for entry in entries:
+    try:
+     if entry.name=='prepared':continue
+     if entry.is_dir(follow_symlinks=False):total+=storage_used_bytes(Path(entry.path))
+     elif entry.is_file(follow_symlinks=False):total+=entry.stat(follow_symlinks=False).st_size
+    except FileNotFoundError:pass
+ except FileNotFoundError:pass
+ return total,prepared
+def storage_used_outside(ids):
+ # Everything under ROOT but the listed log folders (uploads, settings, staging copies): as storage_used_bytes.
+ total=0
+ with os.scandir(ROOT) as entries:
+  for entry in entries:
+   try:
+    if entry.is_dir(follow_symlinks=False):
+     if entry.name not in ids:total+=storage_used_bytes(Path(entry.path))
+    elif entry.is_file(follow_symlinks=False):total+=entry.stat(follow_symlinks=False).st_size
+   except FileNotFoundError:pass
+ return total
+def build_list_row(p,m,share_state):
+ m.pop('bookmarks',None)
+ # Logs converted before 0.9.6 stored a warning for skipped new event types; it was never a problem.
+ m['warnings']=[w for w in m.get('warnings') or [] if not str(w).startswith(SKIPPED_EVENTS_WARNING)]
+ sizes=log_folder_bytes(p)
+ row=dict(m,bytes=original_bytes(p,m),video=has_video(p,m),video_download=video_download_kind(p,m),video_downloads=video_downloads(p,m),download_options=download_options(p,m),log_bytes=media_store.media_size(p,m,'rlog.zst',store) if stored(p,m,'rlog.zst') else 0,prepared_bytes=sizes[1])
+ if (p/'prepared/thumbnail.jpg').is_file():row['thumbnail']=True
+ elif thumbnail_pending(p,m):row['thumbnail_available']=True
+ row.update(recording_summary(p,m))
+ share=None
+ # Only recordings touched by the archive carry the new fields; local-only rows stay as before.
+ if any(media_store.location(m,kind)!='local' for kind in media_store.MEDIA_KINDS):
+  share=share_state();row.update(video_state=video_states(p,m,share),storage_locations=storage_locations(p,m))
+ # Remote copies of local files and copies that did not verify: only on rows that have them.
+ copies=remote_copies(p,m);errors=archive_errors(m)
+ if copies:row['remote_copies']=copies
+ if errors:row['archive_error']=errors
+ return public_meta(row),share,sizes
+def list_row(p,share_state):
+ """(row without pinned/progress, (folder bytes, prepared bytes)), from the cache when the log is unchanged."""
+ signature=list_signature(p);cached=list_rows.get(p.name)
+ if cached and cached[0]==signature and (cached[2] is None or cached[2]==share_state()):return cached[1],cached[3]
+ m=read_meta(p);row,share,sizes=build_list_row(p,m,share_state)
+ newest=max((part[0] for part in signature if part),default=0)
+ if m['status'] not in ('queued','processing') and newest<time.time_ns()-LIST_RACY_SECONDS*1e9:list_rows[p.name]=(signature,row,share,sizes)
+ else:list_rows.pop(p.name,None)
+ return row,sizes
+
+def list_snapshot():
+ # Metadata is atomically replaced. Slow file/stat scans must not hold the lock shared with upload chunks and
+ # conversion progress.
  share=[]
  def share_state():
   # Once per request and only when a row has archived files; never under the lock. The active backend's state.
   if not share:share.append(archive_state())
   return share[0]
- items=[]
+ items=[];used=0;ids=set()
  for p in recording_paths():
-  try:items.append(item(p))
-  except FileNotFoundError:pass # A recording may be deleted while the snapshot is read.
- return jsonify(logs=sorted(items,key=recording_order,reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=storage_used_bytes(),concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
+  try:row,sizes=list_row(p,share_state)
+  except FileNotFoundError:continue # A recording may be deleted while the snapshot is read.
+  with lock:pinned=storage_policy.pinned(row);progress=job_progress.get(p.name)
+  items.append(dict(row,pinned=pinned,progress=progress));used+=sizes[0];ids.add(p.name)
+ for id in set(list_rows)-ids:list_rows.pop(id,None)
+ return items,used+storage_used_outside(ids)
+
+def warm_list():
+ # At start: the first list after a restart is served from the cache too.
+ try:list_snapshot()
+ except Exception:app.logger.warning('List warm-up failed',exc_info=True)
+
+@app.route('/api/logs')
+def logs():
+ cleanup_uploads()
+ items,used=list_snapshot()
+ return jsonify(logs=sorted(items,key=recording_order,reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=used,concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 @app.route('/api/upload',methods=['POST'])
 def upload():
  # Legacy multipart uploads use the same admission reservation. Browsers use chunks.
@@ -1646,6 +1677,7 @@ requeue_startup()
 # start.py enables this for the app; tests and tools importing the module do not migrate in the background.
 if os.environ.get('RV_MIGRATE_PREPARED')=='1':
  threading.Thread(target=migrate_prepared,name='prepared-migration',daemon=True).start()
+ threading.Thread(target=warm_list,name='list-warmup',daemon=True).start()
  archiver.start()  # Wait a full interval before activation/recovery; disabled archives only wait for settings changes.
  list_backfill.start()
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)

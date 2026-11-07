@@ -1,5 +1,12 @@
-"""Background backfill of the list's thumbnail and started_at for logs converted before they existed, archived
-logs included (their files may be on the NAS or only on Google Drive).
+"""Background backfill of the list's thumbnail, started_at and drive_summary for logs converted before they
+existed, archived logs included (their files may be on the NAS or only on Google Drive). The list (/api/logs) only
+reads what is stored here and by conversion; it never opens a log, its telemetry or a video.
+
+Order: logs the list asked for, then the first segment of every drive (its card's picture and start time), newest
+drive first, then the other segments, newest first. A log whose files cannot be read now (its NAS is not the
+active archive, a Drive file errors, an unexpected failure) goes to the end of the next runs instead of stopping
+the whole backfill; only TRANSIENT_LIMIT such logs in a row (the archive itself is down), or a run where nothing
+worked, back off.
 
 One worker thread, one log at a time, a pause between logs and at most RUN_CAP logs per run. It waits while
 uploads, conversions, an archive run or a Drive-backed playback are active, and backs off exponentially after
@@ -12,15 +19,17 @@ Cached as unknown, per conversion: started_at null (the log was read and has no 
 prepared/thumbnail.failed (every source was read and none decoded). An unreachable archive or a Drive error is
 never cached: the log is tried again on a later run.
 """
-import json,logging,tempfile,threading,time
+import gzip,json,logging,tempfile,threading,time
 from pathlib import Path
 import media_store,wall_clock
+from telemetry import drive_summary
 
 log=logging.getLogger(__name__)
 PREFIX_BYTES=2*2**20
 MOOV_MAX=8*2**20
 PAUSE_SECONDS=2.0;RUN_CAP=50
 START_DELAY=120;INTERVAL=900;BUSY_RETRY=60
+TRANSIENT_LIMIT=3  # Logs in a row that could not be read: the archive is down, back off.
 BACKOFF_START=60;BACKOFF_MAX=3600
 WATCHING_SECONDS=120  # A Drive video played within this long counts as being watched.
 THUMBNAIL_KINDS=('camera.mp4','qcamera.ts','fcamera.mp4','fcamera.hevc')  # Smallest first: qcamera, then front.
@@ -28,8 +37,12 @@ THUMBNAIL_FAILED='thumbnail.failed'
 TRANSIENT_STATES=('storage_unavailable','checking')
 MISSING=object()  # Not decided now (unreachable, busy): nothing is cached.
 
+def drive_key(order):
+ # recording_order(): (1, route counter, route id, segment, id) for a numbered route; anything else stands alone.
+ return order[1:3] if order[0]==1 else order
+
 class Transient(Exception):
- """A Drive or share error: stop this run and back off."""
+ """A Drive or share error for one log: nothing is cached, the log is tried again after the others."""
 
 def archived(m,kind):
  # Only the archive has this file (NAS or Drive), or a remote copy stands in for a local file that is gone.
@@ -64,6 +77,7 @@ class Backfill:
   self.s,self.clock,self.pause,self.run_cap=server,clock,pause,run_cap
   self.event=threading.Event();self.lock=threading.Lock();self.priority=[]
   self.backoff=0;self.retry_at=0;self.thread=None;self.stopped=threading.Event()
+  self.deferred=set()  # Logs that could not be read last time: tried after all others.
 
  def start(self,delay=START_DELAY):
   self.thread=threading.Thread(target=self._loop,args=(delay,),name='list-backfill',daemon=True);self.thread.start()
@@ -101,7 +115,23 @@ class Backfill:
   out=set()
   if not (prepared/'thumbnail.jpg').is_file() and not (prepared/THUMBNAIL_FAILED).exists():out.add('thumbnail')
   if 'started_at' not in summary:out.add('started_at')
+  if 'drive_summary' not in summary and self.telemetry_file(p):out.add('drive_summary')
   return out
+
+ @staticmethod
+ def telemetry_file(p):
+  return next((f for f in (p/'prepared'/'telemetry.json.gz',p/'prepared'/'telemetry.json') if f.is_file()),None)
+
+ def drive_summary(self,p):
+  # From the local converted telemetry; null (unknown) when it does not parse, MISSING when it went away.
+  f=self.telemetry_file(p)
+  if f is None:return MISSING
+  try:
+   raw=f.read_bytes()
+   return drive_summary(json.loads(gzip.decompress(raw) if f.suffix=='.gz' else raw))
+  except FileNotFoundError:return MISSING
+  except Exception:
+   log.warning('Drive summary of %s could not be computed',p.name,exc_info=True);return None
 
  def candidates(self):
   with self.lock:first,self.priority=self.priority,[]
@@ -112,29 +142,44 @@ class Backfill:
   for p in self.s.recording_paths():
    try:rest.append((self.s.recording_order(self.s.read_meta(p)),p))
    except (OSError,ValueError):pass
-  # Newest first: those are the ones the list shows on top.
-  paths+=[p for _,p in sorted(rest,key=lambda row:row[0],reverse=True) if p not in paths]
+  # Newest first: those are the ones the list shows on top. The first segment of each drive is its card.
+  rest.sort(key=lambda row:row[0],reverse=True)
+  first_segment={}
+  for order,p in rest:first_segment[drive_key(order)]=p  # Descending: the last one seen is the first segment.
+  cards=set(first_segment.values())
+  ordered=[p for _,p in rest if p in cards]+[p for _,p in rest if p not in cards]
+  paths+=[p for p in ordered if p not in paths and p.name not in self.deferred]+[p for p in ordered if p not in paths and p.name in self.deferred]
   return paths
 
  def run_once(self):
   """(logs processed, whether work remains for soon: busy, capped or backed off)."""
-  done=0
+  done=0;failed=0;in_row=0;last=None
   for p in self.candidates():
    try:m=self.s.read_meta(p)
    except (OSError,ValueError):continue
    need=self.needs(p,m)
-   if not need:continue
+   if not need:self.deferred.discard(p.name);continue
    if done>=self.run_cap:return done,True
    if self.busy():return done,True
    try:self.process(p,m,need)
    except Transient as e:
-    self.backoff=min(BACKOFF_MAX,max(BACKOFF_START,self.backoff*2));self.retry_at=self.clock()+self.backoff
-    log.warning('List backfill paused for %d s: %s',self.backoff,e)
-    return done,True
-   done+=1
+    # This log's archive cannot be read now: the others go on, it is tried again after them next time.
+    self.deferred.add(p.name);failed+=1;in_row+=1;last=e
+    if in_row>=TRANSIENT_LIMIT:return done,self.back_off(e)
+    continue
+   except Exception:
+    log.warning('List backfill of %s failed',p.name,exc_info=True)
+    self.deferred.add(p.name);failed+=1;continue
+   self.deferred.discard(p.name);done+=1;in_row=0
    if self.pause:self.stopped.wait(self.pause)
+  if failed and not done:return done,self.back_off(last)
   self.backoff=0
-  return done,False
+  return done,False  # Logs that failed wait for the next regular run.
+
+ def back_off(self,error):
+  self.backoff=min(BACKOFF_MAX,max(BACKOFF_START,self.backoff*2));self.retry_at=self.clock()+self.backoff
+  log.warning('List backfill paused for %d s: %s',self.backoff,error)
+  return True
 
  # Reading
 
@@ -212,6 +257,9 @@ class Backfill:
  def process(self,p,m,need):
   updates={};data=MISSING
   if 'started_at' in need:updates['started_at']=self.started_at(p,m)
+  if 'drive_summary' in need:
+   value=self.drive_summary(p)
+   if value is not MISSING:updates['drive_summary']=value
   if 'thumbnail' in need:data=self.thumbnail(p,m)
   def write():
    prepared=p/'prepared'
