@@ -36,7 +36,7 @@ def pick_start(first_mono,init=None,clocks=None,gps=None,now=None):return pick(f
 
 class Starts:
  """Collects the candidates while a log is read (decoder.prepare and scan below)."""
- def __init__(self):self.first=self.init_mono=None;self.init=self.clocks=self.gps=None
+ def __init__(self):self.first=self.init_mono=None;self.last=0;self.init=self.clocks=self.gps=None
  def add(self,e,kind):
   mono=e.logMonoTime
   if kind=='initData':
@@ -46,6 +46,7 @@ class Starts:
    if wall and self.init is None:self.init=(mono,wall/1e9)
    return
   if self.first is None or mono<self.first:self.first=mono
+  if mono>self.last:self.last=mono
   if kind=='clocks':
    # The latest reading: the further in, the likelier the clock has been synced.
    wall=e.clocks.wallTimeNanos
@@ -54,7 +55,10 @@ class Starts:
    fix=getattr(e,kind)
    if fix.hasFix and fix.unixTimestampMillis>0 and plausible(fix.unixTimestampMillis/1e3):
     self.gps=(mono,fix.unixTimestampMillis/1e3)
- def done(self):return self.gps is not None
+ def done(self):
+  # A GPS fix settles it. Without one, stop 2 s into the segment once the clock has been read: a receiver with a fix
+  # reports several times a second, so a fix that has not shown up by then is not coming in this segment's prefix.
+  return self.gps is not None or self.clocks is not None and self.first is not None and self.last-self.first>2_000_000_000
  def start(self,now=None):return self.fields(now)['started_at']
  def fields(self,now=None):
   """What summary.json stores (FIELDS); started_at None when no clock is usable."""

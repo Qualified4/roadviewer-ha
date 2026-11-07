@@ -107,6 +107,8 @@ class Backfill:
  def busy(self):
   s=self.s
   if s.processes or s.upload_receiving() or getattr(s.archiver,'running',False):return True
+  # Someone is watching: any video request (local files included, not only archived ones) in the last two minutes.
+  if time.monotonic()-getattr(s,'last_video_request',-1e9)<WATCHING_SECONDS:return True
   entry=getattr(s.playback,'entry',None)
   return entry is not None and s.playback.clock()-entry.used<WATCHING_SECONDS
 

@@ -213,13 +213,14 @@ class DriveBackfillTests(gs.GdriveServerTests):
  def get_row(self,p):
   return [row for row in self.client.get('/api/logs',environ_overrides=gs.PEER).json['logs'] if row['id']==p.name][0]
 
-def load_tests(loader,tests,pattern):
- # Only this module's tests: DriveBackfillTests reuses the Drive server set-up, not its tests.
- suite=unittest.TestSuite()
- for case in (NasBackfillTests,ThrottleTests,OrderAndFailureTests,DriveBackfillTests):
-  suite.addTests(case(name) for name in vars(case) if name.startswith('test'))
- return suite
-
+class PlaybackPauseTests(unittest.TestCase):
+ def test_any_video_request_pauses_the_backfill(self):
+  # Local playback counts too: the backfill used to pause only for archived (Drive) videos.
+  import time as clock
+  worker=backfill.Backfill(server)
+  with patch.object(server,'last_video_request',clock.monotonic()):self.assertTrue(worker.busy())
+  with patch.object(server,'last_video_request',clock.monotonic()-backfill.WATCHING_SECONDS-1),patch.object(server.playback,'entry',None):
+   self.assertEqual(worker.busy(),bool(server.processes or server.upload_receiving() or getattr(server.archiver,'running',False)))
 
 class StartupTests(unittest.TestCase):
  def test_thread_start_is_not_shadowed(self):
@@ -228,5 +229,13 @@ class StartupTests(unittest.TestCase):
   import inspect
   params=list(inspect.signature(backfill.Backfill.start).parameters)
   self.assertEqual(params,['self','delay'])
+
+def load_tests(loader,tests,pattern):
+ # Only this module's tests: DriveBackfillTests reuses the Drive server set-up, not its tests.
+ suite=unittest.TestSuite()
+ for case in (NasBackfillTests,ThrottleTests,OrderAndFailureTests,DriveBackfillTests,PlaybackPauseTests,StartupTests):
+  suite.addTests(case(name) for name in vars(case) if name.startswith('test'))
+ return suite
+
 
 if __name__=='__main__':unittest.main()

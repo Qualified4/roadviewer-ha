@@ -1491,8 +1491,11 @@ def log_thumbnail(id):
  response.headers['Cache-Control']='private, max-age=86400'
  return response
 
+# When any video (local or archived) was last requested: the background backfill yields to playback meanwhile.
+last_video_request=-1e9
 @app.route('/api/logs/<id>/video')
 def video(id):
+ global last_video_request;last_video_request=time.monotonic()
  p=folder(id);m=read_meta(p)
  if m['status']!='ready':return jsonify(error='로그를 준비 중이거나 변환에 실패했습니다.'),409
  summary_file=p/'prepared/summary.json'
