@@ -70,6 +70,13 @@ def remote_result():
 def archive_state():
  # The active backend's state, outside the locks: the share's check for the NAS (as before), Drive's cache.
  return remote_result()[0] if remote_backend() else store.state()
+def list_archive_state():
+ # The log list shows a remote backend's last known state while a stale one is refreshed in the background. Drive's
+ # state is cached for 10 s; reporting 'checking' meanwhile turned over every archived row's cached list entry (and
+ # again when the answer came back), so with the list open most of it was rebuilt every 10 s, 2.5-5 s each time.
+ if not remote_backend():return store.state()
+ state=archive_state()
+ return backend.known_state() or state if state=='checking' else state
 def archive_last_state():
  # The active backend's latest result without probing, for callers holding the locks.
  return backend.last_state() if remote_backend() else store.last_state()
@@ -590,7 +597,10 @@ def build_list_row(p,m,share_state):
  copies=remote_copies(p,m);errors=archive_errors(m)
  if copies:row['remote_copies']=copies
  if errors:row['archive_error']=errors
- return public_meta(row),share,sizes
+ # The list never shows the file index (storage) or the content hashes: the UI reads storage_locations,
+ # remote_copies and archive_error instead, and the two were over half of the response.
+ row.pop('storage',None);row.pop('content_hashes',None)
+ return row,share,sizes
 def list_row(p,share_state):
  """(row without pinned/progress, (folder bytes, prepared bytes)), from the cache when the log is unchanged."""
  signature=list_signature(p);cached=list_rows.get(p.name)
@@ -607,7 +617,7 @@ def list_snapshot():
  share=[]
  def share_state():
   # Once per request and only when a row has archived files; never under the lock. The active backend's state.
-  if not share:share.append(archive_state())
+  if not share:share.append(list_archive_state())
   return share[0]
  items=[];used=0;ids=set()
  for p in recording_paths():

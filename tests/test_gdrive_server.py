@@ -307,6 +307,26 @@ class GdriveServerTests(unittest.TestCase):
         self.assertEqual(row['video_state']['front'], 'storage_unavailable')
         self.assertEqual(media_store.location(server.read_meta(p), 'fcamera.mp4'), 'gdrive')  # Index untouched.
 
+    def test_list_keeps_last_known_drive_state_while_refreshing(self):
+        # Drive's state is cached for 10 s. A stale cache used to read 'checking' for the list, which turned over every
+        # archived row's cached entry (and again when the answer came back): the whole list rebuilt every 10 s.
+        p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
+        self.move(); self.assertEqual(self.backend.probe(), ('connected', None))
+        settled = patch.object(server, 'LIST_RACY_SECONDS', -60); settled.start(); self.addCleanup(settled.stop)  # Rows are cached.
+        first = self.get('/api/logs').json['logs'][0]
+        self.assertEqual(first['storage_locations']['front'], 'gdrive')
+        stamp, *result = self.backend.cached; self.backend.cached = (stamp - 60, *result)  # Stale.
+        with patch.object(server, 'build_list_row', wraps=server.build_list_row) as built:
+            row = self.get('/api/logs').json['logs'][0]
+        built.assert_not_called()
+        self.assertEqual(row['video_state'], first['video_state'])
+        for thread in [t for t in threading.enumerate() if t.name == 'archive-probe']: thread.join(5)
+        self.assertIsNotNone(self.backend.last_result())  # Refreshed in the background.
+        # Before any probe (or after invalidate()) there is nothing known: the list says so instead of guessing.
+        self.backend.invalidate()
+        with patch.object(self.backend, 'probe', return_value=('checking', 'probe_pending')):
+            self.assertEqual(server.list_archive_state(), 'checking')
+
     def test_logs_remote_copies_field_only_when_present(self):
         p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
         self.archive()
@@ -444,7 +464,8 @@ class GdriveServerTests(unittest.TestCase):
         self.assertEqual((r.status_code, r.data), (200, new)); r.close()
         self.assertEqual(len(self.media_requests()), before)
         row = self.get('/api/logs').json['logs'][0]
-        self.assertNotIn('fcamera.mp4', row['storage'])
+        self.assertNotIn('storage', row)
+        self.assertNotIn('fcamera.mp4', server.read_meta(p).get('storage', {}))
 
     def test_conversion_promotes_identical_drive_copy_and_copies_the_new_mp4(self):
         hevc, old, new = HEVC + os.urandom(3000), os.urandom(2000), os.urandom(2500)

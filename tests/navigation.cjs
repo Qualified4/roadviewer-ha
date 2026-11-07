@@ -45,6 +45,8 @@ http.serve_forever()
    const checkSweep=async()=>{
     const badge=page.locator('.state-processing');
     assert(await badge.evaluate(e=>getComputedStyle(e).backgroundImage.includes('linear-gradient')),'processing sweep has a visible gradient in the real shell');
+    // The page glow (html::before) must not be hidden by the shell's solid pre-load body background.
+    assert.deepEqual(await page.evaluate(()=>({body:getComputedStyle(document.body).backgroundColor,image:getComputedStyle(document.body).backgroundImage,glow:getComputedStyle(document.documentElement,'::before').backgroundImage.includes('gradient')})),{body:'rgba(0, 0, 0, 0)',image:'none',glow:true},'the page glow shows through the body in the real shell');
     assert.equal(await badge.evaluate(e=>getComputedStyle(e).backgroundSize),'220% 100%');
     assert.equal(await badge.evaluate(e=>getComputedStyle(e).backgroundRepeat),'no-repeat','one beam per cycle');
     await badge.evaluate(e=>{window.badgeBefore=e;window.sweepBefore=e.getAnimations().find(a=>a.animationName==='rv-sweep');window.sweepTime=sweepBefore.currentTime});

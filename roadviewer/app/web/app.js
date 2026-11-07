@@ -326,10 +326,13 @@ $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>st
 // (page scroll, the native slider, and the pointercancel an Android WebView sends when it claims the gesture) is
 // prevented, and the time follows the finger's x wherever it moves until the finger lifts.
 $('seek').addEventListener('pointerdown',e=>{if(loading||e.button!==0||e.pointerType==='touch')return;seekPointer=e.pointerId;pauseVideo()});
-function seekFromX(clientX){
- const input=$('seek'),r=input.getBoundingClientRect(),thumb=16,min=Number(input.min),max=Number(input.max);
- if(!(r.width>thumb)||!(max>min))return;
- const fraction=Math.max(0,Math.min(1,(clientX-r.left-thumb/2)/(r.width-thumb)));
+// While full screen is turned a quarter turn (see the full screen button), the page's x axis runs down the screen.
+const stageTurned=()=>document.documentElement.classList.contains('stage-turned');
+function seekFromX(point){
+ const input=$('seek'),r=input.getBoundingClientRect(),thumb=16,min=Number(input.min),max=Number(input.max),turned=stageTurned();
+ const start=turned?r.top:r.left,length=turned?r.height:r.width,at=turned?point.clientY:point.clientX;
+ if(!(length>thumb)||!(max>min))return;
+ const fraction=Math.max(0,Math.min(1,(at-start-thumb/2)/(length-thumb)));
  input.value=String(min+fraction*(max-min));input.dispatchEvent(new Event('input',{bubbles:true}));
 }
 {
@@ -338,9 +341,9 @@ function seekFromX(clientX){
  bar.addEventListener('touchstart',e=>{
   if(loading||touchId!==null||e.target.closest('.bookmark-marker'))return;
   const t=e.changedTouches[0];touchId=t.identifier;e.preventDefault();
-  seekPointer='touch';pauseVideo();seekFromX(t.clientX);
+  seekPointer='touch';pauseVideo();seekFromX(t);
  },{passive:false});
- bar.addEventListener('touchmove',e=>{const t=own(e);if(!t)return;e.preventDefault();seekFromX(t.clientX)},{passive:false});
+ bar.addEventListener('touchmove',e=>{const t=own(e);if(!t)return;e.preventDefault();seekFromX(t)},{passive:false});
  const end=e=>{const t=own(e);if(!t)return;touchId=null;if(seekPointer==='touch')finishSeekDrag()};
  bar.addEventListener('touchend',end);bar.addEventListener('touchcancel',end);
 }
@@ -807,7 +810,8 @@ function sizeCamera(){
 new ResizeObserver(()=>{sizeAppBar();sizeCamera()}).observe(appBar);sizeAppBar();new ResizeObserver(sizeCamera).observe(cameraPanel);sizeCamera();
 // The floating transport bar: the page keeps this much room below its content so the bar never hides the end.
 const transport=document.querySelector('.playback');
-function sizeTransport(){document.documentElement.style.setProperty('--transport-height',`${Math.ceil(transport.getBoundingClientRect().height)}px`)}
+// The layout height, so the quarter-turned full screen (see the full screen button) does not measure the bar's length.
+function sizeTransport(){document.documentElement.style.setProperty('--transport-height',`${transport.offsetHeight}px`)}
 new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
 
 // While playing, the controls over the video (title, camera/overlay, full screen) fade out and, on short or touch screens,
@@ -990,8 +994,9 @@ function fitSegmentStrip(recentre=false){
  strip.classList.toggle('is-scrolling',scrolling);
  if(scrolling&&(recentre||!was||!segmentStripScrolled)){
   const block=strip.querySelector('[aria-current]');
-  if(block){const box=block.getBoundingClientRect(),frame=strip.getBoundingClientRect();
-   strip.scrollTo({left:strip.scrollLeft+box.left+box.width/2-(frame.left+frame.width/2),behavior:recentre&&was&&motionAllowed()?'smooth':'instant'})}
+  if(block){const box=block.getBoundingClientRect(),frame=strip.getBoundingClientRect(),turned=stageTurned();
+   const centre=r=>turned?r.top+r.height/2:r.left+r.width/2;
+   strip.scrollTo({left:strip.scrollLeft+centre(box)-centre(frame),behavior:recentre&&was&&motionAllowed()?'smooth':'instant'})}
   segmentStripScrolled=false;
  }
  segmentStripFades();
@@ -1164,10 +1169,21 @@ const pageReady=loadLogNavigation();
 (()=>{
  const stage=document.querySelector('.camera-panel'),button=$('fullscreenButton');
  button.hidden=!(document.fullscreenEnabled&&stage.requestFullscreen);
- button.onclick=()=>{if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});else stage.requestFullscreen().catch(()=>showError('전체 화면으로 전환하지 못했습니다.'))};
+ // Phones and tablets show full screen in landscape. The browser is asked to lock the orientation; where it refuses
+ // (the Home Assistant app's Android WebView, iPad Safari), a portrait screen shows the stage turned a quarter turn
+ // clockwise instead, so the device is simply held sideways. Turning the device to landscape undoes the turn.
+ const touch=matchMedia('(pointer:coarse)'),portrait=matchMedia('(orientation:portrait)');let locked=false;
+ const syncTurn=()=>{const on=document.fullscreenElement===stage&&touch.matches&&!locked&&portrait.matches;stage.classList.toggle('is-turned',on);document.documentElement.classList.toggle('stage-turned',on)};
+ portrait.addEventListener('change',()=>{syncTurn();render()});
+ button.onclick=()=>{if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});else stage.requestFullscreen().then(async()=>{
+  if(!touch.matches)return;
+  try{await screen.orientation.lock('landscape');locked=true}catch{locked=false}
+  syncTurn();render();
+ }).catch(()=>showError('전체 화면으로 전환하지 못했습니다.'))};
  stage.addEventListener('fullscreenchange',()=>{
   const on=document.fullscreenElement===stage,text=on?'전체 화면 종료':'전체 화면';
-  button.setAttribute('aria-label',text);button.title=text;button.classList.toggle('is-active',on);render();
+  if(!on){if(locked)try{screen.orientation.unlock()}catch{}locked=false}
+  syncTurn();button.setAttribute('aria-label',text);button.title=text;button.classList.toggle('is-active',on);render();
  });
 })();
 

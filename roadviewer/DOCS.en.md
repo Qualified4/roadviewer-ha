@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.7**.
+This guide describes **1.0.8**.
 
 [한국어](DOCS.md) · English
 
@@ -194,7 +194,7 @@ The replay page has a compact app bar, controls over the video, a floating playb
 - **Top left, title:** drive start time · 구간 k with the position `(i/N)` within the route; falls back to `업로드 …` when the start time is unknown. Opens the route's **구간 선택** (segment chooser).
 - **Bottom left:** camera/quality chooser, the **겹쳐 보기** (overlay) toggle and its ⚙ settings button.
 - **Top right:** vehicle speed (`carState.vEgo`) and the steering-wheel state; when the driver intervenes in steering, an **개입** (takeover) ring surrounds the wheel.
-- **Bottom right:** fullscreen.
+- **Bottom right:** fullscreen. Phones and tablets open it in landscape: where the browser can lock the orientation (Android Chrome, Samsung Internet) the screen turns even with the device held upright; where it cannot (the Android Home Assistant app, iPad), the picture is turned a quarter turn, so hold the device on its left side. With the device already in landscape nothing is turned.
 
 While playing, the title, the bottom-left controls and fullscreen fade out; touching the video or moving the mouse shows them for a few seconds, and touching the video again while they show hides them at once. On touch or short screens the app bar also folds away while playing and returns on pause. The video is sized to the screen height so the floating playback bar never covers it.
 

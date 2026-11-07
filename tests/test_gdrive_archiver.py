@@ -391,7 +391,8 @@ class GdriveArchiverTests(unittest.TestCase):
         body = r.get_data(as_text=True)
         for secret in ('upload_id=', 'remote_pending', 'secretsession', 'fileid-secret', 'file_id'): self.assertNotIn(secret, body)
         rows = {row['id']: row for row in r.json['logs']}
-        self.assertEqual(rows[q.name]['storage']['fcamera.mp4']['remote']['backend'], 'gdrive')  # The copy is still shown.
+        self.assertEqual(rows[q.name]['remote_copies']['front'], 'gdrive')  # The copy is still shown.
+        self.assertNotIn('storage', rows[q.name])
         self.assertEqual(server.read_meta(p)['storage']['fcamera.mp4']['remote_pending']['backend'], 'gdrive')  # Index untouched.
         self.assertNotIn('upload_id', json.dumps(archiver.status()))
 
