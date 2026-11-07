@@ -17,12 +17,17 @@
 
 .app-brand h1:focus{outline:none}
 
-/* Press ripple (ripple.js): a wave of the control's own colour (white on mint) in a clipping layer; reduced motion only dims. */
+/* Press ripple (ripple.js): a soft-edged wave of the control's own colour (white on mint) in a clipping layer. It grows from
+   a fifth of its size with a long decelerating curve, stays faint (10%, 22% on mint) and fades out on release.
+   Reduced motion only dims. */
 .rv-ripple-host{position:relative}
-.rv-ripple{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none;--ripple-alpha:.18}
-.rv-ripple>span{position:absolute;border-radius:50%;background:currentColor;opacity:0;transform:scale(0);animation:rv-ripple .45s var(--m2-decelerate) forwards}
-:is(button.primary,.play-button)>.rv-ripple{--ripple-alpha:.25}:is(button.primary,.play-button)>.rv-ripple>span{background:#fff}
-@keyframes rv-ripple{0%{transform:scale(0);opacity:var(--ripple-alpha)}55%{opacity:var(--ripple-alpha)}100%{transform:scale(1);opacity:0}}
+/* No double-tap zoom on controls: taps respond at once and a pan that starts on a button scrolls normally. */
+:where(button,summary,[role=tab],[role=menuitem],[role=option]){touch-action:manipulation}
+.rv-ripple{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none;transition:opacity .32s var(--m2-standard)}
+.rv-ripple.is-out{opacity:0}
+.rv-ripple>span{position:absolute;border-radius:50%;background:radial-gradient(circle closest-side,currentColor 0,currentColor 72%,transparent 100%);opacity:.10;transform:scale(.2);animation:rv-ripple .5s cubic-bezier(.2,0,0,1) forwards}
+:is(button.primary,.play-button)>.rv-ripple>span{color:#fff;opacity:.22}
+@keyframes rv-ripple{from{transform:scale(.2)}to{transform:scale(1)}}
 .rv-pressed{opacity:.7}
 
 @media (prefers-reduced-motion:no-preference){

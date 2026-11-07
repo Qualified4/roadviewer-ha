@@ -104,6 +104,46 @@ class ThrottleTests(unittest.TestCase):
   old=type('Entry',(),{'used':server.playback.clock()-backfill.WATCHING_SECONDS-1})()
   with patch.object(server.playback,'entry',old):self.assertEqual(self.worker.run_once()[0],2) # Watched long ago: not busy.
 
+class OrderAndFailureTests(unittest.TestCase):
+ # Local logs (no archive needed): what matters is which log is processed when, and what one failure stops.
+ def setUp(self):
+  temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup);self.root=Path(temp.name)
+  for patcher in (patch.object(server,'ROOT',self.root),patch.object(server,'upload_receiving',return_value=False)):patcher.start();self.addCleanup(patcher.stop)
+  self.worker=backfill.Backfill(server,pause=0)
+ def log(self,id,name):
+  p=make_log(self.root,id,['rlog.zst'],[]);(p/'rlog.zst').write_bytes(rlog());summary(p)
+  m=server.read_meta(p);m.update(status='ready',name=name);server.save_meta(p,m)
+  return p
+ def order(self):
+  seen=[]
+  with patch.object(self.worker,'process',side_effect=lambda p,m,need:seen.append(p.name)):self.worker.run_once()
+  return seen
+ def test_first_segment_of_every_drive_first_newest_drive_first(self):
+  old=[self.log(c*32,'0000041b--c6f39793a8--%d'%i) for i,c in enumerate('abc')]
+  new=[self.log(c*32,'0000041c--d6f39793a8--%d'%i) for i,c in enumerate('def')]
+  self.assertEqual(self.order(),[new[0].name,old[0].name,new[2].name,new[1].name,old[2].name,old[1].name])
+ def test_an_unreadable_log_does_not_stop_the_others_and_goes_last(self):
+  logs=[self.log(c*32,'0000041b--c6f39793a8--%d'%i) for i,c in enumerate('abcd')]
+  bad={logs[0].name:backfill.Transient('rlog.zst storage_unavailable'),logs[1].name:RuntimeError('boom')}
+  real=self.worker.process
+  def process(p,m,need):
+   if p.name in bad:raise bad[p.name]
+   real(p,m,need)
+  with patch.object(self.worker,'process',side_effect=process),self.assertLogs('backfill','WARNING'):
+   self.assertEqual(self.worker.run_once(),(2,False))
+  self.assertEqual(self.worker.backoff,0) # Others worked: the archive is up, nothing backs off.
+  for p in logs[2:]:self.assertEqual(saved(p)['started_at'],START)
+  for p in logs[:2]:self.assertNotIn('started_at',saved(p)) # Nothing cached for them.
+  # Next run: the readable logs are done, the two that failed come last (here: alone), in list order.
+  self.log('f'*32,'0000041b--c6f39793a8--9')
+  self.assertEqual(self.order(),['f'*32,logs[0].name,logs[1].name])
+  self.assertEqual(self.worker.run_once(),(3,False));self.assertFalse(self.worker.deferred) # Readable again.
+ def test_logs_unreadable_in_a_row_back_off(self):
+  logs=[self.log(c*32,'0000041b--c6f39793a8--%d'%i) for i,c in enumerate('abcde')]
+  with patch.object(self.worker,'process',side_effect=backfill.Transient('gdrive down')) as process,self.assertLogs('backfill','WARNING'):
+   self.assertEqual(self.worker.run_once(),(0,True))
+  self.assertEqual(process.call_count,backfill.TRANSIENT_LIMIT);self.assertEqual(self.worker.backoff,backfill.BACKOFF_START)
+
 class DriveBackfillTests(gs.GdriveServerTests):
  def setUp(self):
   super().setUp()
@@ -155,13 +195,12 @@ class DriveBackfillTests(gs.GdriveServerTests):
   self.assertEqual(self.worker.run_once(),(1,False));self.assertEqual(self.worker.backoff,0)
   self.assertTrue((p/'prepared/thumbnail.jpg').is_file())
  def get_row(self,p):
-  with patch.object(server,'SUMMARY_BUDGET',-1):
-   return [row for row in self.client.get('/api/logs',environ_overrides=gs.PEER).json['logs'] if row['id']==p.name][0]
+  return [row for row in self.client.get('/api/logs',environ_overrides=gs.PEER).json['logs'] if row['id']==p.name][0]
 
 def load_tests(loader,tests,pattern):
  # Only this module's tests: DriveBackfillTests reuses the Drive server set-up, not its tests.
  suite=unittest.TestSuite()
- for case in (NasBackfillTests,ThrottleTests,DriveBackfillTests):
+ for case in (NasBackfillTests,ThrottleTests,OrderAndFailureTests,DriveBackfillTests):
   suite.addTests(case(name) for name in vars(case) if name.startswith('test'))
  return suite
 

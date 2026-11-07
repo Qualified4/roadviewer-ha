@@ -267,14 +267,12 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .menu-theme{display:grid;gap:6px;padding:8px 6px 6px}
 .menu-theme>span{padding:0 4px;font-size:11px;color:var(--muted)}
 .menu-theme .theme-switch{display:flex}.menu-theme .theme-switch button{flex:1}
-/* Controls drawn over the video stay dark in both themes. */
-/* Glass (all floating surfaces and the controls over the video): a translucent fill over a blurred, saturated backdrop
-   whose BRIGHTNESS is pulled down (dark) or up (light), so colours show through while text keeps 4.5:1 even over pure
-   black or white (dark: fill .42 + brightness .55; light: fill .68 + brightness 1.12). Hairline, top highlight, soft shadow;
-   no text effects. Without backdrop-filter, or with reduced transparency, the surface is opaque. */
-.video-wrap{--glass-bg:rgba(18,20,24,.42);--glass-filter:blur(20px) saturate(170%) brightness(.55);--glass-border:rgba(255,255,255,.14);--glass-highlight:inset 0 1px 0 rgba(255,255,255,.16);--glass-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 8px 24px rgba(0,0,0,.25);--glass-solid:#1E2126;--hud-text:#F2F4F6;--hud-muted:rgba(242,244,246,.85);--hud-warn:#F8D27A;--hud-line:rgba(255,255,255,.14);--hud-hover:rgba(255,255,255,.10);--hud-focus:#5BE3AE}
-:root[data-theme=light] .video-wrap{--glass-bg:rgba(255,255,255,.68);--glass-filter:blur(20px) saturate(170%) brightness(1.12);--glass-border:rgba(255,255,255,.7);--glass-highlight:inset 0 1px 0 rgba(255,255,255,.9),0 0 0 1px rgba(16,24,40,.07);--glass-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 0 0 1px rgba(16,24,40,.07),0 8px 22px rgba(16,24,40,.10);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#353C4A;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}
-@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .video-wrap{--glass-bg:rgba(255,255,255,.68);--glass-filter:blur(20px) saturate(170%) brightness(1.12);--glass-border:rgba(255,255,255,.7);--glass-highlight:inset 0 1px 0 rgba(255,255,255,.9),0 0 0 1px rgba(16,24,40,.07);--glass-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 0 0 1px rgba(16,24,40,.07),0 8px 22px rgba(16,24,40,.10);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#353C4A;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}}
+/* Controls drawn over the video: lighter glass than the floating bars (fill .22 dark / .6 light; backdrop brightness .45 / 1.15
+   keeps 4.5:1 text over pure white or black) with one even hairline, no top highlight. Light follows the page theme,
+   except in full screen, where the cockpit concept keeps them dark. Opaque without backdrop-filter or with reduced transparency. */
+.video-wrap{--glass-bg:rgba(18,20,24,.22);--glass-filter:blur(18px) saturate(160%) brightness(.45);--glass-border:transparent;--glass-highlight:inset 0 0 0 1px rgba(255,255,255,.09);--glass-shadow:inset 0 0 0 1px rgba(255,255,255,.09),0 4px 14px rgba(0,0,0,.18);--glass-solid:#1E2126;--hud-text:#F2F4F6;--hud-muted:rgba(242,244,246,.85);--hud-warn:#F8D27A;--hud-line:rgba(255,255,255,.14);--hud-hover:rgba(255,255,255,.10);--hud-focus:#5BE3AE}
+:root[data-theme=light] .camera-panel:not(:fullscreen) .video-wrap{--glass-bg:rgba(255,255,255,.6);--glass-filter:blur(18px) saturate(160%) brightness(1.15);--glass-border:transparent;--glass-highlight:inset 0 0 0 1px rgba(255,255,255,.45);--glass-shadow:inset 0 0 0 1px rgba(255,255,255,.45),0 4px 14px rgba(16,24,40,.10);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#262B35;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .camera-panel:not(:fullscreen) .video-wrap{--glass-bg:rgba(255,255,255,.6);--glass-filter:blur(18px) saturate(160%) brightness(1.15);--glass-border:transparent;--glass-highlight:inset 0 0 0 1px rgba(255,255,255,.45);--glass-shadow:inset 0 0 0 1px rgba(255,255,255,.45),0 4px 14px rgba(16,24,40,.10);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#262B35;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}}
 .glass,.video-tools .rv-choice-trigger{background:var(--glass-bg);border:1px solid var(--glass-border);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);color:var(--hud-text);text-shadow:none}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.glass,.video-tools .rv-choice-trigger{background:var(--glass-solid)}}
 @media(prefers-reduced-transparency:reduce){.glass,.video-tools .rv-choice-trigger{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
@@ -302,7 +300,7 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 #titleText{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .app-title-count{flex-shrink:0;color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
 .app-title-chevron{flex-shrink:0;color:var(--muted)}
-.app-subtitle{display:flex;align-items:center;gap:6px;min-width:0;margin:0;color:var(--muted);font-size:12px;line-height:1.4}
+.app-subtitle{display:flex;align-items:center;gap:6px;min-width:0;margin:0;color:var(--muted);font-size:13px;line-height:1.4}
 #titleDate{flex-shrink:0;white-space:nowrap}#titleDate:empty{display:none}#titleDate::after{content:"·";margin-left:6px}
 .app-subtitle .replay-recording{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0;overflow:hidden}
 .app-subtitle .recording-tags{flex:0 1 auto;flex-wrap:nowrap}
@@ -362,7 +360,8 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .overlay-group button{display:inline-flex;align-items:center;gap:7px;height:calc(var(--hud-h) - 2px);min-height:0;padding:0 12px;border:0;border-radius:0;background:transparent;box-shadow:none;color:var(--hud-text);font-size:13px;font-weight:500}
 .overlay-group .overlay-settings{padding:0 9px;box-shadow:-1px 0 0 var(--hud-line)}
 .overlay-group svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-@media(hover:hover) and (pointer:fine){.overlay-group button:hover,.video-fullscreen:hover{background:var(--hud-hover)}}
+/* Hover tints the glass instead of replacing it, so the icon keeps its contrast over the video. */
+@media(hover:hover) and (pointer:fine){.overlay-group button:hover,.video-fullscreen:hover{background-image:linear-gradient(var(--hud-hover),var(--hud-hover));color:var(--hud-text)}.video-fullscreen:hover{background-color:var(--glass-bg)}}
 .overlay-dot{width:8px;height:8px;border-radius:50%;background:color-mix(in srgb,var(--hud-text) 40%,transparent)}
 #videoOverlayToggle[aria-pressed=true] .overlay-dot{background:#5BE3AE;box-shadow:0 0 8px rgba(91,227,174,.9)}
 #videoStage :is(.overlay-group button,.video-fullscreen){min-height:0;padding-block:0}#videoStage .video-tools .rv-choice-trigger{min-height:var(--hud-h);padding-block:0}
@@ -407,12 +406,14 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .segment-strip{display:flex;gap:3px;height:12px;margin-top:2px;margin-bottom:6px}
 .segment-block{position:relative;flex:1 1 0;min-width:4px;height:12px;min-height:0;padding:0;border:0;border-radius:4px;background:var(--track);box-shadow:var(--track-shadow)}
 .segment-block::before{content:"";position:absolute;inset:-8px 0}
-.segment-block[data-status=queued],.segment-block[data-status=processing]{background:color-mix(in srgb,var(--warn) 30%,var(--track))}
-.segment-block[data-status=error]{background:color-mix(in srgb,var(--danger) 30%,var(--track))}
-.segment-block[data-status=unconverted]{background:var(--unconverted);opacity:.55}
-.segment-block[aria-current=true]{background:color-mix(in srgb,var(--drive) 20%,transparent);box-shadow:inset 0 0 0 1.5px var(--drive)}
+/* Same status colours as the library's route bar; the playing segment is marked by a ring, not a colour of its own. */
+.segment-block[data-status=ready]{background:var(--ready)}
+.segment-block[data-status=queued],.segment-block[data-status=processing]{background:color-mix(in srgb,var(--warn) 28%,var(--track))}
+.segment-block[data-status=error]{background:var(--danger)}
+.segment-block[data-status=unconverted]{background:var(--unconverted)}
+.segment-block[aria-current=true]{outline:2px solid var(--text);outline-offset:1.5px}
 .segment-block:disabled{opacity:.6}
-@media(hover:hover) and (pointer:fine){.segment-block:enabled:not([aria-current]):hover{background:var(--raised-hover);box-shadow:var(--raised-shadow)}}
+@media(hover:hover) and (pointer:fine){.segment-block:enabled:not([aria-current]):hover{filter:brightness(1.12) saturate(1.1)}}
 .segment-block:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 /* Long drives (app.js fitSegmentStrip): fixed-width blocks in a horizontally scrollable row with a hidden scrollbar, snapping
    loosely to blocks; 4px of vertical room keeps focus rings visible, and the edges fade only where more blocks exist. */
@@ -432,10 +433,11 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .timeline-legend{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:2px;font-size:11px;color:var(--muted)}
 .timeline-legend span{display:inline-flex;align-items:center;gap:5px}
 .timeline-legend span::before{content:"";width:10px;height:4px;border-radius:2px;background:var(--track)}
-.timeline-legend .legend-segment::before{background:var(--drive)}.timeline-legend .legend-engaged::before{background:var(--ready)}.timeline-legend .legend-takeover::before{background:var(--takeover)}
+.timeline-legend .legend-segment::before{height:7px;background:transparent;box-shadow:inset 0 0 0 1.5px var(--text)}.timeline-legend .legend-engaged::before{background:var(--ready)}.timeline-legend .legend-takeover::before{background:var(--takeover)}
 .timeline-legend .legend-bookmark::before{width:7px;height:7px;margin:0 1px;background:var(--pin);transform:rotate(45deg)}
 .replay-page .playrow{display:flex;align-items:center;flex-wrap:nowrap;gap:6px;margin-top:10px}
-button.play-button{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:46px;min-width:46px;height:46px;padding:0;border-radius:50%}
+button.play-button{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:46px;min-width:46px;height:46px;padding:0;border-radius:50%;box-shadow:0 0 14px color-mix(in srgb,var(--accent) 38%,transparent),0 2px 6px color-mix(in srgb,var(--accent) 22%,transparent)}
+button.play-button:disabled{box-shadow:none}
 .play-button .icon-pause,.play-button[data-playing=true] .icon-play{display:none}.play-button[data-playing=true] .icon-pause{display:block}
 .play-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .playrow #prev,.playrow #next{color:var(--text)}
@@ -462,7 +464,10 @@ button.time-toggle:active{background:var(--hover)}
 .replay-page .vehicle-tabs{gap:22px;flex-wrap:nowrap}
 .replay-page .vehicle-tabs button{height:46px;min-height:46px;min-width:44px;padding:0 2px;border-radius:0;background:transparent;box-shadow:none;color:var(--muted);font-size:14px;font-weight:600}
 .replay-page .vehicle-tabs button[aria-selected=true]{color:var(--text);background:transparent;box-shadow:none}
-.replay-page .vehicle-tabs .tab-indicator{border-radius:0;background:transparent;box-shadow:inset 0 -2px var(--accent)}
+/* The underline is a real 2px bar (an inset shadow bled a hairline down the sides at fractional tablet scales). */
+.replay-page .vehicle-tabs .tab-indicator{border-radius:0;background:linear-gradient(var(--accent),var(--accent)) left bottom/100% 2px no-repeat;box-shadow:none}
+/* Touch screens: the tabs share the full width and are easier to hit. */
+@media(pointer:coarse){.replay-page .vehicle-tabs{gap:0}.replay-page .vehicle-tabs button{flex:1 1 0;height:52px;min-height:52px;font-size:15px}}
 .tab-count:not(:empty){margin-left:6px;color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
 .road-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;gap:6px;padding:12px 16px}
 .road-toolbar .road-ranges{justify-content:flex-start;font-size:12px;color:var(--muted)}
@@ -472,9 +477,10 @@ button.time-toggle:active{background:var(--hover)}
 .layer-panel .layers>label{min-height:34px;padding:0 4px;border-radius:8px}
 .layer-panel .target-label-mode{grid-column:1/-1;gap:2px 12px;margin-top:6px}
 .layer-panel .target-label-mode label{display:flex;align-items:center;gap:5px;min-height:32px}
-.layer-panel .boundary-summary{border-top:1px solid var(--line);padding:12px 8px 8px}
-/* The popover is narrow at every width: labels sit above their values so both modes keep the same card size. */
-.layer-panel .boundary-summary .boundary-edge{display:block;padding:8px 10px}.layer-panel .boundary-summary .boundary-edge>span{display:block;max-width:none;white-space:nowrap}.layer-panel .boundary-summary .boundary-edge strong{margin-top:4px}
+/* Lane and boundary readouts sit under the map, so they stay visible next to (or under) the video. */
+.replay-page .road-wrap+.boundary-summary{padding:12px 16px 4px;border-top:0}
+/* Labels above values: both modes (probability / y[0] distance) keep the same card size at every width. */
+.boundary-summary .boundary-edge{display:block}.boundary-summary .boundary-edge>span{display:block;max-width:none;white-space:nowrap}.boundary-summary .boundary-edge strong{margin-top:4px}
 .replay-page .road-wrap{height:465px;margin:0 16px;border-radius:12px;overflow:hidden}
 @media(min-width:1200px){.replay-page .road-wrap{height:530px}}
 /* Side by side: the map matches the video's size, so both pictures line up. */
@@ -618,6 +624,61 @@ select,.rv-choice-trigger{font-weight:500}
 .bookmark-view input,.bookmark-view textarea{border:1px solid var(--control-line);box-shadow:none}
 @media(max-width:719px){.replay-page main{padding-bottom:calc(max(var(--transport-height,0px),116px) + 24px + env(safe-area-inset-bottom))}.road-toolbar{gap:4px}.road-toolbar .road-ranges label{font-size:9px}.road-legend{margin-inline:12px}.video-hud .ego-speed strong{font-weight:400;font-size:22px}}
 @media(pointer:coarse){.road-toolbar .rv-choice-trigger,.road-toolbar .layer-menu>summary,.road-legend>summary{min-height:44px}}
+/* Over the video: the title (segment chooser) top left, camera and overlay chips bottom left, speed and the steering wheel
+   side by side top right. The speed is white figures with the wheel's dark edge, no pill. */
+.video-title{--hud-h:36px;position:absolute;top:12px;left:12px;z-index:3;max-width:calc(100% - 190px);min-width:0}
+@media(pointer:coarse){.replay-page .video-title{--hud-h:46px}}
+.video-title h1{margin:0;font-size:14px;font-weight:700;line-height:1.2;min-width:0}
+.video-title .app-title-button{height:var(--hud-h);min-height:var(--hud-h);max-width:100%;margin:0;padding:0 12px 0 14px;gap:6px;border-radius:999px;color:var(--hud-text);background:var(--glass-bg);border:1px solid var(--glass-border);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow)}
+.video-title .app-title-count,.video-title .app-title-chevron{color:var(--hud-muted)}
+@media(hover:hover) and (pointer:fine){.video-title .app-title-button:enabled:hover{background:color-mix(in srgb,var(--glass-bg) 70%,var(--hud-hover))}}
+.video-title .app-title-button:focus-visible{outline:2px solid var(--hud-focus);outline-offset:2px}
+.video-tools{top:auto;bottom:12px;max-width:calc(100% - 76px)}
+.video-messages{bottom:calc(12px + var(--hud-h) + 8px)}
+.video-hud{flex-direction:row;align-items:center;gap:4px}
+.video-hud .ego-speed{height:auto;padding:0 2px;background:none;border:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;color:#F2F4F6;text-shadow:0 0 1px rgba(0,0,0,.75),0 1px 3px rgba(0,0,0,.55)}
+.video-hud .ego-speed strong{color:#F2F4F6;font-weight:500}.video-hud .ego-speed span{color:rgba(242,244,246,.92)}
+@container(max-width:520px){.video-title{top:8px;left:8px;max-width:calc(100% - 150px)}.video-title h1{font-size:12.5px}.video-title .app-title-button{padding:0 10px 0 12px}.video-tools{top:auto;bottom:8px}.video-messages{bottom:calc(8px + var(--hud-h) + 6px)}}
+/* Playing: those controls fade out until the video is touched (app.js); the speed, wheel and messages stay. */
+.video-title,.video-tools,.video-fullscreen{transition:opacity .18s var(--m2-standard,ease)}
+.replay-page.hud-idle :is(.video-title,.video-tools,.video-fullscreen){opacity:0;pointer-events:none;transition-duration:.3s}
+/* Short or touch screens: the app bar also folds up while playing; the content moves up into its place. */
+.replay-page .app-bar{transition:transform .3s var(--m3-emph-decelerate,ease),margin-bottom .3s var(--m3-emph-decelerate,ease)}
+.replay-page.bar-folded .app-bar{transform:translateY(-100%);margin-bottom:calc(-1 * var(--app-bar-height,56px));transition-timing-function:var(--m3-emph-accelerate,ease)}
+.replay-page.bar-folded .camera-panel{top:0}
+/* The video never runs under the floating transport bar: it narrows (centred) when the screen is short. */
+.replay-page .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc((100dvh - var(--app-bar-height,56px) - var(--transport-height,150px) - 60px) * 526 / 330));margin-inline:auto}
+.replay-page.bar-folded .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc((100dvh - var(--transport-height,150px) - 60px) * 526 / 330))}
+@media(prefers-reduced-motion:reduce){.replay-page .app-bar,.video-title,.video-tools,.video-fullscreen{transition:none}}
+/* Short phone screens (app.js): the sticky video has an explicit height so it can shrink to 60% while scrolling the analysis
+   (letterboxed, controls keep their corners), and the transport folds into one row: play · seek · time. */
+.replay-page.compact-media .camera-panel:not(:fullscreen) .video-wrap{aspect-ratio:auto;height:var(--video-full-h,calc(100vw * 330 / 526));transition:height .28s var(--m2-standard,ease)}
+.replay-page.compact-media.media-shrunk .camera-panel:not(:fullscreen) .video-wrap{height:calc(var(--video-full-h,calc(100vw * 330 / 526)) * .6)}
+.replay-page.media-shrunk :is(.video-title,.video-tools,.video-hud,.video-fullscreen){--hud-h:40px}
+.replay-page.media-shrunk .video-hud .steering-status{width:40px;height:40px}.replay-page.media-shrunk .video-hud .steering-status svg{left:-12px;width:64px;height:40px}
+.replay-page.media-shrunk .video-hud .ego-speed strong{font-size:18px}
+.replay-page.transport-mini .playback #playbackControls{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:10px}
+.replay-page.transport-mini .playback :is(.timeline,.playrow){display:contents}
+.replay-page.transport-mini .playback :is(.segment-strip,.event-track,.timeline-legend,.frame-step,.playrow-end,#frame,#end){display:none}.replay-page.transport-mini .playback .time-readout::after{display:none}
+.replay-page.transport-mini .playback{padding:8px 14px 8px 8px}
+.replay-page.transport-mini .playback .seekbar{grid-column:2;grid-row:1;margin:0}
+.replay-page.transport-mini .playback #play{grid-column:1;grid-row:1;position:static;width:40px;min-width:40px;height:40px;min-height:40px}
+.replay-page.transport-mini .playback .time-readout{grid-column:3;grid-row:1;display:block;margin:0}
+.replay-page.transport-mini .playback #time{font-size:13px}
+@media(prefers-reduced-motion:reduce){.replay-page.compact-media .camera-panel .video-wrap{transition:none}}
+/* The video stays in view (app.js decides side by side or stacked): beside the analysis it sticks under the app bar while
+   the right column scrolls; stacked it sticks at the top (and shrinks while scrolling, rules above). */
+.replay-page.layout-side .camera-panel:not(:fullscreen){position:sticky;top:calc(var(--app-bar-height,56px) + 12px)}
+.replay-page.layout-side.bar-folded .camera-panel:not(:fullscreen){top:12px}
+.replay-page.layout-stacked .camera-panel:not(:fullscreen){position:sticky;top:var(--app-bar-height,56px)}
+.replay-page.layout-stacked.bar-folded .camera-panel:not(:fullscreen){top:0}
+/* Wide stacked screens shrink the picture itself (narrower, centred) instead of letterboxing it. */
+@media(min-width:720px){.replay-page.compact-media.media-shrunk .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc(var(--video-full-h,320px) * .6 * 526 / 330))}
+ .replay-page.compact-media .camera-panel:not(:fullscreen) .video-wrap{transition:height .28s var(--m2-standard,ease),width .28s var(--m2-standard,ease)}}
+/* Touch screens: no fixed page background (it makes Chrome scroll on the main thread, so a busy playback frame can stop a
+   fling), and no scroll anchoring while the sticky video shrinks (its corrections can cancel a fling as well). */
+@media(pointer:coarse){body{background-attachment:scroll}}
+:root:has(.replay-page.compact-media){overflow-anchor:none}
 /* Glass panes (tokens at the top); last so they win over the base card rules of the same elements. */
 .glass-panel{background:var(--glass-bg);border:1px solid var(--glass-border);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow)}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.glass-panel{background:var(--glass-solid)}}

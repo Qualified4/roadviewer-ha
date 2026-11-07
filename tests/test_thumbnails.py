@@ -114,33 +114,66 @@ class ServerTests(ServerCase):
   self.assertFalse((self.prepared/'thumbnail.jpg').exists())
   self.assertEqual(self.client.get(url,environ_overrides=PEER).status_code,404)
 
+ def backfill(self):
+  import backfill
+  with patch.object(server,'upload_receiving',return_value=False):return backfill.Backfill(server,pause=0).run_once()
+
  def test_drive_summary_from_summary_and_backfilled_once_from_telemetry(self):
-  self.summary(drive_summary={'engaged_ratio':.92,'takeovers':2})
+  self.summary(drive_summary={'engaged_ratio':.92,'takeovers':2},started_at=None)
   self.assertEqual(self.row()['drive_summary'],{'engaged_ratio':.92,'takeovers':2})
-  # Converted before drive summaries: computed from the stored telemetry, then cached into summary.json.
-  self.summary();self.telemetry()
+  # Converted before drive summaries: the list only reads; the backfill computes it from the stored telemetry once.
+  self.summary(started_at=None);self.telemetry()
+  with patch.object(server,'drive_summary',side_effect=AssertionError('computed by the list')),patch('backfill.drive_summary',side_effect=AssertionError('computed by the list')):
+   self.assertNotIn('drive_summary',self.row())
+  self.assertEqual(self.backfill()[0],1)
   self.assertEqual(self.row()['drive_summary'],{'engaged_ratio':.5,'takeovers':1})
   self.assertEqual(json.loads((self.prepared/'summary.json').read_text())['drive_summary'],{'engaged_ratio':.5,'takeovers':1})
-  with patch.object(server,'drive_summary',side_effect=AssertionError('computed again')):
-   self.assertEqual(self.row()['drive_summary'],{'engaged_ratio':.5,'takeovers':1})
+  with patch('backfill.drive_summary',side_effect=AssertionError('computed again')):self.assertEqual(self.backfill(),(0,False))
   # Unknown (no enabled samples) is cached as null and omitted from the row.
-  self.summary();(self.prepared/'telemetry.json.gz').write_bytes(gzip.compress(b'{"duration":1,"streams":{}}'))
+  self.summary(started_at=None);(self.prepared/'telemetry.json.gz').write_bytes(gzip.compress(b'{"duration":1,"streams":{}}'))
+  self.backfill()
   self.assertNotIn('drive_summary',self.row())
   self.assertIsNone(json.loads((self.prepared/'summary.json').read_text())['drive_summary'])
 
- def test_drive_summary_omitted_without_telemetry_out_of_budget_or_not_ready(self):
-  self.summary()
+ def test_drive_summary_omitted_without_telemetry_or_not_ready(self):
+  self.summary(started_at=None)
+  self.backfill()
   self.assertNotIn('drive_summary',self.row())
   self.assertNotIn('drive_summary',json.loads((self.prepared/'summary.json').read_text()))
   self.telemetry()
-  with patch.object(server,'SUMMARY_BUDGET',-1):self.assertNotIn('drive_summary',self.row())
-  self.assertNotIn('drive_summary',json.loads((self.prepared/'summary.json').read_text()))
   server.save_meta(self.path,dict(server.read_meta(self.path),status='processing'))
+  self.backfill()
   self.assertNotIn('drive_summary',self.row())
   self.assertNotIn('drive_summary',json.loads((self.prepared/'summary.json').read_text()))
   (self.prepared/'telemetry.json.gz').write_bytes(b'broken')
   server.save_meta(self.path,dict(server.read_meta(self.path),status='ready'))
-  with self.assertLogs(server.app.logger,'WARNING'):self.assertNotIn('drive_summary',self.row())
+  with self.assertLogs('backfill','WARNING'):self.backfill()
+  self.assertNotIn('drive_summary',self.row())
+
+ def age(self,seconds=60):
+  # Older than the list cache's racy window: the cached row may be reused.
+  t=os.stat(self.path/'meta.json').st_mtime-seconds
+  for f in (self.path,self.path/'meta.json',self.prepared,self.prepared/'summary.json'):os.utime(f,(t,t))
+
+ def test_list_row_cached_until_the_log_changes(self):
+  self.summary(drive_summary={'engaged_ratio':.9,'takeovers':0},started_at=1762400000.0);self.age()
+  first=self.client.get('/api/logs',environ_overrides=PEER).json
+  self.assertEqual(first['storage_used_bytes'],server.storage_used_bytes())
+  with patch.object(server,'read_meta',side_effect=AssertionError('read again')),patch.object(server,'build_list_row',side_effect=AssertionError('built again')),       patch.object(server.storage_policy,'pinned',return_value=True),patch.dict(server.job_progress,{self.id:{'stage':'x'}}):
+   again=self.client.get('/api/logs',environ_overrides=PEER).json
+  # Unchanged log: same row; pinned and progress are still read per request.
+  self.assertEqual({k:v for k,v in again['logs'][0].items() if k not in ('pinned','progress')},{k:v for k,v in first['logs'][0].items() if k not in ('pinned','progress')})
+  self.assertIs(again['logs'][0]['pinned'],True);self.assertEqual(again['logs'][0]['progress'],{'stage':'x'})
+  self.assertEqual(again['storage_used_bytes'],first['storage_used_bytes'])
+  # A new thumbnail (prepared/ changes), new metadata, a rewritten summary: each is seen at once.
+  save_thumbnail(self.prepared,[FIXTURE]);self.assertIs(self.row()['thumbnail'],True)
+  self.assertEqual(self.client.get('/api/logs',environ_overrides=PEER).json['storage_used_bytes'],server.storage_used_bytes())
+  self.age();self.row();server.save_meta(self.path,dict(server.read_meta(self.path),tags=[{'name':'a'}]));self.assertEqual(self.row()['tags'],[{'name':'a'}])
+  self.age();self.row();server.atomic_json(self.prepared/'summary.json',{**json.loads((self.prepared/'summary.json').read_text()),'started_at':5.0})
+  self.assertEqual(self.row()['started_at'],5.0)
+  # Removed: gone from the list and from the cache.
+  import shutil;shutil.rmtree(self.path)
+  self.assertEqual(self.client.get('/api/logs',environ_overrides=PEER).json['logs'],[]);self.assertNotIn(self.id,server.list_rows)
 
 class LazyThumbnailTests(ServerCase):
  url=property(lambda self:'/api/logs/'+self.id+'/thumbnail')

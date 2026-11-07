@@ -4,6 +4,18 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.1
+
+- Replay page: the segment-chooser title moved to the top left of the video and the camera/overlay buttons to the bottom left; the app bar is a single line. The speed shows as white figures without a pill, with the wheel to its upper right.
+- While playing, the title, buttons and fullscreen over the video fade out and come back briefly on touch. On touch or short screens the app bar also folds while playing, and the video is sized so the playback bar never covers it.
+- Side by side, the video stays put while only the analysis scrolls. Stacked, the video sticks to the top and shrinks to 60% while scrolling; on short phone screens (such as the Fold cover display) the playback bar also folds into one row.
+- Lane and road-edge readouts moved out of the layer menu back under the driving map.
+- The segment strip uses the library's status colours with the current segment outlined; the play button has a soft glow.
+- Over-video glass is more transparent with a thinner edge and stays dark in fullscreen; the fullscreen button no longer loses its icon on hover.
+- A softer press ripple; touch scrolling no longer stops dead after pressing a button (lingering focus and a fixed background removed). The green hairline beside the tablet analysis tabs is gone and the tabs are larger on touch screens.
+- The library opens quickly: rows come from cached stored metadata, and older logs get their summaries and start times saved in the background.
+- Thumbnails are now produced for logs moved to Drive or NAS: an unreadable log no longer stalls the run, drive-card thumbnails come first, and new thumbnails appear in the list right away. The gap above the phone library header is fixed.
+
 ## 1.0.0
 
 - The whole interface was redesigned: neutral surfaces with a mint accent, flat buttons and selects, and translucent glass for floating bars and over-video controls. A **screen mode** setting (auto, light, dark) was added; the video area always stays dark.

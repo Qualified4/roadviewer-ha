@@ -57,15 +57,15 @@ const {settleLayout}=require('./browser-helpers.cjs');
   assert.deepEqual(await page.locator('#boundaryLanes strong').allTextContents(),['36.6%','94.5%','99.5%','0.1%']);
   assert.equal(await page.locator('#lead').textContent(),'35.3 m');
   for(const width of [320,390,768,1440]){
-   // The lane/boundary readouts live in the 레이어 popover of 주행 상황.
-   await page.setViewportSize({width,height:1000});await page.locator('#layerMenu').evaluate(d=>{d.open=true});await settleLayout(page,'.boundary-summary');
+   // The lane/boundary readouts sit under the 주행 상황 map, outside the 레이어 popover.
+   await page.setViewportSize({width,height:1000});await settleLayout(page,'.boundary-summary');
    let probabilityLayout;
    for(const distance of [false,true]){
     if((await page.locator('#boundaryDistance').getAttribute('aria-pressed')==='true')!==distance)await page.locator('#boundaryDistance').click();
     const cells=await page.locator('.boundary-lane,.boundary-edge').evaluateAll(nodes=>nodes.map(el=>({ok:el.scrollWidth<=el.clientWidth,title:el.textContent})));
     assert(cells.every(cell=>cell.ok),`readout overflow ${width} distance=${distance}: ${JSON.stringify(cells)}`);
-    // Page coordinates: clicking the toggle may scroll it clear of the floating transport bar.
-    const layout=await page.locator('.boundary-lane,.boundary-edge').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),value=el.querySelector('strong'),v=value.getBoundingClientRect();return {top:r.top+scrollY,height:r.height,valueTop:v.top-r.top,valueLeft:v.left-r.left,font:getComputedStyle(value).fontSize}}));
+    // Measured from the readout section: clicking the toggle may scroll the page, which also shrinks the sticky video.
+    const layout=await page.locator('.boundary-lane,.boundary-edge').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),value=el.querySelector('strong'),v=value.getBoundingClientRect();return {top:r.top-el.closest('.boundary-summary').getBoundingClientRect().top,height:r.height,valueTop:v.top-r.top,valueLeft:v.left-r.left,font:getComputedStyle(value).fontSize}}));
     if(!distance)probabilityLayout=layout;
     else for(let i=0;i<layout.length;i++){
      assert(Math.abs(layout[i].top-probabilityLayout[i].top)<1&&Math.abs(layout[i].height-probabilityLayout[i].height)<1,'readout cards keep their geometry when switching modes '+width+' card '+i+' '+JSON.stringify([probabilityLayout[i],layout[i]]));

@@ -69,7 +69,7 @@ http.serve_forever()
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
    assert(await page.evaluate(()=>documentToken===originalToken),'document persists');
    // The replay page has its own app bar instead of the brand header; focus lands on its title.
-   assert(await page.evaluate(()=>!document.querySelector('.app-brand')&&document.activeElement.tagName==='H1'&&document.activeElement.closest('.app-bar')),'replay app bar replaces the brand and takes focus');
+   assert(await page.evaluate(()=>!document.querySelector('.app-brand')&&document.activeElement.tagName==='H1'&&document.activeElement.closest('.video-title')),'replay app bar replaces the brand and takes focus');
    assert.equal(await page.locator('#navigationStatus').textContent(),'','successful navigation has no top loading notice');
    await page.locator('#play').click();await page.waitForFunction(()=>document.getElementById('video').currentTime>.1);
    const leftAt=await page.evaluate(()=>{window.departedVideo=document.getElementById('video');const target=Math.min(200,document.documentElement.scrollHeight-innerHeight-10);scrollTo(0,target);return scrollY});

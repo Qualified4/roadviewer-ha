@@ -65,27 +65,25 @@ class DecoderTests(unittest.TestCase):
 
 class ServerTests(ServerCase):
  def saved(self):return json.loads((self.prepared/'summary.json').read_text())
+ def backfill(self):
+  import backfill
+  with patch.object(server,'upload_receiving',return_value=False):return backfill.Backfill(server,pause=0).run_once()
  def test_backfilled_once_from_a_local_log(self):
   self.summary(drive_summary=None);rlog(self.path/'rlog.zst',[event('initData',1_000_000_000,wallTimeNanos=int(START*1e9))])
+  # The list never reads the log: the backfill does, once.
+  with patch.object(wall_clock,'scan_bytes',side_effect=AssertionError('read by the list')):self.assertNotIn('started_at',self.row())
+  self.assertEqual(self.backfill(),(1,False))
   self.assertEqual(self.row()['started_at'],START);self.assertEqual(self.saved()['started_at'],START)
-  with patch.object(wall_clock,'scan',side_effect=AssertionError('read again')):self.assertEqual(self.row()['started_at'],START)
+  with patch.object(wall_clock,'scan_bytes',side_effect=AssertionError('read again')):self.assertEqual(self.backfill(),(0,False))
   self.summary(drive_summary=None,started_at=START+60);self.assertEqual(self.row()['started_at'],START+60)
- def test_unknown_is_cached_and_remote_or_unready_logs_are_not_read(self):
+ def test_unknown_is_cached_and_unready_logs_are_not_read(self):
   self.summary(drive_summary=None) # rlog.zst holds b'log': not a readable log.
-  with self.assertLogs(server.app.logger,'WARNING'):self.assertNotIn('started_at',self.row())
+  with self.assertLogs('backfill','WARNING'):self.backfill()
+  self.assertNotIn('started_at',self.row())
   self.assertIn('started_at',self.saved());self.assertIsNone(self.saved()['started_at'])
   self.summary(drive_summary=None)
-  with patch.object(wall_clock,'scan',side_effect=AssertionError('must not read')):
-   with patch.object(server,'SUMMARY_BUDGET',-1):self.assertNotIn('started_at',self.row())
-   server.save_meta(self.path,dict(server.read_meta(self.path),status='processing'));self.assertNotIn('started_at',self.row())
-   # Only the Drive copy of the log: never downloaded for this, and not cached (it is not unknown).
-   (self.path/'rlog.zst').unlink()
-   server.save_meta(self.path,dict(server.read_meta(self.path),status='ready',storage={'rlog.zst':{'location':'gdrive'}}))
-   self.assertNotIn('started_at',self.row())
+  with patch.object(wall_clock,'scan_bytes',side_effect=AssertionError('must not read')):
+   server.save_meta(self.path,dict(server.read_meta(self.path),status='processing'));self.backfill();self.assertNotIn('started_at',self.row())
   self.assertNotIn('started_at',self.saved())
-  with patch.object(wall_clock,'scan',side_effect=OSError('busy')):
-   server.save_meta(self.path,dict(server.read_meta(self.path),storage={}));(self.path/'rlog.zst').write_bytes(b'x')
-   self.assertNotIn('started_at',self.row())
-  self.assertNotIn('started_at',self.saved()) # A read error may pass: tried again later.
 
 if __name__=='__main__':unittest.main()

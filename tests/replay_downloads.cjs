@@ -89,7 +89,9 @@ const replay={route:'test',key:'k',duration:1,warnings:[],video:null,frames:[{t:
   });
   let placed=await placement();assert(placed.top>=placed.buttonBottom&&placed.bottom<=placed.bar-8,'landscape menu stays within the viewport');
   assert(placed.scrollable,'all menu items remain reachable by scrolling');
-  await page.locator('#replayDownloadMenu a').last().evaluate(a=>a.scrollIntoView({block:'nearest'}));
+  // Scroll only the menu (as a finger or wheel inside it does) until the last download sits at its bottom edge;
+  // scrollIntoView would also scroll the page behind it.
+  await page.locator('#replayDownloadMenu a').last().evaluate(a=>{const m=a.closest('#replayDownloadMenu');m.scrollTop=a.offsetTop+a.offsetHeight-m.clientHeight+6});await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
   const lastDownload=await page.locator('#replayDownloadMenu a').last().boundingBox();placed=await placement();
   assert(lastDownload.y>=placed.top&&lastDownload.y+lastDownload.height<=placed.bottom,'last download is fully visible after scrolling');
   await page.setViewportSize({width:390,height:800});await page.waitForFunction(()=>document.getElementById('replayDownloadMenu').style.bottom==='');

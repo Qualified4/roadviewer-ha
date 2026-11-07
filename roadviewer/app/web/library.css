@@ -380,7 +380,9 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
    phone tab bar inside it can still be fixed to the viewport. */
 .library-page main{max-width:1200px;padding:28px 24px 48px}
 .lib-appbar{position:sticky;top:0;z-index:50;display:block;margin:0}
-.lib-appbar::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--header-bg);box-shadow:0 1px 0 var(--line);-webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%)}
+/* The background reaches 48px above the bar: while a phone scrolls, the sticky bar can trail the content by a few
+   pixels, and the extension keeps that sliver covered instead of showing the list through it. */
+.lib-appbar::before{content:"";position:absolute;inset:-48px 0 0;z-index:-1;background:var(--header-bg);box-shadow:0 1px 0 var(--line);-webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%)}
 @media(prefers-reduced-transparency:reduce){.lib-appbar::before{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--bg)}}
 .lib-appbar-inner{display:flex;align-items:center;gap:28px;max-width:1200px;min-height:56px;margin:0 auto;padding:0 24px}
 .lib-appbar .app-brand{gap:10px;flex:none}.lib-appbar .app-icon{width:28px;height:28px}

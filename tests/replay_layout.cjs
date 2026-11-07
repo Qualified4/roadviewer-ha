@@ -32,17 +32,18 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   // No video-derived glow behind the card; the transport bar follows the page theme.
   assert.equal(await page.locator('#videoAmbient,.ambient-clip').count(),0,'no ambient glow');
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal overflow at 390px');
-  // HUD: only the speed sits in the glass box; the wheel below carries the state as tooltip + accessible name.
-  assert.equal(await page.locator('.video-hud>.ego-speed.glass').count(),1,'speed is the glass box');
-  assert.equal(await page.locator('.video-hud .steering-status.glass,.video-hud.glass').count(),0,'wheel has no glass background');
+  // HUD: the speed is plain white figures with the wheel's dark edge (no pill); the wheel sits to its right, raised to the top.
+  assert.equal(await page.locator('.video-hud .glass,.video-hud.glass').count(),0,'no glass in the speed/wheel corner');
   assert.equal(await page.locator('#steeringLabel').count(),0,'no visible steering label');
-  const hud=await page.evaluate(()=>{const speed=document.querySelector('.video-hud .ego-speed'),box=speed.getBoundingClientRect(),status=document.getElementById('steeringStatus'),ring=status.getBoundingClientRect(),wheel=document.getElementById('steeringIcon').getBoundingClientRect(),s=getComputedStyle(speed),pill=document.querySelector('.overlay-group'),fs=document.getElementById('fullscreenButton').getBoundingClientRect();
-   return {below:(wheel.top+wheel.bottom)/2>box.bottom+8,right:Math.abs(ring.right-box.right),centred:Math.abs((wheel.left+wheel.right)/2-(ring.left+ring.right)/2),bg:getComputedStyle(status).backgroundColor,ring:getComputedStyle(status,'::before').visibility,
-    pill:parseFloat(s.borderTopLeftRadius)>=box.height/2,height:Math.abs(box.height-pill.getBoundingClientRect().height),filter:s.backdropFilter,shared:s.backdropFilter===getComputedStyle(pill).backdropFilter&&s.borderTopColor===getComputedStyle(pill).borderTopColor,
+  const hud=await page.evaluate(()=>{const speed=document.querySelector('.video-hud .ego-speed'),box=speed.getBoundingClientRect(),status=document.getElementById('steeringStatus'),ring=status.getBoundingClientRect(),wheel=document.getElementById('steeringIcon').getBoundingClientRect(),s=getComputedStyle(speed),stage=document.getElementById('videoStage').getBoundingClientRect(),fs=document.getElementById('fullscreenButton').getBoundingClientRect(),title=document.getElementById('logSegmentChoice').getBoundingClientRect(),tools=document.querySelector('.video-tools').getBoundingClientRect();
+   return {right:ring.left>=box.right-1,top:ring.top<=box.top+1,edge:Math.abs(stage.right-ring.right),centred:Math.abs((wheel.left+wheel.right)/2-(ring.left+ring.right)/2),bg:getComputedStyle(status).backgroundColor,ring:getComputedStyle(status,'::before').visibility,
+    speedBg:s.backgroundColor,speedText:getComputedStyle(document.getElementById('egoSpeed')).color,shadow:s.textShadow,
+    title:title.top-stage.top<=16&&title.left-stage.left<=16,tools:stage.bottom-tools.bottom<=16&&tools.left-stage.left<=16,
     circle:Math.abs(fs.width-fs.height)<.5&&getComputedStyle(document.getElementById('fullscreenButton')).borderTopLeftRadius==='50%'}});
-  assert(hud.below,'wheel sits below the speed box');assert(hud.right<=1,'wheel is right-aligned with the speed box: '+hud.right);assert(hud.centred<=1,'wheel is centred in its ring');
+  assert(hud.right,'wheel sits right of the speed');assert(hud.top,'wheel is raised to the top');assert(hud.edge<=16,'wheel at the right edge');assert(hud.centred<=1,'wheel is centred in its ring');
   assert.equal(hud.bg,'rgba(0, 0, 0, 0)');assert.equal(hud.ring,'hidden','no ring behind the wheel normally');
-  assert(hud.pill,'speed box is a pill');assert(hud.height<=1,'speed box shares the chip height');assert.match(hud.filter,/^blur\(20px\) saturate\(1\.7\) brightness\((0\.55|1\.12)\)$/);assert(hud.shared,'speed box uses the shared glass');
+  assert.equal(hud.speedBg,'rgba(0, 0, 0, 0)','speed has no background');assert.equal(hud.speedText,'rgb(242, 244, 246)','white speed in both themes');assert.match(hud.shadow,/rgba\(0, 0, 0/,'dark edge like the wheel');
+  assert(hud.title,'title button at the top left of the video');assert(hud.tools,'camera and overlay chips at the bottom left');
   if(await page.locator('#fullscreenButton').isVisible())assert(hud.circle,'fullscreen button is a circle');
   const badge=page.locator('#steeringBadge');
   const steer=async steering=>{await page.evaluate(s=>{const f={...data.frames[0],steering:s};renderSteering(f)},steering);return {hidden:await badge.isHidden(),label:await page.locator('#steeringIcon').getAttribute('aria-label'),title:await page.locator('#steeringStatus').getAttribute('title')}};
@@ -95,13 +96,12 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   };
   for(const width of [320,360,390]){
    await page.setViewportSize({width,height:844});
-   // Phone app bar: back, two-line title, pin and ⋯ share one row inside the screen; 보기 lives in ⋯.
+   // Phone app bar: back, the one-line date/drive, pin and ⋯ share one row inside the screen; 보기 lives in ⋯. The title is on the video.
    const bar=await page.locator('.app-bar').boundingBox(),boxes={};
-   for(const selector of ['.back','#logSegmentChoice','#pinLog','#replayDownload>summary'])boxes[selector]=await page.locator(selector).boundingBox();
+   for(const selector of ['.back','#pinLog','#replayDownload>summary'])boxes[selector]=await page.locator(selector).boundingBox();
    assert(Object.values(boxes).every(b=>b.x>=0&&b.x+b.width<=width&&b.y>=bar.y&&b.y+b.height<=bar.y+bar.height),'app bar controls fit at '+width);
-   assert(boxes['#pinLog'].x>=boxes['#logSegmentChoice'].x+boxes['#logSegmentChoice'].width-1,'pin follows the title');
    assert(await page.locator('#viewMenu').isHidden(),'보기 moves into ⋯ on phones');
-   assert(bar.height<=100,'compact phone app bar');
+   assert(bar.height<=56,'one-line phone app bar: '+bar.height);
    const rects=await page.locator('#play,#prev,#next,#bookmarkOpen,#speedChoice,#time').evaluateAll(els=>els.map(e=>{const r=e.getBoundingClientRect();return {id:e.id,top:r.top,bottom:r.bottom,left:r.left,right:r.right}}));
    const at=id=>rects.find(r=>r.id===id);
    const middle=r=>(r.top+r.bottom)/2;
@@ -138,10 +138,12 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    if(width>360)assert(row.frameBelow,'FRAME sits under the time');
    assert((await page.locator('.playback').boundingBox()).height<150,'compact transport bar');
    // Video is full-bleed; the transport bar floats at the bottom of the screen, inset from the edges.
+   // The bar's entrance spring may still be running: measure where it comes to rest.
+   await page.evaluate(()=>Promise.all(document.querySelector('.playback').getAnimations().map(a=>a.finished.catch(()=>{}))));
    const video=await page.locator('.video-wrap').boundingBox(),transport=await page.locator('.playback').boundingBox();
    assert(Math.abs(video.x)<1&&Math.abs(video.width-width)<1,'full-bleed video');
    assert.equal(await page.locator('.playback').evaluate(e=>getComputedStyle(e).position),'fixed');
-   assert(Math.abs(transport.y+transport.height-(844-8))<1&&Math.abs(transport.x-8)<1&&Math.abs(transport.width-(width-16))<1,'transport floats at the bottom on phones');
+   assert(Math.abs(transport.y+transport.height-(844-8))<1&&Math.abs(transport.x-8)<1&&Math.abs(transport.width-(width-16))<1,'transport floats at the bottom on phones '+JSON.stringify(transport));
   }
   // The time is a quiet toggle: current time by default, the total length (muted) after a tap, in the same width; the choice persists.
   for(const width of [390,1440]){
@@ -182,7 +184,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   assert.match(await page.locator('#replayDownloadMenu .menu-version .app-version').textContent(),/^v[0-9]+[.][0-9]+[.][0-9]+$/,'version is an info line in ⋯');
   assert(await page.locator('#replayDownloadMenu #splitView').isVisible(),'보기 choices are in ⋯ on phones');
   await page.keyboard.press('Escape');
-  // The app bar stays at the top; on phones the video and its transport bar stay right under it.
+  // The app bar stays at the top; the video stays in view: right under it on phones, 12px under it beside the analysis.
   // The retired heading fold leaves its old key harmless.
   await page.evaluate(()=>localStorage.setItem('roadviewer-heading-collapsed','true'));
   for(const [width,height] of [[390,844],[1440,844]]){
@@ -195,7 +197,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    assert(await page.locator('#logNavigation').isVisible()&&await page.locator('#pinLog').isVisible(),'no folded navigation');
    const stuck=await page.locator('.camera-panel').boundingBox();
    if(width<720)assert(Math.abs(stuck.y-(bar.y+bar.height))<1.5,'phone video stays under the app bar');
-   else assert(Math.abs(stuck.y-(video.y-400))<1,'desktop video scrolls with the page');
+   else assert(Math.abs(stuck.y-(bar.y+bar.height+12))<1.5,'desktop video stays beside the scrolling analysis: '+JSON.stringify([stuck,bar]));
    await page.evaluate(()=>{document.getElementById('roadView').style.minHeight='';scrollTo(0,0)});
   }
   // The transport bar floats at the bottom as a glass pane, as wide as the page content; at the end of the page nothing

@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.0**.
+This guide describes **1.0.1**.
 
 [한국어](DOCS.md) · English
 
@@ -183,24 +183,31 @@ The replay page has a compact app bar, controls over the video, a floating playb
 | Item | Behavior |
 |---|---|
 | Back | Returns to the library. |
-| Title | Drive start time · 구간 k with the position `(i/N)` within the route; falls back to `업로드 …` when the start time is unknown. Opens the route's **구간 선택** (segment chooser). Below it: log name (copy button), **태그** button, tags and the **고정** badge. |
+| Date · log name | One line with the date, log name (copy button), **태그** button, tags and the **고정** badge. The title (segment chooser) sits at the top left of the video. |
 | Previous / next | **이전 구간 / 다음 구간** within the same route, otherwise **이전 로그 / 다음 로그**. Phones show them as large buttons below the content. |
 | Pin | Pins/unpins the current segment, shared with the library; yellow when pinned. |
 | 보기 (View) | **좌우 분할**, **상하 분리**, **화면 폭…**. On phones it sits inside the ⋯ menu. |
 | ⋯ | **제거**, **다운로드**, **카메라 설치 정보**, **화면 모드**, log details/version, **완전 삭제** |
 
-**Over the video:** camera/quality chooser, the **겹쳐 보기** (overlay) toggle with its ⚙ settings button, vehicle speed (`carState.vEgo`), the steering-wheel state and fullscreen. When the driver intervenes in steering, an **개입** (takeover) ring surrounds the wheel.
+**Over the video**
+
+- **Top left, title:** drive start time · 구간 k with the position `(i/N)` within the route; falls back to `업로드 …` when the start time is unknown. Opens the route's **구간 선택** (segment chooser).
+- **Bottom left:** camera/quality chooser, the **겹쳐 보기** (overlay) toggle and its ⚙ settings button.
+- **Top right:** vehicle speed (`carState.vEgo`) and the steering-wheel state; when the driver intervenes in steering, an **개입** (takeover) ring surrounds the wheel.
+- **Bottom right:** fullscreen.
+
+While playing, the title, the bottom-left controls and fullscreen fade out; touching the video or moving the mouse shows them for a few seconds. On touch or short screens the app bar also folds away while playing and returns on pause. The video is sized to the screen height so the floating playback bar never covers it.
 
 The **playback bar** floats at the bottom while scrolling.
 
-- **Segment strip:** one block per segment of the route, coloured by state. Clicking another playable segment opens it. On long drives the strip scrolls horizontally and keeps the current segment centred.
-- **Event track:** automatic-control spans (자동 제어) and driver takeovers (운전자 개입), with a legend for segments, control, takeover and bookmarks.
+- **Segment strip:** one block per segment of the route, in the same colours as the library (playable green, processing yellow, error red, unconverted grey); the playing segment is outlined. Clicking another playable segment opens it. On long drives the strip scrolls horizontally and keeps the current segment centred.
+- **Event track:** automatic-control spans (자동 제어) and driver takeovers (운전자 개입), with a legend for the current segment, control, takeover and bookmarks.
 - **Seek bar:** buffered video ranges and bookmark markers. Seeking preserves the playing/paused state.
 - **Play/pause** (Space), **frame step** (← / →), **time** (tap to toggle between current time and total length), **북마크**, **speed** (0.25–4×).
 
 Short boundary mismatches are tolerated; real gaps or missing tails are not invented.
 
-Both layout toggles off means automatic responsive layout. **좌우 분할** shows video and analysis side by side; **상하 분리** stacks them. **보기 → 화면 폭…** opens a stable slider dialog:
+Both layout toggles off means automatic responsive layout. **좌우 분할** shows video and analysis side by side; **상하 분리** stacks them. Side by side, the video stays under the app bar while only the analysis scrolls; stacked, the video sticks to the top and shrinks to 60% while scrolling down, returning at the top. On short phone screens (such as the Fold cover display) the playback bar also folds into one row (play, seek, time) while scrolling down and opens again on scrolling up or tapping its free area. **보기 → 화면 폭…** opens a stable slider dialog:
 
 | Viewport | Width adjustment | Default |
 |---|---|---|

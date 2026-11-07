@@ -80,7 +80,12 @@ const {showTab}=require('./browser-helpers.cjs');
   assert.equal(await card.locator('.route-thumb img').getAttribute('src'),'api/logs/041b0/thumbnail?v=3');
   assert.equal(await card.locator('.route-thumb img').getAttribute('loading'),'lazy');
   await page.waitForFunction(()=>!document.querySelector('.log-row[data-id="041b1"] .log-thumb img'));
-  assert(thumbs.includes('041b1?v=3'),'thumbnail_available asks for one');assert(await page.locator('.log-row[data-id="041b1"] .thumb-placeholder').isVisible(),'a failed thumbnail shows the placeholder');
+  assert(thumbs.includes('041b1?v=3&pending=1'),'thumbnail_available asks for one, under its own URL so a made one is fetched again');assert(await page.locator('.log-row[data-id="041b1"] .thumb-placeholder').isVisible(),'a failed thumbnail shows the placeholder');
+  // Made later by the backfill: the next list reports it and the image is asked for again.
+  {const made=logs.find(log=>log.id==='041b1');delete made.thumbnail_available;made.thumbnail=true;await page.evaluate(()=>refresh());
+   for(let i=0;i<100&&!thumbs.includes('041b1?v=3');i++)await page.waitForTimeout(20);
+   assert(thumbs.includes('041b1?v=3'),'a thumbnail made after the first try is fetched again');
+   delete made.thumbnail;made.thumbnail_available=true;await page.evaluate(()=>refresh())}
   assert.equal(await page.locator('.log-route[data-route="00000396--0d0eda17c5"] .route-thumb img').count(),0,'only ready segments show a thumbnail');
   // Refresh must update wording even if the new start equals the old upload time, and keep the tooltip current.
   const fallback=page.locator('.log-route[data-route="00000395--0d0eda17c5"] .route-time'),upload=logs[4].uploaded;
