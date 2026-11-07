@@ -4,7 +4,7 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
-## 1.0.5
+## 1.0.6
 
 - Drive start times are corrected: logs without a GPS fix use the live system clock (clocks) instead of the stale start record (initData), and every segment of a drive is dated from its latest segment's clock. Logs already recalculated are recalculated once more.
 - The playback bar can be dragged by touch, following the finger even when the app's web view tries to take over the gesture.

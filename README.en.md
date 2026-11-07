@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **1.0.5**
+Feature reference: **1.0.6**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
