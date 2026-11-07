@@ -4,6 +4,18 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.7
+
+- Google Drive archiving is faster: uploads use 16MiB chunks over a reused connection to Google instead of a new connection per chunk.
+- The thumbnail/start-time backfill no longer waits for archiving to finish. Fixes drives that kept an old date, with every segment showing the same time, while a long archive run was active.
+- Prepared data uses a new replay format, roughly halving its size per segment. Existing data is rewritten in the background after the app starts; no reconversion is needed.
+- Past 20 segments, a route card's segment bar shows the first 20 blocks and a **+** coloured by the most urgent state among the rest.
+- Every route card starts collapsed each time the log list opens. On phones the expand button sits in the action row, and in selection mode the checkbox and expand button are vertically centred.
+- Pressing a card no longer flashes; the ripple and arrow motion remain, and the arrow colour changes smoothly.
+- The archive start threshold is entered in GB with decimals; the custom local storage limit also accepts decimal GB.
+- Fixes a band behind the page while scrolling on desktop, and tag colour swatches stretched into ovals.
+- The guide and documentation screenshots match the current UI.
+
 ## 1.0.6
 
 - Drive start times are corrected: logs without a GPS fix use the live system clock (clocks) instead of the stale start record (initData), and every segment of a drive is dated from its latest segment's clock. Logs already recalculated are recalculated once more.

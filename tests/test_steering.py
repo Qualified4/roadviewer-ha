@@ -45,7 +45,9 @@ class SteeringTests(unittest.TestCase):
   e.sendcan[0].address=0x162;e.sendcan[0].src=0;e.sendcan[0].dat=bytes(payload);messages.append(e.to_bytes())
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/'rlog.zst';p.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
-   dest,data=decoder.prepare(p);self.assertEqual(data['frames'][0]['position'],[[0,0],[10,1],[20,-2]]);self.assertIsNotNone(data['frames'][0]['overlay']);self.assertEqual(len(data['frames'][0]['overlay']['geometry']['position']),3);s=data['frames'][0]['steering'];self.assertEqual(s['state'],'driver');self.assertEqual(s['angle'],23);self.assertEqual(s['color'],[255,255,255]);stored=json.loads(gzip.decompress((dest/'data.json.gz').read_bytes()))
+   # Stored in replay format 2 (compact.REPLAY_V): the top-down path comes back from the overlay geometry.
+   import compact
+   dest,data=decoder.prepare(p);data=compact.expand_frames(data);self.assertEqual(data['frames'][0]['position'],[[0,0],[10,1],[20,-2]]);self.assertIsNotNone(data['frames'][0]['overlay']);self.assertEqual(len(data['frames'][0]['overlay']['geometry']['position']),3);s=data['frames'][0]['steering'];self.assertEqual(s['state'],'driver');self.assertEqual(s['angle'],23);self.assertEqual(s['color'],[255,255,255]);stored=json.loads(gzip.decompress((dest/'data.json.gz').read_bytes()))
    self.assertEqual(stored['frames'][0]['ccncRearTargets'][0]['slot'],'LR');self.assertEqual(stored['frames'][0]['ccncRearTargets'][0]['x'],-8)
    self.assertEqual(stored['frames'][0]['ccncTargets'],[])
    self.assertFalse(any(m.get('kind')=='ccnc' for m in stored['frames'][0]['overlay'].get('markers',[])))

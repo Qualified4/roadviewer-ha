@@ -1,7 +1,6 @@
 'use strict';const $=id=>document.getElementById(id);let selected=[],busy=false,cleaning=false,refreshing=false,progressRefreshing=false,listRevision=0,listRequest=null;const logRows=new Map(),logGroups=new Map();
-// Routes start folded; only the ones opened by hand are remembered as open.
-let expandedLogRoutes=new Set();
-try{const saved=JSON.parse(localStorage.getItem('roadviewer-expanded-routes'));if(Array.isArray(saved))expandedLogRoutes=new Set(saved.filter(key=>typeof key==='string'))}catch{}
+// Every drive starts folded when the list opens; what was unfolded is not remembered (an older build saved it).
+try{localStorage.removeItem('roadviewer-expanded-routes')}catch{}
 let uploadController=null,networkRestarting=false;
 let concurrencySaving=false,concurrencyRevision=0,savedConcurrency=1,savedAutoConvert=true;
 const names={unconverted:'미변환',queued:'대기 중',processing:'처리 중',ready:'재생 가능',error:'변환 실패'};
@@ -373,16 +372,20 @@ function syncRouteCard(group,route){
   group.name.textContent=route.segment===null?when||'기타 로그':route.title;
   group.duration.hidden=!duration;group.duration.textContent=durationText(duration);
   group.tags.replaceWith(group.tags=recordingTagBadges(unionTags(logs),3));group.tags.classList.add('route-tags');
-  // Up to 20 segments: one block each. Longer drives: consecutive segments with the same status merge into one run
-  // whose width is proportional to its count, so the bar never overflows.
-  const runs=logs.length>ROUTE_BAR_BLOCKS;group.bar.classList.toggle('is-runs',runs);
-  group.bar.replaceChildren(...(runs?logs.reduce((list,log)=>{const last=list.at(-1);if(last?.status===log.status)last.count++;else list.push({status:log.status,count:1});return list},[]).map(run=>{
-   const block=document.createElement('span');block.className='route-seg route-run';block.dataset.status=run.status;block.dataset.count=run.count;block.style.flexGrow=run.count;return block;
-  }):logs.map(log=>{
+  // Up to 20 segments: one block each. Longer drives show their first 20 blocks and a "+" in the colour of the most
+  // urgent status among the rest (failed, processing, queued, unconverted, ready), so a long drive never looks like a
+  // single segment and work still running further on stays visible. The card's title already gives the exact count.
+  const more=logs.length>ROUTE_BAR_BLOCKS,rest=logs.slice(ROUTE_BAR_BLOCKS);group.bar.classList.toggle('has-more',more);
+  const blocks=logs.slice(0,ROUTE_BAR_BLOCKS).map(log=>{
    const block=document.createElement('span'),k=logRoute(log).segment;block.className='route-seg';block.dataset.status=log.status;block.dataset.id=log.id;
    block.title=`${k===null?recordingIdentity(log.name,log.files).display:'구간 '+k} · ${processingText(log)}`;return block;
-  })));
-  group.bar.setAttribute('aria-label',`${logs.length}개 구간: ${routeStatusText(logs)}`);group.bar.title=runs?`${logs.length}개 구간 · ${routeStatusText(logs)}`:'';
+  });
+  if(more){
+   const plus=document.createElement('span');plus.className='route-more';plus.dataset.status=['error','processing','queued','unconverted'].find(status=>rest.some(log=>log.status===status))||'ready';
+   plus.title=`나머지 ${rest.length}개 구간 · ${routeStatusText(rest)}`;plus.innerHTML='<svg aria-hidden="true" viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 1.5v7M1.5 5h7"/></svg>';blocks.push(plus);
+  }
+  group.bar.replaceChildren(...blocks);
+  group.bar.setAttribute('aria-label',`${logs.length}개 구간: ${routeStatusText(logs)}`);group.bar.title=more?`${logs.length}개 구간 · ${routeStatusText(logs)}`:'';
   const facts=[Object.assign(document.createElement('span'),{className:'route-status',textContent:routeStatusText(logs)})],drive=routeDrive(logs);
   if(drive)facts.push(driveLine(drive));
   const summaries=[...new Set(logs.map(storageSummary).filter(Boolean))];
@@ -413,7 +416,7 @@ async function pinLogGroup(group,pinned){
 function createLogGroup(route){
  const element=document.createElement('details'),summary=document.createElement('summary'),main=document.createElement('div'),heading=document.createElement('div'),time=document.createElement('h3'),meta=document.createElement('span'),name=document.createElement('span'),count=document.createElement('span'),bar=document.createElement('div'),facts=document.createElement('div'),chevron=document.createElement('button'),body=document.createElement('div'),actions=document.createElement('div');
  const thumb=thumbnailBox('route-thumb'),duration=document.createElement('span');duration.className='route-duration';thumb.append(duration);
- element.className='log-route';element.dataset.route=route.key;element.open=expandedLogRoutes.has(route.key);
+ element.className='log-route';element.dataset.route=route.key;element.open=false;
  time.className='route-time';meta.className='route-meta';name.className='log-route-name';name.title=route.key;count.className='log-route-count';meta.append(name,' · ',count);
  const tags=document.createElement('span');heading.className='route-heading';heading.append(time,meta,tags);
  bar.className='route-bar';bar.setAttribute('role','img');facts.className='route-facts';main.className='route-main';main.append(heading,bar,facts);
@@ -421,7 +424,6 @@ function createLogGroup(route){
  chevron.onclick=event=>{event.preventDefault();event.stopPropagation();window.rvDisclosure.animate(element)};
  element.addEventListener('toggle',()=>{chevron.setAttribute('aria-expanded',String(element.open));chevron.setAttribute('aria-label',element.open?'구간 접기':'구간 펼치기')});
  actions.className='log-route-actions';summary.append(thumb,main,actions,chevron);body.className='log-route-segments';element.append(summary,body);
- element.addEventListener('toggle',event=>{if(event.target!==element)return;const open=element._foldTarget??element.open;if(open)expandedLogRoutes.add(route.key);else expandedLogRoutes.delete(route.key);try{localStorage.setItem('roadviewer-expanded-routes',JSON.stringify([...expandedLogRoutes]))}catch{}});
  const group={element,body,count,actions,thumb,duration,time,name,tags,bar,facts};
  summary.addEventListener('click',event=>{
   // Menus and buttons in the header act on their own; a click on a menu's padding must not fold the card.
@@ -574,7 +576,8 @@ function applyFilters(){
  $('tagFilterStatus').hidden=!active;$('tagFilterStatus').textContent=shown?`${shown}개 로그 표시 중`:tagFilter&&logFilter==='all'&&!query?'선택한 태그에 해당하는 로그가 없습니다.':'조건에 맞는 로그가 없습니다.';
  bulkSelection?.sync();
 }
-$('refresh').onclick=()=>refresh();
+$('refresh').onclick=()=>{const button=$('refresh');button.classList.remove('spin-once');void button.offsetWidth;button.classList.add('spin-once');refresh()};
+$('refresh').addEventListener('animationend',e=>{if(e.animationName==='rv-refresh-turn')$('refresh').classList.remove('spin-once')});
 function abortable(promise,signal){
  if(!signal)return promise;
  return new Promise((resolve,reject)=>{

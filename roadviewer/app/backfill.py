@@ -11,7 +11,8 @@ the whole backfill; only TRANSIENT_LIMIT such logs in a row (the archive itself 
 worked, back off.
 
 One worker thread, one log at a time, a pause between logs and at most RUN_CAP logs per run. It waits while
-uploads, conversions, an archive run or a Drive-backed playback are active, and backs off exponentially after
+uploads, conversions or a playback are active (not for an archive run: its reads are a few MB per log, and a
+slow archive used to hold the backfill for hours), and backs off exponentially after
 a Drive error. Files are never downloaded whole: a NAS file is read in place (only its first bytes / frames),
 a Drive file through ranged downloads of its first PREFIX_BYTES (plus, for an MP4 whose moov box is at the
 end, that box alone, up to MOOV_MAX). Results go where conversion puts them (prepared/thumbnail.jpg,
@@ -106,7 +107,9 @@ class Backfill:
 
  def busy(self):
   s=self.s
-  if s.processes or s.upload_receiving() or getattr(s.archiver,'running',False):return True
+  # Not an archive run: a long one used to hold every start time and thumbnail back. A file it moves meanwhile
+  # fails this read (Transient) and is read again from its new place on a later run.
+  if s.processes or s.upload_receiving():return True
   # Someone is watching: any video request (local files included, not only archived ones) in the last two minutes.
   if time.monotonic()-getattr(s,'last_video_request',-1e9)<WATCHING_SECONDS:return True
   entry=getattr(s.playback,'entry',None)

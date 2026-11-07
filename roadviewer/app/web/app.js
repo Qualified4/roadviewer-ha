@@ -213,11 +213,21 @@ const LANE_DASH=3,LANE_GAP=4;
 function laneLineCode(frame,i){const road=frame?.ccncRoad;return i===1?road?.laneLeft:i===2?road?.laneRight:undefined}
 function laneMarkingStyle(frame,i){return $('laneMarking')?.checked&&LANE_LINE_CODES[laneLineCode(frame,i)]||null}
 function laneDashPhase(frame){const period=LANE_DASH+LANE_GAP;return (((frame?.odometer||0)%period)+period)%period}
+// Replay format 2 (compact.py REPLAY_V): lane/edge points on the model's distance grid are stored as [y, z], and the
+// top-down lanes/edges/position equal to the geometry's x/y are left out (null: the frame had none).
+const flatLine=points=>points.filter(p=>Number.isFinite(p[0])&&Number.isFinite(p[1])).map(p=>[p[0],p[1]]);
+function expandFlat(frame,g,grid){
+ for(const key of ['lanes','edges'])if(Array.isArray(g[key]))g[key]=g[key].map(line=>line?.[0]?.length===2?line.map((p,i)=>[grid[i],p[0],p[1]]):line);
+ for(const [key,lines] of [['lanes',true],['edges',true],['position',false]]){
+  if(frame[key]===null)delete frame[key];
+  else if(frame[key]===undefined&&g[key])frame[key]=lines?g[key].map(flatLine):flatLine(g[key]);
+ }
+}
 function expandReplayData(replay){
  overlayGeometryCache.clear();
  // Older conversions warned about skipped new event types; those never affect the replay.
  if(Array.isArray(replay.warnings))replay.warnings=replay.warnings.filter(w=>!String(w).startsWith('지원하지 않는 새 로그 이벤트'));
- const infos=replay.cameraInfos;let odometer=0,previous=null;
+ const infos=replay.cameraInfos,v2=replay.replayV===2,grid=replay.laneX||[];let odometer=0,previous=null;
  for(const frame of replay.frames){
   // Distance travelled, for lane dashes that move with the road.
   if(previous&&Number.isFinite(previous.egoSpeedKph)&&frame.t>previous.t&&frame.t-previous.t<1)odometer+=previous.egoSpeedKph/3.6*(frame.t-previous.t);
@@ -225,7 +235,7 @@ function expandReplayData(replay){
   if(infos&&typeof frame.cameraInfo==='number')frame.cameraInfo=infos[frame.cameraInfo];
   frame.liveTracks?.forEach((target,i)=>{target.index??=i;target.y??=-target.yRel});
   frame.radarTargets?.forEach(target=>{target.y??=-target.yRel});
-  if(frame.overlay?.geometry){let source=frame.overlay;Object.defineProperty(frame,'overlay',{configurable:true,enumerable:true,get:()=>frameOverlay(frame,source),set:value=>{source=value;overlayGeometryCache.delete(frame)}});continue}
+  if(frame.overlay?.geometry){if(v2)expandFlat(frame,frame.overlay.geometry,grid);let source=frame.overlay;Object.defineProperty(frame,'overlay',{configurable:true,enumerable:true,get:()=>frameOverlay(frame,source),set:value=>{source=value;overlayGeometryCache.delete(frame)}});continue}
   for(const marker of frame.overlay?.markers||[])if(!marker.point&&marker.projection){const [a,b,c]=marker.projection;marker.point=[a/c,b/c]}
  }
  return replay;

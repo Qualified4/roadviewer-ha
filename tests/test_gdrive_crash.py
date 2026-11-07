@@ -61,7 +61,8 @@ class GdriveCrashTests(unittest.TestCase):
         for patcher in (patch.dict(os.environ, self.drive.env()), patch.object(server, 'ROOT', self.root),
                         patch.object(server, 'cleanup_uploads'), patch.object(server, 'upload_receiving', return_value=False),
                         patch.object(server, 'submit'), patch.object(server, 'connection', None),
-                        patch.object(ab.DriveConnection, '_wait', lambda connection, cancel, seconds: cancel.wait(0.01))):
+                        patch.object(ab.DriveConnection, '_wait', lambda connection, cancel, seconds: cancel.wait(0.01)),
+                        patch.object(ab, 'UPLOAD_CHUNK', 2**20)):  # The crash points count 1 MiB pieces.
             patcher.start(); self.addCleanup(patcher.stop)
         self.http = ab.Http(sleep=lambda seconds: None, rand=lambda: 0.0)
         auth = self.auth(); auth.start_device_flow(); self.assertEqual(auth.poll_once(), 'granted')

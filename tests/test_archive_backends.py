@@ -1,6 +1,6 @@
 """Google Drive device-flow auth, token storage, the HTTP client's backoff and the Drive/NAS backends,
 against tests/fake_drive.py."""
-import hashlib, json, os, random, stat, sys, tempfile, unittest
+import hashlib, http.client, json, os, random, stat, sys, tempfile, time, unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import archive_backends as ab
+PRODUCTION_CHUNK = ab.UPLOAD_CHUNK  # Before setUp patches it to 1 MiB.
 import media_store
 from fake_drive import FakeDrive, FOLDER
 
@@ -25,6 +26,8 @@ class BackendTestCase(unittest.TestCase):
         self.root = Path(tmp.name)
         self.drive = FakeDrive().start(); self.addCleanup(self.drive.stop)
         env = patch.dict(os.environ, self.drive.env()); env.start(); self.addCleanup(env.stop)
+        # The chunk logic is tested on 1 MiB pieces (production sends 16 MiB: test_upload_chunk_size).
+        chunk = patch.object(ab, 'UPLOAD_CHUNK', 2**20); chunk.start(); self.addCleanup(chunk.stop)
         self.sleeps = []
         self.http = ab.Http(sleep=self.sleeps.append, rand=lambda: 0.5)
         self.clock = Clock()
@@ -159,7 +162,7 @@ class DriveAuthTests(BackendTestCase):
             except ab.BackendError as e: texts += [str(e), repr(e), repr(e.args)]
             else: self.fail('expected BackendError')
         session = self.drive.url + '/upload/drive/v3/files?uploadType=resumable&upload_id=up1-secretsession'
-        self.drive.stop()
+        self.drive.stop(); self.http._local.pool.clear()  # A kept-alive connection would still reach the stopped server's handler.
         try: self.http.request('PUT', session, headers={'Authorization': 'Bearer ' + saved['access_token']}, body=b'x')
         except ab.BackendError as e: texts += [str(e), repr(e), repr(e.args)]
         else: self.fail('expected BackendError')
@@ -264,6 +267,45 @@ class HttpTests(BackendTestCase):
         with self.assertRaises(ab.BackendError) as caught: self.http.request('GET', self.drive.url + '/drive/v3/about', timeout=0.1)
         self.assertEqual(caught.exception.code, 'unavailable')
         self.drive.scenario.delay_seconds = 0
+        self.assertEqual(self.sleeps, [])
+
+
+    def test_connections_kept_alive(self):
+        # One connection carries request after request (urllib used to open one per request, so every upload
+        # chunk paid a new handshake); a connection idle past IDLE_SECONDS is replaced before it is used.
+        auth = self.connected(); token = auth.access_token(); self.http._local.pool.clear()
+        connects, real = [], http.client.HTTPConnection.connect
+        def counting(conn): connects.append(conn); return real(conn)
+        with patch.object(http.client.HTTPConnection, 'connect', counting):
+            for _ in range(5): self.assertEqual(self.about(auth).status, 200)
+            self.assertEqual(len(connects), 1)
+            key = next(iter(self.http._local.pool))
+            conn, _ = self.http._local.pool[key]; self.http._local.pool[key] = (conn, time.monotonic() - ab.IDLE_SECONDS - 1)
+            self.assertEqual(self.about(auth).status, 200)
+            self.assertEqual(len(connects), 2)
+            self.assertIsNone(conn.sock, 'the idle connection is closed')
+            # A streamed download gets its own connection and closes it; the pooled one stays for the next request.
+            with self.drive.lock: self.drive.files['f1'] = dict(name='n', mimeType='application/octet-stream', parents=[], appProperties={}, content=b'abc', trashed=False, md5='', sha256='')
+            r = self.http.request('GET', self.drive.url + '/drive/v3/files/f1?alt=media', headers={'Authorization': 'Bearer ' + token}, stream=True)
+            self.assertEqual(b''.join(r.iter_chunks(2)), b'abc')
+            self.assertEqual(len(connects), 3); self.assertIsNone(connects[-1].sock)
+            self.assertEqual(self.about(auth).status, 200)
+            self.assertEqual(len(connects), 3)
+
+    def test_closed_kept_alive_connection(self):
+        # Google may close an idle connection first: a request without a body goes again on a new connection;
+        # one with a body (a chunk, a create) is not resent blindly: the caller checks what arrived.
+        auth = self.connected()
+        self.assertEqual(self.about(auth).status, 200)
+        def closed(conn):
+            def gone(*args, **kwargs): conn.close(); raise http.client.RemoteDisconnected('closed')
+            conn.request = gone
+        closed(next(iter(self.http._local.pool.values()))[0])
+        self.assertEqual(self.about(auth).status, 200)
+        closed(next(iter(self.http._local.pool.values()))[0])
+        with self.assertRaises(ab.BackendError) as caught:
+            self.http.request('PUT', self.drive.url + '/upload/drive/v3/files?uploadType=resumable&upload_id=x', headers={'Content-Range': 'bytes 0-1/2'}, body=b'ok', retry=False)
+        self.assertEqual((caught.exception.code, caught.exception.reason), ('unavailable', 'RemoteDisconnected'))
         self.assertEqual(self.sleeps, [])
 
 
@@ -413,6 +455,19 @@ class DriveBackendTests(BackendTestCase):
         self.assertEqual(b.probe(), ('unavailable', 'folder_missing'))
         self.assertEqual(self.local_id(), sid)
         self.assertEqual(len([r for r in self.requests('POST') if r['path'].startswith('/drive/v3/files')]), 1)
+
+    def test_upload_chunk_size(self):
+        # Production sends 16 MiB pieces (Google recommends 8 MiB or more), over one connection.
+        self.backend.activate()
+        size = 16 * MB + 5
+        connects, real = [], http.client.HTTPConnection.connect
+        def counting(conn): connects.append(conn); return real(conn)
+        with patch.object(ab, 'UPLOAD_CHUNK', 16 * MB), patch.object(http.client.HTTPConnection, 'connect', counting):
+            ref, data, sha, md5 = self.upload(size)
+        self.assertEqual(self.ranges(), ['bytes 0-16777215/%d' % size, 'bytes 16777216-%d/%d' % (size - 1, size)])
+        self.assertEqual(PRODUCTION_CHUNK, 16 * MB)
+        self.assertLessEqual(len(connects), 1, 'lookup, session start and both chunks share one connection')
+        with self.drive.lock: self.assertEqual(self.drive.files[ref.file_id]['content'], data)
 
     def test_upload_in_chunks_and_verify_sha256(self):
         self.backend.activate()

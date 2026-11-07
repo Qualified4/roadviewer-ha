@@ -421,6 +421,9 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .lib-head-actions>.icon-button{width:40px;padding:0;background:transparent;box-shadow:none;border-color:transparent;color:var(--muted)}
 @media(hover:hover) and (pointer:fine){.lib-head-actions>.icon-button:hover{background:var(--hover);color:var(--text)}}
 #refresh.is-loading svg{animation:rv-orbit 1s linear infinite}
+/* A press turns the arrow once (then keeps turning while the list is still loading). */
+#refresh.spin-once svg{animation:rv-refresh-turn .6s cubic-bezier(.4,0,.2,1)}
+@keyframes rv-refresh-turn{to{transform:rotate(360deg)}}
 .lib-card{padding:24px;border:1px solid transparent;border-radius:16px;background:var(--surface);box-shadow:var(--surface-shadow)}
 .lib-panel>.lib-card+.lib-card,.lib-panel>.lib-card+.managed-settings,.lib-panel>.managed-settings+.managed-settings{margin-top:16px}
 .library-page #error{margin:0 0 16px}
@@ -451,6 +454,8 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .log-route>summary{display:flex;flex-wrap:wrap;align-items:center;gap:14px 18px;padding:14px;border-radius:14px;list-style:none;cursor:pointer}
 .log-route>summary::-webkit-details-marker{display:none}
 .log-route>summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+/* Pressing a card shows only the ripple and the arrow turning: no brightness flash over the thumbnail, bar and buttons. */
+.log-route>summary:active,.log-route-chevron:active{filter:none}
 @media(hover:hover) and (pointer:fine){.log-route>summary:hover .log-route-chevron{color:var(--accent-text)}}
 .route-thumb,.log-thumb{position:relative;overflow:hidden;background:var(--well);box-shadow:0 0 0 1px var(--line)}
 .route-thumb{flex:0 0 176px;width:176px;height:99px;border-radius:10px}
@@ -470,8 +475,11 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .route-seg[data-status=processing]::after{content:"";position:absolute;inset:0 auto 0 0;width:calc(var(--progress,0) * 100%);border-radius:inherit;background:var(--warn);box-shadow:var(--warn-edge);transition:width .4s cubic-bezier(.4,0,.2,1)}
 .route-seg[data-status=processing]::before{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);background-size:50% 100%;background-repeat:no-repeat;animation:rv-sweep 1.8s linear infinite}
 .route-seg[data-status=error]{background:var(--danger)}
-/* Long drives: proportional runs, a 1px seam only where the status changes, rounded only at the bar's ends. */
-.route-bar.is-runs{gap:1px;overflow:hidden;border-radius:3px}.route-run{flex:1 1 0;min-width:1px;border-radius:0}.route-run:is([data-status=queued],[data-status=processing]){background:var(--warn);box-shadow:var(--warn-edge)}
+/* Long drives (library.js): the first 20 blocks, then a borderless "+" in the status colour of the remaining segments. */
+.route-bar.has-more{align-items:center}
+.route-more{flex:none;display:grid;place-items:center;width:10px;height:10px;color:var(--ready)}
+.route-more[data-status=queued],.route-more[data-status=processing]{color:var(--warn)}
+.route-more[data-status=unconverted]{color:var(--unconverted)}.route-more[data-status=error]{color:var(--danger)}
 .route-facts{display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px;color:var(--muted)}
 .route-drive b{color:var(--text);font-weight:500;font-variant-numeric:tabular-nums}
 .storage-summary{display:inline-flex;align-items:center;gap:6px}
@@ -479,6 +487,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .storage-summary[data-place=gdrive] svg{color:var(--drive-text)}.storage-summary[data-place=nas] svg{color:var(--nas-text)}
 .log-route-actions{display:flex;align-items:center;margin-left:auto}
 .log-route-chevron{display:flex;align-items:center;justify-content:center;width:32px;height:40px;margin-left:-14px;color:var(--muted)}
+.log-route-chevron{transition:color .2s cubic-bezier(.4,0,.2,1)}
 .log-route-chevron svg{transition:transform .25s cubic-bezier(.4,0,.2,1)}
 .log-route[open]:not(.is-closing)>summary .log-route-chevron svg{transform:rotate(180deg)}
 .log-route-segments{border-radius:0 0 14px 14px;background:var(--well);box-shadow:inset 0 1px 0 var(--line)}
@@ -568,16 +577,18 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .log-day{margin-top:24px}.log-day .log-day-title{margin-bottom:12px}
  .log-day-routes{gap:10px}
  .log-route{border-radius:16px}
- .log-route>summary{display:grid;grid-template-columns:112px minmax(0,1fr) 28px;gap:10px 12px;padding:10px;border-radius:16px}
+ /* Phones: the text takes the full width beside the picture; the fold arrow ends the action row (재생 · pin · ⋯ · arrow)
+    instead of floating alone at the top right. */
+ .log-route>summary{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:10px 12px;padding:10px;border-radius:16px}
  .route-thumb{grid-column:1;grid-row:1;width:112px;height:63px;border-radius:9px;align-self:start}
  .route-thumb .thumb-placeholder svg{width:16px;height:16px}
  .route-duration{right:4px;bottom:4px;padding:0 5px;font-size:10px}
- .route-main{grid-column:2;grid-row:1;gap:6px}
+ .route-main{grid-column:2/-1;grid-row:1;gap:6px}
  .route-heading{gap:2px 8px}.route-time{font-size:16px}.route-meta{font-size:12px}
  .route-bar{gap:2px;height:5px}.route-seg{height:5px}
  .route-facts{gap:2px 12px;font-size:12px}
- .log-route-chevron{grid-column:3;grid-row:1;width:28px;margin:0;align-self:start}
- .log-route-actions{grid-column:1/-1;grid-row:2;margin:0;justify-content:flex-end}
+ .log-route>summary>.log-route-chevron{grid-column:3;grid-row:2;margin:0 0 0 -8px;align-self:center}
+ .log-route-actions{grid-column:1/3;grid-row:2;margin:0;justify-content:flex-end}
  .log-route-segments{border-radius:0 0 16px 16px}
  .log-row{gap:6px 10px;padding:8px 6px 8px 14px}
  .log-row[data-status=ready]{cursor:pointer}
@@ -591,7 +602,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .replay,.actions>button:not(.pin-recording),.lib-head-actions>button{min-height:44px;height:44px}
  .actions>.pin-recording,.recording-more>summary,.lib-head-actions>.icon-button{width:44px;height:44px}
 }
-@media(prefers-reduced-motion:reduce){.log-route-chevron svg,#headerMeterFill,.route-seg::after{transition:none}#refresh.is-loading svg,.route-seg[data-status=processing]::before{animation:none}.recording-more>summary svg{transition:none}}
+@media(prefers-reduced-motion:reduce){.log-route-chevron,.log-route-chevron svg,#headerMeterFill,.route-seg::after{transition:none}#refresh.is-loading svg,#refresh.spin-once svg,.route-seg[data-status=processing]::before{animation:none}.recording-more>summary svg{transition:none}}
 @media(max-width:719px){
  .lib-panel-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px 8px}
  .lib-panel-head>div:first-child{display:contents}
@@ -670,7 +681,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 }
 @media(max-width:719px){
  .selection-mode .log-route>summary{grid-template-columns:44px 64px minmax(0,1fr) 44px;gap:8px;padding:10px 6px}
- .selection-mode .route-select{grid-column:1;grid-row:1;align-self:start}.selection-mode .route-thumb{grid-column:2;width:64px;height:44px}.selection-mode .route-main{grid-column:3;min-width:0}.selection-mode .log-route-chevron{grid-column:4;width:44px;margin:0}
+ .selection-mode .route-select{grid-column:1;grid-row:1;align-self:center}.selection-mode .route-thumb{grid-column:2;width:64px;height:44px;align-self:center}.selection-mode .route-main{grid-column:3;min-width:0}.selection-mode .log-route>summary>.log-route-chevron{grid-column:4;grid-row:1;width:44px;margin:0;align-self:center}
  .selection-mode .route-time{font-size:14px}.selection-mode .route-meta{font-size:11px}.selection-mode .log-row{padding-left:6px;gap:6px}.selection-mode .log-info{flex:1;min-width:0}
  .bulk-dock{left:max(8px,env(safe-area-inset-left));right:max(8px,env(safe-area-inset-right));bottom:calc(68px + env(safe-area-inset-bottom));max-height:calc(100dvh - 132px);gap:6px}
  .bulk-feedback{padding:8px 12px;font-size:12px}.bulk-download-menu{width:100%}

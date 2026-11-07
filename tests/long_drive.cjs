@@ -62,18 +62,26 @@ const replay={route:'0000041b--a1b2c3d4e5',key:'long',duration:2,warnings:[],vid
    await page.goto('https://rv.test/view/t1/');await page.waitForFunction(()=>document.querySelectorAll('#segmentStrip .segment-block').length===3);await settleLayout(page);
    const fill=await page.locator('#segmentStrip').evaluate(s=>({scrolling:s.classList.contains('is-scrolling'),sum:[...s.children].reduce((n,b)=>n+b.getBoundingClientRect().width,0)+3*(s.children.length-1),width:s.clientWidth}));
    assert(!fill.scrolling&&Math.abs(fill.sum-fill.width)<1,'a short route fills the strip without scrolling');
-   // Library: the 180-segment route bar is proportional status runs; short routes keep one block per segment.
+   // Library: a 180-segment route bar shows its first 20 blocks and a borderless "+" coloured by the most urgent
+   // status among the rest (segment 85 is processing); short routes keep one block per segment.
+   await page.evaluate(()=>localStorage.setItem('roadviewer-expanded-routes',JSON.stringify(['0000041b--a1b2c3d4e5'])));
    await page.goto('https://rv.test/');await page.locator('.log-route').first().waitFor();await settleLayout(page);
-   const bar=await page.locator('.log-route').filter({hasText:'180'}).first().locator('.route-bar').evaluate(b=>{const r=b.getBoundingClientRect(),card=b.closest('.log-route').getBoundingClientRect();
-    return {runs:b.classList.contains('is-runs'),items:[...b.children].map(c=>[c.dataset.status,Number(c.dataset.count),c.getBoundingClientRect().width]),width:r.width,inside:r.right<=card.right+.5&&r.left>=card.left-.5,label:b.getAttribute('aria-label'),title:b.title}});
-   assert(bar.runs,'a long route draws runs');
-   assert.deepEqual(bar.items.map(([s,c])=>[s,c]),[['ready',85],['processing',1],['ready',84],['unconverted',10]]);
-   const usable=bar.width-(bar.items.length-1);
-   for(const [s,count,w] of bar.items)assert(Math.abs(w-Math.max(1,usable*count/180))<1.5,`run ${s}×${count} is proportional (${w} of ${usable})`);
+   // Every drive starts folded; an unfold saved by an older build is ignored and dropped.
+   assert.deepEqual(await page.locator('.log-route').evaluateAll(r=>r.map(e=>e.open)),[false,false],'drives start folded');
+   assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-expanded-routes')),null,'the old saved state is removed');
+   const bar=await page.locator('.log-route').filter({hasText:'180'}).first().locator('.route-bar').evaluate(b=>{const r=b.getBoundingClientRect(),card=b.closest('.log-route').getBoundingClientRect(),plus=b.querySelector('.route-more'),blocks=[...b.querySelectorAll('.route-seg')],ps=plus&&getComputedStyle(plus);
+    return {more:b.classList.contains('has-more'),blocks:blocks.length,ids:blocks.map(x=>x.dataset.id),last:b.lastElementChild===plus,plus:plus&&{status:plus.dataset.status,title:plus.title,border:ps.borderTopWidth,bg:ps.backgroundColor,gap:plus.getBoundingClientRect().left-blocks.at(-1).getBoundingClientRect().right,barGap:parseFloat(getComputedStyle(b).columnGap),mask:getComputedStyle(b).maskImage},
+     inside:r.right<=card.right+.5&&r.left>=card.left-.5,label:b.getAttribute('aria-label'),title:b.title}});
+   assert(bar.more&&bar.last,'a long route ends its bar with a "+"');
+   assert.equal(bar.blocks,20);assert.deepEqual(bar.ids,Array.from({length:20},(_,i)=>'s'+i),'the first 20 segments, in order');
+   assert.equal(bar.plus.status,'processing','the "+" takes the most urgent status of the hidden segments');
+   assert.equal(bar.plus.title,'나머지 160개 구간 · 재생 가능 149 · 처리 중 1 · 미변환 10');
+   assert.equal(bar.plus.border,'0px');assert.equal(bar.plus.bg,'rgba(0, 0, 0, 0)','no border or background: not a button');
+   assert(Math.abs(bar.plus.gap-bar.plus.barGap)<.6,'the "+" sits one block gap after the bar: '+bar.plus.gap);assert.equal(bar.plus.mask,'none','the bar is not faded');
    assert(bar.inside,'the route bar stays inside its card at '+width);
    assert.equal(bar.label,'180개 구간: 재생 가능 169 · 처리 중 1 · 미변환 10');assert.equal(bar.title,'180개 구간 · '+bar.label.split(': ')[1]);
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no library overflow at '+width);
-   const short=await page.locator('.route-bar:not(.is-runs)').first().evaluate(b=>[b.classList.contains('is-runs'),b.children.length]);
+   const short=await page.locator('.route-bar:not(.has-more)').first().evaluate(b=>[b.classList.contains('has-more'),b.children.length]);
    assert.deepEqual(short,[false,3],'short routes keep one block per segment');
    if(shots&&!reduced)await page.screenshot({path:`${shots}/long-drive-library-${width}.png`});
    // Light theme status colours: vivid fills for graphics (yellow processing with a darker 1px edge), a neutral processing label on a yellow tint (4.5:1).
@@ -84,12 +92,12 @@ const replay={route:'0000041b--a1b2c3d4e5',key:'long',duration:2,warnings:[],vid
      const base=e=>{const layers=[];for(let n=e;n;n=n.parentElement){const c=rgba(getComputedStyle(n).backgroundColor);if(c[3]>0)layers.push(c);if(c[3]===1)break}return layers.reverse().reduce((acc,c)=>over(c,acc),[255,255,255])};
      document.querySelector('.log-route:not([open])>summary')?.click();
      const chip=document.querySelector('.state-processing');if(!chip)return null;
-     const bg=base(chip);return {text:getComputedStyle(chip).color,ratio:ratio(rgba(getComputedStyle(chip).color),bg),ready:getComputedStyle(document.querySelector('.route-run[data-status=ready]')).backgroundColor,warn:getComputedStyle(document.querySelector('.route-run[data-status=processing]')).backgroundColor}});
+     const bg=base(chip);return {text:getComputedStyle(chip).color,ratio:ratio(rgba(getComputedStyle(chip).color),bg),ready:getComputedStyle(document.querySelector('.route-seg[data-status=ready]')).backgroundColor,warn:getComputedStyle(document.querySelector('.route-more[data-status=processing]')).color}});
     assert(look,'a processing chip is shown');assert.equal(look.text,'rgb(20, 23, 28)','neutral processing label');assert(look.ratio>=4.5,'processing label contrast '+look.ratio);
-    assert.deepEqual([look.ready,look.warn],['rgb(34, 192, 138)','rgb(234, 179, 8)'],'vivid ready and processing fills');
+    assert.deepEqual([look.ready,look.warn],['rgb(34, 192, 138)','rgb(234, 179, 8)'],'vivid ready fill and processing "+"');
    }
    assert.deepEqual(errors,[]);await context.close();
   }
-  console.log('PASS: 180-segment scrolling strip centred on the current segment (load, manual scroll, drag, keyboard), no overflow, chooser centred with group headers, proportional library runs');
+  console.log('PASS: 180-segment scrolling strip centred on the current segment (load, manual scroll, drag, keyboard), no overflow, chooser centred with group headers, first 20 library blocks with a status-coloured "+"');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -114,11 +114,14 @@ class ThrottleTests(unittest.TestCase):
   for id in self.ids:summary(self.root/id)
   entry=type('Entry',(),{'used':server.playback.clock()})()
   for busy in (patch.object(server,'processes',{'x':1}),patch.object(server,'upload_receiving',return_value=True),
-               patch.object(server.archiver,'running',True),patch.object(server.playback,'entry',entry)):
+               patch.object(server.playback,'entry',entry)):
    with self.subTest(busy=busy),busy,patch.object(self.worker,'process',side_effect=AssertionError('worked while busy')):
     self.assertEqual(self.worker.run_once(),(0,True))
   old=type('Entry',(),{'used':server.playback.clock()-backfill.WATCHING_SECONDS-1})()
   with patch.object(server.playback,'entry',old):self.assertEqual(self.worker.run_once()[0],2) # Watched long ago: not busy.
+  # An archive run does not hold the backfill back (a slow one used to stop it for hours).
+  for id in self.ids:summary(self.root/id)
+  with patch.object(server.archiver,'running',True),patch.object(server.playback,'entry',None):self.assertEqual(self.worker.run_once()[0],2)
 
 class OrderAndFailureTests(unittest.TestCase):
  # Local logs (no archive needed): what matters is which log is processed when, and what one failure stops.
@@ -220,7 +223,7 @@ class PlaybackPauseTests(unittest.TestCase):
   worker=backfill.Backfill(server)
   with patch.object(server,'last_video_request',clock.monotonic()):self.assertTrue(worker.busy())
   with patch.object(server,'last_video_request',clock.monotonic()-backfill.WATCHING_SECONDS-1),patch.object(server.playback,'entry',None):
-   self.assertEqual(worker.busy(),bool(server.processes or server.upload_receiving() or getattr(server.archiver,'running',False)))
+   self.assertEqual(worker.busy(),bool(server.processes or server.upload_receiving()))
 
 class StartupTests(unittest.TestCase):
  def test_thread_start_is_not_shadowed(self):
