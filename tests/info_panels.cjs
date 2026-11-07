@@ -57,8 +57,8 @@ const {settleLayout}=require('./browser-helpers.cjs');
   assert.deepEqual(await page.locator('#boundaryLanes strong').allTextContents(),['36.6%','94.5%','99.5%','0.1%']);
   assert.equal(await page.locator('#lead').textContent(),'35.3 m');
   for(const width of [320,390,768,1440]){
-   // The lane/boundary readouts sit under the 주행 상황 map, outside the 레이어 popover.
-   await page.setViewportSize({width,height:1000});await settleLayout(page,'.boundary-summary');
+   // The lane/boundary readouts have their own 차선·도로 tab.
+   await page.setViewportSize({width,height:1000});await page.locator('#laneTab').click();await settleLayout(page,'.boundary-summary');
    let probabilityLayout;
    for(const distance of [false,true]){
     if((await page.locator('#boundaryDistance').getAttribute('aria-pressed')==='true')!==distance)await page.locator('#boundaryDistance').click();

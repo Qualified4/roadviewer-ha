@@ -92,6 +92,10 @@ function updateVideoBuffer(){
  }
 }
 for(const event of ['progress','loadedmetadata','loadeddata','durationchange','emptied','seeked'])v.addEventListener(event,updateVideoBuffer);
+// The video frame takes the picture's own aspect ratio (front cameras differ: 526:330, 16:9 …), so no black bars are
+// added above and below a wider picture.
+function videoAspect(){return Number(getComputedStyle(document.body).getPropertyValue('--video-ar'))||526/330}
+v.addEventListener('loadedmetadata',()=>{if(v.videoWidth&&v.videoHeight)document.body.style.setProperty('--video-ar',String(+(v.videoWidth/v.videoHeight).toFixed(4)))});
 // The time readout is a toggle that swaps current time (default) for the total length in the same reserved width; the label carries both.
 let timeTotal=false;try{timeTotal=localStorage.getItem('roadviewer-time-total')==='1'}catch{}
 function renderTime(){const el=$('time'),full=`${clock(t)} / ${clock(data?.duration||0)}`,label=full+' · 눌러서 전체 길이 표시/숨기기';el.children[0].textContent=clock(t);el.children[1].textContent=clock(data?.duration||0);el.title=label;el.setAttribute('aria-label',label);el.setAttribute('aria-pressed',String(timeTotal))}
@@ -792,7 +796,8 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
  }
  function sleepLater(){clearTimeout(timer);timer=setTimeout(()=>{if(busy())return sleepLater();root.classList.remove('hud-awake');sync()},SHOW)}
  function wake(){root.classList.add('hud-awake');sleepLater();sync()}
- stage.addEventListener('pointerdown',wake,true);
+ // Any touch on the video or its transport bar (pointer, touch or click, whichever the browser delivers) wakes them.
+ for(const type of ['pointerdown','touchstart','click'])cameraPanel.addEventListener(type,wake,{capture:true,passive:true});
  stage.addEventListener('pointermove',e=>{if(e.pointerType==='mouse')wake()});
  stage.addEventListener('focusin',wake);appBar.addEventListener('focusin',sync);appBar.addEventListener('focusout',()=>setTimeout(sync));
  new MutationObserver(()=>{if(!playing()){clearTimeout(timer);root.classList.remove('hud-awake')}sync()}).observe($('play'),{attributes:true,attributeFilter:['data-playing']});
@@ -812,10 +817,13 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
   set('layout-stacked',stacked);set('layout-side',!stacked);
  }
  let lastY=scrollY,travel=0;
+ // The full height follows the full (unshrunk) width and the picture's aspect ratio.
+ let fullWidth=0;
  function sizeVideo(){
-  const width=stage.getBoundingClientRect().width;if(!width)return;
-  root.style.setProperty('--video-full-h',`${Math.round(width*330/526)}px`);
+  if(!root.classList.contains('media-shrunk'))fullWidth=stage.getBoundingClientRect().width||fullWidth;if(!fullWidth)return;
+  root.style.setProperty('--video-full-h',`${Math.round(fullWidth/videoAspect())}px`);
  }
+ v.addEventListener('loadedmetadata',sizeVideo);
  function update(){
   const on=root.classList.contains('layout-stacked')&&!document.fullscreenElement;
   set('compact-media',on);
@@ -892,7 +900,8 @@ function renderTitle(active,segments){
  const start=when?(started?clock+' 출발':'업로드 '+clock):info?'주행 '+info.route.split('--')[0].replace(/^0+(?=.)/,''):'로그 재생';
  $('titleText').title=when?(started?'출발 ':'업로드 ')+when.toLocaleString():'';
  const index=segments.findIndex(item=>item.log.id===active?.id);
- $('titleText').textContent=info?`${start} · 구간 ${info.number}`:start;
+ // The start time is its own span, so narrow videos can show just 구간 k (the text content stays the same).
+ {const lead=document.createElement('span');if(info)lead.className='title-start';lead.textContent=info?`${start} · `:start;$('titleText').replaceChildren(lead,...(info?[`구간 ${info.number}`]:[]));}
  $('titleCount').textContent=segments.length>1&&index>=0?` (${index+1}/${segments.length})`:'';
  $('titleDate').textContent=when?when.toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'short'}):'';
 }
@@ -1032,9 +1041,9 @@ function renderReplayDownloads(log){
  menu.replaceChildren(...nodes);
 }
 renderReplayDownloads(null);
-// Phones show 이전/다음 as large labelled buttons below the content, as in the app bar's place on wider screens.
+// Phones put 이전/다음 beside the title over the video (‹ 구간 k ›), within reach while watching; wider screens keep them in the app bar.
 const logNeighbors=document.querySelector('.log-neighbors');
-function placeNeighbors(){const target=phoneLayout.matches?$('phoneNeighbors'):$('logNavigation');if(logNeighbors.parentElement!==target)target.prepend(logNeighbors)}
+function placeNeighbors(){const target=phoneLayout.matches?document.querySelector('.video-title'):$('logNavigation');if(logNeighbors.parentElement!==target)target.prepend(logNeighbors)}
 placeNeighbors();
 phoneLayout.addEventListener('change',()=>{$('viewMenu').open=false;renderReplayDownloads(replayLog);placeNeighbors()});
 $('replayDownloadMenu').addEventListener('click',e=>{if(e.target.closest('a,#cameraInfoButton,#layoutWidthButton'))$('replayDownload').open=false});

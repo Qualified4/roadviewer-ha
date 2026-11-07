@@ -99,7 +99,7 @@
   finally{clearTimeout(timeout);if(ticket===requestId){loadingKey=null;update()}}
  }
  // Only the selected-tab highlight moves; panel contents switch immediately.
- const panes={road:[roadTab,$('roadView')],telemetry:[telemetryTab,view],bookmarks:[$('bookmarkTab'),$('bookmarkView')]},order=Object.keys(panes);
+ const panes={road:[roadTab,$('roadView')],lanes:[$('laneTab'),$('laneView')],telemetry:[telemetryTab,view],bookmarks:[$('bookmarkTab'),$('bookmarkView')]},order=Object.keys(panes);
  const tabs=roadTab.parentElement,indicator=document.createElement('span');indicator.className='tab-indicator';indicator.setAttribute('aria-hidden','true');
  tabs.prepend(indicator);tabs.classList.add('has-indicator');
  function placeIndicator(){const selected=panes[tab][0];tabs.style.setProperty('--tab-x',selected.offsetLeft+'px');tabs.style.setProperty('--tab-width',selected.offsetWidth+'px');indicator.style.height=selected.offsetHeight+'px';indicator.style.top=selected.offsetTop+'px'}

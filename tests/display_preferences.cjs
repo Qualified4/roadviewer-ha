@@ -18,7 +18,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await page.locator('#rearView').isChecked());
   // Layer checkboxes, label modes and the lane/boundary readouts live in the 레이어 popover of 주행 상황.
   const layers=async()=>{if(!await page.locator('#layerMenu').evaluate(d=>d.open))await page.locator('#layerMenu>summary').click();await page.locator('#layerPanel').waitFor()};
-  assert.equal(await page.locator('#layerPanel .layers input').count(),17);assert.equal(await page.locator('#layerPanel #boundaryLanes').count(),0);assert.equal(await page.locator('#roadView>.boundary-summary #boundaryLanes').count(),1);
+  assert.equal(await page.locator('#layerPanel .layers input').count(),17);assert.equal(await page.locator('#layerPanel #boundaryLanes').count(),0);assert.equal(await page.locator('#laneView>.boundary-summary #boundaryLanes').count(),1);
   await layers();await page.keyboard.press('Escape');assert.equal(await page.locator('#layerMenu').evaluate(d=>d.open),false,'Escape closes the popover');
   assert.deepEqual(await page.locator('#range option').allTextContents(),['25 / 5 m','50 / 10 m','80 / 20 m']);
   const rearAt=async range=>page.evaluate(range=>{

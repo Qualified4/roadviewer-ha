@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.1**.
+This guide describes **1.0.2**.
 
 [한국어](DOCS.md) · English
 
@@ -184,7 +184,7 @@ The replay page has a compact app bar, controls over the video, a floating playb
 |---|---|
 | Back | Returns to the library. |
 | Date · log name | One line with the date, log name (copy button), **태그** button, tags and the **고정** badge. The title (segment chooser) sits at the top left of the video. |
-| Previous / next | **이전 구간 / 다음 구간** within the same route, otherwise **이전 로그 / 다음 로그**. Phones show them as large buttons below the content. |
+| Previous / next | **이전 구간 / 다음 구간** within the same route, otherwise **이전 로그 / 다음 로그**. Phones show them as ‹ › buttons beside the title at the top left of the video. |
 | Pin | Pins/unpins the current segment, shared with the library; yellow when pinned. |
 | 보기 (View) | **좌우 분할**, **상하 분리**, **화면 폭…**. On phones it sits inside the ⋯ menu. |
 | ⋯ | **제거**, **다운로드**, **카메라 설치 정보**, **화면 모드**, log details/version, **완전 삭제** |
@@ -221,7 +221,7 @@ Actual width never exceeds the viewport. Each category is remembered separately.
 
 ### Lanes, edges and range
 
-Probability and y[0] distance modes share aligned type, rows, and road-edge/lead values.
+The lane and road-edge readouts have their own **차선·도로** analysis tab. Probability and y[0] distance modes share aligned type, rows, and road-edge/lead values.
 
 ![Lane probabilities](../docs/images/roadviewer-boundaries-probability.png)
 
@@ -287,7 +287,7 @@ Missing calibration or an unsupported sensor produces an explanation instead of 
 
 ## Vehicle information graphs
 
-Switch to **차량 정보** in the analysis tabs (**주행 상황 · 차량 정보 · 북마크**). The summary shows speed, acceleration, steering angle and steering intervention. Initial/last values can be held only within the supported data-boundary tolerances; initial preview identifies its first valid sample time.
+Switch to **차량 정보** in the analysis tabs (**주행 상황 · 차선·도로 · 차량 정보 · 북마크**). The summary shows speed, acceleration, steering angle and steering intervention. Initial/last values can be held only within the supported data-boundary tolerances; initial preview identifies its first valid sample time.
 
 **그래프 선택** chooses and reorders graphs by dragging the handle. Reset order keeps checkbox selections. Selection/order are remembered; additional graphs scroll inside the panel.
 
