@@ -1033,10 +1033,28 @@ function hideSegmentPeek(){$('segmentPeek').classList.remove('is-shown');segment
  strip.addEventListener('pointerdown',e=>{
   if(e.pointerType==='mouse'||!block(e))return;
   const target=block(e);held=false;clearTimeout(hold?.timer);
-  hold={x:e.clientX,y:e.clientY,timer:setTimeout(()=>{held=true;showSegmentPeek(target)},HOLD)};
+  hold={x:e.clientX,y:e.clientY,timer:setTimeout(()=>{held=true;scrubX=hold.x;strip.classList.add('is-dragging');showSegmentPeek(target);edgeScroll()},HOLD)};
  });
+ // Held, the finger scrubs like a mouse pointer: the preview follows it along the strip, which no longer scrolls under
+ // it, and resting near either end of a scrolling strip moves the strip on so every segment can be reached.
+ let scrubX=0,edgeFrame=0;
+ function scrub(){
+  const blocks=[...strip.querySelectorAll('.segment-block')];let best=null,gap=Infinity;
+  for(const b of blocks){const r=b.getBoundingClientRect(),d=scrubX<r.left?r.left-scrubX:scrubX>r.right?scrubX-r.right:0;if(d<gap){gap=d;best=b}}
+  if(best)showSegmentPeek(best);
+ }
+ function edgeScroll(){
+  edgeFrame=0;if(!held||!hold)return;
+  if(strip.classList.contains('is-scrolling')){
+   const r=strip.getBoundingClientRect(),edge=32,before=strip.scrollLeft;
+   if(scrubX<r.left+edge)strip.scrollLeft-=Math.ceil((r.left+edge-scrubX)/4);else if(scrubX>r.right-edge)strip.scrollLeft+=Math.ceil((scrubX-r.right+edge)/4);
+   if(strip.scrollLeft!==before){segmentStripScrolled=true;scrub()}
+  }
+  edgeFrame=requestAnimationFrame(edgeScroll);
+ }
+ strip.addEventListener('touchmove',e=>{if(!held||!hold)return;e.preventDefault();scrubX=e.touches[0].clientX;scrub()},{passive:false});
  strip.addEventListener('pointermove',e=>{if(hold&&!held&&Math.hypot(e.clientX-hold.x,e.clientY-hold.y)>8){clearTimeout(hold.timer);hold=null}});
- const release=()=>{if(!hold)return;clearTimeout(hold.timer);hold=null;if(held)hideSegmentPeek()};
+ const release=()=>{if(!hold)return;clearTimeout(hold.timer);hold=null;cancelAnimationFrame(edgeFrame);edgeFrame=0;if(held){hideSegmentPeek();strip.classList.remove('is-dragging')}};
  strip.addEventListener('pointerup',release);strip.addEventListener('pointercancel',()=>{release();held=false});
  strip.addEventListener('contextmenu',e=>e.preventDefault());
  strip.addEventListener('click',e=>{if(held){e.preventDefault();e.stopPropagation();held=false;return}hideSegmentPeek()},true);
