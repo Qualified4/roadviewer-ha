@@ -2,7 +2,7 @@
 
 한국어 · [English](README.en.md)
 
-현재 기능 안내: **1.0.10**
+현재 기능 안내: **1.0.11**
 
 openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **영상·주행 상황·차량 정보 그래프를 같은 시간축으로 확인하는 Home Assistant 앱**입니다.
 
@@ -10,13 +10,13 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 전방 영상 위에 차선·차량 박스·사각지대 표시를 겹쳐 보고, 오른쪽 그래프에서 같은 시점의 차량 상태를 확인합니다. 재생바로 시간을 이동하면 영상과 그래프가 함께 움직입니다.
 
-![Road Viewer에서 고화질 주행 영상에 차선·차량 박스·사각지대 표시를 겹쳐 보고 차량 정보 그래프를 함께 확인하는 화면](docs/images/roadviewer-overview.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-overview-dark.png"><img src="docs/images/roadviewer-overview.png" alt="Road Viewer에서 고화질 주행 영상에 차선·차량 박스·사각지대 표시를 겹쳐 보고 차량 정보 그래프를 함께 확인하는 화면"></picture>
 
 **영상 겹쳐보기와 주행 상황**
 
 오른쪽 패널을 주행 상황으로 전환하면 위에서 내려다본 차선·경로·레이더 감지점을 영상과 비교할 수 있습니다. 아래 표에서는 radarState와 liveTracks의 개별 값을 확인합니다. 두 화면은 패널 전환 예시이며, 그래프 종류와 표시 항목은 직접 선택할 수 있습니다.
 
-![Road Viewer에서 차선·차량 박스·방향지시등·사각지대를 영상에 겹쳐 보고 주행 상황과 레이더 감지점을 함께 확인하는 화면](docs/images/roadviewer-driving-view.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-driving-view-dark.png"><img src="docs/images/roadviewer-driving-view.png" alt="Road Viewer에서 차선·차량 박스·방향지시등·사각지대를 영상에 겹쳐 보고 주행 상황과 레이더 감지점을 함께 확인하는 화면"></picture>
 
 ## 시작하기
 
@@ -46,7 +46,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 **업로드** 탭에서 파일을 선택하거나 끌어다 놓고, **장치** 탭에서 HTTPS 연결과 포트를 설정하거나 페어링할 장치를 추가·관리합니다. 스크린샷의 포트와 장치 식별 정보는 가렸습니다. 브라우저에서 파일을 업로드할 때는 외부 장치 연결을 켤 필요가 없습니다.
 
-![업로드 탭의 파일 선택 영역 — 포트와 장치 식별 정보는 가림 처리](docs/images/roadviewer-library-upload.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-library-upload-dark.png"><img src="docs/images/roadviewer-library-upload.png" alt="업로드 탭의 파일 선택 영역 — 포트와 장치 식별 정보는 가림 처리"></picture>
 
 `rlog.zst` 로그는 필수이며, 같은 구간의 영상은 필요한 것만 함께 선택합니다.
 
@@ -89,7 +89,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 **새 장치 연결**을 누르면 아래 팝업이 열립니다. 강조된 일회용 코드를 복사해 장치의 연결 화면에 입력하고, 남은 유효시간과 연결 상태를 확인합니다. 이미지 속 코드는 사용 안내용이며 실제 연결에는 새로 발급한 코드가 필요합니다. HTTPS 포트 설정 화면과 달리, 이 팝업은 장치를 인증해 등록하는 단계입니다.
 
-<img src="docs/images/roadviewer-device-pairing.png" alt="콤마 장치 연결을 위한 Road Viewer 일회용 페어링 코드 팝업" width="420">
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-device-pairing-dark.png"><img src="docs/images/roadviewer-device-pairing.png" alt="콤마 장치 연결을 위한 Road Viewer 일회용 페어링 코드 팝업" width="420"></picture>
 
 ## AI 에이전트 연동 (MCP)
 
@@ -117,7 +117,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 와이드 영상(`ecamera.hevc`)을 함께 업로드하면 영상 위 카메라 선택에서 **와이드**로 전환할 수 있습니다. 아래는 넓은 시야의 영상 위에 차선·도로 경계·모델 경로와 차량 박스·레이더 감지점·방향지시등을 표시한 예시입니다. 와이드 카메라 전용 센서·보정 정보를 사용해 겹쳐 그리며, 전방 영상으로 돌아가도 같은 로그 시점에서 확인할 수 있습니다.
 
-![와이드 카메라 영상에 차선, 모델 경로, FF 차량 박스, 레이더 감지점과 좌측 방향지시등을 겹쳐 표시한 Road Viewer 화면](docs/images/roadviewer-wide-camera.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-wide-camera-dark.png"><img src="docs/images/roadviewer-wide-camera.png" alt="와이드 카메라 영상에 차선, 모델 경로, FF 차량 박스, 레이더 감지점과 좌측 방향지시등을 겹쳐 표시한 Road Viewer 화면"></picture>
 
 영상을 열면 연결별 **기본 화질**을 먼저 재생합니다. 기본값은 모바일 데이터에서 저용량 전방(qcamera), 와이파이·유선에서 고화질 전방이며, 영상 위 카메라 선택 목록의 **기본 화질**(닫기 버튼 옆)에서 바꾸고 브라우저마다 저장됩니다. 브라우저가 연결 종류를 알려 주지 않으면(iPhone·iPad·데스크톱 등) 휴대폰·태블릿은 모바일 데이터, 그 밖의 기기는 와이파이·유선 설정을 따릅니다. 해당 영상이 없으면 다른 전방 영상, 그마저 없으면 와이드를 사용합니다. 영상 선택을 바꿔도 로그 시간과 재생 상태를 유지하고, 재생에 실패하면 다른 영상을 시도합니다. 와이드 겹쳐보기는 해당 센서와 보정값을 사용하며, 필요한 정보가 없으면 안내를 표시합니다. 기존 변환 데이터에 와이드 보정 정보가 없다면 로그를 다시 분석해야 합니다.
 
@@ -130,11 +130,11 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 겹쳐보기 옵션은 영상 위 **겹쳐 보기** 옆의 ⚙ 설정에서 바꿉니다. 박스·BSD·TARGET 라벨, 높이·너비·불투명도 등을 조절하며, 박스의 지면 고정·추정 크기 안내도 이 팝업에 있습니다.
 
-<img src="docs/images/roadviewer-overlay-settings.png" alt="영상 겹쳐보기 설정" width="530">
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-overlay-settings-dark.png"><img src="docs/images/roadviewer-overlay-settings.png" alt="영상 겹쳐보기 설정" width="530"></picture>
 
 차선 확률과 좌우 거리 y[0]는 같은 위치에서 전환하며 로드엣지·앞차 정보를 함께 확인합니다.
 
-![차선 확률·로드엣지·앞차 거리](docs/images/roadviewer-boundaries-probability.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-boundaries-probability-dark.png"><img src="docs/images/roadviewer-boundaries-probability.png" alt="차선 확률·로드엣지·앞차 거리"></picture>
 
 ![같은 레이아웃의 좌우 거리 y[0] 모드](docs/images/roadviewer-boundaries-distance.png)
 
@@ -144,7 +144,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 아래 태그·북마크 화면은 **개인 주행 로그 대신 예시 데이터로 실제 앱을 캡처**한 것입니다.
 
-![예시 구간에 차선 변경·검토 필요·비 오는 날 등의 색상 태그가 표시되고 태그 필터 칩으로 구간을 고르는 로그 목록](docs/images/roadviewer-tags-library.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-tags-library-dark.png"><img src="docs/images/roadviewer-tags-library.png" alt="예시 구간에 차선 변경·검토 필요·비 오는 날 등의 색상 태그가 표시되고 태그 필터 칩으로 구간을 고르는 로그 목록"></picture>
 
 1. 구간 ⋯ 메뉴의 **태그 편집**(주행 카드의 ⋯ 메뉴는 **전체 구간 태그 편집**)이나 재생 화면의 **태그** 버튼을 누릅니다.
 2. 이름과 색상을 고르고 **추가 → 저장**합니다. 기존 태그를 선택해 재사용하거나 배지를 눌러 이름·색상을 수정할 수 있습니다.
@@ -152,7 +152,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 이름은 최대 32자, 색상은 12종이며 구간당 최대 100개를 저장합니다. 태그를 저장해도 로그나 영상을 다시 변환하지 않습니다.
 
-<img src="docs/images/roadviewer-tags-editor.png" alt="구간 태그 편집창에서 기존 차선 변경·검토 필요 태그를 확인하고 합류 태그의 이름과 색상을 선택하는 예시" width="556">
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-tags-editor-dark.png"><img src="docs/images/roadviewer-tags-editor.png" alt="구간 태그 편집창에서 기존 차선 변경·검토 필요 태그를 확인하고 합류 태그의 이름과 색상을 선택하는 예시" width="556"></picture>
 
 ## 장면 북마크로 특정 시점 다시 찾기
 
@@ -162,11 +162,11 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 2. 표시된 시각을 확인하고 제목과 선택 메모를 적어 **저장**합니다. **현재 시각으로**를 누르면 편집 중인 시각을 현재 재생 위치로 맞춥니다.
 3. 북마크 탭 목록의 **시간·제목**이나 탐색 바의 **북마크 마커**를 누르면 영상·주행 상황·그래프가 함께 이동합니다. 기존 재생/일시정지 상태도 유지합니다.
 
-<img src="docs/images/roadviewer-bookmarks-editor.png" alt="22초 시점의 제목과 메모를 입력하고 차선 변경·앞차 거리·감속 장면을 시간순으로 확인하는 북마크 탭 예시" width="556">
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-bookmarks-editor-dark.png"><img src="docs/images/roadviewer-bookmarks-editor.png" alt="22초 시점의 제목과 메모를 입력하고 차선 변경·앞차 거리·감속 장면을 시간순으로 확인하는 북마크 탭 예시" width="556"></picture>
 
 저장된 북마크는 탐색 바 위 작은 마커로도 나타납니다. 각 마커에 마우스를 올리면 시간과 제목을 확인할 수 있습니다.
 
-![8.5초·22초·41.2초에 저장한 북마크 마커와 북마크 버튼이 표시된 재생 바 예시](docs/images/roadviewer-bookmarks-timeline.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-bookmarks-timeline-dark.png"><img src="docs/images/roadviewer-bookmarks-timeline.png" alt="8.5초·22초·41.2초에 저장한 북마크 마커와 북마크 버튼이 표시된 재생 바 예시"></picture>
 
 북마크는 영상 파일의 시간이 아닌 로그 시간을 기준으로 저장하므로 카메라를 바꿔도 같은 시점으로 이동합니다. 제목은 80자, 메모는 1000자, 구간당 최대 100개이며 북마크 탭 목록에서 수정·삭제할 수 있습니다. 태그와 북마크는 재변환하거나 변환 데이터를 제거해도 유지되고, 구간을 **완전 삭제**하면 함께 삭제됩니다.
 
@@ -178,7 +178,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 **설정** 탭에서 자동 변환·동시 처리 개수·화면 모드를 조절합니다. **저장공간** 탭에서 사용량·한도와 공간 부족 시 동작을 정합니다.
 
-![로컬 용량과 Google Drive 연결 상태](docs/images/roadviewer-storage-overview.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-storage-overview-dark.png"><img src="docs/images/roadviewer-storage-overview.png" alt="로컬 용량과 Google Drive 연결 상태"></picture>
 
 새로 완료하는 변환은 qcamera의 H.264와 f·e의 HEVC를 재압축 없이 MP4로 포장하고, 압축 프레임·디코더 헤더·프레임 수·로그 시간 검증 후 원본 TS·HEVC를 정리합니다. 실패한 영상은 원본을 유지합니다. rlog.zst는 그대로 보관합니다. 자동 변환을 끄면 업로드 파일을 보관하고 수동 변환 후 MP4로 저장합니다. HEVC 재생에는 브라우저·기기의 지원이 필요하며 재생 실패 시 저화질 영상으로 전환합니다. 검증은 압축 데이터와 헤더의 SHA-256 및 패킷 시간·수를 비교하며, 전체 영상을 디코딩하지 않습니다. 원본 자체의 모든 디코딩 오류를 검사하는 방식은 아닙니다.
 
@@ -196,7 +196,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 썸네일과 출발 시각은 변환할 때 만들고, 이전에 변환했거나 아카이빙한 로그는 백그라운드에서 채웁니다. 로컬·NAS 파일은 앞부분만 읽고 Drive 파일은 범위 요청으로 앞쪽 약 2 MB만 받으며, 업로드·변환·아카이빙 실행·Drive 재생 중에는 잠시 멈춥니다. 자동 제어 비율과 개입 횟수는 텔레메트리로 계산합니다.
 
-![저장된 로그 목록과 구간별 재생·고정·관리 버튼](docs/images/roadviewer-library-logs.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-library-logs-dark.png"><img src="docs/images/roadviewer-library-logs.png" alt="저장된 로그 목록과 구간별 재생·고정·관리 버튼"></picture>
 
 **로그·영상 다운로드**
 
@@ -209,13 +209,13 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 - **전체 선택·선택 해제:** ZIP에 포함할 파일을 조절합니다. 각 파일 옆의 **받기**는 ZIP 없이 해당 파일만 받습니다.
 - **여러 구간:** 선택 모드에서도 같은 팝업을 사용합니다. 최대 150구간을 선택하고 **개별 받기**를 펼쳐 파일별로 받거나 선택한 파일을 ZIP으로 받을 수 있습니다. 없는 카메라는 제외합니다.
 
-<img src="docs/images/roadviewer-download-options.png" alt="로그·전방·와이드·저화질 영상 중 받을 파일을 선택하고 MP4 또는 원본 형식으로 개별·ZIP 다운로드하는 팝업" width="490">
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-download-options-dark.png"><img src="docs/images/roadviewer-download-options.png" alt="로그·전방·와이드·저화질 영상 중 받을 파일을 선택하고 MP4 또는 원본 형식으로 개별·ZIP 다운로드하는 팝업" width="490"></picture>
 
 선택 파일은 ZIP으로 스트리밍하며 다운로드용 복사본을 서버에 계속 보관하지 않습니다. 각 카메라의 유일한 MP4는 보관 영상이므로 **변환 데이터 제거**로 삭제하지 않습니다.
 
 선택 모드에서는 여러 항목을 한 번에 변환·제거·완전 삭제할 수 있습니다. 고정된 구간은 일괄 제거·완전 삭제에서 기본적으로 제외됩니다. **고정 포함**을 켜면 포함되며, 선택 모드를 다시 시작하면 꺼집니다. 구간 ⋯ 메뉴에서는 고정 여부와 관계없이 직접 제거·완전 삭제할 수 있습니다.
 
-<img src="docs/images/roadviewer-bulk-selection.png" alt="로그 목록의 선택 모드에서 주행별·구간별 선택과 하단 작업 바" width="530">
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-bulk-selection-dark.png"><img src="docs/images/roadviewer-bulk-selection.png" alt="로그 목록의 선택 모드에서 주행별·구간별 선택과 하단 작업 바" width="530"></picture>
 
 **저장공간** 탭은 ① 사용량·연결 상태 → ② 아카이빙 기본 설정 → ③ 실행·고급 설정 → ④ 현재 설정 요약 순서로 구성됩니다. 보관 기간과 실행 간격은 선택지 또는 직접 입력을 사용하며, 변경한 동작은 요약에서 확인한 뒤 한 번에 저장합니다. 미저장 변경이 있으면 수동 전체 이동·복사를 실행할 수 없습니다.
 
@@ -240,7 +240,7 @@ NAS 대신 **Google Drive**를 아카이브 저장소로 쓸 수도 있습니다
 
 ## 문서와 검증
 
-스크린샷은 2026-11-07에 1.0.0 버전(브랜치 `feature/ui-redesign`) 코드에 예시 데이터를 넣어 촬영했습니다. 주행·와이드 소개 사진 3장은 기존 사진의 영상 영역을 새 UI에 합성했습니다. 페어링 코드·장치·저장공간 수치는 모두 예시이며 실제 연결에 쓸 수 없습니다. [스크린샷 안내](docs/images/README.md)를 참고하세요.
+스크린샷은 2026-11-07에 1.0.11 버전 코드에 예시 데이터를 넣어 라이트·다크 모드로 촬영했으며, 보는 환경의 테마에 맞는 이미지를 보여 줍니다. 주행·와이드 소개 사진 3장은 기존 사진의 영상 영역을 새 UI에 합성했습니다. 페어링 코드·장치·저장공간 수치는 모두 예시이며 실제 연결에 쓸 수 없습니다. [스크린샷 안내](docs/images/README.md)를 참고하세요.
 
 - [설치 및 사용 설명](roadviewer/DOCS.md) · [English](roadviewer/DOCS.en.md): 업로드, 변환, 재생, 선택 모드(일괄 관리), 저장 정책, 백업과 문제 해결
 - [AppArmor 보안 정책](docs/apparmor-security.md) · [English](docs/apparmor-security.en.md)

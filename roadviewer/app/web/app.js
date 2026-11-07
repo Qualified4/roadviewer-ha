@@ -814,6 +814,8 @@ const transport=document.querySelector('.playback');
 function sizeTransport(){document.documentElement.style.setProperty('--transport-height',`${transport.offsetHeight}px`)}
 new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
 
+// Set by the stacked layout below: the app bar folding moves the picture against the transport bar.
+let barFoldChanged=()=>{};
 // While playing, the controls over the video (title, camera/overlay, full screen) fade out and, on short or touch screens,
 // the app bar folds away so the picture gets the room. A touch, mouse movement or keyboard focus on the video shows the video
 // controls for a few seconds; pausing shows everything. Open menus and focused controls keep them up.
@@ -827,7 +829,8 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
   root.classList.toggle('hud-idle',idle);
   // The bar stays folded for the whole playback (touches only bring back the video controls), so the picture does not
   // jump on every tap; keyboard focus in the bar unfolds it.
-  root.classList.toggle('bar-folded',playing()&&short.matches&&!document.fullscreenElement&&!appBar.contains(document.activeElement));
+  const folded=playing()&&short.matches&&!document.fullscreenElement&&!appBar.contains(document.activeElement);
+  if(root.classList.contains('bar-folded')!==folded){root.classList.toggle('bar-folded',folded);barFoldChanged()}
  }
  function sleepLater(){clearTimeout(timer);timer=setTimeout(()=>{if(busy())return sleepLater();root.classList.remove('hud-awake');sync()},SHOW)}
  function wake(){root.classList.add('hud-awake');sleepLater();sync()}
@@ -857,6 +860,7 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
 // scrolling down; scrolling up or a tap on its free area opens it again.
 (()=>{
  const root=document.body,stage=$('videoStage'),road=document.querySelector('.road-panel'),shortPhone=matchMedia('(max-width:719px) and (max-height:720px)');
+ const barFolds=matchMedia('(max-height:820px),(pointer:coarse)');
  const MIN=.6;
  function set(name,on){if(root.classList.contains(name)!==on)root.classList.toggle(name,on)}
  // Side by side (analysis to the right of the video) or stacked, from the actual layout; horizontal offsets ignore sticky shifts.
@@ -864,7 +868,7 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
   const stacked=road.offsetLeft<cameraPanel.offsetLeft+cameraPanel.offsetWidth-1;
   set('layout-stacked',stacked);set('layout-side',!stacked);
  }
- let lastY=scrollY,travel=0,fullWidth=0,fullHeight=0,shrink=-1,frame=0;
+ let lastY=scrollY,travel=0,fullWidth=0,fullHeight=0,shrink=-1,frame=0,videoCover=0;
  // The full size follows the room the panel gives (its content width, and the screen height left by the app bar and
  // the transport bar, as in the side-by-side layout) and the picture's aspect ratio. Not the video's own width: that
  // is set from this size, so a first measure taken while the page was still hidden (opened from the list) kept the
@@ -872,7 +876,9 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
  function sizeVideo(){
   if(shrink<=0){
    const style=getComputedStyle(cameraPanel),room=cameraPanel.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
-   const tall=(innerHeight-appBar.offsetHeight-transport.offsetHeight-60)*videoAspect();
+   // Where the app bar folds away while playing (short or touch screens), its room goes to the picture: playing, the
+   // video then just clears the transport bar; paused, the bar's controls over the video move up (--video-cover).
+   const tall=(innerHeight-(barFolds.matches?0:appBar.offsetHeight)-transport.offsetHeight-60)*videoAspect();
    if(room>0)fullWidth=Math.max(160,Math.min(room,tall));
   }
   if(!fullWidth)return;
@@ -883,6 +889,9 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
  // How far the card has scrolled under the app bar = how much height the video gives up.
  function collapse(){
   frame=0;
+  // How much of the picture's bottom the transport bar covers (paused, with the app bar shown).
+  {const on=root.classList.contains('compact-media'),cover=on?Math.max(0,Math.round(stage.getBoundingClientRect().bottom-transport.getBoundingClientRect().top)):0;
+   if(cover!==videoCover){videoCover=cover;root.style.setProperty('--video-cover',cover+'px')}}
   if(!root.classList.contains('compact-media')||!fullHeight){if(shrink!==0){shrink=0;root.style.setProperty('--shrink-d','0px');set('media-shrunk',false)}return}
   const barBottom=Math.max(0,appBar.getBoundingClientRect().bottom),range=fullHeight*(1-MIN);
   const d=Math.round(Math.max(0,Math.min(range,barBottom-cameraPanel.getBoundingClientRect().top)));
@@ -905,8 +914,10 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
  addEventListener('scroll',update,{passive:true});shortPhone.addEventListener?.('change',update);document.addEventListener('fullscreenchange',update);
  new ResizeObserver(()=>{layout();update()}).observe(document.getElementById('replayViews'));
  const resized=()=>{if(shrink<=0)sizeVideo();schedule()};
- new ResizeObserver(resized).observe(cameraPanel);addEventListener('resize',resized);
+ new ResizeObserver(resized).observe(cameraPanel);new ResizeObserver(resized).observe(transport);addEventListener('resize',resized);barFolds.addEventListener?.('change',resized);
  new ResizeObserver(schedule).observe(appBar);
+ // The app bar folding (playing) or unfolding moves the picture against the transport bar.
+barFoldChanged=schedule;appBar.addEventListener('transitionend',schedule);transport.addEventListener('animationend',schedule);
  transport.addEventListener('pointerdown',e=>{if(root.classList.contains('transport-mini')&&!e.target.closest('button,input,select,label,a,.seekbar')){root.classList.remove('transport-mini');travel=0}});
  layout();sizeVideo();update();
 })();
@@ -974,10 +985,11 @@ function renderTitle(active,segments){
 }
 // Every segment of the route under the seek bar; another ready one is one click away (same as the segment chooser).
 function renderSegmentStrip(segments,current,active){
+ segmentPeekItems.clear();
  const items=segments.length?segments:active?[{log:active,info:logSegmentInfo(active.name)}]:[];
  $('segmentStrip').replaceChildren(...items.map(({log,info})=>{
   const button=document.createElement('button'),here=log.id===current,state=SEGMENT_STATES[log.status];
-  button.type='button';button.className='segment-block';button.dataset.status=log.status||'';
+  button.type='button';button.className='segment-block';button.dataset.status=log.status||'';button.dataset.id=log.id;segmentPeekItems.set(log.id,{log,info});
   const label=(info?'구간 '+info.number:'이 구간')+(state?' · '+state:'')+(here?' · 재생 중':'');
   button.title=label;button.setAttribute('aria-label',label);
   if(here)button.setAttribute('aria-current','true');
@@ -986,6 +998,49 @@ function renderSegmentStrip(segments,current,active){
   return button;
  }));
  fitSegmentStrip(current!==segmentStripCurrent);segmentStripCurrent=current;
+ // A rebuild (the list is polled) keeps a shown preview on its segment's new block.
+ if(segmentPeekShown)showSegmentPeek($('segmentStrip').querySelector(`[data-id="${CSS.escape(segmentPeekShown)}"]`));
+}
+// Segment preview: a mouse over a block, or a finger held on one, shows that segment's thumbnail (the log list's
+// picture) above the strip; letting go hides it. Pictures are kept for the page, so each is fetched once.
+const segmentPeekItems=new Map(),segmentPeekPictures=new Map();let segmentPeekShown=null;
+const segmentThumbUrl=log=>log.status==='ready'&&(log.thumbnail||log.thumbnail_available)?`../../api/logs/${encodeURIComponent(log.id)}/thumbnail?v=${log.conversion_revision??0}${log.thumbnail?'':'&pending=1'}`:null;
+function segmentPeekPicture(url){
+ let img=segmentPeekPictures.get(url);
+ if(!img){img=new Image();img.alt='';img.decoding='async';img.onerror=()=>img.remove();img.src=url;segmentPeekPictures.set(url,img)}
+ return img;
+}
+function showSegmentPeek(button){
+ const item=button&&segmentPeekItems.get(button.dataset.id);
+ if(!item){hideSegmentPeek();return}
+ const peek=$('segmentPeek'),{log,info}=item,url=segmentThumbUrl(log),pic=peek.querySelector('.segment-peek-pic');
+ pic.querySelector('img')?.remove();if(url)pic.append(segmentPeekPicture(url));
+ const seconds=log.started_at,state=SEGMENT_STATES[log.status];
+ peek.querySelector('b').textContent=info?'구간 '+info.number:'이 구간';
+ peek.querySelector('span').textContent=state||(Number.isFinite(seconds)?new Date(seconds*1000).toLocaleTimeString('ko-KR',{hour:'numeric',minute:'2-digit'}):'');
+ const box=button.getBoundingClientRect(),bar=peek.parentElement.getBoundingClientRect(),half=peek.offsetWidth/2,x=box.left+box.width/2-bar.left;
+ const left=Math.max(half+4,Math.min(bar.width-half-4,x));
+ peek.style.left=left+'px';peek.style.bottom=bar.bottom-box.top+10+'px';peek.style.setProperty('--tail',x-left+'px');
+ peek.classList.add('is-shown');segmentPeekShown=log.id;
+}
+function hideSegmentPeek(){$('segmentPeek').classList.remove('is-shown');segmentPeekShown=null}
+{
+ const strip=$('segmentStrip'),HOLD=400;let hold=null,held=false;
+ const block=e=>e.target.closest?.('.segment-block');
+ strip.addEventListener('pointerover',e=>{if(e.pointerType==='mouse'&&block(e))showSegmentPeek(block(e))});
+ strip.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse')hideSegmentPeek()});
+ // Touch: hold still on a block to see it; moving first is a scroll, and the click after a hold does not navigate.
+ strip.addEventListener('pointerdown',e=>{
+  if(e.pointerType==='mouse'||!block(e))return;
+  const target=block(e);held=false;clearTimeout(hold?.timer);
+  hold={x:e.clientX,y:e.clientY,timer:setTimeout(()=>{held=true;showSegmentPeek(target)},HOLD)};
+ });
+ strip.addEventListener('pointermove',e=>{if(hold&&!held&&Math.hypot(e.clientX-hold.x,e.clientY-hold.y)>8){clearTimeout(hold.timer);hold=null}});
+ const release=()=>{if(!hold)return;clearTimeout(hold.timer);hold=null;if(held)hideSegmentPeek()};
+ strip.addEventListener('pointerup',release);strip.addEventListener('pointercancel',()=>{release();held=false});
+ strip.addEventListener('contextmenu',e=>e.preventDefault());
+ strip.addEventListener('click',e=>{if(held){e.preventDefault();e.stopPropagation();held=false;return}hideSegmentPeek()},true);
+ strip.addEventListener('scroll',()=>{if(!held)hideSegmentPeek()},{passive:true});
 }
 // Long drives: when the blocks would get narrower than is comfortable, the strip becomes a horizontally scrollable
 // row of fixed-width blocks (style.css .is-scrolling) with edge fades where more exists, kept centred on the current

@@ -4,6 +4,14 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.11
+
+- Hovering a block of the replay segment strip (or holding a finger on it) shows that segment's thumbnail and start time above the strip; it goes away on release, and a hold does not change segments.
+- Phone and tablet fullscreen hides the segment strip; the title menu at the top left still changes segments.
+- The horizontally scrolling segment strip of long drives has a larger touch area (about 16px to 28px); on touch screens the event track just below also counts as the strip.
+- README screenshots are recaptured from 1.0.11 with dark-mode versions, so GitHub shows the ones matching the reader's theme.
+- In the stacked layout the video no longer shrinks after leaving fullscreen. It is sized to use the room the app bar gives up while playing; paused, with the app bar shown, the controls at the bottom of the video move up clear of the transport bar.
+
 ## 1.0.10
 
 - In the stacked layout the sticky video card has the same shadow as the other cards, so the card scrolling up under it meets a clear edge.
