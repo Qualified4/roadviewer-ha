@@ -28,25 +28,39 @@ class PickTests(unittest.TestCase):
   self.assertIsNone(wall_clock.pick_start(0,init=(0,1e9),clocks=None,gps=(0,now+90000),now=now))
   self.assertIsNone(wall_clock.pick_start(0))
 
+def gps(mono,unix,kind='gpsLocationExternal',fix=True):
+ e=decoder.log.Event.new_message();e.logMonoTime=mono;e.valid=True;e.init(kind)
+ getattr(e,kind).hasFix=fix;getattr(e,kind).unixTimestampMillis=int(unix*1000)
+ return e.to_bytes()
+
+STALE=START-30*3600 # The last shutdown: a device clock not yet synced when the route started.
+
 class ScanTests(unittest.TestCase):
  def setUp(self):self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
- def test_init_data_then_clocks_then_gps(self):
+ def start(self,path,**options):return wall_clock.scan(path,**options)['started_at']
+ def test_init_data_then_clocks_without_gps(self):
   path=rlog(self.root/'a.zst',[event('carState',4_000_000_000),event('initData',5_000_000_000,wallTimeNanos=int((START+1)*1e9)),event('clocks',6_000_000_000,wallTimeNanos=int((START+99)*1e9))])
-  self.assertEqual(wall_clock.scan(path),START) # Moved back 1 s to the first message; initData wins over clocks.
+  fields=wall_clock.scan(path)
+  # Moved back 1 s to the first message; initData wins over clocks; marked as the (unreliable) device clock.
+  self.assertEqual(fields,{'started_at':START,'start_source':'device','first_mono':4_000_000_000,'gps_offset':None,'start_v':2})
   path=rlog(self.root/'b.zst',[event('initData',1_000_000_000),event('clocks',3_000_000_000,wallTimeNanos=int((START+2)*1e9))])
-  self.assertEqual(wall_clock.scan(path),START)
-  gps=decoder.log.Event.new_message();gps.logMonoTime=1_500_000_000;gps.valid=True;gps.init('gpsLocationExternal')
-  gps.gpsLocationExternal.hasFix=True;gps.gpsLocationExternal.unixTimestampMillis=int((START+.5)*1000)
-  path=rlog(self.root/'c.zst',[event('initData',1_000_000_000),gps.to_bytes()])
-  self.assertEqual(wall_clock.scan(path),START)
- def test_reads_only_the_first_messages(self):
-  filler=[event('carState',1_000_000_000+i) for i in range(30)]
-  path=rlog(self.root/'late.zst',[event('initData',1_000_000_000),*filler,event('clocks',2_000_000_000,wallTimeNanos=int((START+1)*1e9))])
-  self.assertIsNone(wall_clock.scan(path,messages=20))
-  self.assertEqual(wall_clock.scan(path),START)
+  self.assertEqual(self.start(path),START)
+  self.assertEqual(wall_clock.scan(rlog(self.root/'none.zst',[event('carState',1)])),{'started_at':None,'start_source':None,'first_mono':1,'gps_offset':None,'start_v':2})
+ def test_gps_preferred_over_a_stale_device_clock(self):
+  for kind in ('gpsLocationExternal','gpsLocation'):
+   path=rlog(self.root/'c.zst',[event('initData',1_000_000_000,wallTimeNanos=int(STALE*1e9)),event('clocks',1_200_000_000,wallTimeNanos=int(STALE*1e9)),
+    gps(1_500_000_000,START,fix=False),gps(2_000_000_000,START+1,kind=kind),gps(3_000_000_000,START+999)])
+   fields=wall_clock.scan(path)
+   self.assertEqual((fields['started_at'],fields['start_source'],fields['first_mono']),(START,'gps',1_000_000_000))
+   self.assertAlmostEqual(fields['gps_offset'],START+1-2.0,places=3)
+ def test_gps_after_thousands_of_messages_is_found(self):
+  filler=[event('carState',1_000_000_000+i*1000) for i in range(5000)]
+  path=rlog(self.root/'late.zst',[event('initData',1_000_000_000,wallTimeNanos=int(STALE*1e9)),*filler,gps(4_000_000_000,START+3)])
+  self.assertEqual(wall_clock.scan(path)['start_source'],'gps');self.assertEqual(self.start(path),START)
+  self.assertEqual(wall_clock.scan(path,messages=2000)['start_source'],'device') # The old message cap missed it.
   # A byte limit that cuts a message in half keeps the whole messages before it.
   size=len(event('initData',1,wallTimeNanos=1))
-  self.assertEqual(wall_clock.scan(rlog(self.root/'cut.zst',[event('initData',1_000_000_000,wallTimeNanos=int(START*1e9)),*filler]),limit=size+10),START)
+  self.assertEqual(self.start(rlog(self.root/'cut.zst',[event('initData',1_000_000_000,wallTimeNanos=int(START*1e9)),*filler]),limit=size+10),START)
   with self.assertRaises(zstandard.ZstdError):wall_clock.scan(self.write(b'not zstd'))
  def write(self,data):path=self.root/'bad.zst';path.write_bytes(data);return path
 
@@ -58,7 +72,11 @@ class DecoderTests(unittest.TestCase):
    model=model.to_bytes()
    src=rlog(Path(root)/'rlog.zst',[event('initData',9_000_000_000,wallTimeNanos=int(START*1e9)),model])
    dest,_=decoder.prepare(src)
-   self.assertEqual(json.loads((dest/'summary.json').read_text())['started_at'],START)
+   saved=json.loads((dest/'summary.json').read_text())
+   self.assertEqual((saved['started_at'],saved['start_source'],saved['first_mono'],saved['start_v']),(START,'device',9_000_000_000,2))
+   src=rlog(Path(root)/'rlog.zst',[event('initData',9_000_000_000,wallTimeNanos=int(STALE*1e9)),model,gps(11_000_000_000,START+2)])
+   dest,_=decoder.prepare(src);saved=json.loads((dest/'summary.json').read_text())
+   self.assertEqual((saved['started_at'],saved['start_source']),(START,'gps'));self.assertAlmostEqual(saved['gps_offset'],START-9,places=3)
    src=rlog(Path(root)/'rlog.zst',[model])
    dest,_=decoder.prepare(src)
    self.assertIsNone(json.loads((dest/'summary.json').read_text())['started_at'])
@@ -74,6 +92,7 @@ class ServerTests(ServerCase):
   with patch.object(wall_clock,'scan_bytes',side_effect=AssertionError('read by the list')):self.assertNotIn('started_at',self.row())
   self.assertEqual(self.backfill(),(1,False))
   self.assertEqual(self.row()['started_at'],START);self.assertEqual(self.saved()['started_at'],START)
+  self.assertEqual((self.row()['start_source'],self.saved()['start_v']),('device',2));self.assertNotIn('first_mono',self.row())
   with patch.object(wall_clock,'scan_bytes',side_effect=AssertionError('read again')):self.assertEqual(self.backfill(),(0,False))
   self.summary(drive_summary=None,started_at=START+60);self.assertEqual(self.row()['started_at'],START+60)
  def test_unknown_is_cached_and_unready_logs_are_not_read(self):
@@ -85,5 +104,32 @@ class ServerTests(ServerCase):
   with patch.object(wall_clock,'scan_bytes',side_effect=AssertionError('must not read')):
    server.save_meta(self.path,dict(server.read_meta(self.path),status='processing'));self.backfill();self.assertNotIn('started_at',self.row())
   self.assertNotIn('started_at',self.saved())
+
+class RouteStartTests(ServerCase):
+ def segment(self,id,name,**start):
+  p=self.root/id;(p/'prepared').mkdir(parents=True);(p/'rlog.zst').write_bytes(b'log')
+  server.save_meta(p,dict(id=id,name=name,status='ready',uploaded=1,decoder_version='v28-runtime-geometry',video=False,conversion_revision=1))
+  (p/'prepared/summary.json').write_text(json.dumps(dict(duration=60,warnings=[],model_frames=1,video=None,videos={},start_v=2,**start)))
+ def rows(self):return {row['id']:row for row in self.client.get('/api/logs',environ_overrides=PEER).json['logs']}
+ def test_segments_without_gps_dated_from_their_route(self):
+  device=dict(started_at=STALE,start_source='device',gps_offset=None)
+  offset=START-100 # unix - logMonoTime/1e9, from segment 2's GPS fix (the nearest to 1 and 3).
+  self.segment('1'*32,'0000044c--abc / 구간 0',first_mono=40_000_000_000,**device)
+  self.segment('2'*32,'0000044c--abc / 구간 1',first_mono=100_000_000_000,**device)
+  self.segment('3'*32,'0000044c--abc / 구간 2',first_mono=160_000_000_000,started_at=START+60,start_source='gps',gps_offset=offset)
+  self.segment('4'*32,'0000044c--abc / 구간 5',first_mono=340_000_000_000,started_at=START+240,start_source='gps',gps_offset=offset+.5)
+  self.segment('5'*32,'0000044c--abc / 구간 3',**device) # Converted before first_mono: kept.
+  self.segment('6'*32,'0000044d--def / 구간 0',first_mono=5_000_000_000,**device) # No GPS in its route: kept.
+  rows=self.rows()
+  self.assertEqual((rows['1'*32]['started_at'],rows['1'*32]['start_source']),(START-60,'gps'))
+  self.assertEqual(rows['2'*32]['started_at'],START)
+  self.assertEqual((rows['3'*32]['started_at'],rows['4'*32]['started_at']),(START+60,START+240))
+  self.assertEqual((rows['5'*32]['started_at'],rows['5'*32]['start_source']),(STALE,'device'))
+  self.assertEqual((rows['6'*32]['started_at'],rows['6'*32]['start_source']),(STALE,'device'))
+  for row in rows.values():self.assertNotIn('first_mono',row);self.assertNotIn('gps_offset',row)
+  # The cached rows are not changed by the correction.
+  with patch.object(server,'LIST_RACY_SECONDS',-60):self.assertEqual(self.rows()['1'*32]['started_at'],START-60)
+  self.assertEqual(self.rows()['1'*32]['started_at'],START-60)
+  self.assertEqual(server.list_rows['1'*32][1]['started_at'],STALE)
 
 if __name__=='__main__':unittest.main()

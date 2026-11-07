@@ -79,6 +79,10 @@ const {showTab}=require('./browser-helpers.cjs');
   await page.waitForFunction(()=>document.querySelector('.log-route .route-thumb img')?.complete);
   assert.equal(await card.locator('.route-thumb img').getAttribute('src'),'api/logs/041b0/thumbnail?v=3');
   assert.equal(await card.locator('.route-thumb img').getAttribute('loading'),'lazy');
+  // The server lists newer segments first: the card still shows the first segment's picture.
+  logs.reverse();await page.locator('#refresh').click();await page.waitForTimeout(400);
+  assert.equal(await card.locator('.route-thumb img').getAttribute('src'),'api/logs/041b0/thumbnail?v=3','card thumbnail comes from the lowest segment, not the first listed');
+  logs.reverse();await page.locator('#refresh').click();await page.waitForTimeout(400);
   await page.waitForFunction(()=>!document.querySelector('.log-row[data-id="041b1"] .log-thumb img'));
   assert(thumbs.includes('041b1?v=3&pending=1'),'thumbnail_available asks for one, under its own URL so a made one is fetched again');assert(await page.locator('.log-row[data-id="041b1"] .thumb-placeholder').isVisible(),'a failed thumbnail shows the placeholder');
   // Made later by the backfill: the next list reports it and the image is asked for again.

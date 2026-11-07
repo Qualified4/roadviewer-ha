@@ -5,7 +5,7 @@
 // a button neither flashes a ripple nor competes with the scroll. The wave grows while pressed and fades on release.
 (()=>{
  if(window.rvRipple)return;window.rvRipple=true;
- const target='button,[role=menuitem],[role=tab],[role=option],summary';
+ const target='button,a.back,[role=menuitem],[role=tab],[role=option],summary';
  const reduce=matchMedia('(prefers-reduced-motion: reduce)');
  const TOUCH_DELAY=90,SLOP=10,FADE=320;
  const host=node=>{

@@ -2,6 +2,8 @@
 existed, archived logs included (their files may be on the NAS or only on Google Drive). The list (/api/logs) only
 reads what is stored here and by conversion; it never opens a log, its telemetry or a video.
 
+Starts written before start_v 2 (a device clock first, often stale) are read again, the same way.
+
 Order: logs the list asked for, then the first segment of every drive (its card's picture and start time), newest
 drive first, then the other segments, newest first. A log whose files cannot be read now (its NAS is not the
 active archive, a Drive file errors, an unexpected failure) goes to the end of the next runs instead of stopping
@@ -13,9 +15,10 @@ uploads, conversions, an archive run or a Drive-backed playback are active, and 
 a Drive error. Files are never downloaded whole: a NAS file is read in place (only its first bytes / frames),
 a Drive file through ranged downloads of its first PREFIX_BYTES (plus, for an MP4 whose moov box is at the
 end, that box alone, up to MOOV_MAX). Results go where conversion puts them (prepared/thumbnail.jpg,
-summary.json started_at) under the server lock and only into the conversion they were made from.
+summary.json started_at and its start fields) under the server lock and only into the conversion they were made from.
 
-Cached as unknown, per conversion: started_at null (the log was read and has no usable clock) and
+Cached as unknown, per conversion: started_at null with start_v (the log was read and has no usable clock; a log
+with no readable rlog keeps its old start, marked 'device') and
 prepared/thumbnail.failed (every source was read and none decoded). An unreachable archive or a Drive error is
 never cached: the log is tried again on a later run.
 """
@@ -114,7 +117,8 @@ class Backfill:
   except (OSError,ValueError):return set()
   out=set()
   if not (prepared/'thumbnail.jpg').is_file() and not (prepared/THUMBNAIL_FAILED).exists():out.add('thumbnail')
-  if 'started_at' not in summary:out.add('started_at')
+  # Starts before start_v 2 came from a device clock that may not have been synced yet: read again (from GPS).
+  if summary.get('start_v')!=wall_clock.START_V:out.add('started_at')
   if 'drive_summary' not in summary and self.telemetry_file(p):out.add('drive_summary')
   return out
 
@@ -211,6 +215,8 @@ class Backfill:
   return bytes(data[:length])
 
  def started_at(self,p,m):
+  """The start fields (wall_clock.Starts.fields) from the first bytes of the log; None when there is no log to
+  read (removed, not readable as stored) or it is not a readable log."""
   found=self.resolve(p,m,'rlog.zst')
   if found is None:return None  # Removed, or not readable as stored: no start to find.
   data=self.read(found,0,wall_clock.SCAN_BYTES)
@@ -218,6 +224,14 @@ class Backfill:
   try:return wall_clock.scan_bytes(data)
   except Exception:
    log.warning('Start time of %s could not be read',p.name,exc_info=True);return None
+
+ def start(self,p,m):
+  # Cached per conversion (start_v): a log that cannot be read keeps the start it has, marked as from the device.
+  fields=self.started_at(p,m)
+  if fields is not None:return fields
+  try:old=json.loads((p/'prepared'/'summary.json').read_text()).get('started_at')
+  except (OSError,ValueError):old=None
+  return {'started_at':old,'start_source':'device' if old is not None else None,'first_mono':None,'gps_offset':None,'start_v':wall_clock.START_V}
 
  def remote_thumbnail(self,thumbnails,found):
   head=self.read(found,0,PREFIX_BYTES)
@@ -256,7 +270,7 @@ class Backfill:
 
  def process(self,p,m,need):
   updates={};data=MISSING
-  if 'started_at' in need:updates['started_at']=self.started_at(p,m)
+  if 'started_at' in need:updates.update(self.start(p,m))
   if 'drive_summary' in need:
    value=self.drive_summary(p)
    if value is not MISSING:updates['drive_summary']=value

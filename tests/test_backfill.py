@@ -68,6 +68,21 @@ class NasBackfillTests(unittest.TestCase):
   with patch.object(self.store,'available',return_value=False):self.assertEqual(self.worker.run_once(),(0,True))
   self.assertNotIn('started_at',saved(q));self.assertFalse((q/'prepared/thumbnail.failed').exists())
   self.assertEqual(self.worker.backoff,backfill.BACKOFF_START);self.assertGreater(self.worker.retry_at,0)
+ def test_starts_without_start_v_are_read_again_from_gps(self):
+  # Before start_v 2 the stale device clock (initData) won: three drives of a day showed the same time.
+  stale=START-30*3600;messages=[]
+  e=decoder.log.Event.new_message();e.logMonoTime=1_000_000_000;e.valid=True;e.init('initData');e.initData.wallTimeNanos=int(stale*1e9);messages.append(e.to_bytes())
+  e=decoder.log.Event.new_message();e.logMonoTime=3_000_000_000;e.valid=True;e.init('gpsLocationExternal')
+  e.gpsLocationExternal.hasFix=True;e.gpsLocationExternal.unixTimestampMillis=int((START+2)*1000);messages.append(e.to_bytes())
+  p=self.log('e'*32,{'rlog.zst':zstandard.ZstdCompressor().compress(b''.join(messages))});summary(p,started_at=stale)
+  q=self.log('f'*32,{'rlog.zst':b'not a log'});summary(q,started_at=stale)
+  done=self.log('9'*32,{'rlog.zst':rlog()});summary(done,started_at=START+5,start_source='gps',start_v=2)
+  with self.assertLogs('backfill','WARNING'):self.assertEqual(self.worker.run_once(),(3,False))
+  self.assertEqual({k:saved(p)[k] for k in wall_clock.FIELDS},{'started_at':START,'start_source':'gps','first_mono':1_000_000_000,'gps_offset':START-1,'start_v':2})
+  # No readable log: the old start is kept, marked as the device clock, and not tried again.
+  self.assertEqual({k:saved(q)[k] for k in wall_clock.FIELDS},{'started_at':stale,'start_source':'device','first_mono':None,'gps_offset':None,'start_v':2})
+  self.assertEqual(saved(done)['started_at'],START+5) # Already start_v 2: not read again.
+  with patch.object(wall_clock,'scan_bytes',side_effect=AssertionError('read again')):self.assertEqual(self.worker.run_once(),(0,False))
  def test_result_dropped_when_the_conversion_changed_meanwhile(self):
   p=self.log('d'*32,{'rlog.zst':rlog()})
   real=backfill.Backfill.started_at
