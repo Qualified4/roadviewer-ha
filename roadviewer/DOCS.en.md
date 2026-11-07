@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.10**.
+This guide describes **1.0.11**.
 
 [한국어](DOCS.md) · English
 
@@ -200,7 +200,7 @@ While playing, the title, the bottom-left controls and fullscreen fade out; touc
 
 The **playback bar** floats at the bottom while scrolling.
 
-- **Segment strip:** one block per segment of the route, in the same colours as the library (playable green, processing yellow, error red, unconverted grey); the playing segment is outlined. Clicking another playable segment opens it. On long drives the strip scrolls horizontally and keeps the current segment centred.
+- **Segment strip:** one block per segment of the route, in the same colours as the library (playable green, processing yellow, error red, unconverted grey); the playing segment is outlined. Clicking another playable segment opens it. On long drives the strip scrolls horizontally and keeps the current segment centred. Hovering a block (or holding a finger on it) shows that segment's thumbnail and start time above the strip until released. In phone and tablet fullscreen the strip is hidden; the title menu at the top left still changes segments.
 - **Event track:** automatic-control spans (자동 제어) and driver takeovers (운전자 개입), with a legend for the current segment, control, takeover and bookmarks.
 - **Seek bar:** buffered video ranges and bookmark markers. Seeking preserves the playing/paused state.
 - **Play/pause** (Space), **frame step** (← / →), **time** (tap to toggle between current time and total length), **북마크**, **speed** (0.25–4×).

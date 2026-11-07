@@ -405,6 +405,8 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .stage-frame{display:contents}
 .camera-panel.is-turned:fullscreen .stage-frame{position:absolute;top:0;left:0;display:flex;flex-direction:column;width:100vh;height:100vw;transform-origin:0 0;transform:translateX(100vw) rotate(90deg)}
 :root.stage-turned dialog[open]{rotate:90deg;max-width:calc(100vh - 32px);max-height:calc(100vw - 32px)}
+/* Touch full screen: no segment strip (its drag-scroll does not work across the turn; the title menu still changes segments). */
+@media(pointer:coarse){.camera-panel:fullscreen .segment-strip{display:none}}
 /* Fullscreen has no page around it, so its transport bar stays dark. */
 .camera-panel:fullscreen .playback{--text:#F2F4F6;--muted:#AEB9C7;--raised:rgba(255,255,255,.06);--raised-hover:rgba(255,255,255,.10);--control-line:rgba(255,255,255,.10);--track:rgba(255,255,255,.08);--track-shadow:none;--accent:#3DCB92;--pin:#F5C451;--drive:#7FB4FF;--takeover:#FF9F5A;--warn:#F5C451;--danger:#FF7A6B;--unconverted:#4A4F58;--ready:#3DCB92;--warn-text:#F5C451;--warn-edge:none;--danger-text:#FF7A6B;--takeover-text:#FF9F5A;--drive-text:#7FB4FF;--nas-text:#B79CFF;--focus:#5BE3AE;--hover:rgba(255,255,255,.10);position:static;width:auto;margin:0;border:0;border-radius:0;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;color:var(--text);color-scheme:dark;background:#11151C}
 @container(max-width:520px){.video-tools{top:8px;left:8px;gap:6px;max-width:calc(100% - 128px)}.video-tools,.video-hud,.video-fullscreen{--hud-h:36px}.video-tools .rv-choice-trigger,.overlay-group button{font-size:12px;padding:0 9px}.overlay-group .overlay-label{display:none}.video-hud{top:8px;right:8px;gap:5px}.video-hud .ego-speed{padding:0 10px 0 9px}.video-hud .ego-speed strong{font-size:20px}.video-hud .ego-speed span{padding-top:3px;font-size:10px}.video-hud .steering-status{width:40px;height:40px}.video-hud .steering-status svg{left:-12px;width:64px;height:40px}.steering-badge{padding:0 5px;font-size:9px;line-height:13px}.video-messages{left:8px;bottom:8px;right:52px}.video-fullscreen{right:8px;bottom:8px}}
@@ -430,9 +432,13 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .segment-block:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 /* Long drives (app.js fitSegmentStrip): fixed-width blocks in a horizontally scrollable row with a hidden scrollbar, snapping
    loosely to blocks; 4px of vertical room keeps focus rings visible, and the edges fade only where more blocks exist. */
-.segment-strip.is-scrolling{box-sizing:content-box;padding-block:4px;margin-top:-2px;margin-bottom:2px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;scroll-snap-type:x proximity;overscroll-behavior-x:contain;cursor:grab;
+.segment-strip.is-scrolling{box-sizing:content-box;padding:10px 0 10px;margin-top:-8px;margin-bottom:-4px;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;scroll-snap-type:x proximity;overscroll-behavior-x:contain;cursor:grab;
  -webkit-mask-image:linear-gradient(90deg,transparent,#000 var(--fade-left,0px),#000 calc(100% - var(--fade-right,0px)),transparent);mask-image:linear-gradient(90deg,transparent,#000 var(--fade-left,0px),#000 calc(100% - var(--fade-right,0px)),transparent)}
 .segment-strip.is-scrolling::-webkit-scrollbar{display:none}
+/* Scrolling clips the blocks' enlarged hit area to the strip's box, so the strip pads (and the margins give back) the touch room. */
+/* On touch the event track (only a tooltip for the mouse) lets taps fall through to the segment blocks above it. */
+@media(pointer:coarse){.event-track{pointer-events:none}}
+.segment-strip.is-scrolling .segment-block::before{inset:-10px 0}
 .segment-strip.is-dragging{scroll-snap-type:none;cursor:grabbing}
 .segment-strip.is-scrolling .segment-block{flex:0 0 28px;scroll-snap-align:center}
 .segment-strip.fade-left{--fade-left:28px}.segment-strip.fade-right{--fade-right:28px}
@@ -565,7 +571,7 @@ button.time-toggle:active{background:var(--hover)}
  .replay-page .playback{bottom:calc(8px + env(safe-area-inset-bottom));width:calc(var(--mobile-layout-width,100%) - 16px);padding:10px 12px;border-radius:18px}
  .timeline-legend{display:none}
  .segment-strip{height:8px;margin-bottom:5px}.segment-block{height:8px;border-radius:3px}
- .segment-strip.is-scrolling{margin-bottom:1px}.segment-strip.is-scrolling .segment-block{flex-basis:24px}
+ .segment-strip.is-scrolling{margin-bottom:-5px}.segment-strip.is-scrolling .segment-block{flex-basis:24px}
  /* Play sits exactly at the bar's centre; the ◀|▶ pill continues from under its right half. Time + 북마크 flow on the left
     (kept clear of play by the row's right padding), 속도 sits at the right edge. Secondary controls share one soft fill, no edges. */
  .replay-page .playback{--control-soft:color-mix(in srgb,var(--text) 7%,transparent);--play:52px;--step:40px}
@@ -744,3 +750,15 @@ select,.rv-choice-trigger{font-weight:500}
 .glass-panel{background:var(--glass-bg);border:1px solid var(--glass-border);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow)}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.glass-panel{background:var(--glass-solid)}}
 @media(prefers-reduced-transparency:reduce){.glass-panel{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
+/* Segment preview above the strip (app.js showSegmentPeek): the popup card with the segment's thumbnail and a tail. */
+.segment-peek{position:absolute;z-index:6;width:184px;padding:4px;border-radius:12px;background:var(--pop);box-shadow:var(--pop-shadow);color:var(--text);transform:translateX(-50%);pointer-events:none;visibility:hidden;opacity:0;translate:0 4px;transition:opacity .14s ease,translate .14s ease,visibility 0s linear .14s}
+.segment-peek.is-shown{visibility:visible;opacity:1;translate:0 0;transition-delay:0s}
+.segment-peek::after{content:"";position:absolute;left:calc(50% + var(--tail,0px));bottom:-5px;width:10px;height:10px;margin-left:-5px;background:var(--pop);rotate:45deg;border-radius:0 0 3px 0;clip-path:polygon(100% 0,100% 100%,0 100%)}
+.segment-peek-pic{position:relative;display:grid;place-items:center;aspect-ratio:16/9;overflow:hidden;border-radius:9px;background:var(--well);color:var(--muted)}
+.segment-peek-pic img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.segment-peek-label{display:flex;justify-content:space-between;gap:8px;padding:6px 6px 3px;font-size:12px;line-height:1.4}
+.segment-peek-label b{font-weight:600}.segment-peek-label span{color:var(--muted);font-variant-numeric:tabular-nums}
+.segment-block{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+@media(prefers-reduced-motion:reduce){.segment-peek{transition:none}}
+/* Stacked: the bottom video controls stay above the transport bar where it covers the picture's bottom (app.js --video-cover). */
+.replay-page.compact-media .camera-panel:not(:fullscreen) :is(.video-tools,.video-fullscreen,.video-messages){translate:0 calc(-1 * var(--video-cover,0px))}

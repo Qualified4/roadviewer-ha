@@ -32,7 +32,13 @@ const replay={route:'0000041b--a1b2c3d4e5',key:'long',duration:2,warnings:[],vid
    assert.equal(s.block,width<720?24:28,'fixed block width');
    assert(Math.abs(s.offset)<=3,'the current segment is centred on load at '+width+': '+s.offset);
    assert.deepEqual(s.fades,[true,true],'edge fades where more segments exist');
-   assert(s.page<=0,'no page horizontal scroll at '+width);assert(s.bar<=width,'transport bar keeps its width');
+   assert(s.page<=0,'no page horizontal scroll at '+width);
+   // The scrolling strip clips its blocks' enlarged hit area to its own box, so it pads that box: a block takes taps over
+   // at least 22px of height with a mouse (the visible block is 8-12px; touch also gets the event track's rows), and the seek bar below keeps its own.
+   const hit=await page.locator('#segmentStrip').evaluate(s=>{const b=s.querySelector('[aria-current]'),r=b.getBoundingClientRect(),x=r.left+r.width/2;let n=0;
+    for(let y=Math.floor(r.top)-20;y<=r.bottom+20;y++)if(document.elementFromPoint(x,y)===b)n++;const seek=document.getElementById('seek').getBoundingClientRect();
+    return {n,seek:document.elementFromPoint(x,seek.top+seek.height/2)?.id}});
+   assert(hit.n>=22,'segment block touch height at '+width+': '+hit.n);assert.equal(hit.seek,'seek','the seek bar keeps its touches');assert(s.bar<=width,'transport bar keeps its width');
    if(shots&&!reduced)await page.screenshot({path:`${shots}/long-drive-replay-${width}.png`});
    // Manual scrolling is the user's until the next segment change; scrolling to the start drops the left fade.
    await page.locator('#segmentStrip').evaluate(e=>{e.dispatchEvent(new WheelEvent('wheel'));e.scrollLeft=0});await page.waitForFunction(()=>!document.getElementById('segmentStrip').classList.contains('fade-left'));

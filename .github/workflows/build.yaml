@@ -140,6 +140,8 @@ jobs:
         if: matrix.group == 'g4'
       - run: node tests/fullscreen_landscape.cjs
         if: matrix.group == 'g4'
+      - run: node tests/segment_peek.cjs
+        if: matrix.group == 'g4'
       - run: node tests/motion.cjs
         if: matrix.group == 'g4'
       - run: node tests/library_tabs.cjs
