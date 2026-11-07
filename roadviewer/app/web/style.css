@@ -75,7 +75,7 @@ i.model-path{background:var(--map-path)}
 @media(max-width:600px){.road-ranges{gap:6px}.road-ranges .rv-choice-trigger{padding:5px 7px;gap:6px}}
 
 #videoSourceControl{display:flex;align-items:center;min-width:0;max-width:100%}
-#overlayStatus{font-size:11px;color:var(--muted)}
+#overlayStatus{font-size:11px;font-weight:500;color:var(--hud-text)}
 #videoOverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 
 .layout-width{display:grid;grid-template-columns:1fr auto;gap:12px;margin:0 0 14px;color:var(--muted);font-size:12px}
@@ -705,6 +705,12 @@ select,.rv-choice-trigger{font-weight:500}
 .replay-page .camera-panel:not(:fullscreen){background:transparent}
 .replay-page.layout-stacked .camera-panel:not(:fullscreen){background:var(--bg)}
 @media(min-width:720px){.replay-page .camera-panel:not(:fullscreen){box-shadow:none}}
+/* Stacked, the sticky video card lifts like the other cards, so the card scrolling up under it meets a shadowed edge. */
+.replay-page.layout-stacked .camera-panel:not(:fullscreen){box-shadow:var(--surface-shadow)}
+/* Notices over the video (status, overlay and log warnings) are thinner than the controls so more of the picture shows. */
+.video-wrap .video-messages>:is(p,span).glass{--glass-bg:rgba(18,20,24,.05)}
+:root[data-theme=light] .camera-panel:not(:fullscreen) .video-messages>:is(p,span).glass{--glass-bg:rgba(255,255,255,.3)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .camera-panel:not(:fullscreen) .video-messages>:is(p,span).glass{--glass-bg:rgba(255,255,255,.3)}}
 /* The gradient rim of the over-video glass: a 1px ring cut out with a mask (content-box minus border-box); choice
    triggers draw it with ::before because their ::after is the chevron. */
 .video-wrap :is(.overlay-group,.video-messages>*,.video-tools .rv-choice-trigger,.video-title .app-title-button,.video-title .log-neighbors .icon-button){position:relative}

@@ -30,7 +30,7 @@ class MediaStoreTests(unittest.TestCase):
  def test_from_options_defaults_off(self):
   s = m.ArchiveSettings.from_options({})
   self.assertEqual((s.enabled, s.path, s.error), (False, None, None))
-  self.assertEqual((s.local_threshold_bytes, s.min_age_seconds, s.interval_seconds, s.batch, s.nas_max_bytes, s.nas_margin_bytes), (0, 86400, 600, 4, 0, 1024*2**20))
+  self.assertEqual((s.local_threshold_bytes, s.min_age_seconds, s.interval_seconds, s.batch, s.nas_max_bytes, s.nas_margin_bytes), (0, 86400, 86400, 4, 0, 1024*2**20))
   s = m.ArchiveSettings.from_options({'archive_enabled': True, 'archive_path': '/share/nas/roadviewer', 'archive_local_threshold_mb': 2, 'archive_min_age_hours': 1, 'archive_interval_minutes': 5, 'archive_batch': 8, 'archive_nas_max_mb': 3, 'archive_nas_margin_mb': 0})
   self.assertEqual((s.enabled, s.path, s.error), (True, Path('/share/nas/roadviewer'), None))
   self.assertEqual((s.local_threshold_bytes, s.min_age_seconds, s.interval_seconds, s.batch, s.nas_max_bytes, s.nas_margin_bytes), (2*2**20, 3600, 300, 8, 3*2**20, 0))
