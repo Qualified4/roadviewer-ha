@@ -28,27 +28,32 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   assert(await page.evaluate(()=>[...document.fonts].some(face=>face.family==='Pretendard Variable'&&face.status==='loaded')),'bundled Korean font loads through Ingress');
   assert((await page.locator('body').evaluate(e=>getComputedStyle(e).fontFamily)).includes('Pretendard Variable'));
   await page.locator(`.log-row[data-id="${ids[0]}"] .replay`).click();await page.locator('#play:enabled').waitFor();
-  const open=async()=>{await page.locator('#bookmarkOpen').click();await page.locator('.bookmark-title:enabled').waitFor()},modal=page.locator('.bookmark-dialog');
+  // Bookmarks live in the analysis panel's 북마크 tab; the transport bar button opens it with the current time.
+  const open=async()=>{await page.locator('#bookmarkOpen').click();await page.locator('.bookmark-title:enabled').waitFor();assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');assert(await page.locator('.bookmark-title').evaluate(e=>e===document.activeElement),'the title field takes focus')},modal=page.locator('#bookmarkView');
   const seek=async time=>page.locator('#seek').evaluate((e,time)=>{e.value=time;e.dispatchEvent(new Event('input',{bubbles:true}))},time);
   const save=async()=>{await modal.locator('.bookmark-save').click();await modal.locator('.bookmark-result').getByText('북마크를 저장했습니다.',{exact:true}).waitFor()};
-  await open();await page.keyboard.press('Escape');await modal.waitFor({state:'hidden'});await page.waitForFunction(()=>document.body.style.overflow==='');
-  await open();await page.mouse.click(1,1);await modal.waitFor({state:'hidden'});await page.waitForFunction(()=>document.body.style.overflow==='');
+  // Opened as a tab, a new bookmark follows the scene on screen until the user starts writing.
+  await page.locator('#roadTab').click();await page.locator('#bookmarkTab').click();await modal.locator('.bookmark-title:enabled').waitFor();
+  await seek(1);assert.equal(await modal.locator('.bookmark-time').textContent(),'0:01.00');
+  await modal.locator('.bookmark-title').fill('임시');await seek(3);assert.equal(await modal.locator('.bookmark-time').textContent(),'0:01.00','typing keeps the captured time');
+  await modal.locator('.bookmark-now').click();assert.equal(await modal.locator('.bookmark-time').textContent(),'0:03.00');await modal.locator('.bookmark-title').fill('');
+  assert.equal(await page.evaluate(()=>document.body.style.overflow),'','the tab never locks page scrolling');
   await seek(2.5);await open();assert.equal(await modal.locator('.bookmark-time').textContent(),'0:02.50');
   await modal.locator('.bookmark-title').fill('앞차 확인');await modal.locator('.bookmark-note').fill('<img src=x>\n상세 메모');await save();
   assert.equal(read(ids[0]).bookmarks[0].time,2.5);assert.equal(await modal.locator('.bookmark-list img').count(),0);
-  for(const [width,height] of [[320,568],[768,844],[1440,900],[844,390]]){await page.setViewportSize({width,height});await settleLayout(page,'.bookmark-dialog');const box=await modal.boundingBox();assert(box.x>=0&&box.y>=0&&box.x+box.width<=width&&box.y+box.height<=height);assert(await modal.evaluate(e=>e.scrollWidth<=e.clientWidth))}
-  await page.setViewportSize({width:390,height:844});if(process.env.RV_BOOKMARK_SCREENSHOT)await page.screenshot({path:process.env.RV_BOOKMARK_SCREENSHOT});await modal.locator('.bookmark-close').click();await seek(6);await open();
+  for(const [width,height] of [[320,568],[768,844],[1440,900],[844,390]]){await page.setViewportSize({width,height});await settleLayout(page,'#bookmarkView');const box=await modal.boundingBox();assert(box.x>=0&&box.x+box.width<=width,'bookmark tab fits at '+width);assert(await modal.evaluate(e=>e.scrollWidth<=e.clientWidth));assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no horizontal page scroll at '+width)}
+  await page.setViewportSize({width:390,height:844});if(process.env.RV_BOOKMARK_SCREENSHOT)await page.screenshot({path:process.env.RV_BOOKMARK_SCREENSHOT});await seek(6);await open();
   await modal.locator('.bookmark-title').fill('두 번째');await save();assert.equal(read(ids[0]).bookmarks.length,2);
   await modal.getByRole('button',{name:'앞차 확인 수정',exact:true}).click();await modal.locator('.bookmark-title').fill('수정된 장면');await save();assert.equal(read(ids[0]).bookmarks[0].title,'수정된 장면');
   await modal.getByRole('button',{name:/0:02.50 수정된 장면/}).click();assert.equal(await page.locator('#seek').inputValue(),'2.5');assert.equal(await page.locator('#play').textContent(),'재생');
   await page.locator('#play').click();await open();await modal.getByRole('button',{name:/0:06.00 두 번째/}).click();assert.equal(await page.locator('#play').textContent(),'일시정지');assert(Number(await page.locator('#seek').inputValue())>=6);await page.locator('#play').click();
-  assert((await page.locator('.playback').boundingBox()).height<130,'bookmarks keep playback compact');await page.locator('.bookmark-marker').first().click();assert.equal(await page.locator('#seek').inputValue(),'2.5');
+  assert((await page.locator('.playback').boundingBox()).height<150,'bookmarks keep playback compact');assert.equal(await page.locator('#bookmarkCount').textContent(),'2','the tab shows the count');await page.locator('.bookmark-marker').first().click();assert.equal(await page.locator('#seek').inputValue(),'2.5');
   await page.reload();await page.locator('#play:enabled').waitFor();await page.locator('.bookmark-marker').first().waitFor();assert.equal(await page.locator('.bookmark-marker').count(),2);
   await open();await modal.locator('.bookmark-note').focus();await page.keyboard.press('Space');await page.keyboard.press('ArrowRight');assert.equal(await page.locator('#play').textContent(),'재생');assert.equal(await page.locator('#seek').inputValue(),'0');
   let failed=true;await page.route('**/bookmarks',route=>route.request().method()==='POST'&&failed?route.fulfill({status:503,json:{error:'저장 테스트 오류'}}):route.continue());
   await modal.locator('.bookmark-title').fill('재시도');await modal.locator('.bookmark-save').click();await modal.getByText('저장 테스트 오류',{exact:true}).waitFor();assert.equal(await modal.locator('.bookmark-title').inputValue(),'재시도');failed=false;await save();assert.equal(read(ids[0]).bookmarks.length,3);
   page.once('dialog',d=>d.accept());await modal.getByRole('button',{name:'수정된 장면 삭제',exact:true}).click();await modal.getByText('북마크를 삭제했습니다.',{exact:true}).waitFor();assert.equal(read(ids[0]).bookmarks.length,2);assert.equal(await page.locator('.bookmark-marker').count(),2);
-  await modal.locator('.bookmark-close').click();await page.locator('.back').click();await page.locator('.log-row').first().waitFor();await page.locator(`.log-row[data-id="${ids[1]}"] .replay`).click();await page.locator('#play:enabled').waitFor();await open();await modal.getByText('저장된 장면이 없습니다.',{exact:true}).waitFor();assert.equal(await page.locator('.bookmark-marker').count(),0);assert.deepEqual(errors,[]);
-  console.log('PASS: bookmark capture/edit/delete, safe notes, responsive dialog, pause/play-preserving synchronized seeks, markers, reload, failure retry and segment isolation');
+  await page.locator('.back').click();await page.locator('.log-row').first().waitFor();await page.locator(`.log-row[data-id="${ids[1]}"] .replay`).click();await page.locator('#play:enabled').waitFor();await open();await modal.getByText('저장된 장면이 없습니다.',{exact:true}).waitFor();assert.equal(await page.locator('.bookmark-marker').count(),0);assert.deepEqual(errors,[]);
+  console.log('PASS: bookmark tab capture (follows the scene until writing)/edit/delete, safe notes, responsive tab, pause/play-preserving synchronized seeks, markers, reload, failure retry and segment isolation');
  }finally{await browser?.close();if(python.exitCode===null){python.kill();await once(python,'exit')}fs.rmSync(dir,{recursive:true,force:true})}
 })().catch(error=>{console.error(error);process.exitCode=1});

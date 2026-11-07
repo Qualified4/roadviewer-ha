@@ -14,12 +14,13 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     return route.fulfill({json:{concurrency}});
    }
    if(p==='/api/diagnostics')return route.fulfill({json:{saved:1}});
-   const name=p==='/'?'library.html':p.replace('/assets/','');
+   if(p==='/api/settings/storage')return route.fulfill({status:404,json:{error:'not_found'}});const name=p==='/'?'library.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
   // Use the real library HTML content type.
   await page.route('https://rv.test/',route=>route.fulfill({body:fs.readFileSync('roadviewer/app/web/library.html'),contentType:'text/html'}));
-  await page.goto('https://rv.test/');
+  // The settings live in the 설정 tab; a #settings link opens it directly and survives reloads.
+  await page.goto('https://rv.test/#settings');
   await page.waitForFunction(()=>document.getElementById('concurrencyChoice')&&!document.getElementById('concurrencyChoice').disabled);
   assert.equal(await page.locator('#concurrencyChoice').textContent(),'1개');
   for(const value of [2,3,4]){

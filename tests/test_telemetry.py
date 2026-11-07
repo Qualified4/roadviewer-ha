@@ -1,7 +1,7 @@
 import math,sys,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
-from telemetry import extract_telemetry
+from telemetry import extract_telemetry,drive_summary
 
 class TelemetryTests(unittest.TestCase):
  def test_clock_units_brief_intervention_invalid_and_missing(self):
@@ -63,5 +63,32 @@ class TelemetryTests(unittest.TestCase):
   self.assertEqual(stream['values']['RFVisible'],[False,False,None,None])
   self.assertEqual(stream['values']['FFDistance'],[9.25,None,None,None])
   self.assertEqual(stream['values']['FFLateral'],[-1.873,None,None,None])
+
+ def test_drive_summary_engaged_share_and_debounced_takeovers(self):
+  times=[i*.1 for i in range(100)] # 10 s of carControl at 10 Hz.
+  enabled=[2<=t<8 for t in times];enabled[30]=None # One invalid sample inside the engaged stretch.
+  # Steering rises at 3.0 s and again at 3.5 s (one takeover), gas at 6.0 s, brake at 7.9 s just before the drop at 8.0 s.
+  pressed=lambda *at:[any(abs(t-a)<1e-9 for a in at) for t in times]
+  state={'steeringPressed':pressed(3,3.5),'gasPressed':pressed(6,9),'brakePressed':pressed(7.9)}
+  state['steeringPressed'][0]=True # Already pressed at the start: not a rise.
+  telemetry={'duration':10,'maxGap':.15,'streams':{'carControl':{'times':times,'values':{'enabled':enabled}},'carState':{'times':times,'values':state}}}
+  summary=drive_summary(telemetry)
+  self.assertAlmostEqual(summary['engaged_ratio'],.595) # The sample before the invalid one holds only maxGap.
+  self.assertEqual(summary['takeovers'],3)
+  # Gas at 9 s is after the drop (not engaged); the brake and the drop 0.1 s later are one takeover.
+  values=telemetry['streams']['carControl']['values'];values['enabled']=[True]*100
+  self.assertEqual(drive_summary(telemetry),{'engaged_ratio':1,'takeovers':4})
+  # Samples hold only up to maxGap: a 5 s hole is not counted as engaged.
+  sparse={'duration':10,'maxGap':.15,'streams':{'carControl':{'times':[0,5],'values':{'enabled':[True,False]}}}}
+  self.assertAlmostEqual(drive_summary(sparse)['engaged_ratio'],.015)
+  self.assertEqual(drive_summary(sparse)['takeovers'],1)
+ def test_drive_summary_unknown_without_enabled(self):
+  self.assertIsNone(drive_summary(extract_telemetry({},0,1)))
+  self.assertIsNone(drive_summary({'duration':1,'streams':{'carControl':{'times':[0],'values':{'enabled':[None]}}}}))
+  self.assertIsNone(drive_summary({'duration':0,'streams':{'carControl':{'times':[0],'values':{'enabled':[True]}}}}))
+  self.assertIsNone(drive_summary(None))
+  rows=[(i*10_000_000,True,{'enabled':i<50}) for i in range(100)]
+  summary=drive_summary(extract_telemetry({'carControl':rows},0,1))
+  self.assertAlmostEqual(summary['engaged_ratio'],.5);self.assertEqual(summary['takeovers'],1)
 
 if __name__=='__main__':unittest.main()

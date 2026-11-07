@@ -1,4 +1,5 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+const {showTab}=require('./browser-helpers.cjs');
 
 // Mutations must win over a list read already in flight, even when the next read fails.
 async function checkRemovalRefresh(browser){
@@ -26,14 +27,14 @@ async function checkRemovalRefresh(browser){
     return route.fulfill({json:{status}});
    }
    if(p==='/api/progress')return route.fulfill({json:{progress:{}}});
-   const name=p==='/'?'library.html':p.replace('/assets/','');
+   if(p==='/api/settings/storage')return route.fulfill({status:404,json:{error:'not_found'}});const name=p==='/'?'library.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
   try{
    await page.goto('https://rv.test/');await page.locator('.log-row .replay').waitFor();assert(await page.locator('.pin-badge').isVisible());
    if(scenario==='stale'){holdNext=true;await page.evaluate(()=>{void refresh()});await staleSeen.promise}
    const postRemovalRead=page.waitForRequest(r=>new URL(r.url()).pathname==='/api/logs'&&removed>0,{timeout:2000});
-   await page.locator('.recording-more>summary').click();await page.getByRole('button',{name:'제거',exact:true}).click();
+   await page.locator('.log-row .recording-more>summary').click();await page.getByRole('button',{name:'제거',exact:true}).click();
    await postRemovalRead;await freshSeen.promise;
    await page.locator('.log-row').getByRole('button',{name:'변환',exact:true}).waitFor({timeout:2000});
    assert.equal(removed,1);assert.equal(await page.locator('.replay').count(),0,scenario+': successful removal immediately removes the replay action');
@@ -68,19 +69,23 @@ async function checkRemovalRefresh(browser){
    if(p.endsWith('/prepared')){assert.equal(route.request().method(),'DELETE');removed++;status='unconverted';excluded=true;return route.fulfill({json:{status}})}
    if(p.endsWith('/convert')){converted++;status='queued';return route.fulfill({json:{status}})}
    if(p==='/api/logs/one'){deleted++;return route.fulfill({json:{deleted:'one'}})}
-   const name=p==='/'?'library.html':p.replace('/assets/','');return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
+   if(p==='/api/settings/storage')return route.fulfill({status:404,json:{error:'not_found'}});const name=p==='/'?'library.html':p.replace('/assets/','');return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
   await page.goto('https://rv.test/');await page.waitForFunction(()=>!document.getElementById('autoConvert').disabled);
-  assert(await page.getByRole('heading',{name:'변환 및 저장 설정'}).isVisible());assert.equal(await page.locator('.status-guide dt').count(),5);assert(await page.evaluate(()=>document.querySelector('.upload').nextElementSibling.matches('.conversion-info')));
-  const more=page.locator('.recording-more>summary');
+  // Conversion settings and guides live in the 설정 tab.
+  await showTab(page,'settings');
+  assert(await page.getByRole('heading',{name:'변환 기본 설정'}).isVisible());assert.equal(await page.locator('.status-guide dt').count(),5);assert.equal(await page.locator('#panel-settings>.conversion-info').count(),1);
+  await showTab(page,'logs');
+  const more=page.locator('.log-row .recording-more>summary');
   assert.equal(await page.getByRole('button',{name:'제거',exact:true}).isVisible(),false);
   assert.equal(await page.getByRole('link',{name:'영상 다운로드',exact:true}).isVisible(),false);
   await more.click();assert(await page.getByRole('button',{name:'제거',exact:true}).isVisible());
   assert((await page.getByRole('link',{name:'영상 다운로드',exact:true}).getAttribute('href')).endsWith('/download/video'));
-  await page.evaluate(()=>refresh());assert(await page.locator('.recording-more').evaluate(e=>e.open),'polling keeps menu open');
-  await page.keyboard.press('Escape');assert.equal(await page.locator('.recording-more').evaluate(e=>e.open),false);
-  await more.click();await page.getByRole('heading',{name:'저장된 로그',exact:true}).click();
-  assert.equal(await page.locator('.recording-more').evaluate(e=>e.open),false,'outside click closes menu');
+  await page.evaluate(()=>refresh());assert(await page.locator('.log-row .recording-more').evaluate(e=>e.open),'polling keeps menu open');
+  await page.keyboard.press('Escape');assert.equal(await page.locator('.log-row .recording-more').evaluate(e=>e.open),false);
+  await more.click();await page.getByRole('heading',{name:'로그',exact:true}).click();
+  assert.equal(await page.locator('.log-row .recording-more').evaluate(e=>e.open),false,'outside click closes menu');
+  await showTab(page,'settings');
   const guide=page.locator('.conversion-info');
   await guide.locator(':scope > summary').click();await page.waitForFunction(()=>localStorage.getItem('roadviewer-conversion-guide-open')==='false');
   await page.reload();assert.equal(await guide.evaluate(e=>e.open),false,'guide stays collapsed after reload');
@@ -89,9 +94,10 @@ async function checkRemovalRefresh(browser){
   await page.getByRole('switch',{name:'자동 변환'}).uncheck();await page.waitForFunction(()=>document.getElementById('autoConvertState').textContent==='꺼짐');assert.equal(automatic,false);
   await page.reload();assert.equal(await page.getByRole('switch',{name:'자동 변환'}).isChecked(),false);
   fail=true;await page.getByRole('switch',{name:'자동 변환'}).check();await page.waitForFunction(()=>document.getElementById('error').textContent==='설정 저장 실패');assert.equal(await page.getByRole('switch',{name:'자동 변환'}).isChecked(),false);fail=false;
-  assert.equal(await guide.locator('#autoConvert, #concurrency').count(),2);
+  assert.equal(await page.locator('#panel-settings').locator('#autoConvert, #concurrency').count(),2);
   assert.equal(await page.locator('#keepOriginalVideo').count(),0);
-  assert((await guide.textContent()).includes('재압축 없이 MP4'));
+  assert((await page.locator('#panel-settings').textContent()).includes('재압축 없이 MP4'));
+  await showTab(page,'logs');
   page.on('dialog',d=>d.accept());await more.click();await page.getByRole('button',{name:'제거',exact:true}).click();await page.locator('.log-row').getByRole('button',{name:'변환',exact:true}).waitFor();assert.equal(removed,1);assert.equal(await page.locator('.replay').count(),0);assert((await page.locator('.state').textContent()).includes('수동 변환 필요'));
   await more.click();assert.equal(await page.getByRole('button',{name:'제거',exact:true}).count(),0);assert(await page.getByRole('button',{name:'완전 삭제',exact:true}).isVisible());
   await page.keyboard.press('Escape');await page.locator('.log-row').getByRole('button',{name:'변환',exact:true}).click();await page.locator('.log-row').getByRole('button',{name:'대기 중',exact:true}).waitFor();assert.equal(converted,1);assert(await page.locator('.log-row').getByRole('button',{name:'대기 중',exact:true}).isDisabled());
@@ -99,7 +105,7 @@ async function checkRemovalRefresh(browser){
   status='processing';await page.evaluate(()=>refresh());assert(await page.locator('.log-row').getByRole('button',{name:'처리 중',exact:true}).isDisabled());
   status='error';await page.evaluate(()=>refresh());assert(await page.locator('.log-row').getByRole('button',{name:'변환',exact:true}).isEnabled());
   status='ready';await page.evaluate(()=>refresh());await more.click();assert(await page.getByRole('button',{name:'제거',exact:true}).isEnabled());assert(await page.locator('.log-row').getByRole('link',{name:'재생',exact:true}).isVisible());
-  for(const width of [320,390,1280]){await page.setViewportSize({width,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const box=await page.locator('.recording-menu').boundingBox();assert(box.x>=0&&box.x+box.width<=width);}
+  for(const width of [320,390,1280]){await page.setViewportSize({width,height:844});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));const box=await page.locator('.log-row .recording-menu').boundingBox();assert(box.x>=0&&box.x+box.width<=width);}
   await page.getByRole('button',{name:'완전 삭제',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.log-row').length===0);assert.equal(deleted,1);assert.deepEqual(errors,[]);
   await checkRemovalRefresh(browser);
   console.log('PASS: automatic conversion toggle, persistence/error rollback, guide, convert/remove states, complete delete, responsive widths and removal refresh races');

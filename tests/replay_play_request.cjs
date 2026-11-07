@@ -8,6 +8,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const p=new URL(route.request().url()).pathname;
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
+   // The replay loads vehicle data in the background for the event track; none here.
+   if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
    if(p.endsWith('/data'))return route.fulfill({json:data});
    if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),contentType:'video/mp4'});
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');

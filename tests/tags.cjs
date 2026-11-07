@@ -28,7 +28,8 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   assert(await page.evaluate(()=>[...document.fonts].some(face=>face.family==='Pretendard Variable'&&face.status==='loaded')),'bundled Korean font loads through Ingress');
   assert((await page.locator('body').evaluate(e=>getComputedStyle(e).fontFamily)).includes('Pretendard Variable'));
   const row=id=>page.locator(`.log-row[data-id="${id}"]`),dialog=page.locator('.tag-dialog');
-  const open=async id=>{await row(id).getByRole('button',{name:'태그 편집',exact:true}).click();await dialog.waitFor()};
+  // 태그 편집 lives in each segment's ⋯ menu.
+  const open=async id=>{await row(id).locator('.recording-more>summary').click();await row(id).getByRole('button',{name:'태그 편집',exact:true}).click();await dialog.waitFor()};
   const add=async(name,color)=>{await dialog.locator('#tagNameInput').fill(name);if(color)await dialog.getByRole('button',{name:color,exact:true}).click();await dialog.locator('.tag-add').click()};
   const save=async()=>{await dialog.locator('.tag-save').click();await dialog.waitFor({state:'detached'})};
   await open(ids[0]);await page.keyboard.press('Escape');await dialog.waitFor({state:'detached'});assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
@@ -43,10 +44,11 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   await save();assert.deepEqual(read(ids[0]).tags.map(t=>t.name),['야간 주행','검토 필요','<img src=x onerror=alert(1)>']);assert.equal(read(ids[0]).tags[0].color,'blue');
   await row(ids[0]).locator('.recording-tags').waitFor();await page.reload();await row(ids[0]).locator('.recording-tags').waitFor();
   // Web-owned filter works in the Ingress shell and remains applied during polling.
-  await page.locator('#tagFilterChoice').click();await page.getByRole('option',{name:'야간 주행',exact:true}).click();assert(await row(ids[0]).isVisible());assert(await row(ids[1]).isHidden());
+  const chip=name=>page.locator('#logChips .filter-chip').filter({hasText:name});
+  await chip('야간 주행').click();assert.equal(await chip('야간 주행').getAttribute('aria-pressed'),'true');assert(await row(ids[0]).isVisible());assert(await row(ids[1]).isHidden());
   await Promise.all([page.waitForResponse(r=>r.url().endsWith('/api/logs')),page.locator('#refresh').click()]);await page.waitForFunction(()=>!document.getElementById('refresh').disabled);assert(await row(ids[1]).isHidden());
-  await page.locator('#tagFilterChoice').click();await page.getByRole('option',{name:'태그 없음',exact:true}).click();assert(await row(ids[0]).isHidden());assert(await row(ids[1]).isVisible());
-  await page.locator('#tagFilterChoice').click();await page.getByRole('option',{name:'전체 태그',exact:true}).click();
+  await chip('태그 없음').click();assert(await row(ids[0]).isHidden());assert(await row(ids[1]).isVisible());
+  await chip('전체').click();assert(await row(ids[0]).isVisible());assert(await row(ids[1]).isVisible());
   // Existing tags are searchable and selecting one reuses its color.
   await open(ids[1]);await dialog.locator('#tagNameInput').fill('야간');await dialog.locator('.tag-suggestions').getByRole('button',{name:'야간 주행',exact:true}).click();await save();assert.equal(read(ids[1]).tags[0].color,'blue');
   // The replay editor updates the same metadata and survives navigation back.
@@ -54,12 +56,12 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   await dialog.getByRole('button',{name:'검토 필요 선택 해제',exact:true}).click();await add('급제동','주황');await save();
   assert(read(ids[0]).tags.some(t=>t.name==='급제동'));assert(!read(ids[0]).tags.some(t=>t.name==='검토 필요'));
   await page.locator('#replayTags').getByText('급제동',{exact:true}).waitFor();await page.locator('.back').click();await row(ids[0]).waitFor();
-  await page.locator('#bulkOpen').click();await page.locator('.bulk-log').first().waitFor();await page.locator('#bulkAll').check();await page.locator('#bulkTags').click();
+  await page.locator('#bulkOpen').click();await page.locator('.segment-select').first().waitFor();await page.locator('#bulkAll').check();await page.locator('#bulkTags').click();
   await add('인식 오류','보라');
   let failSecond=true;await page.route('**/api/logs/'+ids[1]+'/tags',route=>failSecond?route.fulfill({status:503,json:{error:'test retry'}}):route.continue());
   await dialog.locator('.tag-save').click();await dialog.getByText(/1개 저장 · 1개 미완료/).waitFor();assert(read(ids[0]).tags.some(t=>t.name==='인식 오류'));assert(!read(ids[1]).tags.some(t=>t.name==='인식 오류'));
   failSecond=false;await save();assert(read(ids[1]).tags.some(t=>t.name==='인식 오류'));assert(read(ids[0]).tags.some(t=>t.name==='급제동'),'bulk addition preserves unrelated tags');
-  assert(await page.locator('#bulkDialog').evaluate(e=>e.open));assert.equal(await page.evaluate(()=>document.body.style.overflow),'hidden','nested editor keeps bulk scroll lock');
+  assert(await page.locator('#bulkBar').isVisible());assert.equal(await page.evaluate(()=>document.body.style.overflow),'','closing tag editor restores library scrolling');
   await page.locator('#bulkTags').click();await dialog.getByLabel('태그 제거',{exact:true}).check();await add('인식 오류');await save();
   for(const id of ids){assert(!read(id).tags.some(t=>t.name==='인식 오류'));assert(read(id).tags.some(t=>t.name==='야간 주행'))}
   await page.locator('#bulkClose').click();await page.waitForFunction(()=>document.body.style.overflow==='');

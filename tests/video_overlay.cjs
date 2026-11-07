@@ -2,13 +2,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
 (async()=>{
  const browser=await chromium.launch({headless:true});
  try{
-  const page=await browser.newPage({viewport:{width:390,height:844},reducedMotion:'reduce'}),errors=[];
+  // Road-map colours are asserted with the dark screen mode's palette (the original colours).
+  const page=await browser.newPage({viewport:{width:390,height:844},reducedMotion:'reduce',colorScheme:'dark'}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname;
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
    if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),contentType:'video/mp4'});
+   // The replay loads vehicle data in the background for the event track; none here.
+   if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
    if(p.endsWith('/data'))return route.fulfill({json:{route:'test',key:'overlay',duration:2,warnings:[],video:{start:0,duration:2},frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false,overlay:{lanes:[],edges:[],path:[[.5,.6],[.5,.9]],markers:[]}}]}});
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':'image/svg+xml'});
@@ -22,7 +25,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.locator(selector)[action]();
    if(opened){await page.locator('#overlayHeightClose').click();await dialog.waitFor({state:'hidden'})}
   };
-  assert.deepEqual(await page.locator('.overlay-tools>button').evaluateAll(nodes=>nodes.map(e=>e.id)),['videoOverlayToggle','overlayHeightSettings','cameraInfoButton']);
+  // Overlay toggle and its settings sit on the video (glass group); camera info moved to the ⋯ menu.
+  assert.deepEqual(await page.locator('.overlay-tools .overlay-group>button').evaluateAll(nodes=>nodes.map(e=>e.id)),['videoOverlayToggle','overlayHeightSettings']);
+  assert.equal(await page.locator('#replayDownloadMenu #cameraInfoButton').count(),1);
   assert.equal(await page.locator('#overlayHeightDialog #modelPathWidth').count(),1);
   assert.equal(await page.locator('#overlayHeightDialog #ccncBoxHelp').textContent(),'LF · FF · RF 박스는 지면에 고정됩니다. 크기는 추정값입니다.');
   assert.equal(await page.locator('#overlayStatus').textContent(),'');
@@ -48,7 +53,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await page.locator('#videoOverlay').isVisible());
   const pixels=()=>page.evaluate(()=>{const c=document.getElementById('videoOverlay'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;return d.some((v,i)=>i%4===3&&v>0)});
   assert(await pixels());
-  await page.locator('#modelPath').uncheck();assert(!(await pixels()));
+  await page.locator('#layerMenu>summary').click();await page.locator('#modelPath').uncheck();assert(!(await pixels()));await page.keyboard.press('Escape');
   await page.evaluate(()=>{data.frames[0].leads=[{x:20,y:0,p:1}];data.frames[0].overlay.markers=[{kind:'model',index:0,point:[.5,.8],projection:[.5,.8,1]}];data.frames[0].overlay.heightDirection=[0,-1,0];document.getElementById('hideLabels').checked=true;render()});
   assert(await pixels());
   await page.evaluate(()=>{data.frames[0].leads[0].x=100;render()});assert(await pixels(),'camera markers beyond the road range remain visible');
@@ -76,7 +81,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await settingAction('#ccncTargets','check');assert(await pixels(),'CCNC draws in video overlay');
   const renderedLabels=()=>page.evaluate(()=>{const labels=[],original=CanvasRenderingContext2D.prototype.fillText;CanvasRenderingContext2D.prototype.fillText=function(text,...args){labels.push({canvas:this.canvas.id,text:String(text),color:this.fillStyle});return original.call(this,text,...args)};try{render()}finally{CanvasRenderingContext2D.prototype.fillText=original}return labels});
   assert(await page.locator('#boxLabels').isChecked(),'box labels enabled by default');
-  await page.locator('#distanceLabels').check();
+  await page.locator('#layerMenu').evaluate(d=>{d.open=true});await page.locator('#distanceLabels').check();
   for(const slot of ['LF','FF','RF']){
    await page.evaluate(slot=>{data.frames[0].ccncTargets[0].slot=slot;data.frames[0].ccncTargets[0].detect=slot==='RF'?4:3},slot);
    const labels=(await renderedLabels()).filter(v=>v.text.startsWith(slot+' ·'));
@@ -93,7 +98,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(!(await renderedLabels()).some(v=>v.text.startsWith('RF ·')),'both views hide box labels');assert(await pixels(),'box remains visible');
   await settingAction('#boxLabels','check');
   await page.evaluate(()=>{data.frames[0].ccncTargets[0].slot='FF';data.frames[0].ccncTargets[0].detect=4});
-  await page.locator('#hideLabels').check();
+  await page.locator('#layerMenu').evaluate(d=>{d.open=true});await page.locator('#hideLabels').check();
   const overlayImage=()=>page.locator('#videoOverlay').evaluate(c=>c.toDataURL());
   const setBoxHeight=async value=>page.locator('#ccncBoxHeight').evaluate((e,v)=>{e.value=v;e.dispatchEvent(new Event('input'))},value);
   await setBoxHeight(0);const flat=await overlayImage();assert(await pixels(),'zero height keeps the footprint');
@@ -227,7 +232,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   });
   const roadLines=laneStyles.filter(s=>s.canvas==='road');assert.equal(roadLines.length,2);
   assert(roadLines.every(s=>s.glow===0),'plan-view lanes do not glow');
-  for(const [i,p] of [.2,.8].entries()){assert(Math.abs(roadLines[i].width-(1+3*p))<1e-6);assert(Math.abs(roadLines[i].alpha-p)<1e-6);assert.deepEqual(roadLines[i].dash,p<.5?[6,5]:[])}
+  for(const [i,p] of [.2,.8].entries()){assert(Math.abs(roadLines[i].width-(.6+.8*p))<1e-6);assert(Math.abs(roadLines[i].alpha-p*.65)<1e-6);assert.deepEqual(roadLines[i].dash,p<.5?[6,5]:[])}
   const videoLines=laneStyles.filter(s=>s.canvas==='videoOverlay');assert.equal(videoLines.length,4);
   assert(videoLines.every(s=>s.glow>0&&s.width===1&&s.dash.length===0),'video keeps luminous solid ribbon outlines');
   assert(videoLines[0].alpha<videoLines[2].alpha,'video confidence still controls outline visibility');
@@ -380,10 +385,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
      const same=[vr,cr].every(r=>['x','y','width','height'].every(k=>Math.abs(r[k]-box[k])<1));
      const ratio=Math.min(vr.width/v.videoWidth,vr.height/v.videoHeight),vw=v.videoWidth*ratio,vh=v.videoHeight*ratio;
      const px=(vr.x-cr.x+vr.width/2)*c.width/cr.width,py=(vr.y-cr.y+(vr.height-vh)/2+vh*.75)*c.height/cr.height;
-     return {same,bottom:vr.bottom<=document.querySelector('.overlay-tools').getBoundingClientRect().top+1,ink:c.getContext('2d').getImageData(Math.floor(px),Math.floor(py),1,1).data[3]>0};
+     const tools=document.querySelector('.overlay-tools').getBoundingClientRect();
+     // The transport bar floats over the page (fixed); the video keeps its own box and the controls stay on it.
+     return {same,bottom:getComputedStyle(document.querySelector('.playback')).position==='fixed'&&tools.top>=box.top&&tools.bottom<=box.bottom,ink:c.getContext('2d').getImageData(Math.floor(px),Math.floor(py),1,1).data[3]>0};
     });
     assert(result.same,`video and overlay bounds must match: ${viewport}/${mode}/${width}`);
-    assert(result.bottom,'video must not overlap the controls below');
+    assert(result.bottom,'the transport bar floats (fixed) instead of pushing the video; overlay controls stay on the video');
     assert(result.ink,'projected path must align with the contained video after resizing');
    }
   }

@@ -2,6 +2,8 @@ import {pageScope} from './page-scope.js';
 const host=document.getElementById('pageHost'),notice=document.getElementById('navigationStatus'),assets=new URL('./',import.meta.url),version=new URL(import.meta.url).search;
 const base=new URL('../',assets),libraryStyle=document.getElementById('libraryStyle');
 let current=null,revision=0,pending=null,libraryScroll=0;
+// Library tabs live in the hash (#upload, #storage …): a hash-only change stays on the mounted page.
+const samePage=url=>!!current&&url.origin===current.url.origin&&url.pathname===current.url.pathname&&url.search===current.url.search;
 const route=url=>url.origin===base.origin&&(url.pathname===base.pathname?'library':new RegExp('^'+base.pathname.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'view/[^/]+/$').test(url.pathname)?'replay':null);
 function saveScroll(){history.replaceState({...history.state,rvScroll:scrollY},'',location.href)}
 async function navigate(to,{replace=false,pop=false}={}){
@@ -50,8 +52,8 @@ async function navigate(to,{replace=false,pop=false}={}){
 }
 document.addEventListener('click',event=>{
  const link=event.target.closest('a[href]');if(!link||event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||link.target||link.hasAttribute('download'))return;
- const url=new URL(link.href);if(!route(url))return;event.preventDefault();void navigate(url);
+ const url=new URL(link.href);if(!route(url)||(url.hash&&samePage(url)))return;event.preventDefault();void navigate(url);
 });
-addEventListener('popstate',()=>navigate(location.href,{pop:true}));
+addEventListener('popstate',()=>{if(location.hash&&samePage(new URL(location.href)))return;void navigate(location.href,{pop:true})});
 history.scrollRestoration='manual';
 void navigate(location.href,{replace:true});

@@ -5,6 +5,7 @@ try{const saved=JSON.parse(localStorage.getItem('roadviewer-expanded-routes'));i
 let uploadController=null,networkRestarting=false;
 let concurrencySaving=false,concurrencyRevision=0,savedConcurrency=1,savedAutoConvert=true;
 const names={unconverted:'미변환',queued:'대기 중',processing:'처리 중',ready:'재생 가능',error:'변환 실패'};
+let bulkSelection=null;
 // Work-based weights: finish large writes at 100%, then show only the short summary/registration sweep.
 const STAGE_PROGRESS={log_prepare:[0,.01],log_decompress:[.01,.04],log_read:[.04,.45],log_analysis:[.45,.60],video_read:[.60,.64],video_convert:[.64,.74],video_verify:[.74,.80],telemetry_build:[.80,.85],telemetry_encode:[.85,.86],telemetry_compress:[.86,.88],replay_compact:[.88,.92],replay_encode:[.92,.96],replay_compress:[.96,1],summary_save:[1,1],registering:[1,1],saving:[.8,.8]};
 const FINAL_STAGE_LABELS={telemetry_build:'차량 그래프 생성 중',telemetry_encode:'차량 그래프 JSON 변환 중',telemetry_compress:'차량 그래프 압축·저장 중',replay_compact:'재생 데이터 정리 중',replay_encode:'재생 데이터 JSON 변환 중',replay_compress:'재생 데이터 압축·저장 중',summary_save:'요약 저장 중',registering:'결과 등록 중',saving:'결과 저장 중'};
@@ -108,17 +109,79 @@ document.addEventListener('drop',e=>{
 document.addEventListener('dragend',resetDrop);
 window.addEventListener('blur',resetDrop);
 $('clearSelection').onclick=()=>{if(busy)return;selected=[];pickerIds.forEach(id=>$(id).value='');selectionChanged();error('')};
-function recordingActions(m,group=null){
- const actions=document.createElement('div');actions.className='actions';
+// In-page tabs (not page navigation): an upload keeps running while another tab is shown.
+const LIBRARY_TABS=['logs','upload','storage','devices','settings'],tabButtons=[...document.querySelectorAll('.lib-tab')];
+let libraryTab=null;
+function selectTab(tab,{focus=false,hash=true}={}){
+ if(!LIBRARY_TABS.includes(tab))tab='logs';
+ const changed=libraryTab!==null&&libraryTab!==tab;libraryTab=tab;
+ for(const button of tabButtons){
+  const on=button.dataset.tab===tab,panel=$(button.getAttribute('aria-controls'));
+  button.setAttribute('aria-selected',String(on));button.tabIndex=on?0:-1;
+  // Panels announce show/hide like a disclosure: storage-devices.js loads and polls only while its panel is shown.
+  if(panel.hidden===on){panel.hidden=!on;panel.dispatchEvent(new Event('toggle'))}
+ }
+ try{sessionStorage.setItem('roadviewer-library-tab',tab)}catch{}
+ if(hash&&window.location.hash!=='#'+tab){const url=new URL(window.location.href);url.hash=tab;history.replaceState(history.state,'',url)}
+ if(focus)$('tab-'+tab).focus();
+ if(changed&&scrollY>0)scrollTo(0,0);
+}
+document.querySelector('.lib-tabs').addEventListener('keydown',e=>{
+ const index=LIBRARY_TABS.indexOf(libraryTab),next={ArrowLeft:index-1,ArrowRight:index+1,Home:0,End:LIBRARY_TABS.length-1}[e.key];
+ if(next===undefined)return;e.preventDefault();selectTab(LIBRARY_TABS[(next+LIBRARY_TABS.length)%LIBRARY_TABS.length],{focus:true});
+});
+for(const button of tabButtons)button.onclick=()=>selectTab(button.dataset.tab);
+document.addEventListener('click',e=>{const target=e.target.closest?.('[data-goto-tab]');if(target)selectTab(target.dataset.gotoTab)});
+window.addEventListener('hashchange',()=>{const tab=window.location.hash.slice(1);if(LIBRARY_TABS.includes(tab)&&tab!==libraryTab)selectTab(tab,{hash:false})});
+{
+ let saved=null;try{saved=sessionStorage.getItem('roadviewer-library-tab')}catch{}
+ const linked=window.location.hash.slice(1);
+ selectTab(LIBRARY_TABS.includes(linked)?linked:saved,{hash:false});
+}
+
+// Header summary: local usage against the limit, and the archive connection (filled by storage-devices.js).
+const headerStorage={used:null,max:null,logs:null,archive:null};
+const sameUnitSize=(used,max)=>{const a=storageSize(used),b=storageSize(max),unit=b.split(' ')[1];return a.split(' ')[1]===unit?`${a.split(' ')[0]}/${b}`:`${a} / ${b}`};
+function syncHeaderStorage(){
+ const {used,max}=headerStorage,known=Number.isFinite(used),percent=known&&max>0?used/max*100:null,meter=$('summary');
+ $('headerStorageText').textContent=!known?'—':percent===null?storageSize(used):sameUnitSize(used,max);
+ $('headerMeterFill').style.width=(percent===null?0:Math.max(0,Math.min(100,percent)))+'%';
+ meter.classList.toggle('is-near-limit',percent!==null&&percent>=90);meter.classList.toggle('no-limit',percent===null);
+ meter.setAttribute('aria-label',`로컬 저장공간 ${!known?'확인 중':percent===null?storageSize(used)+' 사용 · 한도 없음':`${storageSize(used)} / ${storageSize(max)} · ${Math.round(percent)}% 사용`} · 저장공간 탭으로 이동`);
+ meter.title=(headerStorage.logs===null?'':`${headerStorage.logs}개 로그 · 저장공간 ${storageSize(used)} 사용 중\n`)+'Road Viewer 원본·변환·업로드 임시 파일의 총 파일 용량';
+ $('storageWarning').hidden=!(percent>=90);
+ if(percent>=90)$('storageWarningText').textContent=`로컬 저장공간 ${Math.round(percent)}% 사용 중`;
+ const archive=headerStorage.archive,dot=$('headerArchive');dot.hidden=!archive;
+ if(archive){$('headerArchiveText').textContent=archive.text;dot.dataset.state=archive.state}
+}
+function showUploadPill(percent){
+ const pill=$('uploadPill');pill.hidden=percent===null;if(percent===null)return;
+ $('uploadPillText').textContent=`업로드 ${percent}%`;pill.style.setProperty('--upload',String(percent/100));
+ pill.setAttribute('aria-label',`업로드 ${percent}% 진행 중 · 업로드 탭으로 이동`);
+}
+
+const svgIcon=(d,size=18,fill=false)=>`<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="${fill?'currentColor':'none'}" stroke="${fill?'none':'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const MORE_ICON=svgIcon('<circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/>',18,true),PLAY_ICON=svgIcon('<path d="M7 4v16l13-8Z"/>',13,true);
+const PIN_ICON='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="pin-head" d="M9 4h6l-1 6 4 4H6l4-4Z"/><path d="M12 14v7"/></svg>';
+const CAMERA_ICON=svgIcon('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',20);
+// A menu of further actions: only one is open at a time; Escape and outside clicks close it.
+function moreMenu(label){
  const more=document.createElement('details');more.className='recording-more';
- const toggle=document.createElement('summary');toggle.setAttribute('aria-label','추가 작업');
- toggle.title='추가 작업';toggle.innerHTML='<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+ const toggle=document.createElement('summary');toggle.setAttribute('aria-label',label);toggle.title=label;toggle.innerHTML=MORE_ICON;
  const menu=document.createElement('div');menu.className='recording-menu';
  more.append(toggle,menu);
  more.addEventListener('toggle',()=>{if(more.open)document.querySelectorAll('.recording-more[open]').forEach(other=>{if(other!==more)other.open=false})});
- menu.addEventListener('click',()=>{more.open=false});
+ menu.addEventListener('click',e=>{if(e.target.closest('button,a'))more.open=false});
+ return {more,menu};
+}
+function menuButton(menu,text,onclick,className=''){const button=document.createElement('button');button.type='button';button.textContent=text;if(className)button.className=className;button.onclick=onclick;menu.append(button);return button}
+async function pinRecording(m,button){button.disabled=true;try{await api(`api/logs/${m.id}/pin`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pinned:!m.pinned})});await refresh()}catch(e){error(e.message);button.disabled=false}}
+// Segment row: one primary action (재생 / 변환 / 대기 중 / 처리 중) and the ⋯ menu with everything else.
+function recordingActions(m){
+ const actions=document.createElement('div');actions.className='actions';
+ const {more,menu}=moreMenu('추가 작업');
  if(m.status==='ready'){
-  const replay=document.createElement('a');replay.className='replay';replay.href=`view/${m.id}/`;replay.textContent='재생';actions.append(replay);
+  const replay=document.createElement('a');replay.className='replay';replay.href=`view/${m.id}/`;replay.innerHTML=PLAY_ICON;replay.append('재생');actions.append(replay);
  }
  const waiting=m.status==='processing',removing=m.status==='ready'||m.status==='queued';
  const conversion=document.createElement('button');conversion.type='button';
@@ -131,16 +194,12 @@ function recordingActions(m,group=null){
   catch(e){error(e.message);conversion.disabled=false}
  };
  if(m.status==='queued'){const queued=document.createElement('button');queued.type='button';queued.textContent=names.queued;queued.disabled=true;queued.className='recording-pending';actions.append(queued)}
- if(!group||!removing)(removing?menu:actions).append(conversion);
- let groupDownload;
- if(group||m.download_options){const download=document.createElement('button');download.type='button';download.textContent='다운로드';download.onclick=()=>openRecordingDownload(group?group.logs.map(log=>({...log,download_options:log.download_options||[]})):[m]);if(group){download.className='download-recording';download.title='전체 구간 다운로드';download.setAttribute('aria-label',download.title);download.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5"/></svg>';groupDownload=download}else menu.append(download)}
- else for(const item of recordingDownloads(m,''))menu.append(downloadLink(item));
- const pin=document.createElement('button');pin.type='button';pin.className='pin-recording';
- const allPinned=group?group.logs.every(log=>log.pinned):!!m.pinned,partial=group&&!allPinned&&group.logs.some(log=>log.pinned);
- pin.title=group?(partial?`${group.logs.filter(log=>log.pinned).length}/${group.logs.length}개 구간 고정됨 · 전체 구간 고정`:allPinned?'전체 구간 고정 해제':'전체 구간 고정'):(m.pinned?'구간 고정 해제':'구간 고정');pin.setAttribute('aria-label',pin.title);pin.setAttribute('aria-pressed',partial?'mixed':String(allPinned));pin.disabled=!!logGroups.get(logRoute(m).key)?.pinning;
- pin.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="pin-head" d="M8 3h8l-1 7 4 4v2H5v-2l4-4z"/><path d="M12 16v6"/></svg>';
- pin.onclick=group?()=>pinLogGroup(group,!allPinned):async()=>{pin.disabled=true;try{await api(`api/logs/${m.id}/pin`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pinned:!m.pinned})});await refresh()}catch(e){error(e.message);pin.disabled=false}};actions.append(pin);
- if(group){actions.append(groupDownload);return actions}
+ (removing?menu:actions).append(conversion);
+ if(m.download_options)menuButton(menu,'다운로드',()=>openRecordingDownload([m]));
+ menuButton(menu,'태그 편집',()=>editRecordingTags([m],()=>refresh()),'tag-edit');
+ menuButton(menu,'로그 이름 복사',()=>logRows.get(m.id)?.row.querySelector('.log-name .copy-recording')?.click(),'copy-name');
+ const pin=menuButton(menu,m.pinned?'구간 고정 해제':'구간 고정',()=>pinRecording(m,pin),'pin-recording');pin.setAttribute('aria-pressed',String(!!m.pinned));
+ if(!m.download_options)for(const item of recordingDownloads(m,''))menu.append(downloadLink(item));
  const del=document.createElement('button');del.type='button';del.className='delete';del.textContent='완전 삭제';
  del.onclick=async()=>{
   if(!confirm(`${m.name}
@@ -148,14 +207,31 @@ function recordingActions(m,group=null){
   del.disabled=true;
   try{await api(`api/logs/${m.id}`,{method:'DELETE'});await refresh()}catch(e){error(e.message);del.disabled=false}
  };
- const separator=document.createElement('hr');menu.append(separator,del);actions.append(more);return actions;
+ menu.append(document.createElement('hr'),del);actions.append(more);return actions;
+}
+// Route card: 재생 (first ready segment, else the first segment's own action), group pin and the ⋯ menu.
+// The lowest-numbered ready segment of a route (the server's order may differ once segments arrive later).
+const firstReady=group=>group.logs.filter(log=>log.status==='ready').sort((a,b)=>(logRoute(a).segment??0)-(logRoute(b).segment??0))[0];
+function routeActions(group){
+ const actions=document.createElement('div');actions.className='actions';
+ const ready=firstReady(group);
+ if(ready){const replay=document.createElement('a');replay.className='replay';replay.href=`view/${ready.id}/`;replay.innerHTML=PLAY_ICON;replay.append('재생');actions.append(replay)}
+ else{const own=recordingActions(group.firstLog),primary=own.querySelector(':scope>button');if(primary)actions.append(primary)}
+ const pin=document.createElement('button');pin.type='button';pin.className='pin-recording';
+ const allPinned=group.logs.every(log=>log.pinned),pinnedCount=group.logs.filter(log=>log.pinned).length,partial=!allPinned&&pinnedCount>0;
+ pin.title=partial?`${pinnedCount}/${group.logs.length}개 구간 고정됨 · 전체 구간 고정`:allPinned?'전체 구간 고정 해제':'전체 구간 고정';pin.setAttribute('aria-label',pin.title);pin.setAttribute('aria-pressed',partial?'mixed':String(allPinned));pin.disabled=!!group.pinning;
+ pin.innerHTML=PIN_ICON;pin.onclick=()=>pinLogGroup(group,!allPinned);actions.append(pin);
+ const {more,menu}=moreMenu('주행 관리 메뉴');
+ menuButton(menu,'전체 구간 다운로드',()=>openRecordingDownload(group.logs.map(log=>({...log,download_options:log.download_options||[]}))));
+ menuButton(menu,'전체 구간 태그 편집',()=>editRecordingTags(group.logs,()=>refresh(),true));
+ actions.append(more);return actions;
 }
 // Apply acknowledged changes even when the next list request is slow or fails.
 function recordingChanged(m){
  listRequest?.abort();listRevision++;refreshing=false;
  const cached=logRows.get(m.id);if(!cached)return;
- cached.signature=null;cached.status=m.status;
- cached.state.className=m.status==='processing'?'state state-processing':'state';showState(cached.state,m);
+ cached.signature=null;cached.status=m.status;cached.log={...cached.log,...m};
+ cached.state.className=m.status==='processing'?'state state-processing':'state';cached.state.dataset.status=m.status;showState(cached.state,m);
  const actions=recordingActions(m);cached.actions.replaceWith(actions);cached.actions=actions;
  for(const group of logGroups.values()){const index=group.logs.findIndex(log=>log.id===m.id);if(index<0)continue;group.logs[index]={...group.logs[index],...m};if(group.firstLog.id===m.id)group.firstLog=group.logs[index];syncGroupActions(group)}
 }
@@ -164,8 +240,13 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelect
 
 // Hand off the selected name so the replay title is available immediately.
 document.addEventListener('click',e=>{
- const link=e.target.closest?.('a.replay'),name=link&&(link.closest('.log-row')?.querySelector('.recording-name-text')||logRows.get(link.getAttribute('href').split('/').filter(Boolean).at(-1))?.row.querySelector('.recording-name-text'));if(!name)return;
- try{sessionStorage.setItem('rv-route',JSON.stringify({id:link.getAttribute('href').split('/').filter(Boolean).at(-1),text:name.textContent}))}catch{}
+ const link=e.target.closest?.('a.replay'),id=link?.getAttribute('href').split('/').filter(Boolean).at(-1),cached=id&&logRows.get(id);if(!cached)return;
+ try{sessionStorage.setItem('rv-route',JSON.stringify({id,text:cached.display}))}catch{}
+});
+// Phones: a ready segment row plays when tapped anywhere outside its own controls.
+document.addEventListener('click',e=>{
+ const row=e.target.closest?.('.log-row'),control=row&&e.target.closest('a,button,summary,details,input,label');if(bulkSelection?.active||!row||!matchMedia('(max-width:719px)').matches||(control&&row.contains(control)))return;
+ row.querySelector('.actions>a.replay')?.click();
 });
 window.addEventListener('pageshow',()=>document.querySelectorAll('.recording-name-text').forEach(name=>name.style.viewTransitionName=''));
 const MEDIA_STATE_LABELS={corrupt:'영상 읽기 오류',storage_unavailable:'저장소 연결 불가',checking:'영상 확인 중',available:'영상 있음',missing:'영상 없음'};
@@ -176,18 +257,34 @@ const STORAGE_PARTS=[['rlog','로그'],['front','고화질'],['qcamera','저용�
 const STORAGE_PLACE_NAMES={local:'Home Assistant',gdrive:'Google Drive',nas:'NAS',removed:'삭제됨'};
 const storageIcon=d=>`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const STORAGE_ICONS={local:storageIcon('<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 14h.01M11 14h6"/>'),gdrive:storageIcon('<path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.1 9.2 4.5 4.5 0 0 0 7 18z"/>'),nas:storageIcon('<rect x="4" y="4" width="16" height="7" rx="1.5"/><rect x="4" y="13" width="16" height="7" rx="1.5"/><path d="M8 7.5h.01M8 16.5h.01"/>'),removed:storageIcon('<path d="M5 12h14"/>')};
-function storageParts(m){
- if(m.status==='uploading')return null;
+// Each part of one recording and where it is kept; nothing for a recording that is still uploading.
+function storagePlaces(m){
+ if(m.status==='uploading')return [];
  const known=m.storage_locations||{},present=new Set([...Object.keys(known),'rlog',...(m.video_downloads||[]).map(video=>video.source)]);
+ return STORAGE_PARTS.filter(([part])=>present.has(part)).map(([part,label])=>({part,label,place:STORAGE_PLACES[known[part]]?known[part]:'local'}));
+}
+// One line for where a recording is kept: "모두 로컬", "로그 로컬 · 영상 Drive", or "혼합" when the cameras differ.
+function storageSummary(m){
+ const parts=storagePlaces(m);if(!parts.length)return '';
+ const places=new Set(parts.map(p=>p.place));if(places.size===1)return '모두 '+STORAGE_PLACES[parts[0].place];
+ const log=parts.find(p=>p.part==='rlog'),videos=new Set(parts.filter(p=>p.part!=='rlog').map(p=>p.place));
+ return log&&videos.size===1?`로그 ${STORAGE_PLACES[log.place]} · 영상 ${STORAGE_PLACES[[...videos][0]]}`:'혼합';
+}
+function storageParts(m){
+ const parts=storagePlaces(m);if(!parts.length)return null;
  const box=document.createElement('div');box.className='storage-parts';box.setAttribute('aria-label','저장 위치');
- for(const [part,label] of STORAGE_PARTS){
-  if(!present.has(part))continue;
-  const place=STORAGE_PLACES[known[part]]?known[part]:'local',chip=document.createElement('span');
+ for(const {label,place} of parts){
+  const chip=document.createElement('span');
   chip.className='storage-part storage-part-'+place;chip.title=`${label}: ${STORAGE_PLACE_NAMES[place]}`;
   chip.innerHTML=STORAGE_ICONS[place];const name=document.createElement('span'),where=document.createElement('b');
   name.textContent=label;where.textContent=STORAGE_PLACES[place];chip.append(name,where);box.append(chip);
  }
  return box;
+}
+const storageTone=text=>text.includes('Drive')?'gdrive':text.includes('NAS')?'nas':text==='혼합'?'mixed':'local';
+function storageLine(text,title=''){
+ const line=document.createElement('span');line.className='storage-summary';line.dataset.place=storageTone(text);if(title)line.title=title;
+ line.innerHTML=STORAGE_ICONS[{gdrive:'gdrive',nas:'nas'}[storageTone(text)]||'local'];line.append(text);return line;
 }
 function mediaState(states){const values=Object.values(states||{});return Object.keys(MEDIA_STATE_LABELS).find(state=>values.includes(state))||null}
 // Only rows whose remote copy did not verify carry archive_error; the local file is kept and the next cycle uploads again.
@@ -211,11 +308,86 @@ function reconcileLogs(parent,children){
  children.forEach((child,i)=>{if(parent.children[i]!==child)parent.insertBefore(child,parent.children[i]||null)});
  while(parent.children.length>children.length)parent.lastElementChild.remove();
 }
-// The route header has group pin/download actions; individual row actions stay unchanged.
+// started_at is when the recording began (absent when unknown); uploaded is only when the file arrived, and is labelled so.
+const epochDate=seconds=>{const date=Number.isFinite(seconds)?new Date(seconds*1000):null;return date&&!Number.isNaN(date.getTime())?date:null};
+const startDate=m=>epochDate(m?.started_at),uploadDate=m=>epochDate(m?.uploaded),logDate=m=>startDate(m)||uploadDate(m);
+const clockText=date=>date.toLocaleTimeString('ko-KR',{hour:'numeric',minute:'2-digit'});
+const shortClock=date=>date.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false});
+const dayKey=date=>date?`${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`:'none';
+function dayLabel(date){
+ if(!date)return ['날짜 없음',''];
+ const today=new Date(),yesterday=new Date(today.getFullYear(),today.getMonth(),today.getDate()-1),full=date.toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'long'});
+ return [dayKey(date)===dayKey(today)?'오늘':dayKey(date)===dayKey(yesterday)?'어제':'',(date.getFullYear()===today.getFullYear()?'':date.getFullYear()+'년 ')+full];
+}
+const durationText=seconds=>{const s=Math.max(0,Math.round(seconds)),h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}:${String(m).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`:`${m}:${String(s%60).padStart(2,'0')}`};
+const thumbnailUrl=m=>m&&(m.thumbnail||m.thumbnail_available)?`api/logs/${m.id}/thumbnail?v=${m.conversion_revision??0}`:null;
+// The camera placeholder stays underneath; a loaded image covers it and a failed one is removed.
+function setThumbnail(box,url){
+ if(box.dataset.src===(url||''))return;box.dataset.src=url||'';
+ box.querySelector('img')?.remove();if(!url)return;
+ const img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.onerror=()=>img.remove();img.src=url;box.prepend(img);
+}
+function thumbnailBox(className){const box=document.createElement('div');box.className=className;box.insertAdjacentHTML('beforeend',`<span class="thumb-placeholder">${CAMERA_ICON}</span>`);return box}
+const STATUS_BUCKETS=[['ready','재생 가능'],['processing','처리 중'],['queued','대기 중'],['unconverted','미변환'],['error','변환 실패']];
+const ROUTE_BAR_BLOCKS=20;
+function routeStatusText(logs){
+ const counts=STATUS_BUCKETS.map(([status,label])=>[label,logs.filter(log=>log.status===status).length]).filter(([,count])=>count);
+ return counts.length===1&&logs.length>1?`모두 ${counts[0][0]}`:counts.map(([label,count])=>logs.length>1?`${label} ${count}`:label).join(' · ');
+}
+// Duration-weighted share of automatic control and summed takeovers, over the segments that have a summary.
+function routeDrive(logs){
+ const known=logs.filter(log=>log.drive_summary&&Number.isFinite(log.drive_summary.engaged_ratio));if(!known.length)return null;
+ const weight=log=>Number.isFinite(log.duration)&&log.duration>0?log.duration:0,total=known.reduce((sum,log)=>sum+weight(log),0);
+ const ratio=total>0?known.reduce((sum,log)=>sum+log.drive_summary.engaged_ratio*weight(log),0)/total:known.reduce((sum,log)=>sum+log.drive_summary.engaged_ratio,0)/known.length;
+ return {ratio,takeovers:known.reduce((sum,log)=>sum+(Number(log.drive_summary.takeovers)||0),0)};
+}
+function driveLine(drive){
+ const line=document.createElement('span');line.className='route-drive';
+ const percent=document.createElement('b'),count=document.createElement('b');percent.textContent=Math.round(drive.ratio*100)+'%';count.textContent=String(drive.takeovers);
+ line.append('자동 제어 ',percent,' · 개입 ',count,'회');return line;
+}
+function unionTags(logs){const tags=new Map();for(const log of logs)for(const tag of log.tags||[])if(!tags.has(tagKey(tag.name)))tags.set(tagKey(tag.name),tag);return [...tags.values()]}
+const segmentProgress=id=>logRows.get(id)?.state.querySelector('.state-progress>span')?.style.getPropertyValue('--progress')||'0';
+function syncRouteBar(group){
+ for(const block of group.bar.children)if(block.dataset.status==='processing'&&block.dataset.id)block.style.setProperty('--progress',segmentProgress(block.dataset.id));
+}
+// The route card summarises its segments; only changed parts are rebuilt so polling never flickers.
+function syncRouteCard(group,route){
+ const logs=group.logs,thumb=logs.find(log=>log.status==='ready'&&thumbnailUrl(log)),duration=logs.reduce((sum,log)=>sum+(Number.isFinite(log.duration)?log.duration:0),0);
+ const statusSignature=JSON.stringify([route.title,group.firstLog.id,group.firstLog.started_at,group.firstLog.uploaded,logs.map(log=>[log.id,log.status,log.duration,log.tags,log.drive_summary,log.storage_locations,log.video_downloads?.length,log.name])]);
+ setThumbnail(group.thumb,thumbnailUrl(thumb));
+ if(group.cardSignature!==statusSignature){
+  group.cardSignature=statusSignature;
+  const started=startDate(group.firstLog),uploaded=uploadDate(group.firstLog),when=started?clockText(started)+' 출발':uploaded?'업로드 '+clockText(uploaded):null;
+  group.time.textContent=route.segment===null?route.title:when||route.title;
+  group.time.title=`첫 구간${group.firstSegment===null?'':' '+group.firstSegment}${started?' · 출발 '+started.toLocaleString():''} · 업로드 ${uploaded?uploaded.toLocaleString():'일시 없음'}`;
+  group.name.textContent=route.segment===null?when||'기타 로그':route.title;
+  group.duration.hidden=!duration;group.duration.textContent=durationText(duration);
+  group.tags.replaceWith(group.tags=recordingTagBadges(unionTags(logs),3));group.tags.classList.add('route-tags');
+  // Up to 20 segments: one block each. Longer drives: consecutive segments with the same status merge into one run
+  // whose width is proportional to its count, so the bar never overflows.
+  const runs=logs.length>ROUTE_BAR_BLOCKS;group.bar.classList.toggle('is-runs',runs);
+  group.bar.replaceChildren(...(runs?logs.reduce((list,log)=>{const last=list.at(-1);if(last?.status===log.status)last.count++;else list.push({status:log.status,count:1});return list},[]).map(run=>{
+   const block=document.createElement('span');block.className='route-seg route-run';block.dataset.status=run.status;block.dataset.count=run.count;block.style.flexGrow=run.count;return block;
+  }):logs.map(log=>{
+   const block=document.createElement('span'),k=logRoute(log).segment;block.className='route-seg';block.dataset.status=log.status;block.dataset.id=log.id;
+   block.title=`${k===null?recordingIdentity(log.name,log.files).display:'구간 '+k} · ${processingText(log)}`;return block;
+  })));
+  group.bar.setAttribute('aria-label',`${logs.length}개 구간: ${routeStatusText(logs)}`);group.bar.title=runs?`${logs.length}개 구간 · ${routeStatusText(logs)}`:'';
+  const facts=[Object.assign(document.createElement('span'),{className:'route-status',textContent:routeStatusText(logs)})],drive=routeDrive(logs);
+  if(drive)facts.push(driveLine(drive));
+  const summaries=[...new Set(logs.map(storageSummary).filter(Boolean))];
+  if(summaries.length)facts.push(storageLine(summaries.length===1?summaries[0]:'혼합',summaries.length>1?'구간마다 저장 위치가 다릅니다. 펼쳐서 확인하세요.':''));
+  group.facts.replaceChildren(...facts);
+ }
+ syncRouteBar(group);
+}
+// The route header has group play/pin/menu actions; individual row actions stay unchanged.
 function syncGroupActions(group){
  if(group.pinning)return;
- const signature=JSON.stringify([group.firstLog.id,group.firstLog.name,group.firstLog.status,group.logs.map(log=>[log.id,!!log.pinned])]);if(group.actionSignature===signature)return;
- group.actions.replaceChildren(recordingActions(group.firstLog,group));group.actionSignature=signature;
+ const ready=firstReady(group),primary=ready||group.firstLog;
+ const signature=JSON.stringify([primary.id,primary.name,primary.status,!!ready,group.logs.map(log=>[log.id,!!log.pinned])]);if(group.actionSignature===signature)return;
+ group.actions.replaceChildren(routeActions(group));group.actionSignature=signature;
 }
 async function pinLogGroup(group,pinned){
  if(group.pinning)return;
@@ -229,38 +401,101 @@ async function pinLogGroup(group,pinned){
  }catch(e){error(`전체 구간 고정${pinned?'':' 해제'}: ${done}/${targets.length}개 변경 완료. ${e.message}`)}
  finally{group.pinning=false;group.element.querySelectorAll('.pin-recording').forEach(button=>button.disabled=false);syncGroupActions(group);await refresh()}
 }
+function createLogGroup(route){
+ const element=document.createElement('details'),summary=document.createElement('summary'),main=document.createElement('div'),heading=document.createElement('div'),time=document.createElement('h3'),meta=document.createElement('span'),name=document.createElement('span'),count=document.createElement('span'),bar=document.createElement('div'),facts=document.createElement('div'),chevron=document.createElement('button'),body=document.createElement('div'),actions=document.createElement('div');
+ const thumb=thumbnailBox('route-thumb'),duration=document.createElement('span');duration.className='route-duration';thumb.append(duration);
+ element.className='log-route';element.dataset.route=route.key;element.open=expandedLogRoutes.has(route.key);
+ time.className='route-time';meta.className='route-meta';name.className='log-route-name';name.title=route.key;count.className='log-route-count';meta.append(name,' · ',count);
+ const tags=document.createElement('span');heading.className='route-heading';heading.append(time,meta,tags);
+ bar.className='route-bar';bar.setAttribute('role','img');facts.className='route-facts';main.className='route-main';main.append(heading,bar,facts);
+ chevron.className='log-route-chevron';chevron.type='button';chevron.setAttribute('aria-label','구간 펼치기');chevron.setAttribute('aria-expanded',String(element.open));chevron.innerHTML='<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>';
+ chevron.onclick=event=>{event.preventDefault();event.stopPropagation();window.rvDisclosure.animate(element)};
+ element.addEventListener('toggle',()=>{chevron.setAttribute('aria-expanded',String(element.open));chevron.setAttribute('aria-label',element.open?'구간 접기':'구간 펼치기')});
+ actions.className='log-route-actions';summary.append(thumb,main,actions,chevron);body.className='log-route-segments';element.append(summary,body);
+ element.addEventListener('toggle',event=>{if(event.target!==element)return;const open=element._foldTarget??element.open;if(open)expandedLogRoutes.add(route.key);else expandedLogRoutes.delete(route.key);try{localStorage.setItem('roadviewer-expanded-routes',JSON.stringify([...expandedLogRoutes]))}catch{}});
+ const group={element,body,count,actions,thumb,duration,time,name,tags,bar,facts};
+ summary.addEventListener('click',event=>{
+  // Menus and buttons in the header act on their own; a click on a menu's padding must not fold the card.
+  if(event.target.closest('.log-route-actions')&&event.target.closest('a,button,summary,input,label')===summary){event.preventDefault();return}
+  if(!event.target.closest('.log-route-actions'))group.rows.forEach(row=>row.classList.add('is-update'));
+ });
+ return group;
+}
+const listDays=new Map();
 function arrangeLogGroups(logs,rows){
  const groups=new Map();
  logs.forEach((log,i)=>{
   const route=logRoute(log);let group=groups.get(route.key);
-  if(!group){group=logGroups.get(route.key);if(!group){
-   const element=document.createElement('details'),summary=document.createElement('summary'),title=document.createElement('span'),first=document.createElement('span'),count=document.createElement('span'),chevron=document.createElement('span'),body=document.createElement('div'),actions=document.createElement('div');
-   element.className='log-route';element.dataset.route=route.key;element.open=expandedLogRoutes.has(route.key);
-   title.className='log-route-name';title.textContent=route.title;title.title=route.key;first.className='log-route-first';count.className='log-route-count';chevron.className='log-route-chevron';chevron.setAttribute('aria-hidden','true');chevron.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m6 9 6 6 6-6"/></svg>';
-   actions.className='log-route-actions';summary.append(title,first,count,actions,chevron);body.className='log-route-segments';element.append(summary,body);
-   element.addEventListener('toggle',event=>{if(event.target!==element)return;const open=element._foldTarget??element.open;if(open)expandedLogRoutes.add(route.key);else expandedLogRoutes.delete(route.key);try{localStorage.setItem('roadviewer-expanded-routes',JSON.stringify([...expandedLogRoutes]))}catch{}});
-   group={element,body,first,count,actions};logGroups.set(route.key,group);
-   summary.addEventListener('click',event=>{if(!event.target.closest('.log-route-actions'))group.rows.forEach(row=>row.classList.add('is-update'))});
-  }group.logs=[];group.rows=[];group.firstLog=log;group.firstSegment=route.segment;groups.set(route.key,group)}
+  if(!group){group=logGroups.get(route.key);if(!group){group=createLogGroup(route);logGroups.set(route.key,group)}
+   group.logs=[];group.rows=[];group.firstLog=log;group.firstSegment=route.segment;group.route=route;groups.set(route.key,group)}
   if(route.segment!==null&&(group.firstSegment===null||route.segment<group.firstSegment)){group.firstLog=log;group.firstSegment=route.segment}
   group.logs.push(log);group.rows.push(rows[i]);
  });
- for(const group of groups.values()){
-  const date=Number.isFinite(group.firstLog.uploaded)?new Date(group.firstLog.uploaded*1000):null;
-  group.first.textContent=`첫 구간${group.firstSegment===null?'':' '+group.firstSegment} · 업로드 ${date&&!Number.isNaN(date.getTime())?date.toLocaleString():'일시 없음'}`;
-  reconcileLogs(group.body,group.rows);syncGroupActions(group);
- }
- reconcileLogs($('list'),[...groups.values()].map(group=>group.element));
+ for(const group of groups.values()){reconcileLogs(group.body,group.rows);syncRouteCard(group,group.route);syncGroupActions(group)}
+ // Date sections in the server's order (newest routes first); a day collects its routes where it first appears.
+ const days=new Map();
+ for(const group of groups.values()){const date=logDate(group.firstLog),key=dayKey(date);if(!days.has(key))days.set(key,{date,groups:[]});days.get(key).groups.push(group.element)}
+ const sections=[...days].map(([key,{date,groups}])=>{
+  let day=listDays.get(key);
+  if(!day){const element=document.createElement('section'),title=document.createElement('h3'),list=document.createElement('div');element.className='log-day';element.dataset.day=key;title.className='log-day-title';list.className='log-day-routes';element.append(title,list);day={element,title,list};listDays.set(key,day)}
+  const [relative,full]=dayLabel(date),label=relative+'|'+full;
+  if(day.label!==label){day.label=label;day.title.replaceChildren(...[relative,full].filter(Boolean).map(text=>Object.assign(document.createElement('span'),{textContent:text})))}
+  reconcileLogs(day.list,groups);return day.element;
+ });
+ reconcileLogs($('list'),sections);
+ for(const key of listDays.keys())if(!days.has(key))listDays.delete(key);
  for(const key of logGroups.keys())if(!groups.has(key))logGroups.delete(key);
+ $('logCounts').textContent=`주행 ${groups.size}번 · 구간 ${logs.length}개 · 재생 가능 ${logs.filter(log=>log.status==='ready').length}개`;
+}
+function renderRow(m,cached){
+ const row=cached?.row||document.createElement('div');row.className=cached?'log-row is-update':'log-row';row.dataset.id=m.id;row.dataset.status=m.status;
+ const thumb=cached?.thumb||thumbnailBox('log-thumb'),info=cached?.info||document.createElement('div'),title=cached?.title||document.createElement('div'),state=cached?.state||document.createElement('span');
+ info.className='log-info';title.className='log-name';
+ for(const child of [...title.children])if(child!==state)child.remove();
+ const route=logRoute(m),date=startDate(m),name=document.createElement('span'),before=state.parentNode===title?state:null;
+ renderRecordingName(name,m.name,m.files,route.segment===null?null:'구간 '+route.segment);title.insertBefore(name,before);
+ if(date){const time=document.createElement('span');time.className='log-time';const end=Number.isFinite(m.duration)?new Date(date.getTime()+m.duration*1000):null;time.textContent=shortClock(date)+(end?'–'+shortClock(end):'');title.insertBefore(time,before)}
+ if(m.pinned){const badge=document.createElement('span');badge.className='pin-badge';badge.innerHTML=PIN_ICON;badge.append('고정');badge.title='이 구간을 자동 삭제에서 보호합니다.';title.insertBefore(badge,before)}
+ title.insertBefore(recordingTagBadges(m.tags),before);
+ state.className=(m.status==='processing'?'state state-processing':'state')+(cached?' is-update':'');state.dataset.status=m.status;showState(state,m);if(!before)title.append(state);
+ setThumbnail(thumb,m.status==='ready'?thumbnailUrl(m):null);
+ const meta=document.createElement('div');meta.className='log-meta';
+ const cameras=(m.video_downloads||[]).length,videoText=m.video?(cameras>1?`영상 ${cameras}종`:'영상 있음'):'영상 없음';
+ const metaStart=(m.duration!=null?m.duration.toFixed(1)+'초 · ':'')+`보관 파일 ${storageSize(m.bytes)} · 변환 ${storageSize(m.prepared_bytes)} · `,videoState=mediaState(m.video_state);
+ if(videoState){const badge=document.createElement('span');badge.className='media-state media-state-'+videoState;badge.textContent=MEDIA_STATE_LABELS[videoState];meta.append(metaStart,badge)}else meta.textContent=metaStart+videoText;
+ const lines=[title,meta],where=storageSummary(m);
+ if(where){const line=document.createElement('div');line.className='log-storage';line.append(storageLine(where,storagePlaces(m).map(p=>`${p.label}: ${STORAGE_PLACE_NAMES[p.place]}`).join('\n')));if(where==='혼합')line.append(storageParts(m));lines.push(line)}
+ if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;lines.push(e)}
+ if(m.archive_error)lines.push(archiveRetry(m));
+ // The title (and its processing badge) stays connected so its animations keep their timeline.
+ for(const child of [...info.children])if(child!==title)child.remove();if(title.parentNode!==info)info.prepend(title);info.append(...lines.slice(1));
+ const actions=recordingActions(m);if(cached)cached.actions.replaceWith(actions);else row.append(thumb,info,actions);
+ return {row,thumb,info,title,state,actions,selection:cached?.selection};
 }
 // Keep the row/title/state connected when metadata changes so CSS animations retain their live timeline.
 async function refresh({poll=false}={}){
- if(busy||networkRestarting||document.hidden||(poll&&refreshing))return;
+ if(busy||networkRestarting||bulkSelection?.running||document.hidden||(poll&&refreshing))return;
  // A user action supersedes any list snapshot taken before that action completed.
  listRequest?.abort();const request=listRequest=new AbortController(),revision=++listRevision;
- refreshing=true;const settingsRevision=concurrencyRevision;
- try{const r=await fetch('api/logs',{cache:'no-store',signal:request.signal});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(revision!==listRevision)return;if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=[1,2,3,4].includes(data.concurrency)?data.concurrency:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'));savedAutoConvert=data.auto_convert!==false;syncAutoConvert()}updateTagCatalog(data.logs);syncTagFilter();$('summary').textContent=`${data.logs.length}개 로그 · 저장공간 ${storageSize(data.storage_used_bytes)} 사용 중`;$('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;const rows=data.logs.map(m=>{const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id);if(cached?.signature===signature){showState(cached.state,m);return cached.row;}const row=cached?.row||document.createElement('div');row.className=cached?'log-row is-update':'log-row';row.dataset.id=m.id;const info=cached?row.firstElementChild:document.createElement('div'),title=cached?info.firstElementChild:document.createElement('div'),meta=document.createElement('div'),state=cached?.state||document.createElement('span');for(const child of [...title.children])if(child!==state)child.remove();title.className='log-name';const name=document.createElement('span');renderRecordingName(name,m.name,m.files);title.insertBefore(name,state.parentNode===title?state:null);title.insertBefore(recordingTagButton(m,()=>refresh()),state.parentNode===title?state:null);if(m.pinned){const badge=document.createElement('span');badge.className='pin-badge';badge.textContent='고정';badge.title='이 구간을 자동 삭제에서 보호합니다.';title.insertBefore(badge,state.parentNode===title?state:null)}title.insertBefore(recordingTagBadges(m.tags),state.parentNode===title?state:null);state.className=(m.status==='processing'?'state state-processing':'state')+(cached?' is-update':'');showState(state,m);if(!cached)title.append(state);meta.className='log-meta';const metaStart=`${new Date(m.uploaded*1000).toLocaleString()} · 보관 파일 ${storageSize(m.bytes)} · 변환 ${storageSize(m.prepared_bytes)} · `,metaEnd=m.duration!=null?' · '+m.duration.toFixed(1)+'초':'',videoState=mediaState(m.video_state);if(videoState){const badge=document.createElement('span');badge.className='media-state media-state-'+videoState;badge.textContent=MEDIA_STATE_LABELS[videoState];meta.append(metaStart,badge,metaEnd)}else meta.textContent=metaStart+(m.video?'영상 있음':'영상 없음')+metaEnd;if(!cached)info.append(title);for(const child of [...info.children])if(child!==title)child.remove();info.append(meta);const parts=storageParts(m);if(parts)info.append(parts);if(m.error){const e=document.createElement('div');e.className='log-error';e.textContent=m.error;info.append(e)}if(m.archive_error)info.append(archiveRetry(m));const actions=recordingActions(m);if(cached)cached.actions.replaceWith(actions);else row.append(info,actions);logRows.set(m.id,{signature,row,state,actions,status:m.status,tags:m.tags||[],video:m.video,conversion_revision:m.conversion_revision});return row});const motion=window.RoadViewerMotion,before=new Map([...logRows].map(([id,cached])=>[id,motion.capture(cached.row)]));
- arrangeLogGroups(data.logs,rows);applyTagFilter();if(motion.allowed())rows.forEach(row=>motion.play(row,before.get(row.dataset.id)));const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id)}catch(e){if(!request.signal.aborted)error(e.message)}finally{if(revision===listRevision)refreshing=false}}
+ refreshing=true;const settingsRevision=concurrencyRevision;$('refresh').classList.add('is-loading');
+ try{
+  const r=await fetch('api/logs',{cache:'no-store',signal:request.signal});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(revision!==listRevision)return;
+  if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=[1,2,3,4].includes(data.concurrency)?data.concurrency:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'));savedAutoConvert=data.auto_convert!==false;syncAutoConvert()}
+  updateTagCatalog(data.logs);
+  headerStorage.used=data.storage_used_bytes;headerStorage.logs=data.logs.length;syncHeaderStorage();
+  $('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;
+  const rows=data.logs.map(m=>{
+   const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id),identity=recordingIdentity(m.name,m.files);
+   if(cached?.signature===signature){showState(cached.state,m);cached.log=m;return cached.row}
+   const parts=renderRow(m,cached);
+   logRows.set(m.id,{...parts,signature,status:m.status,tags:m.tags||[],video:m.video,conversion_revision:m.conversion_revision,log:m,display:identity.display,search:searchText(m,identity)});
+   return parts.row;
+  });
+  const motion=window.RoadViewerMotion,before=new Map([...logRows].map(([id,cached])=>[id,motion.capture(cached.row)]));
+  const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id);
+  arrangeLogGroups(data.logs,rows);renderChips();applyFilters();if(motion.allowed())rows.forEach(row=>motion.play(row,before.get(row.dataset.id)));
+ }catch(e){if(!request.signal.aborted)error(e.message)}finally{if(revision===listRevision){refreshing=false;$('refresh').classList.remove('is-loading')}}
+}
 async function refreshProgress(){
  if(document.hidden||busy||networkRestarting||progressRefreshing||refreshing||![...logRows.values()].some(row=>row.status==='processing'||row.status==='queued'))return;
  progressRefreshing=true;const revision=listRevision;
@@ -274,28 +509,63 @@ async function refreshProgress(){
    const cached=logRows.get(id);
    if(cached?.status==='processing')showState(cached.state,{status:'processing',progress,video:cached.video,conversion_revision:cached.conversion_revision});
   }
+  for(const group of logGroups.values())syncRouteBar(group);
  }catch{}finally{progressRefreshing=false}
 }
-function syncTagFilter(){
- const select=$('tagFilter'),value=select.value,signature=JSON.stringify(recordingTagCatalog.map(tag=>tag.name));
- if(select.dataset.tags===signature)return;
- select.dataset.tags=signature;
- select.replaceChildren(new Option('전체 태그',''),new Option('태그 없음','untagged'),...recordingTagCatalog.map(tag=>new Option(tag.name,'tag:'+tag.name.toLowerCase())));
- if([...select.options].some(option=>option.value===value))select.value=value;
- else if(value.startsWith('tag:')){select.add(new Option(value.slice(4)+' (0)',''+value));select.value=value}
- select.dispatchEvent(new Event('rv:sync'));
+
+// Filters: one built-in chip, one tag chip (or 태그 없음) and the search text, combined with AND.
+const FILTERS=[['all','전체',()=>true],['pinned','고정',m=>!!m.pinned],['unconverted','미변환',m=>m.status==='unconverted'||m.status==='error'],['processing','처리 중',m=>m.status==='queued'||m.status==='processing'],
+ ['gdrive','Drive',m=>Object.values(m.storage_locations||{}).includes('gdrive')],['nas','NAS',m=>Object.values(m.storage_locations||{}).includes('nas')]];
+let logFilter='all',tagFilter='',logQuery='';
+function searchText(m,identity){
+ const date=logDate(m),uploaded=uploadDate(m),route=logRoute(m);
+ return [identity.display,identity.original,route.key,route.title,...(m.tags||[]).map(tag=>tag.name),...(uploaded?[uploaded.toLocaleString()]:[]),...(date?[date.toLocaleString(),date.toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'long'}),dayLabel(date)[0],date.toLocaleDateString('ko-KR'),clockText(date)]:[])].join('\n').toLowerCase();
 }
-function applyTagFilter(){
- const value=$('tagFilter').value;let shown=0;
+const tagMatches=(tags,value)=>!value||(value==='untagged'?!tags.length:tags.some(tag=>'tag:'+tagKey(tag.name)===value));
+function chip(value,label,count,pressed,color){
+ const button=document.createElement('button');button.type='button';button.className='filter-chip';button.dataset.filter=value;button.setAttribute('aria-pressed',String(pressed));
+ if(color){const dot=document.createElement('i');dot.className='chip-dot';dot.dataset.color=color;dot.setAttribute('aria-hidden','true');button.append(dot)}
+ const text=document.createElement('span');text.textContent=label;button.append(text);
+ if(count!==null){const number=document.createElement('span');number.className='chip-count';number.textContent=String(count);button.append(number)}
+ return button;
+}
+function renderChips(){
+ const logs=[...logRows.values()].map(cached=>cached.log).filter(Boolean),box=$('logChips');
+ const items=FILTERS.filter(([value,,test])=>value==='all'||value===logFilter||!['gdrive','nas'].includes(value)||logs.some(test)).map(([value,label,test])=>chip('filter:'+value,label,value==='all'?null:logs.filter(test).length,value==='all'?logFilter==='all'&&!tagFilter:logFilter===value));
+ const tags=[...recordingTagCatalog];
+ // A selected tag that no log carries any more stays visible with (0) so it can be cleared.
+ if(tagFilter.startsWith('tag:')&&!tags.some(tag=>'tag:'+tagKey(tag.name)===tagFilter))tags.push({name:tagFilter.slice(4),color:'slate',missing:true});
+ const tagChips=[chip('tag:untagged','태그 없음',logs.filter(m=>!(m.tags||[]).length).length,tagFilter==='untagged'),...tags.map(tag=>chip('tag:tag:'+tagKey(tag.name),tag.name,tag.missing?0:logs.filter(m=>tagMatches(m.tags||[],'tag:'+tagKey(tag.name))).length,tagFilter==='tag:'+tagKey(tag.name),Object.hasOwn(TAG_PALETTE,tag.color)?tag.color:'mint'))];
+ const separator=document.createElement('span');separator.className='chip-separator';separator.setAttribute('aria-hidden','true');
+ const next=[...items,separator,...tagChips],signature=JSON.stringify(next.map(e=>[e.dataset.filter,e.textContent,e.getAttribute('aria-pressed')]));
+ if(box.dataset.signature===signature)return;
+ const focused=document.activeElement?.closest?.('#logChips')?document.activeElement.dataset.filter:null;
+ box.dataset.signature=signature;box.replaceChildren(...next);
+ if(focused)box.querySelector(`[data-filter="${CSS.escape(focused)}"]`)?.focus({preventScroll:true});
+}
+$('logChips').addEventListener('click',e=>{
+ const button=e.target.closest('.filter-chip');if(!button)return;
+ const [kind,...rest]=button.dataset.filter.split(':'),value=rest.join(':');
+ if(kind==='filter'){if(value==='all'){logFilter='all';tagFilter=''}else logFilter=logFilter===value?'all':value}
+ else tagFilter=tagFilter===value?'':value;
+ renderChips();applyFilters();
+ // The chip that just became selected gives a tiny spring pop (motion.css); re-renders do not.
+ const picked=$('logChips').querySelector(`[data-filter="${CSS.escape(button.dataset.filter)}"][aria-pressed=true]`);
+ if(picked){picked.classList.add('is-selected-pop');picked.addEventListener('animationend',()=>picked.classList.remove('is-selected-pop'),{once:true})}
+});
+$('logSearch').addEventListener('input',()=>{logQuery=$('logSearch').value.trim().toLowerCase();applyFilters()});
+function applyFilters(){
+ const test=FILTERS.find(([value])=>value===logFilter)?.[2]||(()=>true),query=logQuery.replace(/\s+/g,' '),active=logFilter!=='all'||!!tagFilter||!!query;let shown=0;
  for(const cached of logRows.values()){
-  const tags=cached.tags||[],matches=!value||(value==='untagged'?!tags.length:tags.some(tag=>'tag:'+tag.name.toLowerCase()===value));
+  const matches=test(cached.log||{})&&tagMatches(cached.tags||[],tagFilter)&&(!query||!!cached.search?.includes(query));
   cached.row.hidden=!matches;if(matches&&cached.row.isConnected)shown++;
  }
- for(const group of logGroups.values()){const visible=group.rows.filter(row=>!row.hidden).length;group.element.hidden=!visible;group.count.textContent=value?`${visible} / ${group.rows.length}개 구간`:`${group.rows.length}개 구간`}
- $('tagFilterStatus').hidden=!value;$('tagFilterStatus').textContent=shown?`${shown}개 로그 표시 중`:'선택한 태그에 해당하는 로그가 없습니다.';
+ for(const group of logGroups.values()){const visible=group.rows.filter(row=>!row.hidden).length;group.element.hidden=!visible;group.count.textContent=active?`${visible} / ${group.rows.length}개 구간`:`${group.rows.length}개 구간`}
+ for(const day of listDays.values())day.element.hidden=![...day.list.children].some(route=>!route.hidden);
+ $('tagFilterStatus').hidden=!active;$('tagFilterStatus').textContent=shown?`${shown}개 로그 표시 중`:tagFilter&&logFilter==='all'&&!query?'선택한 태그에 해당하는 로그가 없습니다.':'조건에 맞는 로그가 없습니다.';
+ bulkSelection?.sync();
 }
-$('tagFilter').onchange=applyTagFilter;
-$('refresh').onclick=refresh;
+$('refresh').onclick=()=>refresh();
 function abortable(promise,signal){
  if(!signal)return promise;
  return new Promise((resolve,reject)=>{
@@ -388,7 +658,7 @@ async function uploadPart(url,part,signal,onState=message=>$('uploadStatus').tex
 }
 $('upload').onclick=async()=>{
  
- if(busy||cleaning||!selected.length)return;busy=true;document.body.classList.add('uploading');error('');$('upload').disabled=true;pickerIds.forEach(id=>$(id).disabled=true);$('clearSelection').disabled=true;$('progress').hidden=false;$('progress').value=0;
+ if(busy||cleaning||!selected.length)return;busy=true;document.body.classList.add('uploading');showUploadPill(0);error('');$('upload').disabled=true;pickerIds.forEach(id=>$(id).disabled=true);$('clearSelection').disabled=true;$('progress').hidden=false;$('progress').value=0;
  uploadController=new AbortController();const signal=uploadController.signal;
  let session=null;let sent=0;const total=selected.reduce((sum,f)=>sum+f.size,0);
  try{
@@ -401,7 +671,7 @@ $('upload').onclick=async()=>{
     await uploadPart(`api/uploads/${session.id}/files/${i}?offset=${offset}`,part,signal,message=>{
      $('uploadStatus').textContent=`업로드 ${Math.round(sent/total*100)}% · 파일 ${i+1}/${selected.length} · ${message}`;
     });
-    sent+=part.size;const pct=Math.round(sent/total*100);$('progress').value=pct;$('uploadStatus').textContent=`업로드 ${pct}% · 파일 ${i+1}/${selected.length}`;
+    sent+=part.size;const pct=Math.round(sent/total*100);$('progress').value=pct;showUploadPill(pct);$('uploadStatus').textContent=`업로드 ${pct}% · 파일 ${i+1}/${selected.length}`;
    }
   }
   $('uploadStatus').textContent='서버에서 파일을 등록하는 중…';
@@ -413,9 +683,11 @@ $('upload').onclick=async()=>{
  }catch(e){if(signal.aborted){$('uploadStatus').textContent='업로드를 중단했습니다. 이미 등록을 시작한 파일은 등록을 마칩니다.'}else{error(e.message);$('uploadStatus').textContent='업로드 실패. 오류를 확인하고 다시 시도하세요.'}}
  finally{
   if(session&&!signal.aborted)try{await api(`api/uploads/${session.id}`,{method:'DELETE'})}catch{}
-  uploadController=null;busy=false;document.body.classList.remove('uploading');void refresh();pickerIds.forEach(id=>$(id).disabled=false);selectionChanged();$('progress').hidden=true;
+  uploadController=null;busy=false;document.body.classList.remove('uploading');showUploadPill(null);void refresh();pickerIds.forEach(id=>$(id).disabled=false);selectionChanged();$('progress').hidden=true;
  }
 };
+// Screen mode lives in the 설정 tab (theme.js owns the state).
+{const theme=window.RoadViewerTheme?.control();if(theme)document.getElementById('themeControl').append(theme)}
 const pageReady=refresh();setInterval(()=>refresh({poll:true}),3000);setInterval(refreshProgress,1000);
 // A hidden tab stops polling (each list request scans storage); catch up as soon as it is shown again.
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
@@ -448,9 +720,27 @@ $('autoConvert').onchange=()=>saveProcessingSettings({auto_convert:$('autoConver
 $('concurrency').onchange=()=>saveProcessingSettings({concurrency:Number($('concurrency').value)});
 
 (()=>{
- for(const [selector,key] of [['.conversion-info','roadviewer-conversion-guide-open'],['.upload','roadviewer-upload-open']]){
+ for(const [selector,key] of [['.conversion-info','roadviewer-conversion-guide-open']]){
   const guide=document.querySelector(selector);
   try{const saved=localStorage.getItem(key);if(saved!==null)guide.open=saved==='true'}catch{}
   guide.addEventListener('toggle',()=>{try{localStorage.setItem(key,String(guide.open))}catch{}});
  }
 })();
+// Phone app bar fit: the wordmark's size follows its free width in CSS (cqi). When even its 14px minimum would not fit,
+// the storage text yields first (.is-tight), and only then the wordmark text (.is-cramped). Re-checked when the bar
+// resizes or its right group changes (upload pill shown/hidden, texts updated).
+{
+ const inner=document.querySelector('.lib-appbar-inner'),h1=inner?.querySelector('.app-brand h1');
+ const fits=()=>{const size=parseFloat(getComputedStyle(h1).fontSize);return h1.scrollWidth*Math.min(1,14/size)<=h1.clientWidth+.5};
+ const fitAppBar=()=>{
+  inner.classList.remove('is-tight','is-cramped');
+  if(!matchMedia('(max-width:719px)').matches||fits())return;
+  inner.classList.add('is-tight');if(!fits())inner.classList.add('is-cramped');
+ };
+ if(h1){
+  // The right group's own size also changes when the upload pill finishes fading out.
+  const sizes=new ResizeObserver(fitAppBar);sizes.observe(inner);sizes.observe(inner.querySelector('.lib-status'));
+  new MutationObserver(fitAppBar).observe(inner.querySelector('.lib-status'),{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['hidden']});
+  document.fonts?.ready.then(fitAppBar);
+ }
+}

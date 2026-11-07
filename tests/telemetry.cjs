@@ -31,8 +31,14 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.html')?'text/html':name.endsWith('.png')?'image/png':'image/svg+xml'});
   });
-  await page.goto('https://rv.test/view/one/');await page.waitForFunction(()=>!document.getElementById('play').disabled);assert.equal(reads,0,'road tab should not load telemetry');
-  await page.locator('#telemetryTab').click();await settle(page);await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(reads,1);assert(await page.locator('#roadView').isHidden());assert(await page.locator('#video').isVisible());
+  await page.goto('https://rv.test/view/one/');await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  // Vehicle data loads once in the background after the replay is ready (the event track under the video needs it),
+  // whichever tab is open; the 차량 정보 tab then reuses it.
+  await page.waitForFunction(()=>document.querySelector('#eventTrack .event-engaged'));assert.equal(reads,1,'loaded once for the event track');
+  assert.equal(await page.locator('#roadTab').getAttribute('aria-selected'),'true');
+  assert.match(await page.locator('#eventTrack').getAttribute('aria-label'),/^자동 제어 100% · 운전자 개입 1회$/,'engaged share and debounced takeovers (steering, gas while engaged)');
+  assert.equal(await page.locator('#eventTrack .event-engaged').evaluate(e=>e.style.left),'0%');
+  await page.locator('#telemetryTab').click();await settle(page);await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(reads,1,'the tab reuses the background data');assert(await page.locator('#roadView').isHidden());assert(await page.locator('#video').isVisible());
   assert.equal(await page.locator('.telemetry-chart').count(),6);
   await page.evaluate(()=>setTime(.11));assert((await page.locator('#telemetrySummary strong').last().textContent()).includes('개입'),'10ms intervention must be visible between model frames');
   await page.evaluate(()=>setTime(.45));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—');
@@ -124,6 +130,14 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=0);
   if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-desktop.png'});
   await page.locator('#roadTab').click();await settle(page);assert(await page.locator('#roadView').isVisible());await page.locator('#telemetryTab').click();await settle(page);assert.equal(reads,1,'switching tabs reuses data');
+  // Three tabs: arrows cycle, Home/End jump; the choice is remembered.
+  await page.locator('#telemetryTab').focus();await page.keyboard.press('ArrowRight');assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');assert(await page.locator('#bookmarkView').isVisible());
+  assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-analysis-tab')),'bookmarks');
+  await page.keyboard.press('ArrowRight');assert.equal(await page.locator('#roadTab').getAttribute('aria-selected'),'true');assert(await page.evaluate(()=>document.activeElement.id==='roadTab'));
+  await page.keyboard.press('End');assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');
+  await page.keyboard.press('Home');assert.equal(await page.locator('#roadTab').getAttribute('aria-selected'),'true');
+  await page.keyboard.press('ArrowLeft');assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');
+  await page.locator('#telemetryTab').click();await settle(page);
   await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.locator('#telemetryTab').getAttribute('aria-selected'),'true');assert.equal(await page.locator('.telemetry-chart').count(),24);
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
   await page.setViewportSize({width:390,height:844});
@@ -189,6 +203,6 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await reloadAtStart();await page.evaluate(()=>setTime(2));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—','missing tail samples must not be held');
   telemetry.streams.carState={times:[],values:{}};
   await reloadAtStart();assert.deepEqual(await page.locator('#telemetrySummary strong').allTextContents(),['—','—','—','확인 불가'],'missing streams stay unavailable');
-  assert.deepEqual(errors,[]);console.log('PASS: telemetry tabs, lazy loading, raw timing, gaps, synchronized seeking/playback, popup choices, persistence, scrolling, mouse/touch reordering, saved order, start-boundary readouts, centered zoom playback/drag and retry');
+  assert.deepEqual(errors,[]);console.log('PASS: telemetry tabs (3-way keyboard), background loading for the event track, raw timing, gaps, synchronized seeking/playback, popup choices, persistence, scrolling, mouse/touch reordering, saved order, start-boundary readouts, centered zoom playback/drag and retry');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

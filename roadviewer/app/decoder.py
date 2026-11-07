@@ -8,8 +8,10 @@ from hevc_video import prepare_video,VideoProgress
 from progress import Reporter
 from video_packets import Pictures, inspect_mp4
 from overlay import OverlayProjector,restore_ccnc_targets
-from telemetry import extract_telemetry,FIELDS
+from telemetry import extract_telemetry,drive_summary,FIELDS
+from thumbnail import save_thumbnail
 from compact import compact_data,write_gzip_json
+from wall_clock import Starts
 BASE=Path(__file__).resolve().parent
 log=capnp.load(str(BASE.parent/'schema/cereal/log.capnp'))
 
@@ -150,8 +152,8 @@ def prepare(value,route=None):
   return data
  key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str(media(src,name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if media(src,name).is_file())+'v28-runtime-geometry-rear1').encode()).hexdigest()[:20]
  dest=prepared_dir(src);dest.mkdir(parents=True,exist_ok=True)
- def save_summary(data):
-  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{})},ensure_ascii=False))
+ def save_summary(data,drive,started_at):
+  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{}),'drive_summary':drive,'started_at':started_at},ensure_ascii=False))
  print('로그 읽는 중:',src,flush=True)
  report('log_prepare',100)
  compressed_size=max(src.stat().st_size,1)
@@ -167,7 +169,7 @@ def prepare(value,route=None):
  streams=collections.defaultdict(list)
  ccnc=[];ccnc_rears=[];ccnc_roads=[];road_signals=[]
  video_indices=collections.defaultdict(list)
- models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter()
+ models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter();starts=Starts()
  offset=0;report('log_read',0)
  for number,e in enumerate(log.Event.read_multiple_bytes(raw)):
   # The native reader validated this message. Track its framed byte extent only for progress.
@@ -180,7 +182,7 @@ def prepare(value,route=None):
    # A newer Event union member has no name in our schema. Preserve known events.
    if 'Attempted to call which on a non-union type' not in str(exc):raise
    counts['unknownEvent']+=1;continue
-  counts[kind]+=1
+  counts[kind]+=1;starts.add(e,kind)
   if kind in ('carState','carControl','controlsState','carOutput','selfdriveState','liveParameters','carParams','liveCalibration'):streams[kind].append((e.logMonoTime,e.valid,pick(getattr(e,kind),SPECS[kind])))
   if kind=='initData':streams[kind].append((e.logMonoTime,e.valid,{'dongleId':str(e.initData.dongleId)}))
   if kind=='deviceState':streams[kind].append((e.logMonoTime,e.valid,{'deviceType':str(e.deviceState.deviceType)}))
@@ -312,6 +314,18 @@ def prepare(value,route=None):
  default_video=next((source for source in ('front','qcamera','wide') if source in videos),None)
  video_info=videos.get(default_video)
  if not videos:warnings.append('재생 가능한 영상이 없어 도로 형태만 표시합니다.')
+ # The list thumbnail comes from the smallest playable video. It is optional: never fail the conversion for it.
+ # It is the only pixel decode of a conversion (one bounded source, see thumbnail.py); a failure is remembered
+ # (thumbnail.failed) so the server does not try again on demand for this conversion.
+ def playable(source):
+  if not videos.get(source):return None
+  if source=='qcamera':return dest/'camera.mp4' if video.suffix=='.ts' else video
+  return dest/SOURCES[source][1] if video_inputs[source].suffix=='.hevc' else video_inputs[source]
+ try:
+  for name in ('thumbnail.jpg','thumbnail.failed'):(dest/name).unlink(missing_ok=True)
+  if videos and save_thumbnail(dest,[playable(source) for source in ('qcamera','front','wide')]) is None:
+   (dest/'thumbnail.failed').touch();print('경고: 썸네일을 만들지 못했습니다.',flush=True)
+ except Exception as exc:print('경고: 썸네일을 만들지 못했습니다:',exc,flush=True)
  report('telemetry_build',0)
  timeline_start=frames[0]['t']
  bounds=align_timeline(frames,video_info,videos)
@@ -325,7 +339,11 @@ def prepare(value,route=None):
  write_gzip_json(dest/'data.json.gz',data,ensure_ascii=False,progress=lambda stage,p:report('replay_'+stage,p))
  for stale in ('data.json','telemetry.json'):(dest/stale).unlink(missing_ok=True) # Plain files from an earlier version.
  report('summary_save',0)
- save_summary(data)
+ try:drive=drive_summary(telemetry)
+ except Exception as exc:drive=None;print('경고: 주행 요약을 계산하지 못했습니다:',exc,flush=True)
+ try:started_at=starts.start()
+ except Exception as exc:started_at=None;print('경고: 주행 시작 시각을 읽지 못했습니다:',exc,flush=True)
+ save_summary(data,drive,started_at)
  report('summary_save',100)
  print('준비 완료:',len(frames),'개 모델 프레임',flush=True)
  return dest,attach(data)

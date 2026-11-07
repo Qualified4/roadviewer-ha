@@ -138,6 +138,14 @@ jobs:
         if: matrix.group == 'g4'
       - run: node tests/motion.cjs
         if: matrix.group == 'g4'
+      - run: node tests/library_tabs.cjs
+        if: matrix.group == 'g1'
+      - run: node tests/long_drive.cjs
+        if: matrix.group == 'g2'
+      - run: node tests/ripple.cjs
+        if: matrix.group == 'g5'
+      - run: node tests/replay_glass_capture.cjs
+        if: matrix.group == 'g6'
       - run: node tests/replay_downloads.cjs
         if: matrix.group == 'g5'
       - run: node tests/download_dialog.cjs
@@ -208,6 +216,9 @@ jobs:
       - run: python tests/test_gdrive_e2e.py
       - run: python tests/test_overlay.py
       - run: python tests/test_telemetry.py
+      - run: python tests/test_thumbnails.py
+      - run: python tests/test_wall_clock.py
+      - run: python tests/test_backfill.py
       - run: python tests/test_prepared_migration.py
   build:
     if: github.event_name == 'pull_request'

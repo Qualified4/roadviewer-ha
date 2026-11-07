@@ -1,5 +1,5 @@
 """Keep vehicle samples on their original log clock, independent of model frames."""
-import math
+import bisect,math
 
 # name: (nested field path, multiplier); None means a boolean, 'state' an enum.
 FIELDS={
@@ -92,3 +92,38 @@ def extract_telemetry(streams,origin,duration,frames=(),progress=None):
  result['ccnc']={'times':[frame['t'] for frame in frames],'values':values}
  if progress:progress(100)
  return {'duration':duration,'maxGap':.15,'streams':result}
+
+TAKEOVER_DEBOUNCE=1.0
+def drive_summary(telemetry):
+ """Share of the drive with openpilot engaged and the number of driver takeovers, or None without carControl.enabled.
+
+ A takeover is enabled going true->false, or steeringPressed/gasPressed/brakePressed rising while enabled.
+ Events closer than TAKEOVER_DEBOUNCE seconds to the previous event belong to the same takeover."""
+ streams=(telemetry or {}).get('streams') or {};control=streams.get('carControl') or {}
+ duration=(telemetry or {}).get('duration');gap=(telemetry or {}).get('maxGap') or .15
+ known=[(t,v) for t,v in zip(control.get('times') or [],(control.get('values') or {}).get('enabled') or []) if type(v) is bool]
+ if not known or type(duration) not in (int,float) or not duration>0:return None
+ engaged=0;events=[];previous=None
+ for i,(time,value) in enumerate(known):
+  if value:
+   # A sample holds until the next one, but never across a gap longer than the telemetry's maxGap.
+   end=min(known[i+1][0] if i+1<len(known) else duration,time+gap,duration)
+   engaged+=max(0,end-max(time,0))
+  elif previous:events.append(time)
+  previous=value
+ times=[t for t,_ in known]
+ def enabled_at(time):
+  i=bisect.bisect_right(times,time)-1
+  return i>=0 and known[i][1]
+ state=streams.get('carState') or {}
+ for key in ('steeringPressed','gasPressed','brakePressed'):
+  previous=None
+  for time,value in zip(state.get('times') or [],(state.get('values') or {}).get(key) or []):
+   if type(value) is not bool:continue
+   if value and previous is False and enabled_at(time):events.append(time)
+   previous=value
+ takeovers=0;last=None
+ for time in sorted(events):
+  if last is None or time-last>=TAKEOVER_DEBOUNCE:takeovers+=1
+  last=time
+ return {'engaged_ratio':round(min(1,max(0,engaged/duration)),4),'takeovers':takeovers}

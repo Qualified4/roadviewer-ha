@@ -11,6 +11,8 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
    if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),contentType:'video/mp4'});
+   // The replay loads vehicle data in the background for the event track; none here.
+   if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
    if(p.endsWith('/data'))return route.fulfill({json:{route:'test',key:'overlay',duration:2,warnings:[],video:{start:0,duration:2},frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false,overlay:{lanes:[],edges:[],path:[[.5,.6],[.5,.9]],markers:[]}}]}});
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':'image/svg+xml'});
@@ -19,7 +21,8 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await page.goto('https://rv.test/view/one/');
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
 
-  const button=page.locator('#cameraInfoButton'),dialog=page.locator('#cameraInfoDialog'),values=page.locator('#cameraInfoValues');
+  // 카메라 설치 정보 is an item of the ⋯ menu; closing the dialog returns focus to that menu's button.
+  const item=page.locator('#cameraInfoButton'),menuButton=page.locator('#replayDownload>summary'),button={click:async()=>{await menuButton.click();await item.click()}},dialog=page.locator('#cameraInfoDialog'),values=page.locator('#cameraInfoValues');
   for(const width of [390,1440]){
    await page.setViewportSize({width,height:844});
    await page.evaluate(()=>{setTime(0);data.frames[0].cameraInfo={device:'mici',deviceId:'device-123',sensor:'os04c10',calibrationStatus:'calibrated',rpy:[Math.PI/180,-Math.PI/90,Math.PI/60],height:1.35,heightDefault:false}});
@@ -31,7 +34,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    await page.evaluate(()=>{data.frames[0].cameraInfo.height=1.8;render()});
    assert.equal(await values.textContent(),text,'dialog must retain its opening snapshot');
    await page.keyboard.press('Escape');await dialog.waitFor({state:'hidden'});
-   assert(await button.evaluate(el=>el===document.activeElement));
+   assert(await menuButton.evaluate(el=>el===document.activeElement));
    await button.click();assert((await values.textContent()).includes('1.80 m'));
    await page.locator('#cameraInfoClose').click();await dialog.waitFor({state:'hidden'});
    await page.evaluate(()=>{data.frames[0].cameraInfo.height=1.22;data.frames[0].cameraInfo.heightDefault=true;data.frames[0].cameraInfo.calibrationStatus='uncalibrated'});

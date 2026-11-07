@@ -4,6 +4,17 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.0
+
+- The whole interface was redesigned: neutral surfaces with a mint accent, flat buttons and selects, and translucent glass for floating bars and over-video controls. A **screen mode** setting (auto, light, dark) was added; the video area always stays dark.
+- The library is split into **로그 · 업로드 · 저장공간 · 장치 · 설정** tabs (a bottom tab bar on phones). Uploads keep running when switching tabs, with progress in the header.
+- The log tab adds search and filter chips (pinned, unconverted, processing, Drive, NAS, each tag), date-grouped drive cards with thumbnails, a segment status bar, automatic-control ratio and takeover count, and a storage summary. Segment actions moved into the ⋯ menu.
+- Bulk management is now an in-list **selection mode** ("선택" or long-press) with a bottom action bar for tags, download, convert, remove and delete.
+- The replay page was rearranged: a compact app bar, controls over the video (camera, overlay, speed, steering state with an **개입** (intervention) marker, fullscreen), a **floating transport bar** at the bottom (segment strip, control/takeover track, bookmark markers) and analysis tabs (driving view, vehicle data, bookmarks). Tapping the time toggles the total length.
+- Conversion now stores a **thumbnail**, the real **drive start time** and a control summary; older logs and logs moved to Drive or NAS are backfilled in the background (Drive downloads only the start of each file).
+- Long drives with tens to hundreds of segments scroll the segment strip with the current segment centred, and list bars show proportional status runs. A press ripple and Material-based motion were added.
+- The user guide, READMEs and documentation screenshots were updated for the new interface.
+
 ## 0.13.20
 
 - Under each segment, the log list now shows where the log and each camera video (high-quality, low-res, wide) are kept: **로컬** (local), **Drive** or **NAS**. Only files moved by archiving show Drive or NAS.

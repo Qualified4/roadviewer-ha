@@ -1,4 +1,5 @@
 const fs=require('fs'),os=require('os'),path=require('path'),assert=require('node:assert/strict'),{spawn}=require('child_process'),{once}=require('events'),{chromium}=require('playwright');
+const {showTab,reopenTab}=require('./browser-helpers.cjs');
 // The storage panel with Google Drive (tests/fake_drive.py in the server's process): backend and mode, signing in with
 // the device code, disconnecting, the per-recording retry; with the NAS, nothing of Drive exists.
 const SERVER=`import os, sys, threading
@@ -36,9 +37,9 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
 const metrics=page=>page.locator('#storageUsage>div,#archiveUsage>div,#archiveSecondaryUsage>div').evaluateAll(rows=>Object.fromEntries(rows.map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent])));
 async function openPanel(page){
  // (Re)opens the panel and waits for a fresh rendering: the archive rows are cleared first and come back with it.
- if(await page.locator('#storageSettings').evaluate(el=>el.open))await page.locator('#storageSettings > summary').click();
+ if(await page.locator('#storageSettings').evaluate(el=>!el.hidden))await page.locator('#tab-logs').click();
  await page.evaluate(()=>document.querySelectorAll('#archiveUsage>.archive-metric').forEach(row=>row.remove()));
- await page.locator('#storageSettings > summary').click();await page.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true'&&document.querySelector('#archiveUsage>.archive-metric'));
+ await showTab(page,'storage');await page.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true'&&document.querySelector('#archiveUsage>.archive-metric'));
 }
 async function settle(page){
  // An absence check: a fetch a fake timer started may not have reached the request event yet, so wait in real time.
@@ -120,8 +121,8 @@ async function waitForStorageRefresh(page,action){
   // The panel follows the sign-in (every 3 s) until Google grants it.
   const polls=[];page.on('request',request=>{if(request.url().endsWith('/api/settings/storage'))polls.push(Date.now())});
   await waitForStorageRefresh(page,()=>page.clock.runFor(3500));assert(polls.length>=1,'polls while the code waits');
-  // Closing the panel or hiding the page stops it; reopening or returning resumes it after a fresh fetch.
-  await page.locator('#storageSettings > summary').click();
+  // Leaving the tab or hiding the page stops it; reopening or returning resumes it after a fresh fetch.
+  await page.locator('#tab-logs').click();
   let mark=polls.length;await page.clock.runFor(4000);await settle(page);assert.equal(polls.length,mark,'no polling with the panel closed');
   await openPanel(page);await page.locator('#gdriveCode').waitFor();
   mark=polls.length;await waitForStorageRefresh(page,()=>page.clock.runFor(3500));assert(polls.length>mark,'polling resumes on reopen');
@@ -153,6 +154,7 @@ async function waitForStorageRefresh(page,action){
   assert(await page.locator('#gdriveDisconnect').isHidden());assert(await page.locator('#gdriveConnect').isVisible());assert.equal(await page.locator('#gdriveConnect').textContent(),'Google Drive 연결');
   assert(!fs.existsSync(path.join(driveDir,'.gdrive-auth.json')));
   // Retry clears the recording's error: its button goes and the panel's count drops.
+  await showTab(page,'logs');
   await page.locator(`.log-row[data-id="${ids[0]}"] .archive-retry`).click();
   await page.waitForFunction(id=>!document.querySelector(`.log-row[data-id="${id}"] .archive-retry`),ids[0]);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(driveDir,ids[0],'meta.json'))).storage||{},{},'the error entry is gone');
@@ -191,7 +193,7 @@ async function waitForStorageRefresh(page,action){
   await waitForStorageRefresh(page,()=>page.clock.runFor(3500));
   assert.equal(await page.locator('#gdriveCountdown').textContent(),'코드 유효 시간을 확인하는 중입니다');
   assert(!(await page.locator('#gdriveCode').textContent()).includes('만료'));
-  await page.locator('#storageSettings > summary').click();
+  await page.locator('#tab-logs').click();
   await page.unroute('**/api/settings/storage');
   assert.deepEqual(errors,[]);
   await stop(drive);drive=null;
@@ -203,7 +205,7 @@ async function waitForStorageRefresh(page,action){
   const offPage=await otherContext.newPage(),offPosts=[];offPage.on('pageerror',error=>errors.push(error.message));offPage.on('dialog',dialog=>dialog.accept());
   offPage.on('request',request=>{if(request.method()==='POST')offPosts.push(new URL(request.url()).pathname.replace('/api/hassio_ingress/test',''))});
   await offPage.goto(off.base);await offPage.locator('.log-row').first().waitFor();
-  await offPage.locator('#storageSettings > summary').click();await offPage.locator('#gdrivePanel').waitFor();
+  await showTab(offPage,'storage');await offPage.locator('#gdrivePanel').waitFor();
   // With archiving off the Drive card is hidden: the account is a card of its own, still outside local storage.
   assert(await offPage.locator('.storage-overview > #gdrivePanel').isVisible());assert.equal(await offPage.locator('#gdriveHeading').textContent(),'Google Drive');assert(await offPage.locator('#gdriveHeading').isVisible());
   assert.deepEqual(await offPage.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약']);
@@ -231,7 +233,7 @@ async function waitForStorageRefresh(page,action){
   smb=await serve(nasDir,{RV_ARCHIVE_OPTIONS_JSON:JSON.stringify({archive_enabled:false,archive_path:nas}),RV_ARCHIVE_ALLOW_ANY_PATH:'1'});
   const smbOff=await otherContext.newPage();smbOff.on('pageerror',error=>errors.push(error.message));
   await smbOff.goto(smb.base);await smbOff.locator('.log-row').first().waitFor();
-  await smbOff.locator('#storageSettings > summary').click();await smbOff.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true');
+  await showTab(smbOff,'storage');await smbOff.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true');
   assert.deepEqual(await smbOff.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약']);
   for(const id of ['archiveRun','gdrivePanel','gdriveConnect','gdriveDisconnect','gdriveCode','archiveMode','gdriveArchiveOff','gdriveAccount'])assert.equal(await smbOff.locator('#'+id).count(),0,id);
   await smbOff.close();await stop(smb);smb=null;

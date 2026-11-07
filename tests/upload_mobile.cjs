@@ -25,10 +25,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(request.method()==='DELETE'&&p.startsWith('/api/uploads/')){deletes++;return route.fulfill({json:{deleted:id}})}
    if(p.endsWith('/prepared')){rebuilds++;return route.fulfill({json:{status:'unconverted'}})}
    if(p==='/api/storage/cleanup'){cleanups++;return route.fulfill({json:{removed_bytes:123}})}
-   const name=p==='/'?'library.html':p.replace('/assets/','');
+   if(p==='/api/settings/storage')return route.fulfill({status:404,json:{error:'not_found'}});const name=p==='/'?'library.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.html')?'text/html':'image/svg+xml'});
   });
-  await page.goto('https://rv.test/');await page.waitForSelector('.log-row');
+  // A #upload link opens the 업로드 tab directly.
+  await page.goto('https://rv.test/#upload');await page.waitForSelector('.log-row',{state:'attached'});assert.equal(await page.locator('#tab-upload').getAttribute('aria-selected'),'true');
   assert((await page.locator('.log-meta').textContent()).includes('변환 7 B'));
   const file={name:'rlog.zst',mimeType:'application/octet-stream',buffer:Buffer.alloc(600000,9)};
   await page.locator('#files').setInputFiles(file);
@@ -47,17 +48,20 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#cleanupStorage').click();await page.waitForFunction(()=>document.getElementById('cleanupStatus').textContent.includes('123 B'));assert.equal(cleanups,1);
   mode='stall';await page.locator('#files').setInputFiles(file);await page.locator('#upload').click();
   await page.waitForFunction(()=>document.body.classList.contains('uploading'));
+  // The app-bar pill shows the running upload from any tab and leads back to 업로드.
+  assert(await page.locator('#uploadPill').isVisible());await page.locator('#tab-logs').click();assert(await page.locator('#uploadPill').isVisible());
+  await page.locator('#uploadPill').click();assert.equal(await page.locator('#tab-upload').getAttribute('aria-selected'),'true');
   await page.locator('#cleanupStorage').click();
   await page.waitForFunction(()=>!document.body.classList.contains('uploading'));
   await page.waitForFunction(()=>!document.getElementById('cleanupStorage').disabled);
   assert.equal(cleanups,2);assert.equal(await page.locator('#upload').isEnabled(),true);
   assert((await page.locator('#uploadStatus').textContent()).includes('중단'));
-  await page.locator('.upload>summary').click();
-  await page.waitForFunction(()=>localStorage.getItem('roadviewer-upload-open')==='false');
-  await page.reload();assert.equal(await page.locator('.upload').evaluate(el=>el.open),false);
-  await page.locator('.upload>summary').click();assert.equal(await page.locator('.upload').evaluate(el=>el.open),true);
+  assert(await page.locator('#uploadPill').evaluate(e=>e.hidden),'the pill goes away with the upload');await page.locator('#uploadPill').waitFor({state:'hidden'});
+  // The last tab is remembered for the session and kept in the address (#logs …) across reloads.
+  await page.locator('#tab-logs').click();assert.equal(await page.evaluate(()=>[sessionStorage.getItem('roadviewer-library-tab'),location.hash].join()),'logs,#logs');
+  await page.reload();await page.waitForSelector('.log-row');assert.equal(await page.locator('#tab-logs').getAttribute('aria-selected'),'true');assert(await page.locator('#panel-upload').isHidden());
   page.on('dialog',dialog=>dialog.accept());
-  await page.locator('.recording-more>summary').click();
+  await page.locator('.log-row .recording-more>summary').click();
   await page.getByRole('button',{name:'제거',exact:true}).click();
   await page.waitForFunction(()=>!document.querySelector('.actions button').disabled);assert.equal(rebuilds,1);
   assert.deepEqual(errors,[]);console.log('PASS: mobile scrolling upload, HTML proxy retry, failed-session cleanup, storage cleanup and converted data removal');

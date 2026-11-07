@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.13.20**
+Feature reference: **1.0.0**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -22,8 +22,10 @@ Switch the right panel to the road view to compare a top-down view of lanes, pat
 
 1. Add `https://github.com/Qualified4/roadviewer-ha` under Home Assistant **Settings → Apps → App store → ⋮ → Repositories**. Some versions call apps “add-ons.”
 2. Install **Road Viewer**, start it and open its web UI.
-3. Select files with **파일 추가** (Add files) or drag them into the upload area, then press **업로드** (Upload).
-4. When conversion finishes, press **재생** (Play). If automatic conversion is disabled, first press **변환** (Convert).
+3. On the **업로드** (Upload) tab, select files with **파일 추가** (Add files) or drag them into the upload area, then press **업로드** (Upload). Uploads keep running when you switch tabs; the header shows progress.
+4. When conversion finishes, press **재생** (Play) on the **로그** (Logs) tab. If automatic conversion is disabled, first press **변환** (Convert).
+
+The screen is split into **로그 · 업로드 · 저장공간 · 장치 · 설정** (Logs, Upload, Storage, Devices, Settings) tabs, shown as a bottom tab bar on phones. **화면 모드** (display mode) on the Settings tab chooses Auto, Light or Dark; the replay video area always stays dark.
 
 This is an **app-store repository, not a HACS integration**. The web UI uses Home Assistant Ingress, including your existing remote Home Assistant address; no separate external port is needed. Home Assistant Container has no Supervisor app store.
 
@@ -40,9 +42,9 @@ Installation downloads **only the matching prebuilt GHCR image**, not every publ
 
 **Local files and direct device uploads**
 
-The upper area accepts selected or dropped files. Below it, **External device connection** is expanded: configure HTTPS and its port on the left, then pair or manage devices on the right. Ports and device identifiers are masked in this screenshot. Browser file uploads do not require enabling external device access.
+The **업로드** tab accepts selected or dropped files; the **장치** (Devices) tab configures HTTPS and its port and pairs or manages devices. Ports and device identifiers are masked in this screenshot. Browser file uploads do not require enabling external device access.
 
-![Log upload and external device connection — port and device identifiers are masked](docs/images/roadviewer-library-upload.png)
+![Upload tab file selection — port and device identifiers are masked](docs/images/roadviewer-library-upload.png)
 
 The log is required; include whichever cameras you need from the same segment.
 
@@ -77,7 +79,7 @@ For one segment, bare filenames work. For multiple segments, retain their identi
 
 Use the [Device API documentation](docs/device-api.en.md) to build a client that connects an external device to Road Viewer and uploads logs and videos directly. It covers HTTPS connections, pairing and authentication, file uploads, and resuming interrupted transfers.
 
-For direct device uploads, enable HTTPS in **로그 업로드 → 외부 장치 연결**, save a port and apply it with **지금 재시작** (Restart now). A valid certificate under `/ssl` is required. External access defaults to off and is not needed for the Ingress UI.
+For direct device uploads, enable HTTPS on the **장치** (Devices) tab, save a port and apply it with **지금 재시작** (Restart now). A valid certificate under `/ssl` is required. External access defaults to off and is not needed for the Ingress UI.
 
 Pairing supports code copy, remaining time and reissue. Codes last five minutes and work once; a replacement invalidates the old code. The API uses HMAC authentication and resumable chunk uploads. A compatible Carrot Web uploader can include optional high-quality front/wide files alongside the log/qcamera, skipping missing cameras. Video conversion runs on Road Viewer, not the driving device.
 
@@ -100,9 +102,10 @@ Pairing supports code copy, remaining time and reissue. Codes last five minutes 
 | Road view | Lanes, road edges, model paths, leads and radar detections |
 | Vehicle information | 24 selectable, reorderable graphs, including separate LATERAL command and restored yRel values |
 | Tags | Name and color segments, filter the library, and add/remove tags in bulk |
-| Scene bookmarks | Save a log timestamp with a title/note and jump back from the timeline or bookmark list |
-| Navigation and pins | Segment selector, previous/next recording and per-segment pins |
-| Scrolling | Sticky navigation and playback controls; collapsible navigation buttons |
+| Scene bookmarks | Save a log timestamp with a title/note on the **북마크** analysis tab and jump back from seek-bar markers or the list |
+| Navigation and pins | The app-bar title (start time · 구간 k (i/N)) opens the segment chooser; previous/next buttons, the segment strip and per-segment pins |
+| Playback bar | Floating bar with a segment strip (centred on the current segment on long drives), automatic-control/takeover track, seek bar with bookmark markers, frame step, current/total time toggle, bookmark and speed |
+| Over the video | Camera/quality chooser, overlay toggle with ⚙ settings, speed, steering-wheel state with an **개입** (takeover) ring, fullscreen |
 
 **Forward and rear road view**
 
@@ -110,19 +113,19 @@ Choose paired **front/rear ranges of 25/5m, 50/10m or 80/20m**. **후방 표시 
 
 **Wide-camera playback and overlays**
 
-Upload `ecamera.hevc` with the log to select **와이드** (Wide) below the video. This example shows lanes, road edges, the model path, a vehicle box, radar detections and a turn signal over the wider field of view. The overlay uses the wide camera's sensor and calibration; switching back to the front video preserves the log position.
+Upload `ecamera.hevc` with the log to select **와이드** (Wide) in the camera chooser over the video. This example shows lanes, road edges, the model path, a vehicle box, radar detections and a turn signal over the wider field of view. The overlay uses the wide camera's sensor and calibration; switching back to the front video preserves the log position.
 
 ![Road Viewer wide-camera video with lanes, model path, FF vehicle box, radar detections and a left turn signal overlay](docs/images/roadviewer-wide-camera.png)
 
-A video opens on the **기본 화질** (default quality) chosen per connection: the small front video (qcamera) on mobile data and the high-quality front on Wi-Fi/wired by default. Change it with **기본 화질** beside 닫기 (close) in the camera list below the video; the choice is kept per browser. Where the browser does not report the connection type (iPhone, iPad, desktop browsers and others), phones and tablets follow the mobile-data choice and other devices the Wi-Fi/wired one. If that video is missing, the other front video is used, then wide. Switching preserves log time and playing/paused state. A failing video triggers an attempt to use another available source. Wide overlays use the wide sensor/calibration; missing information produces an explanation. Older prepared logs may need reanalysis to obtain wide calibration.
+A video opens on the **기본 화질** (default quality) chosen per connection: the small front video (qcamera) on mobile data and the high-quality front on Wi-Fi/wired by default. Change it with **기본 화질** beside 닫기 (close) in the camera list over the video; the choice is kept per browser. Where the browser does not report the connection type (iPhone, iPad, desktop browsers and others), phones and tablets follow the mobile-data choice and other devices the Wi-Fi/wired one. If that video is missing, the other front video is used, then wide. Switching preserves log time and playing/paused state. A failing video triggers an attempt to use another available source. Wide overlays use the wide sensor/calibration; missing information produces an explanation. Older prepared logs may need reanalysis to obtain wide calibration.
 
 Overlay settings control box height/opacity, path width, BSD wall height and individual labels. LF/FF/RF boxes reconstruct supported CCNC display commands recorded in the log. BSD, turn signals and target distance appear when the corresponding data is available. Camera overlays are independent of the road panel's 25/50/80m range; BSD walls retain a 40m limit.
 
-Layout, display selections, graph order and collapsed sections are remembered in the current browser. Library and playback pins share the same per-segment setting.
+Display mode, layout, display selections, graph order and collapsed sections are remembered in the current browser. Library and playback pins share the same per-segment setting.
 
 ### Current UI details
 
-Open **설정** beside the overlay switch to adjust individual box/BSD/TARGET labels, dimensions, and opacity. The ground-anchor and estimated-size explanation is inside this dialog.
+Open the ⚙ settings beside the **겹쳐 보기** overlay switch over the video to adjust individual box/BSD/TARGET labels, dimensions, and opacity. The ground-anchor and estimated-size explanation is inside this dialog.
 
 <img src="docs/images/roadviewer-overlay-settings.png" alt="Camera overlay settings" width="530">
 
@@ -134,15 +137,15 @@ Lane probability and lateral y[0] distance share the same layout alongside road-
 
 ## Organize segments with tags
 
-Tags **classify a whole segment**. Use labels such as “Lane change”, “Rain” or “Needs review” to describe driving conditions and follow-up work, then choose the **tag filter** above the saved recordings to narrow the library. Colored badges appear next to the recording name/pin and are also visible during playback.
+Tags **classify a whole segment**. Use labels such as “Lane change”, “Rain” or “Needs review” to describe driving conditions and follow-up work, then choose a tag filter chip on the Logs tab to narrow the library. Colored badges appear next to the recording name/pin and are also visible during playback.
 
 The following tag and bookmark screenshots use **synthetic examples in the actual Korean UI**, without personal driving logs.
 
-![Saved example segments with colored lane-change, review and rainy-weather tags, plus the tag filter above the list](docs/images/roadviewer-tags-library.png)
+![Saved example segments with colored lane-change, review and rainy-weather tags, plus the tag filter chips](docs/images/roadviewer-tags-library.png)
 
-1. Click the **tag icon** next to a recording name or **태그** (Tags) in playback.
+1. Choose **태그 편집** (Edit tags) in a segment's ⋯ menu (**전체 구간 태그 편집** in a route card's ⋯ menu) or **태그** (Tags) in playback.
 2. Enter a name, select a color, then choose **추가 → 저장** (Add → Save). Reuse an existing tag or click a badge in the editor to change its name/color.
-3. To tag several segments together, open **로그 선택** (Select logs), select the segments and add/remove tags in bulk.
+3. To tag several segments together, press **선택** (Select) on the Logs tab (or long-press a segment on touch screens), select the segments and use **태그** in the bottom action bar.
 
 Tags support 12 colors, names up to 32 characters and up to 100 tags per segment. Saving tags does not reconvert logs or videos.
 
@@ -152,17 +155,17 @@ Tags support 12 colors, names up to 32 characters and up to 100 tags per segment
 
 A bookmark stores **a specific log timestamp within one segment**. Mark a lane change, a lead-distance check or the start of deceleration to return directly to that moment later.
 
-1. Play or seek to the desired time, then click **북마크** (Bookmark) in the fixed playback bar.
+1. Play or seek to the desired time, then click **북마크** (Bookmark) in the floating playback bar. The analysis panel switches to the **북마크** tab with that time in the **현재 장면 추가** (Add current scene) editor.
 2. Check the captured timestamp, add a title and optional note, and **저장** (Save). **현재 시각으로** (Use current time) updates the editor’s timestamp to the current playback position.
-3. Click a saved **time/title** or a **timeline marker** to move the video, road view and graphs together, preserving the playing/paused state.
+3. Click a saved **time/title** in the bookmark tab or a **seek-bar marker** to move the video, road view and graphs together, preserving the playing/paused state.
 
-<img src="docs/images/roadviewer-bookmarks-editor.png" alt="Scene bookmark editor capturing the 22-second moment with a title/note and a chronological list of saved lane-change, lead-distance and deceleration scenes" width="556">
+<img src="docs/images/roadviewer-bookmarks-editor.png" alt="Bookmark tab capturing the 22-second moment with a title/note and a chronological list of saved lane-change, lead-distance and deceleration scenes" width="556">
 
 Saved bookmarks also appear as small timeline markers. Hover over a marker to see its time and title.
 
 ![Playback bar with bookmark markers at 8.5, 22 and 41.2 seconds and the Bookmark button](docs/images/roadviewer-bookmarks-timeline.png)
 
-Bookmarks use log time rather than a camera file’s timestamp, so changing cameras still leads to the same moment. Each segment supports 100 bookmarks, with titles up to 80 characters and notes up to 1000 characters; entries can be edited or deleted. Tags and bookmarks survive reconversion and removal of prepared data, but are removed when the segment is **completely deleted**.
+Bookmarks use log time rather than a camera file’s timestamp, so changing cameras still leads to the same moment. Each segment supports 100 bookmarks, with titles up to 80 characters and notes up to 1000 characters; entries can be edited or deleted in the bookmark tab. Tags and bookmarks survive reconversion and removal of prepared data, but are removed when the segment is **completely deleted**.
 
 **Tags and bookmarks do not protect recordings from automatic deletion.** Pin a segment separately when it needs to be retained.
 
@@ -170,7 +173,7 @@ Bookmarks use log time rather than a camera file’s timestamp, so changing came
 
 **Conversion behavior and storage policy**
 
-Set automatic conversion and concurrent jobs in **Conversion and storage settings**. Storage management controls the budget and full-storage policy.
+Set automatic conversion, concurrent jobs and display mode on the **설정** (Settings) tab. The **저장공간** (Storage) tab controls the budget and full-storage policy.
 
 ![Local usage and Google Drive connection status](docs/images/roadviewer-storage-overview.png)
 
@@ -186,30 +189,32 @@ The bar stays visible from preparation until the large compressed files have bee
 
 **Segment status and file management**
 
-The library is sorted by route counter and segment number descending and groups each route's segments together. Route groups start folded; only routes opened by hand are remembered as open. Each row shows processing status, video availability and retained/prepared file sizes, and chips under each segment show where the log and each camera video (high-quality, low-resolution, wide) are kept: **로컬** (local), **Drive** or **NAS**. Ready entries offer **Play**, while entries needing preparation offer **Convert**. Pin individual segments and use the adjacent dropdown for downloads, removal and complete deletion.
+The **로그** tab narrows segments with search and filter chips (All, Pinned, Unconverted, Processing, Drive, NAS and one per tag) and groups each route's segments into a **route card** under date headings. A card shows a thumbnail and total length, the start time (`HH:MM 출발`, or `업로드 HH:MM` when unknown), a segment status bar and **자동 제어 N% · 개입 N회** (automatic control ratio and takeover count). Cards start folded; only routes opened by hand are remembered as open. Each segment row shows processing status, video availability and retained/prepared file sizes, and chips under each segment show where the log and each camera video (high-quality, low-resolution, wide) are kept: **로컬** (local), **Drive** or **NAS**. Ready entries offer **Play**, while entries needing preparation offer **Convert**. Each segment's ⋯ menu offers remove, download, edit tags, copy log name, pin and complete deletion.
+
+Thumbnails and start times are generated during conversion and backfilled in the background for older and archived logs: local/NAS files are read in place, Drive files only through ranged requests for the first ~2 MB, and backfill pauses during uploads, conversions, archive runs and Drive playback. The control ratio and takeover count are computed from telemetry.
 
 ![Saved recordings with per-segment playback, pinning and management controls](docs/images/roadviewer-library-logs.png)
 
 **Download logs and camera videos**
 
-Open **다운로드** (Download) from a recording’s dropdown or the replay screen. Choose the format and included files, then download individual files or a ZIP. On the replay screen, the menu beside the pin button offers the same **제거** (Remove), **다운로드** (Download) and **완전 삭제** (Completely delete) as the library; confirming a removal or deletion returns to the library.
+Open **다운로드** (Download) from a segment’s ⋯ menu or the replay ⋯ menu. Choose the format and included files, then download individual files or a ZIP. On the replay screen, the app bar’s ⋯ menu offers the same **제거** (Remove), **다운로드** (Download) and **완전 삭제** (Completely delete) as the library; confirming a removal or deletion returns to the library.
 
 - **MP4:** Download the retained camera video as stored. HEVC front/wide playback requires codec support in the browser/device.
 - **Original format:** Remux f/e to HEVC and q to TS without re-encoding. Quality is preserved, but the bytes and hashes may differ from the original upload.
 - **Select all / Clear selection:** Choose the ZIP contents. **받기** (Get) beside a file downloads it individually without ZIP.
-- **Several segments:** Bulk management uses the same popup for up to 150 selected segments. Expand **개별 받기** (Individual downloads) to choose a segment’s file, or download the selected files as a ZIP. Missing cameras are omitted.
+- **Several segments:** Selection mode uses the same popup for up to 150 selected segments. Expand **개별 받기** (Individual downloads) to choose a segment’s file, or download the selected files as a ZIP. Missing cameras are omitted.
 
-Choose **로그 선택** (Select logs) at the bottom of settings. The first **로그 일괄 관리** (Bulk log management) dialog groups recordings by route, with route-level select-all and individual segment checkboxes. A minus indicates a partial selection; the top select-all/count and bottom action buttons stay visible while scrolling. Then choose **다운로드** (Download) to select files and format. Individual library and replay downloads keep the compact file/format popup for the current segment.
+For several segments, press **선택** (Select) on the Logs tab, or long-press a segment on touch screens, to enter the in-list **selection mode**. Route-card checkboxes select a whole route and segment checkboxes single segments; a minus marks a partial selection. The bottom action bar offers **태그**, **다운로드**, **변환**, **변환 데이터 제거**, **완전 삭제**, **고정 포함** (Include pinned) and **취소** (Cancel).
 
 <img src="docs/images/roadviewer-download-options.png" alt="Download popup selecting logs and front, wide and low-resolution videos in MP4/original format, with individual-file and ZIP controls" width="490">
 
 ZIPs stream without retaining a download copy on the server. Each camera’s sole MP4 is a retained video, so removing prepared data preserves it.
 
-Use **로그 선택** (Select logs) at the bottom of settings for bulk conversion/removal/deletion. Pinned segments are excluded from bulk removal/deletion by default. **고정 항목도 삭제** explicitly includes them for that dialog session; reopening restores protection. Individual menus allow explicit deletion of pinned recordings.
+Selection mode handles bulk conversion/removal/deletion. Pinned segments are excluded from bulk removal/deletion by default. **고정 포함** explicitly includes them for that selection session; starting selection mode again restores protection. Individual ⋯ menus allow explicit deletion of pinned recordings.
 
-<img src="docs/images/roadviewer-bulk-selection.png" alt="Route and segment selection in bulk management" width="530">
+<img src="docs/images/roadviewer-bulk-selection.png" alt="Route and segment selection in selection mode with the bottom action bar" width="530">
 
-Storage management follows four steps: status and connections, archiving basics, execution/advanced settings, and a live behavior summary. Choose presets or custom values, review the summary, and save together. Manual archiving is disabled while settings are unsaved.
+The **저장공간** tab follows four steps: status and connections, archiving basics, execution/advanced settings, and a live behavior summary. Choose presets or custom values, review the summary, and save together. Manual archiving is disabled while settings are unsaved.
 
 **Google Drive MOVE is extension storage for local data.** With Drive MOVE and permission to delete local originals configured, the local maximum is a **soft limit**. When archiving is enabled, reaching that limit or the archive start threshold requests a background move through the existing archiver; when both are positive, the lower value is used. Uploads can temporarily exceed the limit while physical disk space covers other uploads’ outstanding reservations, temporary files, and a **100 MiB safety margin**. Admission does not wait for a Drive transfer to finish.
 
@@ -226,13 +231,13 @@ Files reside under `/data/roadviewer` inside the app container. **Home Assistant
 
 An update that changes the analysis format may clear prepared data and reprocess recordings. Rendering-only updates do not inherently require reconversion.
 
-The experimental **NAS archiving** option, enabled in **저장공간 관리** (storage management), moves original videos and logs of converted recordings to network storage attached to Home Assistant with usage Share, freeing local space. It is off by default. Scheduled archiving moves pinned segments too (a manual move-all keeps them local), but NAS cleanup never removes them. The library and converted data stay local, an unreachable NAS never causes deletions, and there is no restore back to local storage. Files on the NAS are not part of Home Assistant backups. See [NAS archiving](roadviewer/DOCS.en.md#nas-archiving-experimental) for setup.
+The experimental **NAS archiving** option, enabled on the **저장공간** (Storage) tab, moves original videos and logs of converted recordings to network storage attached to Home Assistant with usage Share, freeing local space. It is off by default. Scheduled archiving moves pinned segments too (a manual move-all keeps them local), but NAS cleanup never removes them. The library and converted data stay local, an unreachable NAS never causes deletions, and there is no restore back to local storage. Files on the NAS are not part of Home Assistant backups. See [NAS archiving](roadviewer/DOCS.en.md#nas-archiving-experimental) for setup.
 
-**Google Drive** can be used as the archive instead of a NAS (experimental, off by default). Enter the ID and secret of an OAuth client of your own in the app options, then press **Google Drive 연결** (Connect Google Drive) in storage management and enter the displayed code on Google's device sign-in page. **연결 해제** (Disconnect) removes only this installation's token; records, local files and Drive files are unchanged. It defaults to copy (COPY) mode: verified copies go to Drive and local files are never deleted. Move (MOVE) mode, which deletes local originals, applies only when storage management sets MOVE together with **검증 후 로컬 원본 삭제 허용** (allow deleting local originals after verification); there is no automatic Drive cleanup. Videos moved to Drive play through the app, which holds only the video being watched (up to 256 MB) in memory so seeks stay quick; nothing is written to disk, and it is freed after 10 minutes unwatched. The sign-in token is part of Home Assistant backups, so keep backups safe. See [Google Drive archiving](roadviewer/DOCS.en.md#google-drive-archiving-experimental).
+**Google Drive** can be used as the archive instead of a NAS (experimental, off by default). Enter the ID and secret of an OAuth client of your own in the app options, then press **Google Drive 연결** (Connect Google Drive) on the Storage tab and enter the displayed code on Google's device sign-in page. **연결 해제** (Disconnect) removes only this installation's token; records, local files and Drive files are unchanged. It defaults to copy (COPY) mode: verified copies go to Drive and local files are never deleted. Move (MOVE) mode, which deletes local originals, applies only when the Storage tab sets MOVE together with **검증 후 로컬 원본 삭제 허용** (allow deleting local originals after verification); there is no automatic Drive cleanup. Videos moved to Drive play through the app, which holds only the video being watched (up to 256 MB) in memory so seeks stay quick; nothing is written to disk, and it is freed after 10 minutes unwatched. The sign-in token is part of Home Assistant backups, so keep backups safe. See [Google Drive archiving](roadviewer/DOCS.en.md#google-drive-archiving-experimental).
 
 ## Documentation and validation
 
-New UI details were captured from main `6631968` (version 0.13.3) using example data. Previously selected driving/wide illustrations are retained and may show older UI. Device, capacity, and pairing values are synthetic; the displayed code cannot connect a device. See the [screenshot guide](docs/images/README.en.md).
+Screenshots were captured on 2026-11-07 from version 1.0.0 (branch `feature/ui-redesign`) using example data. The three driving/wide introduction photos composite the earlier footage's video area into the new UI. Device, capacity, and pairing values are synthetic; the displayed code cannot connect a device. See the [screenshot guide](docs/images/README.en.md).
 
 - [User guide](roadviewer/DOCS.en.md) · [한국어](roadviewer/DOCS.md): installation, playback, conversion, storage, backups and troubleshooting
 - [roadviewer-mcp](https://github.com/Qualified4/roadviewer-mcp): MCP server for AI agents, using only the existing Ingress login and API
