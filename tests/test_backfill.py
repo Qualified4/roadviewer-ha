@@ -219,4 +219,13 @@ def load_tests(loader,tests,pattern):
   suite.addTests(case(name) for name in vars(case) if name.startswith('test'))
  return suite
 
+
+class StartupTests(unittest.TestCase):
+ def test_thread_start_is_not_shadowed(self):
+  # server.py calls list_backfill.start() at import; a per-log helper named start() once replaced it and the add-on
+  # failed to boot.
+  import inspect
+  params=list(inspect.signature(backfill.Backfill.start).parameters)
+  self.assertEqual(params,['self','delay'])
+
 if __name__=='__main__':unittest.main()

@@ -4,6 +4,10 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.4
+
+- Fixes 1.0.3 failing to start: an internal name clash in the background job that recalculates start times stopped the server from booting.
+
 ## 1.0.3
 
 - Drive start times come from GPS time. A device clock not yet set at start-up no longer puts different days' drives at the same time and date; segments without GPS are corrected from another segment of the same drive. Existing logs (Drive and NAS too) are recalculated in the background.

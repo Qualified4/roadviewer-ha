@@ -225,7 +225,7 @@ class Backfill:
   except Exception:
    log.warning('Start time of %s could not be read',p.name,exc_info=True);return None
 
- def start(self,p,m):
+ def start_fields(self,p,m):
   # Cached per conversion (start_v): a log that cannot be read keeps the start it has, marked as from the device.
   fields=self.started_at(p,m)
   if fields is not None:return fields
@@ -270,7 +270,7 @@ class Backfill:
 
  def process(self,p,m,need):
   updates={};data=MISSING
-  if 'started_at' in need:updates.update(self.start(p,m))
+  if 'started_at' in need:updates.update(self.start_fields(p,m))
   if 'drive_summary' in need:
    value=self.drive_summary(p)
    if value is not MISSING:updates['drive_summary']=value
