@@ -4,6 +4,13 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.14
+
+- The video is sized against where the floating transport bar actually is instead of a fixed allowance, so it grows right up to the bar with smaller side margins.
+- The video no longer grows tall and then shrinks while a segment loads: the bar keeps its last height and the video its last aspect ratio.
+- Desktop and tablet now show the previous/next buttons beside the title at the top left of the video (‹ ›), as on phones.
+- Deleting permanently from the replay opens the previous segment of the same drive, else the next one, and returns to the log list only when there is neither.
+
 ## 1.0.13
 
 - Leaving a turned phone/tablet fullscreen by moving to another segment no longer leaves the next segment's seek touches and dialogs in the turned orientation.

@@ -9,7 +9,8 @@ const logs=[
  {id:'single',name:'000003cb--8bf810e0fe / 구간 15',status:'ready',uploaded:2,bytes:1,prepared_bytes:1,video:true,video_downloads:[{source:'qcamera',kind:'qcamera.ts',bytes:2.2*MB}]},
  {id:'nolog',name:'000003cb--8bf810e0fe / 구간 14',status:'ready',uploaded:1,bytes:1,prepared_bytes:1,video:false,video_downloads:[]},
  {id:'remote',name:'000003cb--8bf810e0fe / 구간 13',status:'ready',uploaded:0,bytes:1,prepared_bytes:1,video:true,download_options:[{source:'front'},{source:'qcamera'}],
-  video_downloads:[{source:'front',kind:'fcamera.mp4',bytes:40*MB},{source:'qcamera',kind:'qcamera.mp4',bytes:2*MB}],storage_locations:{rlog:'local',front:'gdrive',qcamera:'gdrive'},video_state:{front:'available',qcamera:'available'}}
+  video_downloads:[{source:'front',kind:'fcamera.mp4',bytes:40*MB},{source:'qcamera',kind:'qcamera.mp4',bytes:2*MB}],storage_locations:{rlog:'local',front:'gdrive',qcamera:'gdrive'},video_state:{front:'available',qcamera:'available'}},
+ {id:'alone',name:'000003aa--1234567890 / 구간 0',status:'ready',uploaded:-1,bytes:1,prepared_bytes:1,video:false,video_downloads:[]}
 ];
 const deleted=[];
 const replay={route:'test',key:'k',duration:1,warnings:[],video:null,frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false,overlay:null}]};
@@ -105,15 +106,18 @@ const replay={route:'test',key:'k',duration:1,warnings:[],video:null,frames:[{t:
   await page.locator('#replayDownloadMenu>button',{hasText:'다운로드'}).click();
   await page.locator('.rv-download-dialog').waitFor();assert.equal(await page.evaluate(()=>document.getElementById('replayDownload').open),false);
   await page.keyboard.press('Escape');
-  // 제거 and 완전 삭제 ask first; declining sends nothing, confirming deletes and returns to the log list.
+  // 제거 and 완전 삭제 ask first; declining sends nothing. A confirmed 제거 returns to the log list; a confirmed 완전 삭제
+  // opens the previous segment of the drive, else the next one, else the log list.
   let answer=false;const dialogs=[];page.on('dialog',d=>{dialogs.push(d.message());answer?d.accept():d.dismiss()});
   await open('multi');await summary.click();await page.locator('#replayDownloadMenu>button',{hasText:'제거'}).click();
   assert.match(dialogs.at(-1),/재생용 임시 영상을 제거할까요/);assert.deepEqual(deleted,[]);
   answer=true;await summary.click();await page.locator('#replayDownloadMenu>button',{hasText:'제거'}).click();
   await page.waitForURL('https://rv.test/');assert.deepEqual(deleted,[['/api/logs/multi/prepared','1']]);
-  await open('single');await summary.click();await page.locator('#replayDownloadMenu>.delete').click();
-  assert.match(dialogs.at(-1),/완전히 삭제할까요/);await page.waitForURL('https://rv.test/');
-  assert.deepEqual(deleted.at(-1),['/api/logs/single','1']);
+  const fullDelete=async(id,to)=>{await open(id);await page.evaluate(()=>pageReady);await summary.click();await page.locator('#replayDownloadMenu>.delete').click();
+   assert.match(dialogs.at(-1),/완전히 삭제할까요/);await page.waitForURL(to);assert.deepEqual(deleted.at(-1),['/api/logs/'+id,'1'])};
+  await fullDelete('single','https://rv.test/view/nolog/');
+  await fullDelete('remote','https://rv.test/view/nolog/');
+  await fullDelete('alone','https://rv.test/');
   // The list menu offers the same choices.
   await page.setViewportSize({width:1280,height:800});await page.goto('https://rv.test/');await page.locator('.log-row').first().waitFor();
   await page.locator('.log-row').first().locator('.recording-more>summary').click();
@@ -129,6 +133,6 @@ const replay={route:'test',key:'k',duration:1,warnings:[],video:null,frames:[{t:
   assert.equal(await where('remote').evaluate(e=>e.dataset.place),'gdrive');
   assert.equal(await page.locator('.log-row .storage-part').count(),0,'per-part chips only for mixed storage');
   assert.deepEqual(errors,[]);
-  console.log('PASS: replay ⋯ menu keeps app bar height, offers 제거/downloads/camera info/screen mode/info/완전 삭제 (log and f/e/q videos or the download dialog), confirmed deletes, single-video fallback, closing, keyboard, list parity and storage locations per part');
+  console.log('PASS: replay ⋯ menu keeps app bar height, offers 제거/downloads/camera info/screen mode/info/완전 삭제 (log and f/e/q videos or the download dialog), confirmed deletes (완전 삭제 opens the previous/next segment), single-video fallback, closing, keyboard, list parity and storage locations per part');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

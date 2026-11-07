@@ -686,8 +686,10 @@ select,.rv-choice-trigger{font-weight:500}
 .replay-page.bar-folded .app-bar{transform:translateY(-100%);margin-bottom:calc(-1 * var(--app-bar-height,56px));transition-timing-function:var(--m3-emph-accelerate,ease)}
 .replay-page.bar-folded .camera-panel{top:0}
 /* The video never runs under the floating transport bar: it narrows (centred) when the screen is short. */
-.replay-page .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc((100dvh - var(--app-bar-height,56px) - var(--transport-height,150px) - 60px) * var(--video-ar,1.594)));margin-inline:auto}
-.replay-page.bar-folded .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc((100dvh - var(--transport-height,150px) - 60px) * var(--video-ar,1.594)))}
+.replay-page .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc(var(--video-room,calc(100dvh - var(--app-bar-height,56px) - var(--transport-height,150px) - 60px)) * var(--video-ar,1.594)));margin-inline:auto}
+.replay-page.bar-folded .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc(var(--video-room-folded,calc(100dvh - var(--transport-height,150px) - 60px)) * var(--video-ar,1.594)))}
+/* Loading: the message sits in the middle of the bar, which keeps its controls' height (app.js sizeTransport). */
+.replay-page .playback:has(#playbackControls[hidden]){display:flex;flex-direction:column;justify-content:center}
 @media(prefers-reduced-motion:reduce){.replay-page .app-bar,.video-title,.video-tools,.video-fullscreen{transition:none}}
 /* Short phone screens (app.js): the sticky video has an explicit height so it can shrink to 60% while scrolling the analysis
    (letterboxed, controls keep their corners), and the transport folds into one row: play · seek · time. */
