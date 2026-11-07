@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.13**.
+This guide describes **1.0.14**.
 
 [한국어](DOCS.md) · English
 
@@ -144,7 +144,7 @@ Bulk actions use an in-list **selection mode**; there is no separate dialog.
 
 Below each segment, chips show where the log and each camera video (high-quality, low-res, wide) are kept: **로컬** (local), **Drive** or **NAS**. Only files moved by archiving show Drive or NAS; everything else is local. A file removed by NAS cleanup shows **삭제됨** (removed). Recordings still uploading show no chips.
 
-The ⋯ menu in the replay app bar offers the same **제거** (Remove), **다운로드** (Download) and **완전 삭제** (Delete permanently) as the list; a confirmed remove or delete returns to the log list.
+The ⋯ menu in the replay app bar offers the same **제거** (Remove), **다운로드** (Download) and **완전 삭제** (Delete permanently) as the list; a confirmed remove returns to the log list; a confirmed delete opens the previous segment of the same drive, else the next one, and returns to the log list only when there is neither.
 
 During a bulk operation selection, **고정 포함** and **취소** are locked. Results show completed, skipped and incomplete counts; failed items remain selected.
 
@@ -184,7 +184,7 @@ The replay page has a compact app bar, controls over the video, a floating playb
 |---|---|
 | Back | Returns to the library. |
 | Date · log name | One line with the date, log name (copy button), **태그** button, tags and the **고정** badge. The title (segment chooser) sits at the top left of the video. |
-| Previous / next | **이전 구간 / 다음 구간** within the same route, otherwise **이전 로그 / 다음 로그**. Phones show them as ‹ › buttons beside the title at the top left of the video. |
+| Previous / next | **이전 구간 / 다음 구간** within the same route, otherwise **이전 로그 / 다음 로그**. They are the ‹ › buttons beside the title at the top left of the video. |
 | Pin | Pins/unpins the current segment, shared with the library; yellow when pinned. |
 | 보기 (View) | **좌우 분할**, **상하 분리**, **화면 폭…**. On phones it sits inside the ⋯ menu. |
 | ⋯ | **제거**, **다운로드**, **카메라 설치 정보**, **화면 모드**, log details/version, **완전 삭제** |

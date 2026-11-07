@@ -95,7 +95,9 @@ for(const event of ['progress','loadedmetadata','loadeddata','durationchange','e
 // The video frame takes the picture's own aspect ratio (front cameras differ: 526:330, 16:9 …), so no black bars are
 // added above and below a wider picture.
 function videoAspect(){return Number(document.body.style.getPropertyValue('--video-ar'))||526/330}
-v.addEventListener('loadedmetadata',()=>{if(v.videoWidth&&v.videoHeight)document.body.style.setProperty('--video-ar',String(+(v.videoWidth/v.videoHeight).toFixed(4)))});
+// The last picture's ratio is remembered, so the next page opens at the size its video will take instead of jumping.
+try{const ar=Number(localStorage.getItem('roadviewer-video-ar'));if(ar>.5&&ar<4)document.body.style.setProperty('--video-ar',String(ar))}catch{}
+v.addEventListener('loadedmetadata',()=>{if(!v.videoWidth||!v.videoHeight)return;const ar=String(+(v.videoWidth/v.videoHeight).toFixed(4));document.body.style.setProperty('--video-ar',ar);try{localStorage.setItem('roadviewer-video-ar',ar)}catch{}});
 // The time readout is a toggle that swaps current time (default) for the total length in the same reserved width; the label carries both.
 let timeTotal=false;try{timeTotal=localStorage.getItem('roadviewer-time-total')==='1'}catch{}
 function renderTime(){const el=$('time'),full=`${clock(t)} / ${clock(data?.duration||0)}`,label=full+' · 눌러서 전체 길이 표시/숨기기';el.children[0].textContent=clock(t);el.children[1].textContent=clock(data?.duration||0);el.title=label;el.setAttribute('aria-label',label);el.setAttribute('aria-pressed',String(timeTotal))}
@@ -114,7 +116,7 @@ function tick(now){
 }
 function setPlaybackState(ready,message){
  loading=!ready;$('play').disabled=!ready;
- $('playbackControls').hidden=!ready;$('playbackMessage').hidden=ready;
+ $('playbackControls').hidden=!ready;$('playbackMessage').hidden=ready;if(ready)document.querySelector('.playback').style.minHeight='';
  $('playbackMessage').textContent=ready?'':message;$('status').textContent=message;$('status').dataset.state=ready?'ready':'busy';
 }
 function playbackError(message){pendingVideoSeek=null;seekPointer=null;videoReadyPending=false;pause();setPlaybackState(false,message);$('status').textContent='재생 불가';$('status').dataset.state='error';showError(message)}
@@ -845,7 +847,16 @@ new ResizeObserver(()=>{sizeAppBar();sizeCamera()}).observe(appBar);sizeAppBar()
 // The floating transport bar: the page keeps this much room below its content so the bar never hides the end.
 const transport=document.querySelector('.playback');
 // The layout height, so the quarter-turned full screen (see the full screen button) does not measure the bar's length.
-function sizeTransport(){document.documentElement.style.setProperty('--transport-height',`${transport.offsetHeight}px`)}
+// While a segment loads the bar shows only a message; it keeps the height its controls last had (remembered per kind of
+// screen), so the video sized against it does not grow while loading and shrink once the controls appear.
+const transportKey=()=>'roadviewer-transport-h-'+(matchMedia('(pointer:coarse)').matches?'touch':'mouse')+(innerWidth<720?'-narrow':'');
+function sizeTransport(){
+ if(!document.fullscreenElement&&!document.body.classList.contains('transport-mini')){
+  if(!$('playbackControls').hidden){if(transport.style.minHeight)transport.style.minHeight='';else try{localStorage.setItem(transportKey(),String(transport.offsetHeight))}catch{}}
+  else{let h=0;try{h=Number(localStorage.getItem(transportKey()))}catch{}const min=h>0&&h<400?h+'px':'';if(transport.style.minHeight!==min)transport.style.minHeight=min}
+ }
+ document.documentElement.style.setProperty('--transport-height',`${transport.offsetHeight}px`);
+}
 new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
 
 // Set by the stacked layout below: the app bar folding moves the picture against the transport bar.
@@ -908,11 +919,17 @@ let barFoldChanged=()=>{};
  // is set from this size, so a first measure taken while the page was still hidden (opened from the list) kept the
  // video at the 320px fallback for good.
  function sizeVideo(){
+  // The height the picture may take: from its top (under the app bar, or at the top when the bar is folded away) down to
+  // 8px above the floating transport bar, measured from the page's own spacing rather than a fixed allowance.
+  const pageTop=parseFloat(getComputedStyle(cameraPanel.closest('main')||cameraPanel).paddingTop)||0;
+  const barTop=innerHeight-(parseFloat(getComputedStyle(transport).bottom)||0)-transport.offsetHeight-8;
+  const roomFolded=Math.max(120,Math.round(barTop-pageTop)),roomOpen=Math.max(120,roomFolded-appBar.offsetHeight);
+  root.style.setProperty('--video-room',roomOpen+'px');root.style.setProperty('--video-room-folded',roomFolded+'px');
   if(shrink<=0){
    const style=getComputedStyle(cameraPanel),room=cameraPanel.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
    // Where the app bar folds away while playing (short or touch screens), its room goes to the picture: playing, the
    // video then just clears the transport bar; paused, the bar's controls over the video move up (--video-cover).
-   const tall=(innerHeight-(barFolds.matches?0:appBar.offsetHeight)-transport.offsetHeight-60)*videoAspect();
+   const tall=(barFolds.matches?roomFolded:roomOpen)*videoAspect();
    if(room>0)fullWidth=Math.max(160,Math.min(room,tall));
   }
   if(!fullWidth)return;
@@ -949,7 +966,7 @@ let barFoldChanged=()=>{};
  new ResizeObserver(()=>{layout();update()}).observe(document.getElementById('replayViews'));
  const resized=()=>{if(shrink<=0)sizeVideo();schedule()};
  new ResizeObserver(resized).observe(cameraPanel);new ResizeObserver(resized).observe(transport);addEventListener('resize',resized);barFolds.addEventListener?.('change',resized);
- new ResizeObserver(schedule).observe(appBar);
+ new ResizeObserver(resized).observe(appBar);
  // The app bar folding (playing) or unfolding moves the picture against the transport bar.
 barFoldChanged=schedule;appBar.addEventListener('transitionend',schedule);transport.addEventListener('animationend',schedule);
  transport.addEventListener('pointerdown',e=>{if(root.classList.contains('transport-mini')&&!e.target.closest('button,input,select,label,a,.seekbar')){root.classList.remove('transport-mini');travel=0}});
@@ -1190,13 +1207,14 @@ function renderReplayDownloads(log){
  const details=$('replayDownload'),menu=$('replayDownloadMenu'),view=$('viewOptions');
  details.classList.toggle('is-empty',!log);
  const nodes=[],id=log&&encodeURIComponent(log.id);
- // Both remove the replay's data, so a confirmed one returns to the log list.
+ // Both remove the replay's data. A confirmed 제거 returns to the log list; a confirmed 완전 삭제 opens the previous
+ // segment of the same drive, else the next one, and the log list only when the drive has no other playable segment.
  const destructive=(text,className,message,url,expected)=>{
   const button=replayMenuButton(text,className);
   button.onclick=async()=>{
    details.open=false;if(!confirm(`${log.name}\n${message}`))return;
    button.disabled=true;
-   try{await replayDelete(url,expected);location.assign('../../')}catch(e){showError(e.message);button.disabled=false}
+   try{await replayDelete(url,expected);const next=className==='delete'&&replaySegmentNeighbors.find(Boolean);if(next)goToLog(next);else location.assign('../../')}catch(e){showError(e.message);button.disabled=false}
   };
   return button;
  };
@@ -1216,11 +1234,8 @@ function renderReplayDownloads(log){
  menu.replaceChildren(...nodes);
 }
 renderReplayDownloads(null);
-// Phones put 이전/다음 beside the title over the video (‹ 구간 k ›), within reach while watching; wider screens keep them in the app bar.
-const logNeighbors=document.querySelector('.log-neighbors');
-function placeNeighbors(){const target=phoneLayout.matches?document.querySelector('.video-title'):$('logNavigation');if(logNeighbors.parentElement!==target)target.prepend(logNeighbors)}
-placeNeighbors();
-phoneLayout.addEventListener('change',()=>{$('viewMenu').open=false;renderReplayDownloads(replayLog);placeNeighbors()});
+// 이전/다음 sit beside the title over the video (‹ 구간 k ›) on every screen, within reach while watching (index.html).
+phoneLayout.addEventListener('change',()=>{$('viewMenu').open=false;renderReplayDownloads(replayLog)});
 $('replayDownloadMenu').addEventListener('click',e=>{if(e.target.closest('a,#cameraInfoButton,#layoutWidthButton'))$('replayDownload').open=false});
 $('viewMenuPanel').addEventListener('click',e=>{if(e.target.closest('#layoutWidthButton'))$('viewMenu').open=false});
 // App bar and layer menus: one open at a time, placed on the roomier side and scrolled within the viewport.
@@ -1250,6 +1265,8 @@ window.addEventListener('resize',placeReplayMenus);
 window.addEventListener('scroll',placeReplayMenus,{passive:true});
 document.addEventListener('click',e=>{for(const details of replayMenus)if(details.open&&!details.contains(e.target))details.open=false});
 document.addEventListener('keydown',e=>{const details=replayMenus.find(d=>d.open);if(e.key==='Escape'&&details&&!document.querySelector('dialog[open]')){details.open=false;details.querySelector('summary').focus()}});
+// The playable segments of the same drive just before and after this one (for 완전 삭제 above).
+let replaySegmentNeighbors=[];
 async function loadLogNavigation(){
  const buttons=[$('previousLog'),$('nextLog')];
  const label=(button,text,title)=>{button.querySelector('.neighbor-label').textContent=text;button.setAttribute('aria-label',text);button.title=title};
@@ -1270,6 +1287,8 @@ async function loadLogNavigation(){
   populateSegments(logs,current);
   const index=logs.findIndex(log=>log.id===current);
   const neighbors=index<0?[]:[logs.slice(index+1).find(log=>log.status==='ready'),logs.slice(0,index).reverse().find(log=>log.status==='ready')];
+  const drive=logSegmentInfo(active?.name)?.route;
+  replaySegmentNeighbors=neighbors.map(log=>drive&&logSegmentInfo(log?.name)?.route===drive?log:null);
   buttons.forEach((button,i)=>{
    const log=neighbors[i];button.disabled=!log;
    const route=logSegmentInfo(active?.name)?.route,sameRoute=route&&logSegmentInfo(log?.name)?.route===route;
