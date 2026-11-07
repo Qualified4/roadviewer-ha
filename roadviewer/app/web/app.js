@@ -94,7 +94,7 @@ function updateVideoBuffer(){
 for(const event of ['progress','loadedmetadata','loadeddata','durationchange','emptied','seeked'])v.addEventListener(event,updateVideoBuffer);
 // The video frame takes the picture's own aspect ratio (front cameras differ: 526:330, 16:9 …), so no black bars are
 // added above and below a wider picture.
-function videoAspect(){return Number(getComputedStyle(document.body).getPropertyValue('--video-ar'))||526/330}
+function videoAspect(){return Number(document.body.style.getPropertyValue('--video-ar'))||526/330}
 v.addEventListener('loadedmetadata',()=>{if(v.videoWidth&&v.videoHeight)document.body.style.setProperty('--video-ar',String(+(v.videoWidth/v.videoHeight).toFixed(4)))});
 // The time readout is a toggle that swaps current time (default) for the total length in the same reserved width; the label carries both.
 let timeTotal=false;try{timeTotal=localStorage.getItem('roadviewer-time-total')==='1'}catch{}
