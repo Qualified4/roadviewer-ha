@@ -71,7 +71,7 @@ class ArchiveSettings:
     path: Path | None = None
     local_threshold_bytes: int = 0
     min_age_seconds: int = 86400
-    interval_seconds: int = 600
+    interval_seconds: int = 86400  # 24 h: matches the UI presets (1/6/12/24 h); Drive needs no frequent runs.
     batch: int = 4
     nas_max_bytes: int = 0
     nas_margin_bytes: int = 1024 * MB
@@ -96,7 +96,7 @@ class ArchiveSettings:
         return cls(enabled=enabled, path=Path(raw) if ok else None, error=error,
                    local_threshold_bytes=_int(options, 'archive_local_threshold_mb', 0, 0) * MB,
                    min_age_seconds=_int(options, 'archive_min_age_hours', 24, 0, 8760) * 3600,
-                   interval_seconds=_int(options, 'archive_interval_minutes', 10, 1, 1440) * 60,
+                   interval_seconds=_int(options, 'archive_interval_minutes', 1440, 1, 1440) * 60,
                    batch=_int(options, 'archive_batch', 4, 1, 64),
                    nas_max_bytes=_int(options, 'archive_nas_max_mb', 0, 0) * MB,
                    nas_margin_bytes=_int(options, 'archive_nas_margin_mb', 1024, 0) * MB,

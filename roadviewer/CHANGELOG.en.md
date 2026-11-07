@@ -2,7 +2,14 @@
 
 [한국어 전체 변경 이력](CHANGELOG.md) · English
 
-These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
+These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
+
+## 1.0.10
+
+- In the stacked layout the sticky video card has the same shadow as the other cards, so the card scrolling up under it meets a clear edge.
+- Notices over the video (e.g. no log data for this segment) use the same text colour and weight as the other chips, on a thinner background that shows more of the picture.
+- The default automatic archive interval is now 24 hours instead of 10 minutes. It applies only when the setting was never saved; saved values are kept.
+- The English release notes describe their actual range (0.13.0 on).
 
 ## 1.0.9
 

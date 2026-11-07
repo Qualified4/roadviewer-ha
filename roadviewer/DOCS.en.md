@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.9**.
+This guide describes **1.0.10**.
 
 [한국어](DOCS.md) · English
 
@@ -414,7 +414,7 @@ An unreadable/corrupt file or invalid migrated values disable archiving and show
 | `archive_path` | empty | below `/share/` | NAS folder |
 | `archive_local_threshold_mb` | `0` | 0 or more | Move files only while Road Viewer's local usage exceeds this. `0` moves whenever there is something eligible. |
 | `archive_min_age_hours` | `24` | 0–8760 | Only recordings uploaded at least this long ago |
-| `archive_interval_minutes` | `10` | 1–1440 | Interval between automatic runs |
+| `archive_interval_minutes` | `1440` (24 h) | 1–1440 | Interval between automatic runs |
 | `archive_batch` | `4` | 1–64 | Maximum files moved per run |
 | `archive_nas_max_mb` | `0` | 0 or more | Usage limit of the NAS folder; `0` means unlimited |
 | `archive_nas_margin_mb` | `1024` | 0 or more | Clean up when NAS free space falls below this. Free space is measured on the whole NAS volume. |

@@ -1,6 +1,6 @@
 # 설치 및 사용
 
-현재 설명은 **1.0.9**의 기능을 기준으로 합니다.
+현재 설명은 **1.0.10**의 기능을 기준으로 합니다.
 
 한국어 · [English](DOCS.en.md)
 
@@ -501,7 +501,7 @@ API 포트 상태는 시작 시 Supervisor에서 이 앱의 네트워크 매핑�
 | `archive_path` | 빈 값 | `/share/` 아래 | NAS 폴더 경로 |
 | `archive_local_threshold_mb` | `0` | 0 이상 | Road Viewer의 로컬 사용량이 이 값을 넘을 때만 옮깁니다. `0`이면 대상이 있을 때마다 옮깁니다. |
 | `archive_min_age_hours` | `24` | 0–8760 | 업로드 후 이 시간이 지난 로그만 옮깁니다. |
-| `archive_interval_minutes` | `10` | 1–1440 | 자동 실행 간격 |
+| `archive_interval_minutes` | `1440` (24시간) | 1–1440 | 자동 실행 간격 |
 | `archive_batch` | `4` | 1–64 | 한 번 실행할 때 옮기는 최대 파일 수 |
 | `archive_nas_max_mb` | `0` | 0 이상 | NAS 폴더 사용량 상한. `0`이면 제한하지 않습니다. |
 | `archive_nas_margin_mb` | `1024` | 0 이상 | NAS 여유 공간이 이 값보다 작으면 정리합니다. 여유 공간은 NAS 볼륨 전체 기준입니다. |
