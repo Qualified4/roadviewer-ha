@@ -72,7 +72,7 @@ async function assertFlatControls(page){
    assert(contrast.every(([,r])=>r>=4.5),'over-video text meets 4.5:1 on its pill over black and white footage: '+JSON.stringify(contrast));
    assert(!/inset/.test(hud.card),'static cards have no inset highlight: '+hud.card);
    assert.equal(card.bar,theme==='light'?'rgba(255, 255, 255, 0.68)':'rgba(18, 20, 24, 0.42)','transport glass fill');assert.equal(card.stage,'rgb(6, 9, 13)');
-   if(theme==='light'){assert.equal(card.card,'rgb(255, 255, 255)');assert.equal(card.text,'rgb(20, 23, 28)')}
+   if(theme==='light'){assert(['rgba(0, 0, 0, 0)','rgb(238, 240, 243)'].includes(card.card),'no white card around the video: '+card.card);assert.equal(card.text,'rgb(20, 23, 28)')}
    // The bookmark marker is centred on the seek track.
    await page.locator('.bookmark-marker').waitFor();
    const centre=await page.evaluate(()=>{const m=document.querySelector('.bookmark-marker').getBoundingClientRect(),t=document.querySelector('.seek-track').getBoundingClientRect();return Math.abs((m.top+m.bottom)/2-(t.top+t.bottom)/2)});
@@ -82,7 +82,7 @@ async function assertFlatControls(page){
    await page.evaluate(w=>scrollTo(0,w>=720?0:180),width);await settleLayout(page);await page.evaluate(()=>{pause();setTime(1.5);toggle()});await page.waitForFunction(()=>!video.paused&&video.currentTime>1.6);await page.locator('#steeringBadge').waitFor({state:'visible'});
    await page.screenshot({path:`${shots}/replay-${theme}-${width}.png`,animations:'disabled'});assert(await page.evaluate(()=>!video.paused&&video.currentTime<3.9),'capture playing mid-video');
    await page.addStyleTag({content:':root{scroll-padding-top:0!important}.replay-page .camera-panel,.app-bar{position:relative!important;top:auto!important}'});
-   for(const [tab,id] of [['road','roadTab'],['telemetry','telemetryTab'],['bookmarks','bookmarkTab']]){
+   for(const [tab,id] of [['road','roadTab'],['lanes','laneTab'],['telemetry','telemetryTab'],['bookmarks','bookmarkTab']]){
     await page.locator('#'+id).click();await settleLayout(page,'.road-panel');
     if(tab==='telemetry')await page.locator('.telemetry-chart canvas').first().waitFor();
     // Isolate the panel for review after capturing the normal sticky phone layout above.

@@ -28,6 +28,8 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await page.route('https://rv.test/view/one/',route=>route.fulfill({body:fs.readFileSync('roadviewer/app/web/index.html'),contentType:'text/html'}));
   await page.goto('https://rv.test/view/one/');
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
+  // The frame takes the video's aspect ratio once its metadata arrives; let that resize (and the renders it triggers) settle.
+  await page.waitForFunction(()=>document.getElementById('video').readyState>=1);await page.waitForTimeout(500);
 
   // No video-derived glow behind the card; the transport bar follows the page theme.
   assert.equal(await page.locator('#videoAmbient,.ambient-clip').count(),0,'no ambient glow');
@@ -35,7 +37,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   // HUD: the speed is plain white figures with the wheel's dark edge (no pill); the wheel sits to its right, raised to the top.
   assert.equal(await page.locator('.video-hud .glass,.video-hud.glass').count(),0,'no glass in the speed/wheel corner');
   assert.equal(await page.locator('#steeringLabel').count(),0,'no visible steering label');
-  const hud=await page.evaluate(()=>{const speed=document.querySelector('.video-hud .ego-speed'),box=speed.getBoundingClientRect(),status=document.getElementById('steeringStatus'),ring=status.getBoundingClientRect(),wheel=document.getElementById('steeringIcon').getBoundingClientRect(),s=getComputedStyle(speed),stage=document.getElementById('videoStage').getBoundingClientRect(),fs=document.getElementById('fullscreenButton').getBoundingClientRect(),title=document.getElementById('logSegmentChoice').getBoundingClientRect(),tools=document.querySelector('.video-tools').getBoundingClientRect();
+  const hud=await page.evaluate(()=>{const speed=document.querySelector('.video-hud .ego-speed'),box=speed.getBoundingClientRect(),status=document.getElementById('steeringStatus'),ring=status.getBoundingClientRect(),wheel=document.getElementById('steeringIcon').getBoundingClientRect(),s=getComputedStyle(speed),stage=document.getElementById('videoStage').getBoundingClientRect(),fs=document.getElementById('fullscreenButton').getBoundingClientRect(),title=document.querySelector('.video-title').getBoundingClientRect(),tools=document.querySelector('.video-tools').getBoundingClientRect();
    return {right:ring.left>=box.right-1,top:ring.top<=box.top+1,edge:Math.abs(stage.right-ring.right),centred:Math.abs((wheel.left+wheel.right)/2-(ring.left+ring.right)/2),bg:getComputedStyle(status).backgroundColor,ring:getComputedStyle(status,'::before').visibility,
     speedBg:s.backgroundColor,speedText:getComputedStyle(document.getElementById('egoSpeed')).color,shadow:s.textShadow,
     title:title.top-stage.top<=16&&title.left-stage.left<=16,tools:stage.bottom-tools.bottom<=16&&tools.left-stage.left<=16,
@@ -43,7 +45,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   assert(hud.right,'wheel sits right of the speed');assert(hud.top,'wheel is raised to the top');assert(hud.edge<=16,'wheel at the right edge');assert(hud.centred<=1,'wheel is centred in its ring');
   assert.equal(hud.bg,'rgba(0, 0, 0, 0)');assert.equal(hud.ring,'hidden','no ring behind the wheel normally');
   assert.equal(hud.speedBg,'rgba(0, 0, 0, 0)','speed has no background');assert.equal(hud.speedText,'rgb(242, 244, 246)','white speed in both themes');assert.match(hud.shadow,/rgba\(0, 0, 0/,'dark edge like the wheel');
-  assert(hud.title,'title button at the top left of the video');assert(hud.tools,'camera and overlay chips at the bottom left');
+  assert(hud.title,'title group (with 이전/다음 on phones) at the top left of the video');assert(hud.tools,'camera and overlay chips at the bottom left');
   if(await page.locator('#fullscreenButton').isVisible())assert(hud.circle,'fullscreen button is a circle');
   const badge=page.locator('#steeringBadge');
   const steer=async steering=>{await page.evaluate(s=>{const f={...data.frames[0],steering:s};renderSteering(f)},steering);return {hidden:await badge.isHidden(),label:await page.locator('#steeringIcon').getAttribute('aria-label'),title:await page.locator('#steeringStatus').getAttribute('title')}};
@@ -207,7 +209,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    const r=await page.evaluate(async()=>{
     scrollTo(0,document.documentElement.scrollHeight);await new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done)));
     const p=document.querySelector('.playback'),bar=p.getBoundingClientRect(),main=document.querySelector('main'),cs=getComputedStyle(main),box=main.getBoundingClientRect(),s=getComputedStyle(p);
-    const ends=[...document.querySelectorAll('.road-panel,.camera-panel,.phone-neighbors')].filter(e=>e.getBoundingClientRect().height).map(e=>e.getBoundingClientRect().bottom);
+    const ends=[...document.querySelectorAll('.road-panel,.camera-panel')].filter(e=>e.getBoundingClientRect().height).map(e=>e.getBoundingClientRect().bottom);
     return {pos:s.position,bottom:innerHeight-bar.bottom,left:bar.left-(box.left+parseFloat(cs.paddingLeft)),right:box.right-parseFloat(cs.paddingRight)-bar.right,end:Math.max(...ends),top:bar.top,radius:s.borderTopLeftRadius,filter:s.backdropFilter,glass:p.classList.contains('glass-panel')};
    });
    assert.equal(r.pos,'fixed','transport bar is fixed at '+width);assert(r.glass&&/^blur\(20px\) saturate\(1\.7\) brightness\((0\.55|1\.12)\)$/.test(r.filter),'transport bar is glass: '+r.filter);assert.equal(r.radius,'18px');

@@ -147,7 +147,7 @@ i.model-path{background:var(--map-path)}
 
 
 /* The video and projected overlay must share the same box at every layout width. */
-.video-wrap{overflow:hidden}
+.video-wrap{overflow:clip}
 .video-wrap>video{position:absolute;inset:0;min-width:0;min-height:0;width:100%;height:100%;object-fit:contain}
 
 
@@ -267,12 +267,13 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .menu-theme{display:grid;gap:6px;padding:8px 6px 6px}
 .menu-theme>span{padding:0 4px;font-size:11px;color:var(--muted)}
 .menu-theme .theme-switch{display:flex}.menu-theme .theme-switch button{flex:1}
-/* Controls drawn over the video: lighter glass than the floating bars (fill .22 dark / .6 light; backdrop brightness .45 / 1.15
-   keeps 4.5:1 text over pure white or black) with one even hairline, no top highlight. Light follows the page theme,
-   except in full screen, where the cockpit concept keeps them dark. Opaque without backdrop-filter or with reduced transparency. */
-.video-wrap{--glass-bg:rgba(18,20,24,.22);--glass-filter:blur(18px) saturate(160%) brightness(.45);--glass-border:transparent;--glass-highlight:inset 0 0 0 1px rgba(255,255,255,.09);--glass-shadow:inset 0 0 0 1px rgba(255,255,255,.09),0 4px 14px rgba(0,0,0,.18);--glass-solid:#1E2126;--hud-text:#F2F4F6;--hud-muted:rgba(242,244,246,.85);--hud-warn:#F8D27A;--hud-line:rgba(255,255,255,.14);--hud-hover:rgba(255,255,255,.10);--hud-focus:#5BE3AE}
-:root[data-theme=light] .camera-panel:not(:fullscreen) .video-wrap{--glass-bg:rgba(255,255,255,.6);--glass-filter:blur(18px) saturate(160%) brightness(1.15);--glass-border:transparent;--glass-highlight:inset 0 0 0 1px rgba(255,255,255,.45);--glass-shadow:inset 0 0 0 1px rgba(255,255,255,.45),0 4px 14px rgba(16,24,40,.10);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#262B35;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}
-@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .camera-panel:not(:fullscreen) .video-wrap{--glass-bg:rgba(255,255,255,.6);--glass-filter:blur(18px) saturate(160%) brightness(1.15);--glass-border:transparent;--glass-highlight:inset 0 0 0 1px rgba(255,255,255,.45);--glass-shadow:inset 0 0 0 1px rgba(255,255,255,.45),0 4px 14px rgba(16,24,40,.10);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#262B35;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}}
+/* Controls drawn over the video, after the magazine home's tab bar: a translucent fill with a plain 12px blur (no
+   saturation or brightening, so it stays clear rather than milky) and a 1px gradient rim drawn with a mask, lit along the
+   top and fading out below, instead of an even outline. Dark keeps the backdrop dimmed so white text holds 4.5:1 over
+   any footage. Light follows the page theme except in full screen. Opaque without backdrop-filter or with reduced transparency. */
+.video-wrap{--glass-bg:rgba(18,20,24,.22);--glass-filter:blur(12px) brightness(.45);--glass-border:transparent;--glass-highlight:none;--glass-shadow:0 2px 8px rgba(0,0,0,.18);--glass-rim:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.04) 45%,rgba(255,255,255,.04));--glass-solid:#1E2126;--hud-text:#F2F4F6;--hud-muted:rgba(242,244,246,.85);--hud-warn:#F8D27A;--hud-line:rgba(255,255,255,.14);--hud-hover:rgba(255,255,255,.10);--hud-focus:#5BE3AE}
+:root[data-theme=light] .camera-panel:not(:fullscreen) .video-wrap{--glass-bg:rgba(255,255,255,.6);--glass-filter:blur(12px);--glass-border:transparent;--glass-highlight:none;--glass-shadow:0 2px 8px rgba(0,0,0,.14);--glass-rim:linear-gradient(180deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,.12) 18%,rgba(16,24,40,.05) 45%,rgba(16,24,40,.04) 70%,rgba(16,24,40,.04) 100%);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#262B35;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .camera-panel:not(:fullscreen) .video-wrap{--glass-bg:rgba(255,255,255,.6);--glass-filter:blur(12px);--glass-border:transparent;--glass-highlight:none;--glass-shadow:0 2px 8px rgba(0,0,0,.14);--glass-rim:linear-gradient(180deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,.12) 18%,rgba(16,24,40,.05) 45%,rgba(16,24,40,.04) 70%,rgba(16,24,40,.04) 100%);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#262B35;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}}
 .glass,.video-tools .rv-choice-trigger{background:var(--glass-bg);border:1px solid var(--glass-border);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);color:var(--hud-text);text-shadow:none}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.glass,.video-tools .rv-choice-trigger{background:var(--glass-solid)}}
 @media(prefers-reduced-transparency:reduce){.glass,.video-tools .rv-choice-trigger{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
@@ -349,7 +350,7 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .replay-page.stack-view .views>article{flex-basis:100%}
 .stack-view .road-wrap{height:clamp(450px,60vw,760px)}
 /* Video stage: always dark; everything drawn on it uses the glass style. */
-.replay-page .video-wrap{overflow:hidden;container-type:inline-size;aspect-ratio:526/330;background:#06090d;color:var(--hud-text);border-radius:16px}
+.replay-page .video-wrap{overflow:clip;container-type:inline-size;aspect-ratio:var(--video-ar,1.594);background:#06090d;color:var(--hud-text);border-radius:16px}
 #noVideo{color:rgba(242,244,246,.72);z-index:1}
 .video-tools{position:absolute;top:12px;left:12px;z-index:3;display:flex;align-items:center;flex-wrap:wrap;gap:8px;max-width:calc(100% - 190px)}
 .video-source{display:flex;min-width:0}
@@ -477,14 +478,14 @@ button.time-toggle:active{background:var(--hover)}
 .layer-panel .layers>label{min-height:34px;padding:0 4px;border-radius:8px}
 .layer-panel .target-label-mode{grid-column:1/-1;gap:2px 12px;margin-top:6px}
 .layer-panel .target-label-mode label{display:flex;align-items:center;gap:5px;min-height:32px}
-/* Lane and boundary readouts sit under the map, so they stay visible next to (or under) the video. */
-.replay-page .road-wrap+.boundary-summary{padding:12px 16px 4px;border-top:0}
+/* Lane and boundary readouts have their own analysis tab (차선·도로), so they stay visible next to (or under) the video. */
+.replay-page #laneView .boundary-summary{padding:16px;border-top:0}
 /* Labels above values: both modes (probability / y[0] distance) keep the same card size at every width. */
 .boundary-summary .boundary-edge{display:block}.boundary-summary .boundary-edge>span{display:block;max-width:none;white-space:nowrap}.boundary-summary .boundary-edge strong{margin-top:4px}
 .replay-page .road-wrap{height:465px;margin:0 16px;border-radius:12px;overflow:hidden}
 @media(min-width:1200px){.replay-page .road-wrap{height:530px}}
 /* Side by side: the map matches the video's size, so both pictures line up. */
-.replay-page.split-view .road-wrap{height:auto;aspect-ratio:526/330;margin:0;border-radius:0}
+.replay-page.split-view .road-wrap{height:auto;aspect-ratio:var(--video-ar,1.594);margin:0;border-radius:0}
 .replay-page #roadView>.note{padding:12px 16px}
 .replay-page .radar-values{margin:0;padding:0 16px;border-top:1px solid var(--line);border-radius:0;background:none;box-shadow:none}
 .radar-values>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;cursor:pointer;list-style:none}
@@ -576,7 +577,6 @@ button.time-toggle:active{background:var(--hover)}
  .playback-speed .rv-choice-trigger{justify-content:center;min-width:40px;height:40px;min-height:40px;padding:0 10px;border:0;border-radius:20px;background:var(--control-soft);box-shadow:none;color:var(--text);font-weight:600}.playback-speed .rv-choice-trigger::after{display:none}
  .replay-page .road-wrap{margin:0 12px}
  .road-toolbar{padding:12px}
- .phone-neighbors{display:block;padding:16px 12px 0}
  .phone-neighbors .log-neighbors{gap:8px;background:none;box-shadow:none}
  .phone-neighbors .icon-button{flex:1 1 0;gap:6px;height:44px;border-radius:12px!important;background:var(--raised);box-shadow:var(--raised-shadow)!important;color:var(--text);font-weight:500}
  .phone-neighbors .icon-button:last-child{flex-direction:row-reverse}
@@ -647,13 +647,13 @@ select,.rv-choice-trigger{font-weight:500}
 .replay-page.bar-folded .app-bar{transform:translateY(-100%);margin-bottom:calc(-1 * var(--app-bar-height,56px));transition-timing-function:var(--m3-emph-accelerate,ease)}
 .replay-page.bar-folded .camera-panel{top:0}
 /* The video never runs under the floating transport bar: it narrows (centred) when the screen is short. */
-.replay-page .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc((100dvh - var(--app-bar-height,56px) - var(--transport-height,150px) - 60px) * 526 / 330));margin-inline:auto}
-.replay-page.bar-folded .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc((100dvh - var(--transport-height,150px) - 60px) * 526 / 330))}
+.replay-page .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc((100dvh - var(--app-bar-height,56px) - var(--transport-height,150px) - 60px) * var(--video-ar,1.594)));margin-inline:auto}
+.replay-page.bar-folded .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc((100dvh - var(--transport-height,150px) - 60px) * var(--video-ar,1.594)))}
 @media(prefers-reduced-motion:reduce){.replay-page .app-bar,.video-title,.video-tools,.video-fullscreen{transition:none}}
 /* Short phone screens (app.js): the sticky video has an explicit height so it can shrink to 60% while scrolling the analysis
    (letterboxed, controls keep their corners), and the transport folds into one row: play · seek · time. */
-.replay-page.compact-media .camera-panel:not(:fullscreen) .video-wrap{aspect-ratio:auto;height:var(--video-full-h,calc(100vw * 330 / 526));transition:height .28s var(--m2-standard,ease)}
-.replay-page.compact-media.media-shrunk .camera-panel:not(:fullscreen) .video-wrap{height:calc(var(--video-full-h,calc(100vw * 330 / 526)) * .6)}
+.replay-page.compact-media .camera-panel:not(:fullscreen) .video-wrap{aspect-ratio:auto;height:var(--video-full-h,calc(100vw / var(--video-ar,1.594)));transition:height .28s var(--m2-standard,ease)}
+.replay-page.compact-media.media-shrunk .camera-panel:not(:fullscreen) .video-wrap{height:calc(var(--video-full-h,calc(100vw / var(--video-ar,1.594))) * .6)}
 .replay-page.media-shrunk :is(.video-title,.video-tools,.video-hud,.video-fullscreen){--hud-h:40px}
 .replay-page.media-shrunk .video-hud .steering-status{width:40px;height:40px}.replay-page.media-shrunk .video-hud .steering-status svg{left:-12px;width:64px;height:40px}
 .replay-page.media-shrunk .video-hud .ego-speed strong{font-size:18px}
@@ -673,12 +673,32 @@ select,.rv-choice-trigger{font-weight:500}
 .replay-page.layout-stacked .camera-panel:not(:fullscreen){position:sticky;top:var(--app-bar-height,56px)}
 .replay-page.layout-stacked.bar-folded .camera-panel:not(:fullscreen){top:0}
 /* Wide stacked screens shrink the picture itself (narrower, centred) instead of letterboxing it. */
-@media(min-width:720px){.replay-page.compact-media.media-shrunk .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc(var(--video-full-h,320px) * .6 * 526 / 330))}
+@media(min-width:720px){.replay-page.compact-media.media-shrunk .camera-panel:not(:fullscreen) .video-wrap{width:min(100%,calc(var(--video-full-h,320px) * .6 * var(--video-ar,1.594)))}
  .replay-page.compact-media .camera-panel:not(:fullscreen) .video-wrap{transition:height .28s var(--m2-standard,ease),width .28s var(--m2-standard,ease)}}
 /* Touch screens: no fixed page background (it makes Chrome scroll on the main thread, so a busy playback frame can stop a
    fling), and no scroll anchoring while the sticky video shrinks (its corrections can cancel a fling as well). */
 @media(pointer:coarse){body{background-attachment:scroll}}
 :root:has(.replay-page.compact-media){overflow-anchor:none}
+/* Phones: 이전 / 다음 flank the title over the video as round glass buttons; narrow videos drop the start time from the title. */
+.video-title{display:flex;align-items:center;gap:6px}
+.video-title h1{flex:0 1 auto;min-width:0}
+.video-title .log-neighbors{display:contents}
+.video-title #previousLog{order:-1}.video-title #nextLog{order:1}
+.replay-page .video-title .log-neighbors .icon-button{flex:none;display:inline-grid;place-items:center;width:var(--hud-h);min-width:var(--hud-h);height:var(--hud-h);min-height:var(--hud-h);padding:0;border-radius:50%;background:var(--glass-bg);border:1px solid var(--glass-border);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);color:var(--hud-text)}
+.replay-page .video-title .log-neighbors .icon-button:disabled{opacity:.4}
+.video-title .neighbor-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+@container(max-width:520px){.video-title .title-start{display:none}.video-title{max-width:calc(100% - 120px)}}
+/* One frame only: the video is its own rounded frame, so the camera card around it has no card surface (a narrowed video
+   would otherwise sit inside a wider white card). Stacked, the sticky card takes the page colour so content scrolling
+   under it stays hidden. */
+.replay-page .camera-panel:not(:fullscreen){background:transparent}
+.replay-page.layout-stacked .camera-panel:not(:fullscreen){background:var(--bg)}
+@media(min-width:720px){.replay-page .camera-panel:not(:fullscreen){box-shadow:none}}
+/* The gradient rim of the over-video glass: a 1px ring cut out with a mask (content-box minus border-box); choice
+   triggers draw it with ::before because their ::after is the chevron. */
+.video-wrap :is(.overlay-group,.video-messages>*,.video-tools .rv-choice-trigger,.video-title .app-title-button,.video-title .log-neighbors .icon-button){position:relative}
+.video-wrap :is(.glass,.video-tools .rv-choice-trigger,.video-title .app-title-button,.video-title .log-neighbors .icon-button){border-color:transparent}
+.video-wrap :is(.glass,.video-title .app-title-button,.video-title .log-neighbors .icon-button)::after,.video-wrap .video-tools .rv-choice-trigger::before{content:"";position:absolute;inset:-1px;padding:1px;border-radius:inherit;pointer-events:none;background:var(--glass-rim);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);mask-composite:exclude}
 /* Glass panes (tokens at the top); last so they win over the base card rules of the same elements. */
 .glass-panel{background:var(--glass-bg);border:1px solid var(--glass-border);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow)}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.glass-panel{background:var(--glass-solid)}}

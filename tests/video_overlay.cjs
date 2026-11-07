@@ -379,6 +379,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.setViewportSize({width:viewport,height:1000});
    for(const mode of ['auto','split','stack'])for(const width of [720,1920,920,1920]){
     await page.evaluate(({mode,width})=>{setReplayLayout(mode);const input=document.getElementById('layoutWidth');input.value=width;input.dispatchEvent(new Event('input'))},{mode,width});
+    // The stacked phone video eases its height (and the overlay follows on resize): measure once it has settled.
+    await page.evaluate(()=>Promise.all(document.getAnimations().filter(a=>a.effect?.target?.closest?.('.camera-panel')).map(a=>a.finished.catch(()=>{}))));
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     const result=await page.evaluate(()=>{
      const v=document.getElementById('video'),c=document.getElementById('videoOverlay'),box=v.parentElement.getBoundingClientRect(),vr=v.getBoundingClientRect(),cr=c.getBoundingClientRect();
@@ -389,7 +391,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
      // The transport bar floats over the page (fixed); the video keeps its own box and the controls stay on it.
      return {same,bottom:getComputedStyle(document.querySelector('.playback')).position==='fixed'&&tools.top>=box.top&&tools.bottom<=box.bottom,ink:c.getContext('2d').getImageData(Math.floor(px),Math.floor(py),1,1).data[3]>0};
     });
-    assert(result.same,`video and overlay bounds must match: ${viewport}/${mode}/${width}`);
+    const dbg=await page.evaluate(()=>['video','videoOverlay','videoStage'].map(id=>{const r=document.getElementById(id).getBoundingClientRect();return [r.x,r.y,r.width,r.height].map(Math.round)}).concat([document.querySelector('.replay-page').className,getComputedStyle(document.getElementById('videoStage')).height]));
+    assert(result.same,`video and overlay bounds must match: ${viewport}/${mode}/${width} `+JSON.stringify(dbg));
     assert(result.bottom,'the transport bar floats (fixed) instead of pushing the video; overlay controls stay on the video');
     assert(result.ink,'projected path must align with the contained video after resizing');
    }

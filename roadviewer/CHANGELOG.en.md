@@ -4,6 +4,14 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.2
+
+- Over-video controls use the same glass as the magazine home's tab bar: blur only (no milky brightening) and a 1px rim lit along the top instead of an even white outline. The quality chooser keeps its chevron.
+- The video frame follows the picture's own aspect ratio, removing the black bars above and below, and the white card around the video is gone.
+- On phones the previous/next segment buttons sit beside the title at the top left of the video (‹ 구간 k ›); narrow screens show only the segment in the title.
+- Lane and road-edge readouts moved to a new **차선·도로** analysis tab.
+- Controls hidden during playback come back when touching anywhere on the video or its playback bar.
+
 ## 1.0.1
 
 - Replay page: the segment-chooser title moved to the top left of the video and the camera/overlay buttons to the bottom left; the app bar is a single line. The speed shows as white figures without a pill, with the wheel to its upper right.
