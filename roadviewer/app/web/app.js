@@ -821,6 +821,8 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
   set('compact-media',on);
   if(!on){set('media-shrunk',false);set('transport-mini',false);return}
   const y=scrollY,delta=y-lastY;lastY=y;
+  // An open menu or dialog keeps the layout still, so the menu it hangs from does not move under the pointer.
+  if(appBar.querySelector('details[open]')||document.querySelector('dialog[open]')){travel=0;return}
   travel=Math.sign(delta)===Math.sign(travel)?travel+delta:delta;
   if(y<8){set('media-shrunk',false);set('transport-mini',false);travel=0;return}
   if(y>60)set('media-shrunk',true);
