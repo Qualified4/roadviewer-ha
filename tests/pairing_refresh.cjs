@@ -1,4 +1,5 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+const {showTab,reopenTab}=require('./browser-helpers.cjs');
 const {EventEmitter,once}=require('node:events');
 const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
@@ -22,10 +23,10 @@ const {settleLayout}=require('./browser-helpers.cjs');
     if(req.method()==='GET'&&hold){hold=false;held={route,json:{...pairing}};requests.emit('held');return}
     return route.fulfill({json:pairing});
    }
-   const name=p==='/'?'library.html':p.replace('/assets/','');
+   if(p==='/api/settings/storage')return route.fulfill({status:404,json:{error:'not_found'}});const name=p==='/'?'library.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
-  await page.goto('https://rv.test/');await page.locator('#deviceSettings>summary').click();
+  await page.goto('https://rv.test/');await showTab(page,'devices');
   fail=true;await page.locator('#pairOpen').click();await page.getByText('코드 발급 실패',{exact:true}).waitFor();assert.equal(await page.locator('#pairDialog').isVisible(),false);
   fail=false;await page.locator('#pairOpen').click();await page.locator('#pairDialog[open]').waitFor();
   assert.equal(await page.locator('#pairClose').textContent(),'취소');assert.equal(await page.locator('#pairDialog').getAttribute('data-state'),'waiting');

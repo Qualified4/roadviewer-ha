@@ -20,8 +20,9 @@ function recordingIdentity(name,files={}){
  if(!match)return {display:name||'—',original:name||''};
  return {display:`${match[1].replace(/^0+(?=.)/,'')} / 구간 ${match[3].replace(/^0+(?=.)/,'')}`,original:`${match[1]}--${match[2]}--${match[3]}`};
 }
-function renderRecordingName(container,name,files={}){
- const info=recordingIdentity(name,files);container.classList.add('recording-name');
+// An optional label replaces the shown text only (the list shows "구간 7" inside its route); tooltip and copy keep the original.
+function renderRecordingName(container,name,files={},label=null){
+ const identity=recordingIdentity(name,files),info=label?{...identity,display:label}:identity;container.classList.add('recording-name');
  // Navigation and replay data can arrive in either order: keep the moving title alive.
  const text=container.querySelector('.recording-name-text')||document.createElement('span');
  for(const child of [...container.childNodes])if(child!==text)child.remove();

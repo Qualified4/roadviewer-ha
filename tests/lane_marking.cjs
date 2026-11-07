@@ -11,6 +11,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
    if(p.endsWith('/video'))return route.fulfill({body:fs.readFileSync(process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4'),contentType:'video/mp4'});
+   // The replay loads vehicle data in the background for the event track; none here.
+   if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
    if(p.endsWith('/data'))return route.fulfill({json:{route:'lane',key:'lane',duration:2,warnings:['지원하지 않는 새 로그 이벤트 3개를 건너뛰었습니다.','다른 경고'],video:{start:0,duration:2},
     frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false,overlay:{lanes:[],edges:[],path:[],markers:[]}}]}});
    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');

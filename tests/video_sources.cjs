@@ -10,6 +10,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const url=new URL(route.request().url()),p=url.pathname;
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
+   // The replay loads vehicle data in the background for the event track; none here.
+   if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
    if(p.endsWith('/data'))return route.fulfill({json:legacy?{...data,videos:undefined,video:videos.qcamera,defaultVideo:undefined}:data});
    if(p.endsWith('/video')){
     requested.push(url.searchParams.get('source'));

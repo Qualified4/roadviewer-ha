@@ -18,6 +18,8 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     const p=new URL(route.request().url()).pathname;
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
     if(p==='/api/logs')return route.fulfill({json:{logs,concurrency:1,auto_convert:true,keep_original_video:true,max_upload_mb:512,storage_used_bytes:1}});
+    // The replay loads vehicle data in the background for the event track; none here.
+    if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
     if(p.endsWith('/data'))return route.fulfill({json:replay});
     if(p==='/api/progress')return route.fulfill({json:{progress:Object.fromEntries(logs.filter(m=>m.status==='processing').map(m=>[m.id,m.progress]))}});
     if(p.startsWith('/api/'))return route.fulfill({json:{progress:{}}});
@@ -77,11 +79,13 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7','lightweight polls preserve log-only weights and conversion revision');
    await page.evaluate(()=>refresh());assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7','full refresh matches lightweight progress');
    await page.evaluate(()=>addFiles([new File(['x'],'unsupported.txt')]));
-   assert(await page.locator('#error').evaluate(e=>parseFloat(getComputedStyle(e).marginTop)>=12),'unsupported-file message has top spacing');
+   assert(await page.locator('#error').evaluate(e=>e.getBoundingClientRect().top-document.querySelector('.lib-appbar').getBoundingClientRect().bottom>=12),'unsupported-file message has top spacing below the app bar');
+   await page.locator('#tab-devices').click();
    await page.evaluate(()=>{const d=document.querySelector('.inline-help');for(let p=d.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;d.open=true;});
    await page.locator('.inline-help').evaluate(d=>d.querySelector('summary').click());
    assert.equal(await page.locator('.inline-help').evaluate(d=>d.classList.contains('is-closing')), !reduced);
    await page.waitForFunction(()=>!document.querySelector('.inline-help').open);
+   await page.locator('#tab-logs').click();
    // A new log slides in; an existing row rebuilt for its status does not.
    // The server lists newest first.
    logs=[{id:'two',name:'00000395--0d0eda17c5 / 구간 8',status:'ready',uploaded:3,bytes:1,prepared_bytes:1,video:true},{...logs[0],status:'ready',progress:null}];
@@ -96,12 +100,35 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    if(!reduced){
     assert(await page.evaluate(()=>{const e=document.createElement('div');e.style.cssText='position:fixed;left:0;top:0;width:100px;height:20px';document.body.append(e);const motion=RoadViewerMotion,before=motion.capture(e);e.style.width='200px';motion.play(e,before);e.getAnimations()[0].currentTime=120;const middle=motion.capture(e);e.style.width='150px';motion.play(e,middle);const next=motion.capture(e),continuous=Math.abs(next.width-middle.width)<1;e.remove();return continuous}),'an interrupted morph resumes at its visible size');
    }
-   // Dialogs fade/scale in and stay in the top layer while closing.
-   await page.locator('#bulkOpen').click();
-   assert.equal((await page.locator('#bulkDialog').evaluate(d=>d.getAnimations().length))>0,!reduced);
-   await page.keyboard.press('Escape');
-   if(!reduced)assert(await page.locator('#bulkDialog').evaluate(d=>!d.open&&getComputedStyle(d).display!=='none'),'closing dialog animates out');
-   await page.locator('#bulkDialog').waitFor({state:'hidden'});
+   // A filter chip that becomes selected pops once with the spring.
+   const chipFilter=await page.locator('.filter-chip[aria-pressed=false]').first().getAttribute('data-filter');
+   await page.locator(`.filter-chip[data-filter="${chipFilter}"]`).click();
+   assert.equal(await page.locator(`.filter-chip[data-filter="${chipFilter}"]`).evaluate(e=>e.getAttribute('aria-pressed')+' '+getComputedStyle(e).animationName),reduced?'true none':'true rv-chip-pop');
+   await page.locator('.filter-chip[data-filter="filter:all"]').click();
+   // Bulk selection is now in-list, with an instant exit and no viewport scroll lock.
+   await page.locator('#bulkOpen').click();assert(await page.locator('#bulkBar').isVisible());
+   assert.equal(await page.locator('#bulkBar').evaluate(e=>e.getAnimations().some(a=>a.animationName==='rv-selection-in')), !reduced,'selection bar enters gently unless reduced motion is requested');
+   if(!reduced){
+    const rise=await page.locator('#bulkBar').evaluate(e=>{const a=e.getAnimations().find(a=>a.animationName==='rv-selection-in');return {duration:a.effect.getTiming().duration,easing:a.effect.getKeyframes()[0].easing}});
+    assert.equal(rise.duration,400);assert.match(rise.easing,/^linear\(/,'the selection bar settles with the spring');
+   }
+   await page.locator('.segment-select input').check();assert(await page.locator('.log-row').evaluate(e=>e.classList.contains('is-selected')));
+   assert(await page.locator('#bulkFeedback').isHidden(),'selection does not retain an obsolete prompt');
+   assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
+   await page.keyboard.press('Escape');await page.locator('#bulkBar').waitFor({state:'hidden'});
+   // Keep dialog enter/exit motion coverage on the existing device dialog.
+   await page.locator('#pairDialog').evaluate(d=>d.showModal());
+   const enter=await page.locator('#pairDialog').evaluate(d=>Object.fromEntries(d.getAnimations().map(a=>[a.transitionProperty,[a.effect.getTiming().duration,a.effect.getTiming().easing]])));
+   assert.equal(Object.keys(enter).length>0,!reduced);
+   // Dialogs (M3 emphasized): 400 ms rise/grow with emphasized deceleration, 150 ms fade; exit 200 ms emphasized acceleration.
+   if(!reduced)assert.deepEqual([enter.transform,enter.opacity],[[400,'cubic-bezier(0.05, 0.7, 0.1, 1)'],[150,'linear']],'dialog enter timing: '+JSON.stringify(enter));
+   await page.waitForFunction(()=>document.getElementById('pairDialog').getAnimations().length===0);
+   const exit=await page.locator('#pairDialog').evaluate(d=>{d.close();return d.getAnimations().filter(a=>a.transitionProperty==='opacity').map(a=>[a.effect.getTiming().duration,a.effect.getTiming().easing])});
+   if(!reduced){
+    assert(await page.locator('#pairDialog').evaluate(d=>!d.open&&getComputedStyle(d).display!=='none'),'closing dialog animates out');
+    assert.deepEqual(exit,[[200,'cubic-bezier(0.3, 0, 0.8, 0.15)']],'dialog exit is faster, emphasized acceleration');
+   }
+   await page.locator('#pairDialog').waitFor({state:'hidden'});
    // The tapped log name is handed to the replay page for the page transition.
    await page.locator('.log-row a.replay').click();await page.waitForURL(/view\/two\//);
    await page.waitForFunction(()=>typeof data!=='undefined'&&data);
@@ -111,6 +138,11 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    assert.equal(await page.locator('#previousLog').textContent(),'이전 로그');
    assert.equal(await page.evaluate(()=>sessionStorage.getItem('rv-route')),null,'handoff is consumed');
    assert.equal(await page.evaluate(()=>document.body.classList.contains('replay-loading')),false,'loading skeleton ends with the data');
+   // Appear-once springs: the transport bar on load and the play/pause icon swap; reduced motion has none.
+   assert.equal(await page.locator('.playback').evaluate(e=>getComputedStyle(e).animationName),reduced?'none':'rv-transport-in, rv-fade-in');
+   await page.locator('#play').click();
+   assert.equal(await page.locator('#play .icon-pause').evaluate(e=>getComputedStyle(e).animationName),reduced?'none':'rv-icon-pop');
+   await page.locator('#play').click();
    // The wheel turns via a CSS transform that glides between 20 Hz samples.
    await page.evaluate(()=>setTime(.5));
    assert.match(await page.locator('#wheelRotate').evaluate(e=>e.style.transform),/rotate\(-100deg\)/);
@@ -130,12 +162,14 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    await page.evaluate(()=>transitions=0);
    if(!reduced)assert.equal(await page.locator('.tab-indicator').evaluate(e=>getComputedStyle(e).transitionTimingFunction),'cubic-bezier(0.4, 0, 0.2, 1), cubic-bezier(0.4, 0, 0.2, 1)');
    if(touch)assert(await page.locator('button,a,summary,input,label').evaluateAll(es=>es.every(e=>getComputedStyle(e).webkitTapHighlightColor==='rgba(0, 0, 0, 0)')),'native rectangular touch highlights are disabled');
-   await page.locator('#splitView').click();await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
+   // Layout choices live in the 보기 menu (in ⋯ on phones).
+   const viewToggle=async id=>{const menu=await page.locator('#viewMenu').isVisible()?'#viewMenu':'#replayDownload';await page.locator(menu+'>summary').click();await page.locator('#'+id).click();await page.keyboard.press('Escape')};
+   await viewToggle('splitView');await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
    assert.equal(await page.locator('#splitView').getAttribute('aria-pressed'),'true');
    assert.equal(await page.locator('.camera-panel,.road-panel').evaluateAll(es=>es.flatMap(e=>e.getAnimations()).filter(a=>a.id==='rv-element-morph').length),0,'layout panels do not morph');
    assert.equal(await page.evaluate(()=>transitions),0,'tabs must not snapshot the fixed playback controls');
    if(touch){
-    await page.locator('#stackView').click();
+    await viewToggle('stackView');
     await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-layout-transition'));
     assert.equal(await page.locator('#stackView').getAttribute('aria-pressed'),'true');
     assert.equal(await page.evaluate(()=>transitions),0,'touch layouts morph named panels too');
@@ -145,11 +179,11 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     await page.locator('.log-row a.replay').first().click();await page.waitForURL('**/view/newer/');
     await page.waitForFunction(()=>typeof data!=='undefined'&&data);
     assert.equal(await page.evaluate(()=>sessionStorage.getItem('snapshot-navigation')),null,'touch page navigation never uses snapshots');
-    // Even before external CSS is available, a newly loaded document has an opaque dark canvas.
+    // Even before external CSS is available, a newly loaded document has an opaque canvas in the screen mode's colour (light here).
     await page.route('**/assets/*.css*',r=>r.fulfill({body:'',contentType:'text/css'}));
     for(const url of ['https://rv.test/','https://rv.test/view/two/']){
      await page.goto(url);
-     assert.deepEqual(await page.evaluate(()=>[document.documentElement,document.body].map(e=>getComputedStyle(e).backgroundColor)),['rgb(12, 17, 24)','rgb(12, 17, 24)']);
+     assert.deepEqual(await page.evaluate(()=>[document.documentElement,document.body].map(e=>getComputedStyle(e).backgroundColor)),['rgb(238, 240, 243)','rgb(238, 240, 243)']);
     }
    }
    assert.deepEqual(errors,[]);await context.close();

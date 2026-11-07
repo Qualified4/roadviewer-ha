@@ -23,10 +23,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     return route.fulfill({json:{received:offset+body.length}});
    }
    if(p.endsWith('/finish')){finished=true;return route.fulfill({json:{logs:[{}],duplicates:[],updated:[]}})}
-   const name=p==='/'?'library.html':p.replace('/assets/','');
+   if(p==='/api/settings/storage')return route.fulfill({status:404,json:{error:'not_found'}});const name=p==='/'?'library.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
-  await page.goto('https://rv.test/');
+  await page.goto('https://rv.test/#upload');
   await page.locator('#files').setInputFiles({name:'rlog.zst',mimeType:'application/octet-stream',buffer:Buffer.alloc(300000,9)});
   await page.locator('#upload').click();
   await page.waitForFunction(()=>/서버 응답 대기|전송 확인/.test(document.getElementById('uploadStatus').textContent));

@@ -2,13 +2,13 @@
 
 [한국어](README.md) · English
 
-Feature reference: **0.13.20**
+Feature reference: **1.0.0**
 
 Replay and analyze openpilot logs with front/wide camera video inside Home Assistant.
 
 ## Quick start
 
-**Add files or drag and drop → Upload → Convert → Play.** Automatic conversion is enabled by default.
+**On the 업로드 (Upload) tab: Add files or drag and drop → Upload → Convert → Play.** Automatic conversion is enabled by default. The screen is split into **로그 · 업로드 · 저장공간 · 장치 · 설정** (Logs, Upload, Storage, Devices, Settings) tabs, shown as a bottom tab bar on phones.
 
 Select the segment's `rlog.zst` with whichever videos you need (`qcamera.ts`, high-quality front `fcamera.hevc`, wide `ecamera.hevc`). Log-only uploads are supported. Per-camera MP4s can be re-uploaded with the same segment's rlog, but video-only registration is not supported. A qcamera MP4 must be H.264 and front/wide MP4s HEVC. Several segments can be selected together; if a mobile file picker does not allow multiple selection, add files one at a time.
 
@@ -17,13 +17,14 @@ Select the segment's `rlog.zst` with whichever videos you need (`qcamera.ts`, hi
 - Synchronized video, road view and vehicle graphs, up to 4× speed
 - Front/wide camera switching and calibrated camera overlays, with a default quality per connection (small qcamera on mobile data, high-quality front on Wi-Fi/wired)
 - Lanes, model paths, radar points, LF/FF/RF boxes, blind spots and turn signals
-- Automatic, side-by-side and stacked layouts, adjustable width and sticky playback controls
+- Compact app bar (start time · 구간 k (i/N), view and ⋯ menus) and a floating playback bar (segment strip, automatic-control/takeover track, bookmark markers)
+- Automatic, side-by-side and stacked layouts with adjustable width; Auto/Light/Dark display mode (the video area stays dark)
 - 24 selectable/reorderable graphs and camera installation information
 - Automatic/manual conversion, up to four concurrent jobs and lossless MP4 retention
 - Later camera attachment, original-format export and log/video downloads
-- Segment tags and scene bookmarks
-- Library grouped into folding routes (folded by default) with per-segment storage location chips (local, Drive, NAS)
-- Per-segment pins, bulk conversion/removal/deletion, a remove/download/completely-delete menu on the replay screen, storage budgets and cleanup
+- Segment tags and scene bookmarks on the bookmark tab
+- Search, filter chips and route cards grouped by date (thumbnail, start time, segment status bar, automatic-control ratio and takeover count, folded by default) with per-segment storage location chips (local, Drive, NAS); thumbnails and start times of older or archived logs are backfilled in the background
+- Per-segment pins, in-list selection mode for bulk tags/download/conversion/removal/deletion, a remove/download/completely-delete ⋯ menu on the replay screen, storage budgets and cleanup
 - Experimental archiving that copies or moves older recordings to Google Drive or a NAS, with Drive connect/disconnect
 - Optional HTTPS device uploads with pairing
 - MCP server for AI agents: [roadviewer-mcp](https://github.com/Qualified4/roadviewer-mcp) (separate project, using only the existing Ingress login and API)
@@ -32,7 +33,7 @@ Select the segment's `rlog.zst` with whichever videos you need (`qcamera.ts`, hi
 
 **Remove prepared data** deletes analysis/graphs and reproducible MP4s while preserving logs, TS/HEVC originals and each camera's sole MP4. Queued conversion is cancelled; removal is blocked while processing. **Completely delete** removes all files for that segment.
 
-Use **로그 선택** at the bottom of settings for bulk actions. Pins are protected by default; explicitly enable **고정 항목도 삭제** to include them. Reopening the dialog restores protection.
+Press **선택** (Select) on the Logs tab, or long-press a segment on touch screens, to enter selection mode and use the bottom action bar for bulk actions. Pins are protected by default; explicitly enable **고정 포함** (Include pinned) to include them. Starting selection mode again restores protection.
 
 Outside effective Drive MOVE, storage-policy eviction occurs only after upload receipt and validation, not on reservations alone. Pinned segments, queued/processing routes, and recordings referencing Drive are protected. Drive MOVE uses the soft-limit behavior described below.
 
@@ -52,9 +53,9 @@ Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 wit
 
 The bar stays visible from preparation until the large compressed files have been saved. With video, stage weights are preparation/decompression 0–4%, log reading 4–45%, frame analysis 45–60%, camera reading/remuxing/verification 60–80%, and graph generation, JSON encoding, compression/writes and replay compaction 80–100%. Log-only recordings redistribute the video share across reading, analysis and saving. Updates use consumed bytes, processed frames/samples and written bytes, with smooth transitions at roughly one-second intervals. Labels name the actual operation and show overall progress. Atomic completion of the large writes reaches 100%; the brief summary/registration phase hides the bar and keeps only the sweep effect. Heavy conversion work is completed before that final phase. These are work-based stage weights, not a remaining-time estimate.
 
-Choose **다운로드** (Download) in the compact recording menu to select files and MP4/original format in a modal. **전체 선택** (Select all) and **선택 해제** (Clear selection) control the ZIP contents. Use **받기** beside a file to download it individually without ZIP; for multiple segments, expand **개별 받기** to choose a segment’s file. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Selected files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
+Choose **다운로드** (Download) in a segment's ⋯ menu to select files and MP4/original format in a modal. **전체 선택** (Select all) and **선택 해제** (Clear selection) control the ZIP contents. Use **받기** beside a file to download it individually without ZIP; for multiple segments, expand **개별 받기** to choose a segment’s file. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Selected files stream as one ZIP without a persistent download copy. Selection-mode download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
-Choose **로그 선택** (Select logs) at the bottom of settings. The first **로그 일괄 관리** (Bulk log management) dialog groups recordings by route, with route-level select-all and individual segment checkboxes. A minus indicates a partial selection; the top select-all/count and bottom action buttons stay visible while scrolling. Then choose **다운로드** (Download) to select files and format. Individual library and replay downloads keep the compact file/format popup for the current segment.
+In selection mode, route-card checkboxes select a whole route and segment checkboxes single segments; a minus indicates a partial selection. Choose **다운로드** (Download) in the bottom action bar to select files and format. Segment ⋯ menu and replay downloads keep the compact file/format popup for the current segment.
 
 ## Storage settings
 

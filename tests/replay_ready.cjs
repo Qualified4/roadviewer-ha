@@ -13,9 +13,12 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/progress'){progressReads++;return route.fulfill({json:{progress:Object.fromEntries(logs.filter(m=>m.status==='processing'&&m.progress).map(m=>[m.id,m.progress]))}})}
    if(p==='/api/logs')return route.fulfill({json:{logs,max_upload_mb:512,storage_used_bytes:1}});
+   // The replay loads vehicle data in the background for the event track; none here.
+   if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
    if(p.endsWith('/data')){reads++;if(dataFailure)return route.fulfill({status:500,json:{error:'failed'}});return route.fulfill(ready?{json:data}:{status:409,json:{status:'processing'}})}
    if(p.endsWith('/video')){await videoGate;videoRequests.push(url.searchParams.get('v'));return route.fulfill({body:fs.readFileSync((process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4')),contentType:'video/mp4'})}
    if(p==='/api/diagnostics')return route.fulfill({json:{saved:1}});
+   if(p.startsWith('/api/settings'))return route.fulfill({json:{}});
    const name=p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    const contentType=name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':name.endsWith('.svg')?'image/svg+xml':'text/html';
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType});
@@ -63,33 +66,21 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert(await page.locator('#playbackControls').isVisible());assert(await page.locator('#playbackMessage').isHidden());
   assert(reads>=2);assert(videoRequests.includes('new-video-version'));
-  // Navigation starts in its normal location, then sticks to the top.
+  // The app bar stays at the top of the page while the content scrolls under it.
   for(const viewport of [{width:1280,height:720},{width:390,height:844}]){
    await page.setViewportSize(viewport);await page.evaluate(()=>window.scrollTo(0,0));
-   const nav=page.locator('.log-navigation'),initial=await nav.boundingBox();
-   assert(initial.y>10);
-   await page.waitForFunction(()=>!document.querySelector('.replay-heading').classList.contains('is-stuck'));
-   await page.evaluate(y=>window.scrollTo(0,y),initial.y+100);
-   await page.waitForFunction(()=>Math.abs(document.querySelector('.log-navigation').getBoundingClientRect().top-10)<1&&document.querySelector('.replay-heading').classList.contains('is-stuck'));
-   const stuck=await nav.boundingBox();assert(Math.abs(stuck.y-10)<1);
-   assert.equal(await page.locator('.replay-heading').evaluate(el=>getComputedStyle(el,'::before').backgroundColor),await page.locator('.playback').evaluate(el=>getComputedStyle(el).backgroundColor));
-   const heading=await page.locator('.replay-heading').boundingBox();
-   const route=await page.locator('.replay-heading .route').boundingBox();
-   assert(route.y>=stuck.y+stuck.height&&route.y+route.height<=heading.y+heading.height);
+   const nav=page.locator('.app-bar');const initial=await nav.boundingBox();assert(Math.abs(initial.y)<1);
+   await page.evaluate(()=>window.scrollTo(0,300));
+   await page.waitForFunction(()=>Math.abs(document.querySelector('.app-bar').getBoundingClientRect().top)<1);
+   assert(await page.locator('#logSegmentChoice').isVisible()&&await page.locator('#pinLog').isVisible());
    assert.equal(await page.locator('.camera-panel .note').count(),0);
-   assert((await page.locator('.road-panel .note').textContent()).includes('차선: 확률이 높을수록 넓고 선명하게 표시'));
+   assert((await page.locator('.road-panel .note').first().textContent()).includes('차선: 확률이 높을수록 선명하게 표시'));
    assert.equal(await page.getByRole('tab',{name:'주행 상황',exact:true}).getAttribute('aria-selected'),'true');
    for(const selector of ['.back','#previousLog','#nextLog']){
-    const box=await page.locator(selector).boundingBox();
-    assert(box.y>=0&&box.x>=0&&box.x+box.width<=viewport.width);
+    await page.locator(selector).scrollIntoViewIfNeeded();const box=await page.locator(selector).boundingBox();
+    assert(box.y>=0&&box.x>=0&&box.x+box.width<=viewport.width&&box.y+box.height<=viewport.height);
    }
-   await page.locator('#foldHeading').click();await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));
-   assert(await page.locator('.log-navigation').isHidden());
-   assert(await page.locator('.replay-heading .route').isVisible());
-   await page.locator('#foldHeading').click();await page.waitForFunction(()=>!document.querySelector('.replay-heading.is-folding'));
-   assert(await page.locator('.log-navigation').isVisible());
    await page.evaluate(()=>window.scrollTo(0,0));
-   await page.waitForFunction(y=>Math.abs(document.querySelector('.log-navigation').getBoundingClientRect().top-y)<1,initial.y);
   }
   await page.locator('#play').click();await page.waitForFunction(()=>document.getElementById('video').currentTime>0.1);
   assert(await page.locator('#logSegment').isHidden());

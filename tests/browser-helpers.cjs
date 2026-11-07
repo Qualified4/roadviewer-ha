@@ -27,4 +27,11 @@ function openRouteGroups(browser){
  };
  return browser;
 }
-module.exports={settleLayout,openRouteGroups};
+// The library is one page with in-page tabs (로그 · 업로드 · 저장공간 · 장치 · 설정).
+async function showTab(page,tab){
+ await page.locator('#tab-'+tab).click();
+ await page.waitForFunction(tab=>document.getElementById('tab-'+tab)?.getAttribute('aria-selected')==='true',tab);
+}
+// Leaving a tab and coming back reloads it, like folding and unfolding the old panels did.
+async function reopenTab(page,tab){await showTab(page,'logs');await showTab(page,tab)}
+module.exports={settleLayout,openRouteGroups,showTab,reopenTab};

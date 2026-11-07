@@ -9,7 +9,9 @@ try{
 }catch{}
 function clock(n){n=Math.max(0,n);return `${Math.floor(n/60)}:${(n%60).toFixed(2).padStart(5,'0')}`}
 function nearest(time){const f=data.frames;let a=0,b=f.length-1;while(a<b){const m=(a+b)>>1;if(f[m].t<time)a=m+1;else b=m}return a>0&&Math.abs(f[a-1].t-time)<Math.abs(f[a].t-time)?a-1:a}
-function pause(){playing=false;pauseVideo();$('play').textContent='재생'}
+// The play button is an icon; its hidden text stays the accessible name.
+function playLabel(on){const button=$('play');button.querySelector('.play-label').textContent=on?'일시정지':'재생';button.dataset.playing=String(on)}
+function pause(){playing=false;pauseVideo();playLabel(false)}
 let videoPlayPending=false,videoPauseRevision=0,videoSource=null,resumeAfterVideo=false;
 const failedVideos=new Set();
 let pendingVideoSeek=null,seekPointer=null,seekReleased=false;
@@ -90,9 +92,13 @@ function updateVideoBuffer(){
  }
 }
 for(const event of ['progress','loadedmetadata','loadeddata','durationchange','emptied','seeked'])v.addEventListener(event,updateVideoBuffer);
-function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;$('time').textContent=`${clock(t)} / ${clock(data.duration)}`;if(t>=data.duration&&seekPointer===null&&playing)pause();syncVideo(seekVideo);render(lazy);window.renderBookmarks?.()}
+// The time readout is a toggle that swaps current time (default) for the total length in the same reserved width; the label carries both.
+let timeTotal=false;try{timeTotal=localStorage.getItem('roadviewer-time-total')==='1'}catch{}
+function renderTime(){const el=$('time'),full=`${clock(t)} / ${clock(data?.duration||0)}`,label=full+' · 눌러서 전체 길이 표시/숨기기';el.children[0].textContent=clock(t);el.children[1].textContent=clock(data?.duration||0);el.title=label;el.setAttribute('aria-label',label);el.setAttribute('aria-pressed',String(timeTotal))}
+$('time').onclick=()=>{timeTotal=!timeTotal;try{timeTotal?localStorage.setItem('roadviewer-time-total','1'):localStorage.removeItem('roadviewer-time-total')}catch{}renderTime()};renderTime();
+function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;renderTime();if(t>=data.duration&&seekPointer===null&&playing)pause();syncVideo(seekVideo);render(lazy);window.renderBookmarks?.()}
 function step(n){if(loading)return;pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
-function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}
+function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();playLabel(true);syncVideo(true)}
 function tick(now){
  now=Math.max(now,last);
  if(playing&&data){
@@ -105,9 +111,9 @@ function tick(now){
 function setPlaybackState(ready,message){
  loading=!ready;$('play').disabled=!ready;
  $('playbackControls').hidden=!ready;$('playbackMessage').hidden=ready;
- $('playbackMessage').textContent=ready?'':message;$('status').textContent=message;
+ $('playbackMessage').textContent=ready?'':message;$('status').textContent=message;$('status').dataset.state=ready?'ready':'busy';
 }
-function playbackError(message){pendingVideoSeek=null;seekPointer=null;videoReadyPending=false;pause();setPlaybackState(false,message);$('status').textContent='재생 불가';showError(message)}
+function playbackError(message){pendingVideoSeek=null;seekPointer=null;videoReadyPending=false;pause();setPlaybackState(false,message);$('status').textContent='재생 불가';$('status').dataset.state='error';showError(message)}
 function showError(message){$('errorText').textContent=message;$('error').hidden=!message;if(message)document.body.classList.remove('replay-loading')}
 $('errorRefresh').onclick=()=>location.reload();
 // Replay files are stored as gzip. The browser inflates them itself, so no proxy needs to pass Content-Encoding.
@@ -308,16 +314,24 @@ for(const event of ['pointerup','pointercancel'])window.addEventListener(event,e
 window.addEventListener('blur',finishSeekDrag);
 v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});
-v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();$('play').textContent='일시정지';syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=videoError;
+v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();playLabel(true);syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=videoError;
 for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','ccncRoad','laneMarking','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Space and arrows keep their own meaning on focused controls, links and menus.
 document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
+// The road map is not on the video, so its colours follow the screen mode. Dark values equal the original palette;
+// literal colours shared with the video overlay are translated here only.
+const MAP_TONES={'#57d9b0':'lane','#ff5c5c':'edge','#c4a5ff':'path','#81b5ff':'lead','#c5daff':'lead-text','#eee7bc':'selected','#78e9fa':'raw','#4aaaff':'ccnc','#8deeff':'ccnc-ff','#d09aff':'center','#ffda76':'left','#ff91b5':'right','#eef3f8':'white','#8b97a6':'gray','#ff9f43':'orange','#4cd964':'green','#62ed9e':'band','#edf7ff':'band-white','#55b9ff':'blue','#ffa65a':'band-orange','#ff6175':'red','#7be5ff':'target'};
+let mapPalette={};
+function readMapPalette(){const style=getComputedStyle(canvas);mapPalette={};for(const name of new Set([...Object.values(MAP_TONES),'grid','text','rear','axis','guide','ego','warn','lane-fill','asphalt','label']))mapPalette[name]=style.getPropertyValue('--map-'+name).trim()}
+const mapInk=name=>mapPalette[name],tone=color=>mapPalette[MAP_TONES[color]]||color;
+readMapPalette();
+window.addEventListener('rv:themechange',()=>{readMapPalette();renderedFrame='';render()});
 const targetStyle={center:{label:'중앙',color:'#d09aff',toggle:'radarCenter'},left:{label:'왼쪽',color:'#ffda76',toggle:'radarLeft'},right:{label:'오른쪽',color:'#ff91b5',toggle:'radarRight'}};
 function renderSteering(f){
  const s=frameAvailable(f)?f.steering:null,labels={driver:'운전자 조향 개입',active:'조향 제어 중',inactive:'조향 제어 꺼짐',unknown:'상태 확인 불가'};
  const label=labels[s?.state]||labels.unknown;
  const detail=label+(s?.angle!=null?` · ${s.angle.toFixed(1)}°`:'')+(s?.torque==null?' · 토크 정보 없음':'')+(s?.critical?' · 핸들 조작 요청':'');
- $('steeringLabel').textContent=label;$('steeringStatus').title=detail;$('steeringIcon').setAttribute('aria-label',detail);
+ $('steeringStatus').title=detail;$('steeringBadge').hidden=!(s?.state==='driver'&&s.active!==false);$('steeringIcon').setAttribute('aria-label',detail);
  const [r,g,b]=(s?.color||[148,165,184]).map(v=>v/255);
  $('wheelColor').setAttribute('values',`${r} 0 0 0 0 0 ${g} 0 0 0 0 0 ${b} 0 0 0 0 0 ${['driver','active'].includes(s?.state)?1:242/255} 0`);
  // A CSS transform (not the SVG attribute) so motion.css can glide between 20 Hz samples.
@@ -611,10 +625,9 @@ function render(lazy){
  const range=Number($('range').value),rear=checked('rearView')?({25:5,50:10,80:20}[range]||0):0,bottom=h-48,scale=(h-78)/(range+rear),lateral=Number($('lateralRange').value),manualLateral=Number.isFinite(lateral)&&lateral>0,cx=manualLateral?(38+w-12)/2:w/2,cy=bottom-rear*scale;
  const lateralScale=manualLateral?(w-50)/(2*lateral):scale;
  const X=y=>cx+y*lateralScale,Y=x=>cy-x*scale;
- ctx.font='11px "Pretendard Variable", system-ui';ctx.lineWidth=1;ctx.strokeStyle='#273646';ctx.fillStyle='#8fa3b8';
- if(rear){ctx.fillStyle='#101b28';ctx.fillRect(38,cy,w-50,bottom-cy);ctx.fillStyle='#8fa3b8'}
+ ctx.font='11px "Pretendard Variable", system-ui';ctx.lineWidth=1;ctx.strokeStyle=mapInk('grid');ctx.fillStyle=mapInk('text');
+ if(rear){ctx.fillStyle=mapInk('rear');ctx.fillRect(38,cy,w-50,bottom-cy);ctx.fillStyle=mapInk('text')}
  for(const x of [...Array.from({length:rear/5},(_,i)=>-rear+i*5),...Array.from({length:Math.floor(range/10)+1},(_,i)=>i*10)]){ctx.beginPath();ctx.moveTo(38,Y(x));ctx.lineTo(w-12,Y(x));ctx.stroke();ctx.fillText(x+' m',5,Y(x)+4)}
- if(rear){ctx.strokeStyle='#64758b';ctx.beginPath();ctx.moveTo(38,cy);ctx.lineTo(w-12,cy);ctx.stroke();ctx.strokeStyle='#273646'}
  for(let y=manualLateral?-lateral:-Math.floor((w/2-40)/scale/5)*5;y<=(manualLateral?lateral:(w/2-20)/scale);y+=5){ctx.beginPath();ctx.moveTo(X(y),24);ctx.lineTo(X(y),bottom);ctx.stroke();ctx.textAlign='center';ctx.fillText(y,X(y),h-13)}ctx.textAlign='left';ctx.fillText('전방 x ↑',12,16);ctx.textAlign='right';ctx.fillText('좌우 y → (m)',w-10,16);ctx.textAlign='left';
  ctx.save();ctx.beginPath();ctx.rect(38,22,w-50,bottom-20);ctx.clip();
  const labels=[];
@@ -638,65 +651,75 @@ function render(lazy){
    const next={left,top,right:left+width,bottom:top+height};
    if(!labels.some(b=>next.left<b.right+4&&next.right>b.left-4&&next.top<b.bottom+3&&next.bottom>b.top-3)){box=next;break}
   }
-  if(!box)return;labels.push(box);ctx.strokeStyle=color;ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(side>0?box.left:box.right,box.top+6);ctx.stroke();ctx.fillStyle=color;ctx.textAlign='left';lines.forEach((line,i)=>ctx.fillText(line,box.left,box.top+10+i*13));
+  if(!box)return;labels.push(box);ctx.fillStyle=mapInk('label');ctx.beginPath();ctx.roundRect(box.left-5,box.top-2,width+10,height+4,6);ctx.fill();ctx.fillStyle=color;ctx.textAlign='left';lines.forEach((line,i)=>ctx.fillText(line,box.left,box.top+10+i*13));
  }
  function path(points){ctx.beginPath();points.forEach(([x,y],i)=>i?ctx.lineTo(X(y),Y(x)):ctx.moveTo(X(y),Y(x)))}
  function line(points,color,dashed,alpha,width=2){path(points);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.globalAlpha=alpha;ctx.setLineDash(dashed?[6,5]:[]);ctx.stroke();ctx.setLineDash([]);ctx.globalAlpha=1}
+ function vehicle(x,y,color,width=10,height=17,selected=false){
+  ctx.save();ctx.fillStyle=color;ctx.strokeStyle=color;ctx.lineWidth=selected?1.5:1;
+  // Only the selected lead (radarState leadOne, the car the controller follows) gets a soft halo: a faint outer ring under a core ellipse.
+  if(selected){const a=ctx.globalAlpha;ctx.globalAlpha=a*.08;ctx.beginPath();ctx.ellipse(x,y,width*1.25,height*1.15,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=a*.2;ctx.beginPath();ctx.ellipse(x,y,width,height*.9,0,0,Math.PI*2);ctx.fill();ctx.globalAlpha=a}
+  ctx.beginPath();ctx.roundRect(x-width/2,y-height/2,width,height,3);ctx.globalAlpha*=.75;ctx.fill();ctx.globalAlpha/=.75;ctx.stroke();
+  ctx.fillStyle=mapInk('label');ctx.globalAlpha*=.65;ctx.beginPath();ctx.roundRect(x-width/2+2,y-height/2+3,width-4,3,1);ctx.fill();ctx.restore();
+ }
  if(rear&&checked('lanes')){
   // Straight reference guides only: no invented curvature behind the camera's model.
-  ctx.save();ctx.strokeStyle='#66778d';ctx.globalAlpha=.45;ctx.lineWidth=1;ctx.setLineDash([3,6]);
+  ctx.save();ctx.strokeStyle=mapInk('guide');ctx.globalAlpha=.45;ctx.lineWidth=1;ctx.setLineDash([3,6]);
   const guides=[0,1,2,3].map(i=>valid&&Number.isFinite(f.laneY0?.[i])?f.laneY0[i]:[-5.4,-1.8,1.8,5.4][i]);
   for(const y of guides){ctx.beginPath();ctx.moveTo(X(y),cy);ctx.lineTo(X(y),bottom);ctx.stroke()}
   ctx.restore();
  }
  if(valid){
   const screen=points=>(points||[]).map(p=>p?[X(p[1]),Y(p[0])]:null);
+  // The recorded road edges bound the asphalt; use recorded outer lanes only when edges are absent.
+  const roadSides=checked('edges')&&f.edges?.[0]?.length&&f.edges?.[1]?.length?f.edges:checked('lanes')&&f.lanes?.length>1?[f.lanes[0],f.lanes.at(-1)]:null;
+  if(roadSides)paintBand(ctx,screen(roadSides[0]),screen(roadSides[1]),mapInk('asphalt'),1);
   if(checked('ccncRoad')){
-   highlightBands(f.ccncRoad).forEach((color,i)=>{if(color)paintBand(ctx,screen(f.lanes[i]),screen(f.lanes[i+1]),color,.1,.55)});
+   highlightBands(f.ccncRoad).forEach((color,i)=>{if(color)paintBand(ctx,screen(f.lanes[i]),screen(f.lanes[i+1]),tone(color),.1,.55)});
    const road=f.ccncRoad;
    if([1,3].includes(road?.target)&&road.distance>0&&road.distance<204.6&&road.distance<=range){
     const a=targetAt(f.lanes[1],road.distance),b=targetAt(f.lanes[2],road.distance);
-    if(a&&b){const center=(a[1]+b[1])/2;paintTargetLine(ctx,[X(center-modelPathWidth/2),Y(road.distance)],[X(center+modelPathWidth/2),Y(road.distance)],road.target===3?'#edf7ff':'#7be5ff');if(checked('targetLabels'))hudLabel(ctx,`TARGET · ${road.distance.toFixed(1)} m`,X((a[1]+b[1])/2),Y(road.distance)-17,'#d9faff')}
+    if(a&&b){const center=(a[1]+b[1])/2;paintTargetLine(ctx,[X(center-modelPathWidth/2),Y(road.distance)],[X(center+modelPathWidth/2),Y(road.distance)],tone(road.target===3?'#edf7ff':'#7be5ff'));if(checked('targetLabels'))hudLabel(ctx,`TARGET · ${road.distance.toFixed(1)} m`,X((a[1]+b[1])/2),Y(road.distance)-17,'#d9faff')}
    }
   }
-  if(checked('modelPath')&&f.position?.length>1)line(f.position,'#c4a5ff',false,.9,2);
+  if(checked('modelPath')&&f.position?.length>1)paintBand(ctx,...ribbonEdges(screen(f.position),Math.max(5,1.8*lateralScale)),tone('#c4a5ff'),.16);
   if(checked('lanes')){
-   if(f.lanes[1]?.length&&f.lanes[2]?.length){path([...f.lanes[1],...f.lanes[2].slice().reverse()]);ctx.closePath();ctx.fillStyle='rgba(87,217,176,0.065)';ctx.fill()}
+   if(f.lanes[1]?.length&&f.lanes[2]?.length){path([...f.lanes[1],...f.lanes[2].slice().reverse()]);ctx.closePath();ctx.fillStyle=mapInk('lane-fill');ctx.fill()}
    f.lanes.forEach((l,i)=>{
-    const p=Number.isFinite(f.lp[i])?Math.max(0,Math.min(1,f.lp[i])):0,marking=laneMarkingStyle(f,i),color=marking?.color||'#57d9b0';
-    if(!marking){line(l,color,p<.5,p,1+3*p);return}
+    const p=Number.isFinite(f.lp[i])?Math.max(0,Math.min(1,f.lp[i])):0,marking=laneMarkingStyle(f,i),color=tone(marking?.color||'#57d9b0');
+    if(!marking){line(l,color,p<.5,p*.65,.6+.8*p);return}
     // Cluster code: solid stays solid; dashed uses the metre pattern of the video overlay; hidden is a faint trace.
     if(marking.type==='hidden'){line(l,color,true,.3,1);return}
-    path(l);ctx.strokeStyle=color;ctx.lineWidth=1+3*p;ctx.globalAlpha=Math.max(.35,p);
+    path(l);ctx.strokeStyle=color;ctx.lineWidth=.6+.8*p;ctx.globalAlpha=Math.max(.25,p*.65);
     if(marking.type==='dashed'){const period=LANE_DASH+LANE_GAP;ctx.setLineDash([LANE_DASH*scale,LANE_GAP*scale]);ctx.lineDashOffset=(((l[0]?.[0]||0)+laneDashPhase(f))%period)*scale}
     ctx.stroke();ctx.setLineDash([]);ctx.lineDashOffset=0;ctx.globalAlpha=1;
    });
   }
-  if(checked('edges'))f.edges.forEach((l,i)=>line(l,'#ff5c5c',f.es[i]>1,.95));
+  if(checked('edges'))f.edges.forEach((l,i)=>line(l,tone('#ff5c5c'),f.es[i]>1,.6*edgeConfidence(f.es[i]),1));
 
   if(checked('leads')){
-   f.leads.forEach((l,i)=>{if(l.x<0||l.x>range)return;ctx.globalAlpha=l.p<.5?.45:1;ctx.strokeStyle='#81b5ff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(X(l.y),Y(l.x),7,0,Math.PI*2);ctx.stroke();annotate(`모델 ${i+1} · ${targetValue(l,-l.y)}`,X(l.y),Y(l.x),'#c5daff',i===0?1:-1);ctx.globalAlpha=1});
-   const l=f.selected;if(l&&l.x>=0&&l.x<=range){const x=X(l.y),y=Y(l.x);ctx.strokeStyle='#eee7bc';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x+7,y);ctx.lineTo(x,y+7);ctx.lineTo(x-7,y);ctx.closePath();ctx.stroke();annotate(`선택 · ${targetValue(l,-l.y)}`,x,y,'#eee7bc')}
+   f.leads.forEach((l,i)=>{if(l.x<0||l.x>range)return;ctx.globalAlpha=l.p<.5?.45:1;vehicle(X(l.y),Y(l.x),tone('#81b5ff'));annotate(`모델 ${i+1} · ${targetValue(l,-l.y)}`,X(l.y),Y(l.x),tone('#c5daff'),i===0?1:-1);ctx.globalAlpha=1});
+   const l=f.selected;if(l&&l.x>=0&&l.x<=range){const x=X(l.y),y=Y(l.x);vehicle(x,y,tone('#eee7bc'),12,19,true);annotate(`선택 · ${targetValue(l,-l.y)}`,x,y,tone('#eee7bc'))}
   }
   for(const target of f.radarTargets||[]){
    const style=targetStyle[target.group];if(!style||!checked(style.toggle)||target.x< -rear||target.x>range)continue;
-   const x=X(target.y),y=Y(target.x);ctx.strokeStyle=style.color;ctx.lineWidth=2;ctx.strokeRect(x-5,y-8,10,16);
-   annotate(`${style.label} ${target.index+1} · ${targetValue(target,target.yRel)}`,x,y,style.color,target.group==='left'?-1:1);
+   const x=X(target.y),y=Y(target.x);vehicle(x,y,tone(style.color));
+   annotate(`${style.label} ${target.index+1} · ${targetValue(target,target.yRel)}`,x,y,tone(style.color),target.group==='left'?-1:1);
   }
  }
  if(checked('ccncTargets')&&frameAvailable(f))for(const target of f.ccncTargets||[]){
   if(target.x<0||target.x>range)continue;
   const x=X(target.y),y=Y(target.x),color=ccncTargetColor(target);
-  ctx.strokeStyle=color;ctx.lineWidth=2;ctx.strokeRect(x-8,y-11,16,22);
+  vehicle(x,y,tone(color),12,20);
   if(checked('boxLabels')){
    const text=`${target.slot} · ${targetValue(target,target.yRel)}`;
    if(checked('boxLabelsBelow'))hudLabel(ctx,text,x,y+24,color,4,ctx.canvas.clientWidth||ctx.canvas.width,false);
-   else annotate(text,x,y,color,target.slot==='LF'?-1:1);
+   else annotate(text,x,y,tone(color),target.slot==='LF'?-1:1);
   }
  }
  if(rear&&valid)for(const target of f.ccncRearTargets||[]){
   if(target.x< -rear||target.x>0)continue;
-  const x=X(target.y),y=Y(target.x),color='#4aaaff';ctx.strokeStyle=color;ctx.lineWidth=2;ctx.strokeRect(x-8,y-11,16,22);
+  const x=X(target.y),y=Y(target.x),color=tone('#4aaaff');vehicle(x,y,color,12,20);
   if(checked('boxLabels'))annotate(`${target.slot} · ${targetValue(target,target.yRel)}`,x,y,color,target.slot==='LR'?-1:1);
  }
  $('rearStatus').textContent=rear&&f.ccncRearTargets===undefined?'기존 변환 데이터에 후방 정보가 없습니다. 로그를 다시 변환하면 기록된 LR·RR을 확인할 수 있습니다.':'';
@@ -705,16 +728,16 @@ function render(lazy){
  const rawTargets=rawVisible?(f.liveTracks||[]).filter(target=>!checked('hideScc')||String(target.source).toLowerCase()!=='scc'):[];
  if(checked('liveTracks'))for(const target of rawTargets){
   if(target.x< -rear||target.x>range)continue;
-  const x=X(target.y),y=Y(target.x);ctx.strokeStyle='#78e9fa';ctx.lineWidth=1.5;ctx.globalAlpha=target.measured?.9:.5;ctx.beginPath();
-  if(target.measured){ctx.moveTo(x-4,y-4);ctx.lineTo(x+4,y+4);ctx.moveTo(x-4,y+4);ctx.lineTo(x+4,y-4)}else ctx.arc(x,y,4,0,Math.PI*2);
+  const x=X(target.y),y=Y(target.x);ctx.strokeStyle=tone('#78e9fa');ctx.lineWidth=1.5;ctx.globalAlpha=target.measured?.9:.5;ctx.beginPath();
+  ctx.arc(x,y,3,0,Math.PI*2);if(target.measured){ctx.fillStyle=tone('#78e9fa');ctx.fill()}
   ctx.stroke();ctx.globalAlpha=1;
-  if(checked('liveTrackLabels'))annotate(targetValue(target,target.yRel),x,y,'#78e9fa',target.y<0?-1:1);
+  if(checked('liveTrackLabels'))annotate(targetValue(target,target.yRel),x,y,tone('#78e9fa'),target.y<0?-1:1);
  }
  ctx.restore();
  if(valid&&checked('bsdWalls'))blindspotLevels(data.frames,idx,t).forEach((amount,i)=>paintBlindspotEdge(ctx,w,h,amount,i,t));
  if(checked('ccncRoad')&&frameAvailable(f))drawBlinkers(ctx,f.roadSignals??f.ccncRoad,f.t,42,w-16,(h-48)/2);
- ctx.fillStyle='#e6edf5';ctx.beginPath();ctx.moveTo(cx,cy-14);ctx.lineTo(cx-7,cy+4);ctx.lineTo(cx+7,cy+4);ctx.closePath();ctx.fill();ctx.textAlign='center';ctx.fillText('내 차량',cx,cy+20);ctx.textAlign='left';
- if(!valid){ctx.fillStyle='#ffd39f';ctx.fillText(missingModelMessage(),45,45)}
+ vehicle(cx,cy,mapInk('ego'),12,22);ctx.fillStyle=mapInk('text');ctx.textAlign='center';ctx.fillText('내 차량',cx,cy+25);ctx.textAlign='left';
+ if(!valid){ctx.fillStyle=mapInk('warn');ctx.fillText(missingModelMessage(),45,45)}
  const percent=n=>Number.isFinite(n)?(n*100).toFixed(1)+'%':'—';
  const distance=$('boundaryDistance').getAttribute('aria-pressed')==='true';
  const meters=value=>Number.isFinite(value)?(value>0?'+':'')+value.toFixed(3)+' m':'—';
@@ -723,7 +746,7 @@ function render(lazy){
  [['laneLineLeft',1],['laneLineRight',2]].forEach(([id,i])=>{const code=valid?laneLineCode(f,i):undefined,el=$(id);el.hidden=!Number.isInteger(code);if(!el.hidden)el.textContent=`${i===1?'LANELINE_LEFT':'LANELINE_RIGHT'} ${code} · ${LANE_LINE_CODES[code]?.label||'미정의'}`});
  ['edge0','edge1'].forEach((id,i)=>{$(id).textContent=valid?(distance?meters(f.edgeY0?.[i]):Number.isFinite(f.es[i])?f.es[i].toFixed(3)+' m':'—'):'—'});
  const targets=valid?(f.radarTargets||[]):[];
- $('radarRows').replaceChildren(...targets.map(target=>{const row=document.createElement('tr');const style=targetStyle[target.group];const values=[style.label+' '+(target.index+1),target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.radar?'예':'아니오',String(target.trackId)];for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}row.firstChild.style.color=style.color;return row}));
+ $('radarRows').replaceChildren(...targets.map(target=>{const row=document.createElement('tr');const style=targetStyle[target.group];const values=[style.label+' '+(target.index+1),target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.radar?'예':'아니오',String(target.trackId)];for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}row.firstChild.style.color=tone(style.color);return row}));
  if(!targets.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=6;cell.textContent='이 시점에 유효한 중앙·좌우 차량이 없습니다.';row.append(cell);$('radarRows').append(row)}
  $('rawCount').textContent=`· ${rawTargets.length}개`;
  $('rawTiming').textContent=rawVisible?`메시지 시각 차이 ${f.liveTracksDeltaMs.toFixed(1)}ms`: '이 시점의 유효한 liveTracks 메시지가 없습니다.';
@@ -736,10 +759,21 @@ function render(lazy){
 }
 new ResizeObserver(render).observe(canvas);loadData().catch(e=>playbackError(e.message));requestAnimationFrame(tick);
 
-// Follow wrapped controls, font scaling and safe-area changes without hiding the last rows.
-const playback=document.querySelector('.playback');
-function sizePlayback(){document.body.style.setProperty('--playback-height',`${Math.ceil(playback.getBoundingClientRect().height)}px`)}
-new ResizeObserver(sizePlayback).observe(playback);sizePlayback();
+// The sticky video (phones) starts right below the app bar, whatever its wrapped height.
+const appBar=document.querySelector('.app-bar');
+function sizeAppBar(){document.body.style.setProperty('--app-bar-height',`${Math.ceil(appBar.getBoundingClientRect().height)}px`)}
+const cameraPanel=document.querySelector('.camera-panel');
+// Scrolling a control into view (focus, find, links) keeps it clear of the sticky app bar and, on phones, the video.
+function sizeCamera(){
+ const height=Math.ceil(cameraPanel.getBoundingClientRect().height),sticky=getComputedStyle(cameraPanel).position==='sticky';
+ document.body.style.setProperty('--camera-height',`${height}px`);
+ document.documentElement.style.setProperty('--replay-scroll-top',`${Math.ceil(appBar.getBoundingClientRect().height)+(sticky?height:0)+8}px`);
+}
+new ResizeObserver(()=>{sizeAppBar();sizeCamera()}).observe(appBar);sizeAppBar();new ResizeObserver(sizeCamera).observe(cameraPanel);sizeCamera();
+// The floating transport bar: the page keeps this much room below its content so the bar never hides the end.
+const transport=document.querySelector('.playback');
+function sizeTransport(){document.documentElement.style.setProperty('--transport-height',`${Math.ceil(transport.getBoundingClientRect().height)}px`)}
+new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
 
 // Layout changes leave the video element and playback state intact.
 const splitView=$('splitView'),stackView=$('stackView'),layoutPreferenceKey='roadviewer-replay-layout';
@@ -777,23 +811,98 @@ function logSegmentInfo(name){
  const number=Number(match[2]);
  return Number.isSafeInteger(number)?{route:match[1],number}:null;
 }
+const SEGMENT_STATES={unconverted:'미변환',queued:'대기 중',processing:'준비 중',error:'변환 실패'};
+const goToLog=log=>location.assign('../'+encodeURIComponent(log.id)+'/');
+// App bar title: when the route starts (its first segment's time, as in the log list), which segment this is and of how many.
+function renderTitle(active,segments){
+ const info=logSegmentInfo(active?.name),first=segments[0]?.log||active;
+ // The recording's own start time when known; otherwise only the upload time, and it says so.
+ const started=Number.isFinite(first?.started_at),seconds=started?first.started_at:first?.uploaded,when=Number.isFinite(seconds)?new Date(seconds*1000):null;
+ const clock=when?.toLocaleTimeString('ko-KR',{hour:'numeric',minute:'2-digit'});
+ const start=when?(started?clock+' 출발':'업로드 '+clock):info?'주행 '+info.route.split('--')[0].replace(/^0+(?=.)/,''):'로그 재생';
+ $('titleText').title=when?(started?'출발 ':'업로드 ')+when.toLocaleString():'';
+ const index=segments.findIndex(item=>item.log.id===active?.id);
+ $('titleText').textContent=info?`${start} · 구간 ${info.number}`:start;
+ $('titleCount').textContent=segments.length>1&&index>=0?` (${index+1}/${segments.length})`:'';
+ $('titleDate').textContent=when?when.toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'short'}):'';
+}
+// Every segment of the route under the seek bar; another ready one is one click away (same as the segment chooser).
+function renderSegmentStrip(segments,current,active){
+ const items=segments.length?segments:active?[{log:active,info:logSegmentInfo(active.name)}]:[];
+ $('segmentStrip').replaceChildren(...items.map(({log,info})=>{
+  const button=document.createElement('button'),here=log.id===current,state=SEGMENT_STATES[log.status];
+  button.type='button';button.className='segment-block';button.dataset.status=log.status||'';
+  const label=(info?'구간 '+info.number:'이 구간')+(state?' · '+state:'')+(here?' · 재생 중':'');
+  button.title=label;button.setAttribute('aria-label',label);
+  if(here)button.setAttribute('aria-current','true');
+  button.disabled=!here&&log.status!=='ready';
+  if(!here)button.onclick=()=>goToLog(log);
+  return button;
+ }));
+ fitSegmentStrip(current!==segmentStripCurrent);segmentStripCurrent=current;
+}
+// Long drives: when the blocks would get narrower than is comfortable, the strip becomes a horizontally scrollable
+// row of fixed-width blocks (style.css .is-scrolling) with edge fades where more exists, kept centred on the current
+// segment when it changes. Manual scrolling (touch, trackpad, shift+wheel, mouse drag) is left alone until then.
+let segmentStripCurrent=null,segmentStripScrolled=false;
+const SEGMENT_COMFORT=16,SEGMENT_GAP=3;
+function segmentStripFades(){
+ const strip=$('segmentStrip'),scrolling=strip.classList.contains('is-scrolling');
+ strip.classList.toggle('fade-left',scrolling&&strip.scrollLeft>1);
+ strip.classList.toggle('fade-right',scrolling&&strip.scrollLeft+strip.clientWidth<strip.scrollWidth-1);
+}
+function fitSegmentStrip(recentre=false){
+ const strip=$('segmentStrip'),count=strip.children.length,was=strip.classList.contains('is-scrolling');
+ const scrolling=count>1&&count*SEGMENT_COMFORT+(count-1)*SEGMENT_GAP>strip.clientWidth;
+ strip.classList.toggle('is-scrolling',scrolling);
+ if(scrolling&&(recentre||!was||!segmentStripScrolled)){
+  const block=strip.querySelector('[aria-current]');
+  if(block){const box=block.getBoundingClientRect(),frame=strip.getBoundingClientRect();
+   strip.scrollTo({left:strip.scrollLeft+box.left+box.width/2-(frame.left+frame.width/2),behavior:recentre&&was&&motionAllowed()?'smooth':'instant'})}
+  segmentStripScrolled=false;
+ }
+ segmentStripFades();
+}
+{
+ const strip=$('segmentStrip');let drag=null,dragged=false;
+ strip.addEventListener('scroll',()=>{segmentStripFades()},{passive:true});
+ // A user gesture marks the position as theirs; the next segment change re-centres.
+ for(const type of ['wheel','touchstart','keydown'])strip.addEventListener(type,()=>{segmentStripScrolled=true},{passive:true});
+ // Mouse drag scrolls; a drag never counts as a click on a block.
+ strip.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button===0&&strip.classList.contains('is-scrolling')){drag={x:e.clientX,left:strip.scrollLeft};dragged=false}});
+ addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x;if(Math.abs(dx)>4&&!dragged){dragged=true;segmentStripScrolled=true;strip.classList.add('is-dragging')}if(dragged)strip.scrollLeft=drag.left-dx});
+ addEventListener('pointerup',()=>{drag=null;strip.classList.remove('is-dragging')});
+ strip.addEventListener('click',e=>{if(dragged){e.preventDefault();e.stopPropagation();dragged=false}},true);
+ new ResizeObserver(()=>fitSegmentStrip()).observe(strip);
+}
 function populateSegments(logs,current){
  const select=$('logSegment');select.replaceChildren();select.hidden=true;select.onchange=null;
  const active=logs.find(log=>log.id===current),info=logSegmentInfo(active?.name);
- if(!info)return;
- const segments=logs.map(log=>({log,info:logSegmentInfo(log.name)})).filter(item=>item.info?.route===info.route).sort((a,b)=>a.info.number-b.info.number||a.log.id.localeCompare(b.log.id));
+ const segments=info?logs.map(log=>({log,info:logSegmentInfo(log.name)})).filter(item=>item.info?.route===info.route).sort((a,b)=>a.info.number-b.info.number||a.log.id.localeCompare(b.log.id)):[];
+ renderTitle(active,segments);renderSegmentStrip(segments,current,active);
  if(segments.length<2)return;
  for(const {log,info} of segments){
   const option=document.createElement('option');option.value=log.id;
-  const status={unconverted:'미변환',queued:'대기 중',processing:'준비 중',error:'변환 실패'}[log.status];
+  const status=SEGMENT_STATES[log.status];
   option.textContent=`구간 ${info.number}${status?' · '+status:''}`;
   option.disabled=log.status!=='ready'&&log.id!==current;
-  select.append(option);
+  // Long drives: the chooser shows a light header every 10 segments ("구간 0–9 · 오전 8:46").
+  let parent=select;
+  if(segments.length>20){
+   const group=Math.floor(info.number/10);parent=select.lastElementChild;
+   if(parent?.dataset.group!==String(group)){
+    parent=document.createElement('optgroup');parent.dataset.group=group;parent.dataset.first=info.number;
+    const when=Number.isFinite(log.started_at)?new Date(log.started_at*1000).toLocaleTimeString('ko-KR',{hour:'numeric',minute:'2-digit'}):'';
+    parent.dataset.when=when;select.append(parent);
+   }
+   parent.label=`구간 ${parent.dataset.first}–${info.number}${parent.dataset.when?' · '+parent.dataset.when:''}`;
+  }
+  parent.append(option);
  }
  select.value=current;select.hidden=false;
  select.onchange=()=>{
   const target=segments.find(item=>item.log.id===select.value)?.log;
-  if(target?.status==='ready'&&target.id!==current)location.assign('../'+encodeURIComponent(target.id)+'/');
+  if(target?.status==='ready'&&target.id!==current)goToLog(target);
  };
 }
 function syncReplayPin(pinned){
@@ -810,8 +919,11 @@ $('pinLog').onclick=async()=>{
   const result=await response.json();syncReplayPin(result.pinned);
  }catch(e){showError(e.message)}finally{button.disabled=false}
 };
-// The replay screen's menu, as in the log list: remove the converted data, download, delete for good.
+// The ⋯ menu: remove the converted data, downloads, camera info, screen mode, recording info and delete for good.
 // Downloads open the download dialog; recordings without download options list the log and each camera video.
+// On phones the 보기 choices join this menu (the app bar has no room for a 보기 button).
+const phoneLayout=matchMedia('(max-width:719px)');
+let replayLog=null;
 function replayMenuButton(text,className){const button=document.createElement('button');button.type='button';button.textContent=text;if(className)button.className=className;return button}
 async function replayDelete(url,expected){
  const response=await fetch(url,{method:'DELETE',headers:{'X-RoadViewer-Request':'1'}});
@@ -820,9 +932,10 @@ async function replayDelete(url,expected){
  if(expected&&body.status!==expected)throw Error('변환 데이터 제거가 완료되지 않았습니다. 로그 목록에서 상태를 확인해 주세요.');
 }
 function renderReplayDownloads(log){
- const details=$('replayDownload'),menu=$('replayDownloadMenu');
- details.classList.toggle('is-empty',!log);if(!log){details.open=false;menu.replaceChildren();return}
- const nodes=[],id=encodeURIComponent(log.id);
+ replayLog=log;
+ const details=$('replayDownload'),menu=$('replayDownloadMenu'),view=$('viewOptions');
+ details.classList.toggle('is-empty',!log);
+ const nodes=[],id=log&&encodeURIComponent(log.id);
  // Both remove the replay's data, so a confirmed one returns to the log list.
  const destructive=(text,className,message,url,expected)=>{
   const button=replayMenuButton(text,className);
@@ -833,39 +946,59 @@ function renderReplayDownloads(log){
   };
   return button;
  };
- if(log.status==='ready'||log.status==='queued')nodes.push(destructive('제거','','대기 중이면 변환을 취소하고, 변환된 분석·그래프와 재생용 임시 영상을 제거할까요? 원본 로그와 보관 영상은 유지되며 자동으로 다시 변환되지 않습니다.','../../api/logs/'+id+'/prepared','unconverted'));
- if(log.download_options){const download=replayMenuButton('다운로드');download.onclick=()=>{details.open=false;openRecordingDownload([log],'../../','all')};nodes.push(download)}
- else{
+ if(log?.status==='ready'||log?.status==='queued')nodes.push(destructive('제거','','대기 중이면 변환을 취소하고, 변환된 분석·그래프와 재생용 임시 영상을 제거할까요? 원본 로그와 보관 영상은 유지되며 자동으로 다시 변환되지 않습니다.','../../api/logs/'+id+'/prepared','unconverted'));
+ if(log?.download_options){const download=replayMenuButton('다운로드');download.onclick=()=>{details.open=false;openRecordingDownload([log],'../../','all')};nodes.push(download)}
+ else if(log){
   const items=recordingDownloads(log,'../../'),videos=items.filter(item=>item.video);
   nodes.push(...items.filter(item=>!item.video).map(downloadLink));
   if(videos.length>1){const heading=document.createElement('p');heading.textContent='영상 선택';nodes.push(heading)}
   nodes.push(...videos.map(downloadLink));
  }
- const del=destructive('완전 삭제','delete','원본 로그·영상과 변환 데이터를 완전히 삭제할까요? 이 작업은 되돌릴 수 없습니다.','../../api/logs/'+id);
- menu.replaceChildren(...nodes,document.createElement('hr'),del);
+ if(phoneLayout.matches)nodes.push(view);else if(view.parentElement!==$('viewMenuPanel'))$('viewMenuPanel').append(view);
+ nodes.push($('cameraInfoButton'));
+ if(window.RoadViewerTheme){const theme=document.createElement('div');theme.className='menu-theme';const label=document.createElement('span');label.textContent='화면 모드';theme.append(label,window.RoadViewerTheme.control());nodes.push(theme)}
+ nodes.push($('details'),menu.querySelector('.menu-version'));
+ if(log)nodes.push(document.createElement('hr'),destructive('완전 삭제','delete','원본 로그·영상과 변환 데이터를 완전히 삭제할까요? 이 작업은 되돌릴 수 없습니다.','../../api/logs/'+id));
+ menu.replaceChildren(...nodes);
 }
-$('replayDownloadMenu').addEventListener('click',e=>{if(e.target.closest('a'))$('replayDownload').open=false});
-// Choose the roomier side on short screens and scroll within the available space.
-function placeReplayDownloads(){
- const details=$('replayDownload'),menu=$('replayDownloadMenu');
- if(!details.open)return;
+renderReplayDownloads(null);
+// Phones show 이전/다음 as large labelled buttons below the content, as in the app bar's place on wider screens.
+const logNeighbors=document.querySelector('.log-neighbors');
+function placeNeighbors(){const target=phoneLayout.matches?$('phoneNeighbors'):$('logNavigation');if(logNeighbors.parentElement!==target)target.prepend(logNeighbors)}
+placeNeighbors();
+phoneLayout.addEventListener('change',()=>{$('viewMenu').open=false;renderReplayDownloads(replayLog);placeNeighbors()});
+$('replayDownloadMenu').addEventListener('click',e=>{if(e.target.closest('a,#cameraInfoButton,#layoutWidthButton'))$('replayDownload').open=false});
+$('viewMenuPanel').addEventListener('click',e=>{if(e.target.closest('#layoutWidthButton'))$('viewMenu').open=false});
+// App bar and layer menus: one open at a time, placed on the roomier side and scrolled within the viewport.
+const replayMenus=[...document.querySelectorAll('details.replay-menu')];
+function placeReplayMenu(details){
+ const menu=details.querySelector('.replay-download-menu');
+ if(!details.open||!menu)return;
  menu.style.left='';menu.style.top='';menu.style.bottom='';menu.style.maxHeight='';
  // Measure the button, not the menu's animated translateY position.
- const box=details.getBoundingClientRect(),gap=6,margin=12;
- const overflow=box.left+menu.offsetWidth-(document.documentElement.clientWidth-margin);
- if(overflow>0)menu.style.left=-overflow+'px';
- const bottom=Math.min(innerHeight,document.querySelector('.playback')?.getBoundingClientRect().top??innerHeight)-8;
- const below=Math.max(0,bottom-box.bottom-gap),above=Math.max(0,box.top-gap-margin);
+ const box=details.getBoundingClientRect(),gap=6,margin=12,width=document.documentElement.clientWidth;
+ // Menus open toward the side with room: end-aligned when the button sits in the right half.
+ let left=box.left+box.width/2>width/2?box.width-menu.offsetWidth:0;
+ left=Math.max(margin-box.left,Math.min(left,width-margin-box.left-menu.offsetWidth));
+ menu.style.left=left+'px';
+ // Menus below the app bar must not open underneath it (or under the sticky video on phones).
+ const ceiling=details.closest('.app-bar')?margin:(parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop)||margin);
+ // ...nor reach under the floating transport bar at the bottom.
+ const floor=details.closest('.app-bar')?8:Math.max(8,innerHeight-transport.getBoundingClientRect().top+8);
+ const below=Math.max(0,innerHeight-floor-box.bottom-gap),above=Math.max(0,box.top-gap-ceiling);
  const opensAbove=menu.offsetHeight>below&&above>below;
  if(opensAbove){menu.style.top='auto';menu.style.bottom='calc(100% + 6px)'}
  menu.style.maxHeight=(opensAbove?above:below)+'px';
 }
-$('replayDownload').addEventListener('toggle',placeReplayDownloads);window.addEventListener('resize',placeReplayDownloads);
-window.addEventListener('scroll',placeReplayDownloads,{passive:true});
-document.addEventListener('click',e=>{const details=$('replayDownload');if(details.open&&!details.contains(e.target))details.open=false});
-document.addEventListener('keydown',e=>{const details=$('replayDownload');if(e.key==='Escape'&&details.open){details.open=false;details.querySelector('summary').focus()}});
+const placeReplayMenus=()=>replayMenus.forEach(placeReplayMenu);
+for(const details of replayMenus)details.addEventListener('toggle',()=>{if(details.open)for(const other of replayMenus)if(other!==details)other.open=false;placeReplayMenu(details)});
+window.addEventListener('resize',placeReplayMenus);
+window.addEventListener('scroll',placeReplayMenus,{passive:true});
+document.addEventListener('click',e=>{for(const details of replayMenus)if(details.open&&!details.contains(e.target))details.open=false});
+document.addEventListener('keydown',e=>{const details=replayMenus.find(d=>d.open);if(e.key==='Escape'&&details&&!document.querySelector('dialog[open]')){details.open=false;details.querySelector('summary').focus()}});
 async function loadLogNavigation(){
  const buttons=[$('previousLog'),$('nextLog')];
+ const label=(button,text,title)=>{button.querySelector('.neighbor-label').textContent=text;button.setAttribute('aria-label',text);button.title=title};
  try{
   const response=await fetch('../../api/logs');
   if(!response.ok)throw Error('로그 목록을 불러오지 못했습니다.');
@@ -886,62 +1019,24 @@ async function loadLogNavigation(){
   buttons.forEach((button,i)=>{
    const log=neighbors[i];button.disabled=!log;
    const route=logSegmentInfo(active?.name)?.route,sameRoute=route&&logSegmentInfo(log?.name)?.route===route;
-   button.textContent=(i===0?'이전 ':'다음 ')+(sameRoute?'구간':'로그');
-   button.title=log?log.name:'이동할 재생 가능한 로그가 없습니다.';
-   button.onclick=log?()=>location.assign('../'+encodeURIComponent(log.id)+'/'):null;
+   const text=(i===0?'이전 ':'다음 ')+(sameRoute?'구간':'로그');
+   label(button,text,log?text+' · '+log.name:'이동할 재생 가능한 로그가 없습니다.');
+   button.onclick=log?()=>goToLog(log):null;
   });
  }catch{buttons.forEach(button=>{button.disabled=true;button.title='로그 목록을 불러오지 못했습니다. 새로고침해 주세요.'})}
 }
 const pageReady=loadLogNavigation();
 
-// Keep the navigation in normal flow; the chosen row determines where sticking starts.
-const replayHeading=document.querySelector('.replay-heading');
-if(replayHeading){
- const preference='roadviewer-heading-collapsed';let headingFrame=0,headingCollapsed=false;
- try{headingCollapsed=localStorage.getItem(preference)==='true'}catch{}
- const fold=$('foldHeading'),navigation=$('logNavigation'),title=replayHeading.querySelector('.route');
- const anchor=document.createElement('div');anchor.className='heading-anchor';replayHeading.before(anchor);
- const updateHeading=()=>{
-  headingFrame=0;
-  const offset=headingCollapsed?title.offsetTop:0;
-  replayHeading.style.top=(10-offset)+'px';
-  const stuck=window.scrollY>0&&anchor.getBoundingClientRect().top+offset<=10;
-  replayHeading.classList.toggle('is-stuck',stuck);
-  replayHeading.classList.toggle('is-collapsed',headingCollapsed);
-  navigation.inert=stuck&&headingCollapsed;fold.hidden=!stuck;
-  fold.setAttribute('aria-expanded',String(!headingCollapsed));
-  fold.setAttribute('aria-label',headingCollapsed?'상단 이동 버튼 펼치기':'상단 이동 버튼 접기');
- };
- const scheduleHeading=()=>{if(!headingFrame)headingFrame=requestAnimationFrame(updateHeading)};
- // Clear press feedback on release, cancellation, or leaving the row.
- fold.addEventListener('pointerdown',e=>{if(e.button!==0)return;fold.classList.add('is-pressed')});
- for(const event of ['pointerup','pointercancel','pointerleave','lostpointercapture'])fold.addEventListener(event,()=>fold.classList.remove('is-pressed'));
- // Fold with the 매거진 홈 timing: the pinned bar slides from where it is to its new sticky offset while the
- // navigation row fades. Only transform and opacity move, so the content underneath never shifts.
- let foldMotion=null;
- const stopFold=()=>{if(!foldMotion)return;foldMotion.forEach(motion=>motion.cancel());foldMotion=null;replayHeading.classList.remove('is-folding')};
- fold.onclick=()=>{
-  const from=replayHeading.getBoundingClientRect().top,fade=Number(getComputedStyle(navigation).opacity);
-  stopFold();
-  headingCollapsed=!headingCollapsed;try{localStorage.setItem(preference,String(headingCollapsed))}catch{}updateHeading();
-  const shift=from-replayHeading.getBoundingClientRect().top;
-  if(!replayHeading.classList.contains('is-stuck')||Math.abs(shift)<1||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
-  const options={duration:250,easing:'cubic-bezier(0.4, 0, 0.2, 1)'};
-  replayHeading.classList.add('is-folding');
-  const motions=[replayHeading.animate([{transform:`translateY(${shift}px)`},{transform:'translateY(0)'}],options),
-   navigation.animate([{opacity:fade},{opacity:headingCollapsed?0:1}],options)];
-  foldMotion=motions;
-  Promise.all(motions.map(motion=>motion.finished)).then(()=>{if(foldMotion===motions)stopFold()}).catch(()=>{});
- };
- window.addEventListener('scroll',()=>{stopFold();scheduleHeading()},{passive:true});
- window.addEventListener('resize',scheduleHeading);
- window.addEventListener('pageshow',scheduleHeading);
- const headingResize=new ResizeObserver(scheduleHeading);
- headingResize.observe(navigation);
- // Loading/status text can move the sticky anchor without a scroll or navigation resize.
- headingResize.observe(document.querySelector('main>header'));
- updateHeading();
-}
+// Full screen keeps the video and its transport bar together; hidden where the browser cannot do it (iPhone).
+(()=>{
+ const stage=document.querySelector('.camera-panel'),button=$('fullscreenButton');
+ button.hidden=!(document.fullscreenEnabled&&stage.requestFullscreen);
+ button.onclick=()=>{if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});else stage.requestFullscreen().catch(()=>showError('전체 화면으로 전환하지 못했습니다.'))};
+ stage.addEventListener('fullscreenchange',()=>{
+  const on=document.fullscreenElement===stage,text=on?'전체 화면 종료':'전체 화면';
+  button.setAttribute('aria-label',text);button.title=text;button.classList.toggle('is-active',on);render();
+ });
+})();
 
 // Share layer and label preferences between recordings on this browser.
 const displayPreferenceKey='roadviewer-display-preferences';
@@ -1001,13 +1096,15 @@ syncLayoutWidth();mobileLayout.addEventListener('change',syncLayoutWidth);tablet
 layoutWidth.oninput=()=>{applyLayoutWidth(layoutWidth.value);try{localStorage.setItem(widthProfile().key,layoutWidth.value)}catch{}};
 $('resetLayoutWidth').onclick=()=>{const profile=widthProfile();layoutWidth.value=String(profile.default);applyLayoutWidth(layoutWidth.value);try{localStorage.removeItem(profile.key)}catch{}};
 
+// A dialog opened from a menu item returns focus to the (now closed) menu's button.
+function menuFocusTarget(element){return element?.closest?.('details:not([open])')?.querySelector('summary')||element}
 function settingsDialog(dialog,button,closeButton,focus,onOpen){
  let oldOverflow='',returnTo=null;
  const open=()=>{if(dialog.open)return;onOpen?.();returnTo=button||document.activeElement;oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.showModal();focus().focus({preventScroll:true})};
  if(button)button.onclick=open;
  const close=()=>dialog.close();
  closeButton.onclick=close;
- dialog.addEventListener('close',()=>{document.body.style.overflow=oldOverflow;returnTo?.focus?.({preventScroll:true})});
+ dialog.addEventListener('close',()=>{document.body.style.overflow=oldOverflow;menuFocusTarget(returnTo)?.focus?.({preventScroll:true})});
  dialog.addEventListener('cancel',e=>{e.preventDefault();close()});
  dialog.addEventListener('click',e=>{if(e.target!==dialog)return;const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()});
  return open;

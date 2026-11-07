@@ -67,19 +67,23 @@ http.serve_forever()
    assert(await page.evaluate(()=>!liveMorphs.includes('app-brand')&&!window.distortedBrand),'brand contents morph without stretching the flex container');
    assert(await page.evaluate(()=>pageMotions.every(a=>a.root==='none'&&a.background==='rgba(0, 0, 0, 0)')),'morphing excludes the full-page snapshot and opaque overlay');
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
-   assert(await page.evaluate(()=>documentToken===originalToken&&originalBrand===document.querySelector('.app-brand')),'document and brand persist');
+   assert(await page.evaluate(()=>documentToken===originalToken),'document persists');
+   // The replay page has its own app bar instead of the brand header; focus lands on its title.
+   assert(await page.evaluate(()=>!document.querySelector('.app-brand')&&document.activeElement.tagName==='H1'&&document.activeElement.closest('.app-bar')),'replay app bar replaces the brand and takes focus');
    assert.equal(await page.locator('#navigationStatus').textContent(),'','successful navigation has no top loading notice');
    await page.locator('#play').click();await page.waitForFunction(()=>document.getElementById('video').currentTime>.1);
-   await page.evaluate(()=>{window.departedVideo=document.getElementById('video');scrollTo(0,200)});
+   const leftAt=await page.evaluate(()=>{window.departedVideo=document.getElementById('video');const target=Math.min(200,document.documentElement.scrollHeight-innerHeight-10);scrollTo(0,target);return scrollY});
+   assert(leftAt>0,'the replay fixture must have a real scroll position to restore');
    await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>pageMotions=[]);
-   await page.locator('#previousLog').click();await page.waitForURL(base+'view/'+ids[1]+'/');
+   // Invoke without scrolling the phone's previous/next controls into view, preserving the saved position.
+   await page.locator('#previousLog').evaluate(button=>button.click());await page.waitForURL(base+'view/'+ids[1]+'/');
    await page.waitForFunction(()=>document.getElementById('route').textContent==='second');
    assert.equal(await page.evaluate(()=>pageMotions.length),0,'reduced motion disables page effects');await page.emulateMedia({reducedMotion:'no-preference'});
    assert(await page.evaluate(()=>departedVideo.paused&&!departedVideo.hasAttribute('src')),'departed video is released');
    await page.evaluate(()=>liveMorphs=[]);
    await page.goBack();await page.waitForURL(base+'view/'+ids[0]+'/');await page.waitForFunction(()=>document.getElementById('route').textContent==='first');
    assert.deepEqual(await page.evaluate(()=>liveMorphs),[],'replay-to-replay navigation does not morph even with motion enabled');
-   await page.waitForFunction(()=>Math.abs(scrollY-200)<1);
+   await page.waitForFunction(leftAt=>Math.abs(scrollY-leftAt)<1,leftAt);
    await page.locator('.back').click();await page.waitForURL(base);await page.locator('.log-row .replay').first().waitFor();
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
    assert.deepEqual(await page.evaluate(()=>liveMorphs),[],'returning to the library does not morph');
@@ -128,9 +132,11 @@ http.serve_forever()
    await page.route('**/api/uploads',async r=>{uploadRequest=r;await new Promise(resolve=>{releaseUpload=resolve;requests.emit('upload-held')});await r.fulfill({status:400,json:{error:'Test upload cancelled'}})});
    await page.locator('#files').setInputFiles({name:'00000395--0d0eda17c5--9--rlog.zst',mimeType:'application/octet-stream',buffer:Buffer.from('fixture')});
    const uploadReady=once(requests,'upload-held',{signal:AbortSignal.timeout(5000)});
-   await page.locator('#upload').click();await uploadReady;await page.waitForFunction(()=>document.getElementById('upload').disabled);
+   // The upload starts in the 업로드 tab and keeps running while the 로그 tab is shown (in-page tabs, not navigation).
+   await page.locator('#tab-upload').click();await page.locator('#upload').click();await uploadReady;await page.waitForFunction(()=>document.getElementById('upload').disabled);
+   await page.locator('#tab-logs').click();assert(await page.locator('#uploadPill').isVisible(),'the app bar shows the running upload');
    await page.locator('.log-row .replay').first().click();await page.waitForFunction(()=>document.getElementById('navigationStatus').textContent.includes('업로드 또는 정리'));
-   assert.equal(page.url(),base);assert(await page.locator('#upload').isDisabled());
+   assert.equal(page.url(),base+'#logs','still on the library (tab in the hash)');assert(await page.locator('#upload').isDisabled());
    assert(uploadRequest,'upload request is still active');releaseUpload();
    await page.waitForFunction(()=>!document.getElementById('upload').disabled);
    await page.unroute('**/api/uploads');

@@ -21,7 +21,10 @@ class Reporter:
 
 
 class NoDecode:
- """Normal preparation must never ask libav for decoded pixels."""
+ """Normal preparation must never ask libav for decoded pixels.
+
+ The one exception is the list thumbnail (thumbnail.py, one bounded source): tests stub save_thumbnail
+ explicitly around NoDecode, and tests/test_thumbnails.py covers the real decode."""
  def __init__(self, container):self.container=container
  def __getattr__(self, key):
   if key=='decode':raise AssertionError('Pixel decoding is forbidden during preparation')

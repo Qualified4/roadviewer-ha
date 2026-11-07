@@ -1,37 +1,55 @@
-/* Motion for the whole app: one rhythm (the Magazine Home dashboard timing) and a spring for small
-   confirmations. Every effect is progressive: browsers without a feature switch instantly, and
-   reduced motion turns everything off. Only transform and opacity move. */
+/* Motion for the whole app, a hybrid:
+   - frequent small interactions (menus, choice popups, expand/collapse, ripple) use fast Material 2 timing;
+   - large transitions (dialogs, bottom sheets, selection bar, upload pill) use Material 3 emphasized curves, exits faster than enters;
+   - the spring (one small overshoot) only for things that appear once: selection bar, transport bar on load, play/pause icon, chosen filter chip.
+   Every effect is progressive: browsers without a feature switch instantly, and reduced motion turns everything off. */
 :root{
- --ease:cubic-bezier(.4,0,.2,1);
- --ease-out:cubic-bezier(.2,0,0,1);
- --motion:.25s;
+ --m2-standard:cubic-bezier(.4,0,.2,1);
+ --m2-decelerate:cubic-bezier(0,0,.2,1);
+ --m2-accelerate:cubic-bezier(.4,0,1,1);
+ --m3-emph-decelerate:cubic-bezier(.05,.7,.1,1);
+ --m3-emph-accelerate:cubic-bezier(.3,0,.8,.15);
+ --ease:var(--m2-standard);
+ --ease-out:var(--m2-decelerate);
  /* Damped spring (one small overshoot), sampled for CSS linear(). */
  --spring:linear(0,.009,.035 2.1%,.141 4.4%,.723 12.9%,.938 16.7%,1.017 19.9%,1.067,1.099 24.3%,1.108 26%,1.104,1.088 30.6%,1.019 39.7%,.995 45.5%,.987 50.6%,.991 59.3%,1.001 74.7%,1);
 }
 
 .app-brand h1:focus{outline:none}
 
+/* Press ripple (ripple.js): a wave of the control's own colour (white on mint) in a clipping layer; reduced motion only dims. */
+.rv-ripple-host{position:relative}
+.rv-ripple{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none;--ripple-alpha:.18}
+.rv-ripple>span{position:absolute;border-radius:50%;background:currentColor;opacity:0;transform:scale(0);animation:rv-ripple .45s var(--m2-decelerate) forwards}
+:is(button.primary,.play-button)>.rv-ripple{--ripple-alpha:.25}:is(button.primary,.play-button)>.rv-ripple>span{background:#fff}
+@keyframes rv-ripple{0%{transform:scale(0);opacity:var(--ripple-alpha)}55%{opacity:var(--ripple-alpha)}100%{transform:scale(1);opacity:0}}
+.rv-pressed{opacity:.7}
+
 @media (prefers-reduced-motion:no-preference){
 
-/* ---------- Dialogs and sheets ---------- */
-.camera-info-dialog,.bulk-dialog,.pair-dialog,.rv-choice-dialog{
- transition:opacity .2s var(--ease),transform var(--motion) var(--ease),overlay var(--motion) allow-discrete,display var(--motion) allow-discrete;
-}
-.camera-info-dialog:not([open]),.bulk-dialog:not([open]),.pair-dialog:not([open]){opacity:0;transform:translateY(10px) scale(.97)}
-@starting-style{.camera-info-dialog[open],.bulk-dialog[open],.pair-dialog[open]{opacity:0;transform:translateY(10px) scale(.97)}}
-/* Anchored choices drop from their button; translate only, so measuring the height stays exact. */
-.rv-choice-dialog{--choice-offset:-6px}
-.rv-choice-dialog[data-placement=above]{--choice-offset:6px}
-.rv-choice-dialog:not([open]){opacity:0;transform:translateY(var(--choice-offset))}
-@starting-style{.rv-choice-dialog[open]{opacity:0;transform:translateY(var(--choice-offset))}}
-.camera-info-dialog::backdrop,.bulk-dialog::backdrop,.pair-dialog::backdrop,.rv-choice-dialog::backdrop{
- transition:opacity var(--motion) var(--ease),overlay var(--motion) allow-discrete,display var(--motion) allow-discrete;
-}
+/* ---------- Dialogs and sheets (M3 emphasized) ---------- */
+/* Enter 400 ms: fade 150 ms, rise 16px and grow from .96. Exit 200 ms: fade with a slight drop. */
+.camera-info-dialog,.pair-dialog{transition:opacity .2s var(--m3-emph-accelerate),transform .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
+.camera-info-dialog[open],.pair-dialog[open]{transition:opacity .15s linear,transform .4s var(--m3-emph-decelerate),overlay .4s allow-discrete,display .4s allow-discrete}
+.camera-info-dialog:not([open]),.pair-dialog:not([open]){opacity:0;transform:translateY(8px)}
+@starting-style{.camera-info-dialog[open],.pair-dialog[open]{opacity:0;transform:translateY(16px) scale(.96)}}
+/* Anchored choices behave like menus (M2): fade 120 ms + grow from .8 over 150 ms out of the trigger-side corner
+   (choices.js sets transform-origin after measuring); exit is a 75 ms fade. offsetHeight measuring ignores the scale. */
+.rv-choice-dialog{transition:opacity 75ms linear,overlay 75ms allow-discrete,display 75ms allow-discrete}
+.rv-choice-dialog[open]{transition:opacity .12s linear,transform .15s var(--m2-decelerate),overlay .15s allow-discrete,display .15s allow-discrete}
+.rv-choice-dialog:not([open]){opacity:0}
+@starting-style{.rv-choice-dialog[open]{opacity:0;transform:scale(.8)}}
+/* Scrims fade with their dialog. */
+dialog::backdrop{transition:opacity .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
+dialog[open]::backdrop{transition:opacity .25s linear,overlay .4s allow-discrete,display .4s allow-discrete}
+.rv-choice-dialog::backdrop{transition-duration:75ms}.rv-choice-dialog[open]::backdrop{transition-duration:.12s}
 dialog:not([open])::backdrop{opacity:0}
 @starting-style{dialog[open]::backdrop{opacity:0}}
 @media(max-width:600px){
- /* Phones: the same dialogs are bottom sheets, so they slide up from the edge. */
- .camera-info-dialog,.rv-choice-dialog{transition-duration:.2s,.32s,.32s,.32s;transition-timing-function:var(--ease),var(--ease-out)}
+ /* Phones: the same dialogs are bottom sheets that slide from the edge: 400 ms emphasized in, 200 ms emphasized out.
+    (No spring here: an overshoot of a full-height slide would lift the sheet off the screen edge.) */
+ .camera-info-dialog,.rv-choice-dialog{transition:transform .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
+ .camera-info-dialog[open],.rv-choice-dialog[open]{transition:transform .4s var(--m3-emph-decelerate),overlay .4s allow-discrete,display .4s allow-discrete}
  .camera-info-dialog:not([open]),.rv-choice-dialog:not([open]){opacity:1;transform:translateY(calc(100% + 16px))}
  @starting-style{.camera-info-dialog[open],.rv-choice-dialog[open]{opacity:1;transform:translateY(calc(100% + 16px))}}
 }
@@ -39,19 +57,36 @@ dialog:not([open])::backdrop{opacity:0}
 /* ---------- Tabs ---------- */
 .vehicle-tabs{position:relative;isolation:isolate}
 .vehicle-tabs .tab-indicator{position:absolute;left:0;top:0;height:100%;width:var(--tab-width,0);transform:translateX(var(--tab-x,0));
- border-radius:6px;background:#17362f;box-shadow:inset 0 -2px var(--lane);z-index:-1;transition:transform .3s var(--ease),width .3s var(--ease)}
+ border-radius:6px;background:var(--accent-soft);box-shadow:inset 0 -2px var(--accent);z-index:-1;transition:transform .3s var(--ease),width .3s var(--ease)}
 .vehicle-tabs.has-indicator button[aria-selected=true]{background:transparent;box-shadow:none}
 .vehicle-tabs button{transition:color .2s var(--ease)}
+
+/* Selection bar and upload pill: rise in with a fade (400 ms; the bar settles with the spring), fade out in 200 ms.
+   Exits fade only: a transform on the dock would re-anchor its fixed bar mid-exit. */
+.bulk-bar:not([hidden]){animation:rv-selection-in .4s var(--spring),rv-fade-in .15s linear}
+@keyframes rv-selection-in{from{transform:translateY(16px)}}
+@keyframes rv-fade-in{from{opacity:0}}
+.bulk-dock,.upload-pill{transition:opacity .2s var(--m3-emph-accelerate),display .2s allow-discrete}
+.bulk-dock[hidden],.upload-pill[hidden]{opacity:0}
+.upload-pill:not([hidden]){animation:rv-rise-in .4s var(--m3-emph-decelerate),rv-fade-in .15s linear}
+@keyframes rv-rise-in{from{transform:translateY(8px)}}
+/* Appear-once springs: the floating transport on load, the play/pause icon swap and a chosen filter chip. */
+.replay-page .playback{animation:rv-transport-in .5s var(--spring) backwards,rv-fade-in .2s linear backwards}
+@keyframes rv-transport-in{from{transform:translateY(24px)}}
+.play-button[data-playing=true] .icon-pause,.play-button:not([data-playing=true]) .icon-play{animation:rv-icon-pop .35s var(--spring)}
+@keyframes rv-icon-pop{from{transform:scale(.7)}}
+.filter-chip.is-selected-pop{animation:rv-chip-pop .35s var(--spring)}
+@keyframes rv-chip-pop{from{transform:scale(.92)}}
 
 /* ---------- Log list ---------- */
 .log-row{transition:opacity .3s var(--ease),transform .3s var(--ease-out)}
 /* New logs slide in; a row rebuilt for a status change stays put. */
 @starting-style{.log-row:not(.is-update){opacity:0;transform:translateY(-8px)}}
 /* Processing: a light sweep through the badge, and the measured progress as a thin bar. */
-.state-processing{position:relative;overflow:hidden;background-image:linear-gradient(100deg,transparent 30%,#ffd28a26 50%,transparent 70%);background-size:220% 100%;background-repeat:no-repeat;animation:rv-sweep 1.8s linear infinite}
+.state-processing{position:relative;overflow:hidden;background-image:linear-gradient(100deg,transparent 30%,color-mix(in srgb,var(--warn) 16%,transparent) 50%,transparent 70%);background-size:220% 100%;background-repeat:no-repeat;animation:rv-sweep 1.8s linear infinite}
 @keyframes rv-sweep{from{background-position:120% 0}to{background-position:-100% 0}}
-.state-progress{display:block;position:absolute;bottom:0;left:0;right:0;height:2px;border-radius:2px;background:#d5a14b33;overflow:hidden}
-.state-progress>span{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(var(--progress,0));background:#ffd28a;transition:transform 1.2s linear}
+.state-progress{display:block;position:absolute;bottom:0;left:0;right:0;height:2px;border-radius:2px;background:color-mix(in srgb,var(--warn) 22%,transparent);overflow:hidden}
+.state-progress>span{display:block;height:100%;width:100%;transform-origin:left;transform:scaleX(var(--progress,0));background:var(--warn);box-shadow:var(--warn-edge);transition:transform 1.2s linear}
 .state.is-update:not(.state-processing){animation:rv-settle .45s var(--ease)}
 @keyframes rv-settle{from{opacity:.2}}
 
@@ -59,7 +94,7 @@ dialog:not([open])::backdrop{opacity:0}
 @property --rv-angle{syntax:'<angle>';inherits:false;initial-value:0deg}
 .picker-surface{transition:border-color .2s var(--ease),background-color .2s var(--ease),transform .25s var(--spring)}
 .picker-surface.is-dragover{transform:scale(1.01);border-color:transparent;
- background:linear-gradient(#142f2b,#142f2b) padding-box,conic-gradient(from var(--rv-angle),#57d9b0,#81b5ff,#57d9b022,#57d9b0) border-box;
+ background:linear-gradient(var(--accent-soft),var(--accent-soft)) padding-box,linear-gradient(var(--panel),var(--panel)) padding-box,conic-gradient(from var(--rv-angle),var(--accent),var(--drive),transparent,var(--accent)) border-box;
  animation:rv-orbit 2.4s linear infinite}
 @keyframes rv-orbit{to{--rv-angle:360deg}}
 .picker-surface.is-dragover .picker-icon{animation:rv-bob 1s var(--ease) infinite alternate}
@@ -83,5 +118,5 @@ progress::-webkit-progress-value{transition:width .4s var(--ease)}
 #wheelCritical[visibility=visible]{animation:rv-alert .8s var(--ease) infinite alternate;transform-box:fill-box;transform-origin:center}
 @keyframes rv-alert{to{opacity:.45;transform:scale(.9)}}
 .replay-loading .road-panel canvas,.replay-loading .video-wrap,.replay-loading .telemetry-summary{
- background:linear-gradient(100deg,#ffffff00 30%,#ffffff0d 50%,#ffffff00 70%) var(--panel);background-size:220% 100%;background-repeat:no-repeat;animation:rv-sweep 1.4s linear infinite}
+ background:linear-gradient(100deg,transparent 30%,var(--hover) 50%,transparent 70%) var(--well);background-size:220% 100%;background-repeat:no-repeat;animation:rv-sweep 1.4s linear infinite}
 }

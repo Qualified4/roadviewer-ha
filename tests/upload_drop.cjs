@@ -17,10 +17,10 @@ const {EventEmitter,once}=require('node:events');
    }
    if(p.endsWith('/finish'))return route.fulfill({json:{logs:[],duplicates:[],updated:[{id:'existing',status:'ready',original_restored:true}]}});
    if(p==='/api/storage/cleanup'){heldCleanup=route;requests.emit('cleanup');return}
-   const name=p==='/'?'library.html':p.replace('/assets/','');
+   if(p==='/api/settings/storage')return route.fulfill({status:404,json:{error:'not_found'}});const name=p==='/'?'library.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
-  await page.goto('https://rv.test/');
+  await page.goto('https://rv.test/#upload');
   const zone=page.locator('.picker-surface');
   const transfer=await page.evaluateHandle(()=>{
    const dt=new DataTransfer();

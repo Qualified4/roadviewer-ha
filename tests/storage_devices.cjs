@@ -1,4 +1,5 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+const {showTab}=require('./browser-helpers.cjs');
 (async()=>{
  const browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
  try{
@@ -35,14 +36,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const name=p==='/'?'library.html':p.replace('/assets/','');return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
  });
  page.on('dialog',d=>d.accept());await page.goto('https://rv.test/');
- assert(await page.locator('.upload > #deviceSettings').count()===1);assert(await page.locator('.conversion-info > #storageSettings').count()===1);
- await page.locator('#storageSettings > summary').click();await page.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true');
+ // 저장공간 and 장치 are tabs of the library page.
+ assert.equal(await page.locator('#storageSettings[role=tabpanel][aria-labelledby=tab-storage]').count(),1);assert.equal(await page.locator('#deviceSettings[role=tabpanel][aria-labelledby=tab-devices]').count(),1);
+ await showTab(page,'storage');await page.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true');
  await page.locator('#storageLimitChoice').click();await page.getByRole('option',{name:'직접 입력',exact:true}).click();await page.locator('#storageCustom').fill('12.5');await page.locator('#storagePolicyChoice').click();await page.getByRole('option',{name:'오래된 미고정 구간 삭제',exact:true}).click();await page.locator('#storageSave').click();await page.waitForFunction(()=>document.getElementById('archiveSettingsStatus').textContent==='저장했습니다. 재시작 없이 적용되었습니다.');assert.equal(settings.max_bytes,12.5*1073741824);
- assert.equal(await page.locator('.log-row .actions > .pin-recording').count(),1);
- await page.getByRole('button',{name:'구간 고정',exact:true}).click();await page.locator('.pin-badge').waitFor();assert(pinned);
+ await showTab(page,'logs');
+ assert.equal(await page.locator('.log-row .recording-menu .pin-recording').count(),1);
+ await page.locator('.log-row .recording-more>summary').click();await page.getByRole('button',{name:'구간 고정',exact:true}).click();await page.locator('.pin-badge').waitFor();assert(pinned);
  assert.equal(await page.locator('.log-row .pin-recording').getAttribute('aria-pressed'),'true');
- await page.getByRole('button',{name:'구간 고정 해제',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.pin-badge'));assert(!pinned);
- await page.locator('#deviceSettings > summary').click();
+ await page.locator('.log-row .recording-more>summary').click();await page.getByRole('button',{name:'구간 고정 해제',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.pin-badge'));assert(!pinned);
+ await showTab(page,'devices');
  await page.waitForFunction(()=>!document.getElementById('deviceNetworkEnabled').disabled);
  await page.locator('#deviceNetworkEnabled').uncheck();assert(await page.locator('#devicePortField').isHidden());
  await page.locator('#deviceNetworkSave').click();await page.waitForFunction(()=>!document.getElementById('deviceNetworkRestart').hidden);assert.equal(network.configured_port,null);assert.equal(network.active_port,18443);
@@ -72,7 +75,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  pair={status:'paired',expires_at:Date.now()/1000+300};devices=[{device_id:'device',name:'My comma',registered_at:1,last_seen:2,revoked:false}];
  await page.getByText('장치가 연결되었습니다.',{exact:true}).waitFor();assert(await page.locator('#pairCopy').isDisabled());await page.locator('#pairClose').click();await page.getByRole('button',{name:'연결 해제',exact:true}).click();await page.getByRole('button',{name:'목록 제거',exact:true}).waitFor();assert(revoke);
  await page.getByRole('button',{name:'목록 제거',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.device-row'));assert.equal(devices.length,0);
- await page.getByRole('radio',{name:'Google Drive',exact:false}).check();await page.getByRole('radio',{name:/이동 · MOVE/}).check();await page.locator('[name=archive_allow_local_delete]').check();
+ await showTab(page,'storage');await page.getByRole('radio',{name:'Google Drive',exact:false}).check();await page.getByRole('radio',{name:/이동 · MOVE/}).check();await page.locator('[name=archive_allow_local_delete]').check();
  assert(await page.locator('#storagePolicyField').isHidden());
  assert.match(await page.locator('#storagePolicyInfo').textContent(),/소프트 리밋/);
  assert.match(await page.locator('#storagePolicyInfo').textContent(),/실제 디스크 여유가 부족할 때만/);

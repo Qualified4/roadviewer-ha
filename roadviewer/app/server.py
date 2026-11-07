@@ -11,6 +11,8 @@ from storage_policy import StoragePolicy,StorageError,atomic_json
 import media_store,archive_backends,archive_settings as archive_config
 from device_api import DeviceAPI
 from device_network import DeviceNetwork
+from telemetry import drive_summary
+import wall_clock,backfill
 from video_sources import SOURCES,ORIGINALS,DERIVED,VIDEO_KINDS,CAMERA_KINDS,UPLOAD_KINDS,STORED_KINDS,validate_hevc,validate_mp4
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
@@ -325,6 +327,7 @@ def run_job(id):
      m['video_origins']={**m.get('video_origins',{}),**{key:info['sourcePts'] for key,info in available.items() if info and 'sourcePts' in info}}
      m['bytes']=original_bytes(p,m)
      m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p,m),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v28-runtime-geometry');save_meta(p,m)
+    list_backfill.wake()  # A thumbnail the decoder could not make from staged inputs may come from the archive.
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
     raise
@@ -523,9 +526,48 @@ def recording_order(m):
  return (0,m.get('uploaded',0),'',0,m['id'])
 
 SKIPPED_EVENTS_WARNING='지원하지 않는 새 로그 이벤트'
+SUMMARY_BUDGET=2.0  # Seconds per list request spent filling in summary fields of logs converted before 0.14.
+MISSING=object()  # Not computed now (no input yet, or a read that may work later): nothing is cached.
+def computed_drive_summary(p,m):
+ telemetry_file,compressed=prepared_file(p,'telemetry.json')
+ if telemetry_file is None:return MISSING
+ try:
+  raw=telemetry_file.read_bytes()
+  return drive_summary(json.loads(gzip.decompress(raw) if compressed else raw))
+ except FileNotFoundError:return MISSING
+ except Exception:
+  app.logger.warning('Drive summary of %s could not be computed',p.name,exc_info=True);return None
+def computed_started_at(p,m):
+ # Only a local log is read, and only its first messages; a Drive/NAS copy is never fetched for this.
+ if media_store.location(m,'rlog.zst')!='local' or not (p/'rlog.zst').is_file():return MISSING
+ try:return wall_clock.scan(p/'rlog.zst')
+ except OSError:return MISSING
+ except Exception:
+  app.logger.warning('Start time of %s could not be read',p.name,exc_info=True);return None
+SUMMARY_FIELDS={'drive_summary':computed_drive_summary,'started_at':computed_started_at}
+
+def recording_summary(p,m,deadline):
+ # Fields of prepared/summary.json shown in the list. A log converted before a field existed gets it computed,
+ # within the request's time budget, and cached into summary.json (null = unknown, never retried). The remaining
+ # logs follow on the next list requests once the budget is spent.
+ if m['status']!='ready':return {}
+ file=p/'prepared/summary.json'
+ try:summary=json.loads(file.read_text())
+ except (OSError,ValueError):return {}
+ updates={}
+ for key,compute in SUMMARY_FIELDS.items():
+  if key in summary or time.monotonic()>deadline:continue
+  value=compute(p,m)
+  if value is not MISSING:updates[key]=value
+ if updates:
+  try:commit_prepared(p,m,lambda:atomic_json(file,{**json.loads(file.read_text()),**updates}))
+  except (OSError,ValueError):pass
+ return {key:value for key,value in {**summary,**updates}.items() if key in SUMMARY_FIELDS and value is not None}
+
 @app.route('/api/logs')
 def logs():
  cleanup_uploads()
+ deadline=time.monotonic()+SUMMARY_BUDGET
  def item(p):
   # Metadata is atomically replaced. Slow file/stat scans must not hold the
   # lock shared with upload chunks and conversion progress.
@@ -534,6 +576,9 @@ def logs():
   # Logs converted before 0.9.6 stored a warning for skipped new event types; it was never a problem.
   m['warnings']=[w for w in m.get('warnings') or [] if not str(w).startswith(SKIPPED_EVENTS_WARNING)]
   row=dict(m,pinned=pinned,bytes=original_bytes(p,m),video=has_video(p,m),video_download=video_download_kind(p,m),video_downloads=video_downloads(p,m),download_options=download_options(p,m),log_bytes=media_store.media_size(p,m,'rlog.zst',store) if stored(p,m,'rlog.zst') else 0,progress=progress,prepared_bytes=storage_used_bytes(p/'prepared'))
+  if (p/'prepared/thumbnail.jpg').is_file():row['thumbnail']=True
+  elif thumbnail_pending(p,m):row['thumbnail_available']=True
+  row.update(recording_summary(p,m,deadline))
   # Only recordings touched by the archive carry the new fields; local-only rows stay as before.
   if any(media_store.location(m,kind)!='local' for kind in media_store.MEDIA_KINDS):row.update(video_state=video_states(p,m,share_state()),storage_locations=storage_locations(p,m))
   # Remote copies of local files and copies that did not verify: only on rows that have them.
@@ -1334,6 +1379,60 @@ def telemetry(id):
  response=send_prepared(p,'telemetry.json')
  return (jsonify(error='차량 정보가 없는 변환 데이터입니다. 로그 목록에서 제거 후 변환해 주세요.'),404) if response is None else response
 
+thumbnail_lock=threading.Lock()  # At most one on-demand thumbnail decode at a time, for all logs.
+THUMBNAIL_FAILED=backfill.THUMBNAIL_FAILED  # In prepared/: removed with it, so "cannot be made" holds per conversion.
+def thumbnail_sources(p,m):
+ # Local playable videos of a ready log converted before thumbnails existed, smallest first (qcamera, then front).
+ # Never a Drive/NAS copy: the list must not download videos for a picture.
+ prepared=p/'prepared'
+ if m.get('status')!='ready' or not prepared.is_dir() or (prepared/THUMBNAIL_FAILED).exists():return []
+ local=lambda kind:p/kind if media_store.location(m,kind)=='local' and (p/kind).is_file() else None
+ return [f for f in (local('camera.mp4'),prepared/'camera.mp4',local('qcamera.ts'),prepared/'fcamera.mp4',local('fcamera.mp4')) if f and f.is_file()]
+
+def commit_prepared(p,m,write):
+ # Runs write() under the lock only while prepared/ still holds the conversion m was read with: a conversion or
+ # removal may have replaced it meanwhile. Returns whether it ran.
+ with lock:
+  current=read_meta(p)
+  if current['status']!='ready' or current.get('conversion_revision',0)!=m.get('conversion_revision',0) or p.name in processes or not (p/'prepared').is_dir():return False
+  write();return True
+
+def thumbnail_pending(p,m):
+ # The list may try the thumbnail: it can be made now from a local video, or soon by the backfill (archived video).
+ if m.get('status')!='ready' or not (p/'prepared').is_dir() or (p/'prepared'/THUMBNAIL_FAILED).exists():return False
+ return bool(thumbnail_sources(p,m)) or backfill.archived_thumbnail_source(p,m)
+
+def lazy_thumbnail(p):
+ # Local videos only, made in the request. Busy (another decode is running) answers 404 at once instead of
+ # queueing; an archived-only log is handed to the backfill worker, first in line (backfill.py).
+ if not thumbnail_lock.acquire(blocking=False):return False
+ try:
+  m=read_meta(p);sources=thumbnail_sources(p,m)
+  if (p/'prepared/thumbnail.jpg').is_file():return True
+  remote=thumbnail_pending(p,m) and backfill.archived_thumbnail_source(p,m)
+  data=None
+  if sources:
+   import thumbnail as thumbnails  # Loads PyAV only when a thumbnail is actually made.
+   try:data=thumbnails.make_thumbnail(sources)
+   except Exception:app.logger.warning('Thumbnail of %s could not be made',p.name,exc_info=True)
+  if not data and remote:list_backfill.wake(p.name);return False
+  if not sources:return False
+  def write():
+   if data:thumbnails.write_thumbnail(p/'prepared',data)
+   else:(p/'prepared'/THUMBNAIL_FAILED).touch()
+  return commit_prepared(p,m,write) and bool(data)
+ except (OSError,ValueError):return False
+ finally:thumbnail_lock.release()
+
+@app.route('/api/logs/<id>/thumbnail')
+def log_thumbnail(id):
+ # Local only (archiving never moves prepared/); removed with the rest of the converted data.
+ p=folder(id);file=p/'prepared/thumbnail.jpg'
+ if not file.is_file() and not lazy_thumbnail(p):abort(404)
+ response=send_file(file,mimetype='image/jpeg',conditional=True)
+ response.headers['Cache-Control']='private, max-age=86400'
+ return response
+
 @app.route('/api/logs/<id>/video')
 def video(id):
  p=folder(id);m=read_meta(p)
@@ -1413,6 +1512,7 @@ store=media_store.ArchiveStore(archive_settings,ROOT)
 backend=archive_backends.make_backend(archive_settings,ROOT,store=store)
 if archive_settings_error:app.logger.warning('Video archive is disabled: %s',archive_settings_error)
 archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings,backend=backend)
+list_backfill=backfill.Backfill(sys.modules[__name__])  # Thumbnails and start times of older and archived logs.
 def archive_preferences():
  result=dict(archive_config.values(archive_settings),effective_mode=archive_settings.effective_mode,
              client_configured=bool(archive_settings.gdrive_client_id))
@@ -1547,4 +1647,5 @@ requeue_startup()
 if os.environ.get('RV_MIGRATE_PREPARED')=='1':
  threading.Thread(target=migrate_prepared,name='prepared-migration',daemon=True).start()
  archiver.start()  # Wait a full interval before activation/recovery; disabled archives only wait for settings changes.
+ list_backfill.start()
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)

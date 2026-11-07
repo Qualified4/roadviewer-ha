@@ -17,7 +17,7 @@
   oldOverflow=document.body.style.overflow;document.body.style.overflow='hidden';opened=true;
   dialog.showModal();close.focus({preventScroll:true});
  };
- function finish(){if(!opened)return;opened=false;document.body.style.overflow=oldOverflow;button.focus({preventScroll:true})}
+ function finish(){if(!opened)return;opened=false;document.body.style.overflow=oldOverflow;(button.closest('details:not([open])')?.querySelector('summary')||button).focus({preventScroll:true})}
  function dismiss(){dialog.close();finish()}
  close.onclick=dismiss;
  dialog.addEventListener('cancel',event=>{event.preventDefault();dismiss()});

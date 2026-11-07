@@ -1,8 +1,10 @@
-// Animated <details> folding, modelled on the 매거진 홈 dashboard: the panel's height eases over 250 ms,
-// a closing panel stays open until the motion ends, and a second tap reverses from the current height.
-// Floating bodies (dropdown menus) do not change the layout, so they fade and slide 4 px instead.
+// Animated <details> folding (Material 2 timing, see motion.css): the panel's height eases over 300 ms with the
+// standard curve, its content fades in after 75 ms on expand and fades out first (75 ms) on collapse. A closing
+// panel stays open until the motion ends, and a second tap reverses from the current height.
+// Floating bodies (dropdown menus) do not change the layout: they fade in (120 ms) while growing from .8 (150 ms)
+// out of the corner nearest their summary, and fade out in 75 ms.
 (()=>{
- const EASING='cubic-bezier(0.4, 0, 0.2, 1)',DURATION=250,FLOAT_DURATION=180;
+ const STANDARD='cubic-bezier(0.4, 0, 0.2, 1)',DECELERATE='cubic-bezier(0, 0, 0.2, 1)',DURATION=300;
  const reduced=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
  const bodiesOf=details=>[...details.children].filter(node=>node.localName!=='summary');
  const floating=bodies=>bodies.length&&bodies.every(node=>['absolute','fixed'].includes(getComputedStyle(node).position));
@@ -16,7 +18,7 @@
  function animateDisclosure(details,opening=!(details._foldTarget??details.open)){
   if(opening===(details._foldTarget??details.open))return;
   const bodies=bodiesOf(details),summary=details.querySelector(':scope>summary');
-  const from=details.getBoundingClientRect().height;
+  const from=details.getBoundingClientRect().height,shown=bodies.map(node=>Number(getComputedStyle(node).opacity));
   details._foldAnimation?.cancel();
   details._foldTarget=opening;
   // Labels and chevrons follow the target right away; [open] itself only drops when the motion ends.
@@ -27,19 +29,23 @@
 
   details.open=true;
   let animation;
+  let motions;
   if(floating(bodies)){
-   const motions=bodies.map(node=>node.animate(opening?
-    [{opacity:0,transform:'translateY(-4px)'},{opacity:1,transform:'translateY(0)'}]:
-    [{opacity:1,transform:'translateY(0)'},{opacity:0,transform:'translateY(-4px)'}],
-    {duration:FLOAT_DURATION,easing:EASING,fill:'both'}));
-   animation={cancel(){motions.forEach(motion=>motion.cancel())},finished:Promise.all(motions.map(motion=>motion.finished))};
+   const anchor=summary?.getBoundingClientRect();
+   motions=bodies.flatMap((node,i)=>{
+    if(!opening)return [node.animate([{opacity:shown[i]},{opacity:0}],{duration:75,easing:'linear',fill:'both'})];
+    const box=node.getBoundingClientRect(),x=anchor&&Math.abs(box.right-anchor.right)<Math.abs(box.left-anchor.left)?'right':'left',y=anchor&&box.top>=anchor.top?'top':'bottom';
+    return [node.animate([{opacity:0},{opacity:1}],{duration:120,easing:'linear',fill:'both'}),
+     node.animate([{transform:'scale(.8)',transformOrigin:`${y} ${x}`},{transform:'none',transformOrigin:`${y} ${x}`}],{duration:150,easing:DECELERATE,fill:'both'})];
+   });
   }else{
    details.style.overflow='hidden';
    details.open=opening;const to=details.getBoundingClientRect().height;details.open=true;
    if(Math.abs(to-from)<1){finish();return}
-   const motion=details.animate([{height:from+'px'},{height:to+'px'}],{duration:DURATION,easing:EASING});
-   animation={cancel(){motion.cancel()},finished:motion.finished};
+   motions=[details.animate([{height:from+'px'},{height:to+'px'}],{duration:DURATION,easing:STANDARD}),
+    ...bodies.map((node,i)=>opening?node.animate([{opacity:0},{opacity:1}],{duration:150,delay:75,easing:'linear',fill:'both'}):node.animate([{opacity:shown[i]},{opacity:0}],{duration:75,easing:'linear',fill:'forwards'}))];
   }
+  animation={cancel(){motions.forEach(motion=>motion.cancel())},finished:Promise.all(motions.map(motion=>motion.finished))};
   details._foldAnimation=animation;
   animation.finished.then(()=>{if(details._foldAnimation===animation)finish()}).catch(()=>{});
  }

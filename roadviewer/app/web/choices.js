@@ -1,6 +1,6 @@
 'use strict';
 (()=>{
- const labels={archiveAgePreset:'최소 로컬 보관 기간',archiveIntervalPreset:'자동 실행 간격',archiveThresholdPreset:'아카이빙 시작 기준',tagFilter:'태그 필터',videoSource:'카메라 영상 선택',storageLimit:'최대 사용량',storagePolicy:'공간 부족 시',lateralRange:'좌우 표시 범위',concurrency:'동시 처리 개수',logSegment:'구간 선택',speed:'재생 속도',range:'전방 표시 거리'};
+ const labels={archiveAgePreset:'최소 로컬 보관 기간',archiveIntervalPreset:'자동 실행 간격',archiveThresholdPreset:'아카이빙 시작 기준',videoSource:'카메라 영상 선택',storageLimit:'최대 사용량',storagePolicy:'공간 부족 시',lateralRange:'좌우 표시 범위',concurrency:'동시 처리 개수',logSegment:'구간 선택',speed:'재생 속도',range:'전방 표시 거리'};
  const dialog=document.createElement('dialog');dialog.className='rv-choice-dialog';
  dialog.setAttribute('aria-labelledby','rv-choice-title');
  const header=document.createElement('div');header.className='rv-choice-header';
@@ -15,13 +15,16 @@
  const mobile=()=>matchMedia('(max-width:600px)').matches;
  function position(measure=false){
   if(!dialog.open&&measure!==true)return;
-  if(mobile()){delete dialog.dataset.placement;dialog.style.left='';dialog.style.top='';dialog.style.width='';return}
+  if(mobile()){delete dialog.dataset.placement;dialog.style.left='';dialog.style.top='';dialog.style.width='';dialog.style.transformOrigin='';return}
   const rect=opener.getBoundingClientRect(),width=Math.min(Math.max(action.hidden?224:300,rect.width),innerWidth-24);
   dialog.style.width=width+'px';
-  dialog.style.left=Math.max(12,Math.min(rect.left,innerWidth-width-12))+'px';
+  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));dialog.style.left=left+'px';
+  // offsetHeight ignores the entry scale, so the placement is measured at full size.
   const height=dialog.offsetHeight,below=rect.bottom+height+8<=innerHeight-12;
   dialog.dataset.placement=below?'below':'above';
   dialog.style.top=Math.max(12,below?rect.bottom+8:rect.top-height-8)+'px';
+  // Grow out of the edge that faces the trigger, under its centre.
+  dialog.style.transformOrigin=`${Math.round(Math.max(0,Math.min(width,rect.left+rect.width/2-left)))}px ${below?'0':'100%'}`;
  }
  function open(select,button){
   if(dialog.open||select.disabled)return;
@@ -29,6 +32,9 @@
   action.hidden=!select.dataset.choiceAction;action.textContent=select.dataset.choiceAction||'';
   list.replaceChildren();
   for(const option of select.options){
+   // Option groups become quiet headers; they are not options, so arrow keys and Home/End skip them.
+   const group=option.parentElement;
+   if(group.localName==='optgroup'&&group.firstElementChild===option){const header=document.createElement('div');header.className='rv-choice-group';header.setAttribute('aria-hidden','true');header.textContent=group.label;list.append(header)}
    const item=document.createElement('button');item.type='button';item.className='rv-choice-option';
    item.setAttribute('role','option');item.setAttribute('aria-selected',String(option.selected));
    item.disabled=option.disabled||option.parentElement.disabled===true;
@@ -50,7 +56,8 @@
   dialog.style.display='';void dialog.offsetHeight;dialog.style.transition='';
   button.setAttribute('aria-expanded','true');dialog.showModal();position();
   const initial=list.querySelector('[aria-selected="true"]:not(:disabled)')||list.querySelector('button:not(:disabled)');
-  if(initial){initial.tabIndex=0;initial.focus({preventScroll:true});initial.scrollIntoView({block:'nearest'})}
+  // The current choice opens centred in a long list (offsets ignore the entry scale).
+  if(initial){initial.tabIndex=0;initial.focus({preventScroll:true});list.scrollTop=initial.offsetTop-(list.clientHeight-initial.offsetHeight)/2}
  }
  list.onkeydown=e=>{
   const items=[...list.querySelectorAll('button:not(:disabled)')],index=items.indexOf(document.activeElement);
@@ -79,10 +86,14 @@
  window.addEventListener('resize',position);
  for(const [id,label] of Object.entries(labels)){
   const select=document.getElementById(id);if(!select)continue;
-  const button=document.createElement('button');button.id=id+'Choice';button.type='button';button.className='rv-choice-trigger';
-  button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-expanded','false');button.setAttribute('aria-label',label);
-  select.classList.add('rv-choice-native');select.setAttribute('aria-hidden','true');select.tabIndex=-1;select.after(button);
+  // data-choice-trigger names a page-owned button (e.g. the replay title) that opens the list and keeps its own label.
+  const custom=select.dataset.choiceTrigger?document.getElementById(select.dataset.choiceTrigger):null;
+  const button=custom||document.createElement('button');
+  if(!custom){button.id=id+'Choice';button.type='button';button.className='rv-choice-trigger';button.setAttribute('aria-label',label)}
+  button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-expanded','false');
+  select.classList.add('rv-choice-native');select.setAttribute('aria-hidden','true');select.tabIndex=-1;if(!custom)select.after(button);
   const sync=()=>{
+   if(custom){button.disabled=select.disabled||select.hidden||select.options.length<2;if(active===select&&button.disabled)closeChoice();return}
    button.hidden=select.hidden;button.disabled=select.disabled;
    button.textContent=select.selectedOptions[0]?.textContent||label;
    button.title=label+' · '+button.textContent;

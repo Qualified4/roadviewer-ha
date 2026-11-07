@@ -1,4 +1,5 @@
 const fs=require('fs'),os=require('os'),path=require('path'),assert=require('node:assert/strict'),{spawn}=require('child_process'),{once}=require('events'),{chromium}=require('playwright');
+const {showTab,reopenTab}=require('./browser-helpers.cjs');
 // A local server, fake Drive and temporary files only. No archiver cycle is started.
 const SERVER=`import sys,os,threading
 sys.path.insert(0,'tests');sys.path.insert(0,'roadviewer/app')
@@ -31,7 +32,7 @@ http.serve_forever()`;
   const page=await browser.newPage({viewport:{width:1280,height:900},reducedMotion:'reduce'}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
   const field=name=>page.locator(`#archiveForm [name="archive_${name}"]`);
-  async function open(){await page.locator('#storageSettings > summary').click();await page.locator('#archiveForm[data-loaded=true]').waitFor();await page.locator('#archiveAdvanced > summary').click()}
+  async function open(){await showTab(page,'storage');await page.locator('#archiveForm[data-loaded=true]').waitFor();await page.locator('#archiveAdvanced > summary').click()}
   async function save(){await page.locator('#storageSave').click();await page.waitForFunction(()=>document.getElementById('archiveSettingsStatus').textContent==='저장했습니다. 재시작 없이 적용되었습니다.')}
   await page.goto(base);await page.locator('.log-row').first().waitFor();await open();
   assert.equal(await field('enabled').isChecked(),false);
@@ -55,7 +56,8 @@ http.serve_forever()`;
   let prefs=await page.evaluate(()=>fetch('api/settings/archive').then(r=>r.json()));
   assert.equal(prefs.archive_interval_minutes,37);assert.equal(prefs.archive_mode,'copy');assert.equal(prefs.effective_mode,'copy');assert.equal(prefs.archive_enabled,true);
   assert.equal(prefs.archive_gdrive_folder_name,'UI archive folder');assert(prefs.client_configured);
-  await page.reload();await page.locator('.log-row').first().waitFor();await open();
+  // The reload keeps the 저장공간 tab (#storage), so the list rows are only attached.
+  await page.reload();await page.locator('.log-row').first().waitFor({state:'attached'});await open();
   assert(await page.getByRole('radio',{name:/Google Drive/}).isChecked());assert.equal(await field('interval_minutes').inputValue(),'37');assert.equal(await field('gdrive_folder_name').inputValue(),'UI archive folder');
   let draftWrites=0,draftRuns=0;
   const watch=request=>{if(request.method()==='POST'){if(/api\/settings\/(archive|storage)$/.test(request.url()))draftWrites++;if(request.url().endsWith('/api/settings/archive/run'))draftRuns++}};
@@ -65,7 +67,7 @@ http.serve_forever()`;
   assert.match(await page.locator('#storageBehaviorSummary').textContent(),/7일.*Google Drive로 이동/);
   assert.match(await page.locator('#storageBehaviorDetail').textContent(),/1(?:\.0)? GB부터 MOVE/);
   assert.match(await page.locator('#storagePreviewState').textContent(),/미저장/);assert(await page.locator('#archiveRun').isDisabled());
-  await page.locator('#storageSettings > summary').click();await page.locator('#storageSettings > summary').click();
+  await reopenTab(page,'storage');
   assert.equal(await page.locator('#storageCustom').inputValue(),'1');assert(await field('allow_local_delete').isChecked());
   assert.equal(draftWrites,0);assert.equal(draftRuns,0,'drafts never execute archiving');
   await page.locator('#storageReset').click();assert(await page.getByRole('radio',{name:/복제 · COPY/}).isChecked());assert(await page.locator('#storageSave').isDisabled());assert(await page.locator('#archiveRun').isEnabled());

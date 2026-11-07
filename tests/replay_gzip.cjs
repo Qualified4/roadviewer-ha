@@ -17,6 +17,8 @@ const compact={route:'gzip',key:'gzip-key',duration:1,logStart:0,logEnd:.95,warn
     const url=new URL(route.request().url()),p=url.pathname;
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
     if(p==='/api/logs')return route.fulfill({json:{logs:[]}});
+    // The replay loads vehicle data in the background for the event track; none here.
+    if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
     if(p.endsWith('/data')){
      requests.push(url.search);
      // Without DecompressionStream the server answers plain JSON instead.
@@ -46,7 +48,7 @@ const compact={route:'gzip',key:'gzip-key',duration:1,logStart:0,logEnd:.95,warn
    assert.equal(expanded.live.index,0);assert.equal(expanded.live.y,-1.25);
    assert.equal(expanded.radar.index,1,'radar group index is kept');assert.equal(expanded.radar.y,2);
    assert.deepEqual(expanded.point,[.5,.75]);
-   await page.locator('#cameraInfoButton').click();
+   await page.locator('#replayDownload>summary').click();await page.locator('#cameraInfoButton').click();
    assert.match(await page.locator('#cameraInfoValues').textContent(),/gzip-device/);
    // Playback redraws the road view only when the model frame changes.
    await page.evaluate(()=>{window.draws=0;const c=document.getElementById('road').getContext('2d'),clear=c.clearRect.bind(c);c.clearRect=(...a)=>{window.draws++;return clear(...a)}});

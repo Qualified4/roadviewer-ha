@@ -28,8 +28,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p==='/api/logs')return route.fulfill({json:{logs,concurrency:1,max_upload_mb:512,storage_used_bytes:6}});
    if(p==='/api/progress')return route.fulfill({json:{progress:{}}});
+   // The replay loads vehicle data in the background for the event track; none here.
+   if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
    if(p.endsWith('/data'))return route.fulfill({json:{route:logs[0].name,duration:1,frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[]}],warnings:[],video:null}});
-   const name=p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','');
+   if(p==='/api/settings/storage')return route.fulfill({status:404,json:{error:'not_found'}});const name=p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/png'});
   });
   await page.goto('https://rv.test/');await page.waitForSelector('.log-row',{state:'attached'});await page.evaluate(()=>document.fonts.ready);
@@ -48,7 +50,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await group.locator('.log-row').count(),2);
   assert.equal(await group.locator('.log-route-count').textContent(),'2개 구간');
   const firstDate=await page.evaluate(time=>new Date(time*1000).toLocaleString(),logs[0].uploaded);
-  assert.equal(await group.locator('.log-route-first').textContent(),'첫 구간 7 · 업로드 '+firstDate);
+  // The card title is the first segment's time; the first segment and its upload date are its tooltip.
+  assert.equal(await group.locator('.route-time').getAttribute('title'),'첫 구간 7 · 업로드 '+firstDate);
+  assert.match(await group.locator('.route-time').textContent(),/^업로드 /,'without started_at the title says it is the upload time');assert.equal(await group.locator('.log-route-name').textContent(),'주행 395');
   await page.evaluate(()=>{window.originalGroupedRow=document.querySelector('.log-row[data-id="one"]');window.originalGroupedState=originalGroupedRow.querySelector('.state');window.originalHeaderButtons=document.querySelector('.log-route-actions .actions');window.originalHeaderHeight=document.querySelector('.log-route>summary').getBoundingClientRect().height});
   logs[1].status='processing';await page.evaluate(()=>refresh());
   assert(await page.evaluate(()=>originalHeaderButtons===document.querySelector('.log-route-actions .actions')),'another segment changing status does not replace the header buttons');
@@ -103,8 +107,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).backgroundColor),partialBackground,'unpinned and partial have the same neutral background');
   assert.equal(await headerActions.locator('.pin-partial').count(),0,'unpinned state has no partial label');
   assert(mutations.every(([id,action])=>id!=='other'&&action==='pin'));
-  assert.equal(await headerActions.locator('.recording-more').count(),0,'the route uses a direct download button instead of a menu');
+  assert.equal(await headerActions.locator('.recording-more').count(),1,'the route keeps its download in its own ⋯ menu');
   await page.evaluate(()=>refresh());
+  await headerActions.locator('.recording-more>summary').tap();
+  assert.deepEqual(await headerActions.locator('.recording-menu button').allTextContents(),['전체 구간 다운로드','전체 구간 태그 편집']);
   await headerActions.getByRole('button',{name:'전체 구간 다운로드',exact:true}).tap();
   const download=page.locator('.rv-download-dialog');await download.waitFor();
   assert.equal(await download.locator('.rv-download-context').textContent(),'선택한 2개 구간');
@@ -123,14 +129,14 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   logs.push({...logs[0],id:'earlier',name:'00000395--0d0eda17c5 / 구간 3',files:{'rlog.zst':'rlog.zst'},uploaded:1700000120,status:'ready',tags:[]});
   await page.evaluate(()=>refresh());
   const lowerDate=await page.evaluate(()=>new Date(1700000120*1000).toLocaleString());
-  assert.equal(await group.locator('.log-route-first').textContent(),'첫 구간 3 · 업로드 '+lowerDate);
+  assert.equal(await group.locator('.route-time').getAttribute('title'),'첫 구간 3 · 업로드 '+lowerDate);
   assert.equal(await group.locator('.log-route-count').textContent(),'3개 구간');
   assert.equal(await headerActions.locator('.replay').getAttribute('href'),'view/earlier/','header actions follow the actual first segment');
-  await page.evaluate(()=>{document.getElementById('tagFilter').value='tag:검토';applyTagFilter()});
+  await page.locator('#logChips [data-filter="tag:tag:검토"]').click();
   assert.equal(await group.locator('.log-route-count').textContent(),'1 / 3개 구간');
   assert(await page.locator('.log-route[data-route="00000395--1234567890"]').isHidden());
-  assert((await group.locator('.log-route-first').textContent()).startsWith('첫 구간 3'), 'filter does not change the first actual segment');
-  await page.evaluate(()=>{document.getElementById('tagFilter').value='';applyTagFilter()});
+  assert((await group.locator('.route-time').getAttribute('title')).startsWith('첫 구간 3'), 'filter does not change the first actual segment');
+  await page.locator('#logChips [data-filter="tag:tag:검토"]').click();assert.equal(await group.locator('.log-route-count').textContent(),'3개 구간','pressing the tag chip again clears it');
   logs.pop();logs[0].status='ready';delete logs[0].progress;
   await page.reload();await group.waitFor();
   assert.equal(await group.getAttribute('open'),null,'fold state survives reload');
@@ -140,17 +146,17 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(await group.locator('.log-row').first().evaluate(e=>e.classList.contains('is-update')),'expanding does not replay row-insertion effects');
   assert.equal(await group.locator('.log-row[data-id="one"] .replay').count(),1);
   const rowPin=group.locator('.log-row[data-id="one"] .pin-recording');
-  await rowPin.tap();await page.waitForFunction(()=>document.querySelector('.log-row[data-id="one"] .pin-recording')?.getAttribute('aria-pressed')==='true');
+  await group.locator('.log-row[data-id="one"] .recording-more>summary').tap();await rowPin.tap();await page.waitForFunction(()=>document.querySelector('.log-row[data-id="one"] .pin-recording')?.getAttribute('aria-pressed')==='true');
   assert(logs[0].pinned&&!logs[1].pinned,'expanded-row pin remains segment-specific');
   const rowMenu=group.locator('.log-row[data-id="one"] .recording-more');
-  assert.deepEqual(await rowMenu.locator('.recording-menu button').allTextContents(),['제거','다운로드','완전 삭제']);
+  assert.deepEqual(await rowMenu.locator('.recording-menu button').allTextContents(),['제거','다운로드','태그 편집','로그 이름 복사','구간 고정 해제','완전 삭제']);
 
   for(const width of [320,768,1440]){
    await page.setViewportSize({width,height:900});await page.evaluate(()=>document.fonts.ready);
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'route header fits '+width+'px');
    await summary.locator('.log-route-name').tap();await page.waitForFunction(()=>!document.querySelector('.log-route').open);
-   const playBox=await headerActions.locator('.replay').boundingBox(),pinBox=await headerActions.locator('.pin-recording').boundingBox(),downloadBox=await headerActions.locator('.download-recording').boundingBox();
-   assert(playBox.width<=90,'play stays content-sized at '+width+'px');assert.equal(Math.round(pinBox.width),40);assert.equal(Math.round(downloadBox.width),40);
+   const playBox=await headerActions.locator('.replay').boundingBox(),pinBox=await headerActions.locator('.pin-recording').boundingBox(),downloadBox=await headerActions.locator('.recording-more>summary').boundingBox();
+   assert(playBox.width<=90,'play stays content-sized at '+width+'px');const iconSize=await page.evaluate(()=>matchMedia('(pointer:coarse)').matches?44:40);assert.equal(Math.round(pinBox.width),iconSize,'icon buttons are 40 px, 44 px for touch');assert.equal(Math.round(downloadBox.width),iconSize);
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'collapsed actions fit '+width+'px');
    await summary.locator('.log-route-name').tap();await page.waitForFunction(()=>document.querySelector('.log-route').open&&!document.querySelector('.log-route')._foldAnimation);
   }
@@ -158,7 +164,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   // Removing a route clears its wrapper without disturbing other groups or their rows.
   const other=logs.pop();await page.evaluate(()=>refresh());assert.equal(await page.locator('.log-route').count(),1);
   logs.push(other);await page.evaluate(()=>refresh());assert.equal(await page.locator('.log-route').count(),2);
-  assert.equal(await page.locator('.log-name .recording-name-text').first().textContent(),'395 / 구간 7');
+  // Inside its route a segment shows as "구간 7"; the tooltip and copy keep the full original name.
+  assert.equal(await page.locator('.log-name .recording-name-text').first().textContent(),'구간 7');
+  assert.equal(await page.locator('.log-name .recording-name-text').first().getAttribute('title'),'00000395--0d0eda17c5--7');
   await page.locator('.log-name .copy-recording').first().click();
   assert.deepEqual(await page.evaluate(()=>copied),['00000395--0d0eda17c5--7']);
   const examples=await page.evaluate(()=>[
@@ -179,17 +187,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>document.getElementById('logSegment').options.length===2);
   await page.locator('#routeName .copy-recording').click();
   assert.equal(await page.evaluate(()=>copied.at(-1)),'00000395--0d0eda17c5--7');
-  await page.evaluate(()=>scrollTo(0,220));await page.waitForFunction(()=>!document.getElementById('foldHeading').hidden);
-  const expanded=await page.locator('#foldHeading').getAttribute('aria-expanded');
+  // The name, its copy button and the tag button ride in the sticky app bar: still reachable after scrolling.
+  await page.evaluate(()=>scrollTo(0,220));await page.waitForFunction(()=>Math.abs(document.querySelector('.app-bar').getBoundingClientRect().top)<1);
+  const hit=selector=>page.locator(selector).evaluate(button=>{const r=button.getBoundingClientRect();return button.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))});
+  assert(await hit('#routeName .copy-recording'),'copy button stays tappable in the app bar');
   await page.locator('#routeName .copy-recording').click();
-  assert.equal(await page.locator('#foldHeading').getAttribute('aria-expanded'),expanded,'copy must not fold heading');
-  // The tag button sits on the same row: on a stuck heading a tap must reach it, not the fold control.
-  const tagHit=await page.locator('#editReplayTags').evaluate(button=>{const r=button.getBoundingClientRect();return button.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height/2))});
-  assert(tagHit,'tag button must be above the fold control');
+  assert(await hit('#editReplayTags'),'tag button stays tappable in the app bar');
   await page.locator('#editReplayTags').click();
-  assert.equal(await page.locator('#foldHeading').getAttribute('aria-expanded'),expanded,'tag edit must not fold heading');
   assert(await page.locator('dialog[open]').count()>0,'tag editor opens');
   assert.equal(await page.evaluate(()=>copied.length),2);assert.deepEqual(errors,[]);
-  console.log('PASS: route grouping, first-segment upload dates, persistent keyboard/touch disclosure with stable header controls, smooth height/reversal, collapsed playback, whole-route pins/partial-failure recovery/direct download/compact controls, independent row management, polling DOM stability, filtering, responsive headers, shortened names, original copy, leading zero/text cases, clipboard fallback/error, replay copy over fold control and unchanged route grouping');
+  console.log('PASS: route grouping, first-segment upload dates, persistent keyboard/touch disclosure with stable header controls, smooth height/reversal, collapsed playback, whole-route pins/partial-failure recovery/direct download/compact controls, independent row management, polling DOM stability, filtering, responsive headers, shortened names, original copy, leading zero/text cases, clipboard fallback/error, replay copy and tag buttons in the sticky app bar and unchanged route grouping');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,5 +1,6 @@
 'use strict';
 // Credentials and pairing codes are never persisted in browser storage.
+// The 저장공간 and 장치 tab panels: shown/hidden by the library tabs, which fire 'toggle' on each change.
 const storageDetails=$('storageSettings'),deviceDetails=$('deviceSettings');
 $('pairCopyIcon').innerHTML=COPY_ICON;
 let pairCopyTimer=null;
@@ -20,8 +21,16 @@ function showStorage(s){
  $('storageUsagePercent').textContent=percent===null?'제한 없음':`${Math.round(percent)}% 사용`;
  $('storageMeter').hidden=percent===null;
  if(percent!==null){const value=Math.max(0,Math.min(100,percent));$('storageMeter').setAttribute('aria-valuenow',String(value));$('storageMeter').setAttribute('aria-valuetext',`${Math.round(percent)}% 사용`);$('storageMeterFill').style.width=value+'%';$('storageMeter').classList.toggle('is-near-limit',percent>=90)}
- showArchive(s.archive);updateEditor();
+ showArchive(s.archive);updateEditor();showHeaderStorage(s);
 }
+// The library header: local usage against the limit and the archive connection, from the same storage block.
+function showHeaderStorage(s){
+ headerStorage.used=s.used_bytes;headerStorage.max=s.max_bytes;const a=s.archive,drive=a?.backend==='gdrive';
+ const text=!a?.enabled?null:drive?gdriveStatusText(a.gdrive||{},a.state):ARCHIVE_STATES[a.state]||'확인 중';
+ headerStorage.archive=text?{text:(drive?'Drive ':'NAS ')+text,state:text==='연결됨'?'ok':text==='확인 중'?'checking':'error'}:null;
+ syncHeaderStorage();
+}
+async function refreshHeaderStorage(){if(document.hidden||!storageDetails.hidden)return;try{showHeaderStorage(await storageSnapshot())}catch{}}
 const ARCHIVE_STATES={connected:'연결됨',unavailable:'연결 불가',checking:'확인 중'},ARCHIVE_ERRORS={storage_unavailable:'NAS에 연결할 수 없습니다.',nas_full:'NAS 공간이 부족합니다.',nas_full_no_candidates:'NAS가 가득 찼지만 정리할 수 있는 파일이 없습니다.',hash_mismatch:'NAS 사본 검증에 실패했습니다.',os_error:'NAS에 파일을 복사하지 못했습니다.'};
 // Google Drive: the panel shows only what the status block names; of a waiting sign-in, only the code and the address.
 const DRIVE_ERRORS={storage_unavailable:'Google Drive에 연결할 수 없습니다.',remote_full:'Google Drive 공간이 부족합니다.',rate_limited:'Google Drive 요청 한도를 넘었습니다. 다음 주기에 다시 시도합니다.',auth_expired:'Google Drive 인증이 만료되었습니다. 다시 연결하세요.',hash_mismatch:'Google Drive 사본 검증에 실패했습니다.',os_error:'Google Drive에 파일을 올리지 못했습니다.'};
@@ -113,7 +122,7 @@ function showGdrive(a){
   gdriveExpires=Number(pending.expires_at)||0;gdriveShownCode=String(pending.user_code??'');
  }
  // Polls only while the panel is open and the page visible; reopening or returning fetches again first.
- gdriveCountdown();gdriveButtons();gdrivePoll(!!pending&&storageDetails.open&&!document.hidden);
+ gdriveCountdown();gdriveButtons();gdrivePoll(!!pending&&!storageDetails.hidden&&!document.hidden);
 }
 function gdriveButtons(){
  const g=gdriveState||{},pending=!$('gdriveCode').hidden;
@@ -144,7 +153,7 @@ async function storageSnapshot(){
 async function gdriveRefresh(){
  if(gdriveFetching||gdriveBusy)return;
  gdriveFetching=true;const generation=gdriveGeneration;
- try{const s=await storageSnapshot();if(generation===gdriveGeneration&&storageDetails.open&&!document.hidden)showStorage(s)}
+ try{const s=await storageSnapshot();if(generation===gdriveGeneration&&!storageDetails.hidden&&!document.hidden)showStorage(s)}
  catch(e){if($('gdriveStatus'))$('gdriveStatus').textContent=e.message}
  finally{gdriveFetching=false}
 }
@@ -160,8 +169,8 @@ function gdrivePoll(on){
  },1000);
 }
 function hideGdrive(){gdrivePoll(false);gdriveState=null;$('gdrivePanel')?.remove()}
-storageDetails.addEventListener('toggle',()=>{if(!storageDetails.open)gdrivePoll(false)});
-document.addEventListener('visibilitychange',()=>{if(document.hidden)gdrivePoll(false);else if(storageDetails.open&&gdriveState?.pending)void gdriveRefresh()});
+storageDetails.addEventListener('toggle',()=>{if(!!storageDetails.hidden)gdrivePoll(false)});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)gdrivePoll(false);else if(!storageDetails.hidden&&gdriveState?.pending)void gdriveRefresh()});
 async function gdriveRequest(action){
  if(gdriveBusy)return;
  if(action==='disconnect'&&!confirm('Google Drive 연결을 해제할까요? Drive에 올린 파일과 목록은 그대로 유지되며, 다시 연결할 때까지 Drive 아카이빙과 재생이 멈춥니다.'))return;
@@ -240,11 +249,11 @@ function showArchiveJob(a){
  const progress=$('archiveJobProgress'),total=Math.max(1,Number(job.total_files)||0);
  progress.max=total;progress.value=job.state==='done'?total:Math.min(total,Number(job.processed)||0);
  $('archiveJobText').textContent=archiveJobText(job,a.backend==='gdrive');
- archiveJobPoll(!!a.manual_active&&storageDetails.open&&!document.hidden);
+ archiveJobPoll(!!a.manual_active&&!storageDetails.hidden&&!document.hidden);
 }
 async function archiveJobRefresh(){
  if(archiveJobFetching)return;archiveJobFetching=true;
- try{const s=await storageSnapshot();if(storageDetails.open)showStorage(s)}catch{}
+ try{const s=await storageSnapshot();if(!storageDetails.hidden)showStorage(s)}catch{}
  finally{archiveJobFetching=false}
 }
 function archiveJobPoll(on){
@@ -256,14 +265,14 @@ function archiveJobPoll(on){
 const ARCHIVE_CHECK_TRIES=20;let archiveCheckTimer=null,archiveCheckTries=0;
 function archiveCheckPoll(a){
  const pending=!!a?.enabled&&(a.state==='checking'||!!a.usage_measuring);
- const checking=pending&&storageDetails.open&&!document.hidden;
+ const checking=pending&&!storageDetails.hidden&&!document.hidden;
  if(!checking){clearTimeout(archiveCheckTimer);archiveCheckTimer=null;if(!pending)archiveCheckTries=0;return}
  if(archiveCheckTimer||archiveCheckTries>=ARCHIVE_CHECK_TRIES)return;
  archiveCheckTries++;
  archiveCheckTimer=setTimeout(()=>{archiveCheckTimer=null;void archiveJobRefresh()},2000);
 }
-storageDetails.addEventListener('toggle',()=>{archiveCheckTries=0;if(!storageDetails.open){archiveJobPoll(false);archiveCheckPoll(null)}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){archiveJobPoll(false);archiveCheckPoll(null)}else if(storageDetails.open&&(manualActive()||storageSnapshotState?.archive?.state==='checking'||storageSnapshotState?.archive?.usage_measuring)){archiveCheckTries=0;void archiveJobRefresh()}});
+storageDetails.addEventListener('toggle',()=>{archiveCheckTries=0;if(!!storageDetails.hidden){archiveJobPoll(false);archiveCheckPoll(null)}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){archiveJobPoll(false);archiveCheckPoll(null)}else if(!storageDetails.hidden&&(manualActive()||storageSnapshotState?.archive?.state==='checking'||storageSnapshotState?.archive?.usage_measuring)){archiveCheckTries=0;void archiveJobRefresh()}});
 const archiveForm=$('archiveForm');
 let editorLoaded=false,editorLoading=false,editorSaving=false,archiveSettingsNeedsSave=false,savedStorage=null,savedArchive=null,storageSnapshotState=null;
 const archivePresets=[['archiveAgePreset','archive_min_age_hours','archiveAgeCustom'],['archiveThresholdPreset','archive_local_threshold_mb','archiveThresholdCustom'],['archiveIntervalPreset','archive_interval_minutes','archiveIntervalCustom']];
@@ -366,7 +375,7 @@ async function loadStorageEditor(){
  }catch(e){editorStatus('설정을 불러오지 못했습니다. '+e.message,'error');$('storageRetry').hidden=false}
  finally{editorLoading=false}
 }
-storageDetails.addEventListener('toggle',()=>{if(storageDetails.open)void loadStorageEditor()});
+storageDetails.addEventListener('toggle',()=>{if(!storageDetails.hidden)void loadStorageEditor()});
 for(const [id,name,custom] of archivePresets){
  $(id).addEventListener('change',()=>{
   $(custom).hidden=$(id).value!=='custom';
@@ -394,7 +403,7 @@ archiveForm.onsubmit=async e=>{
   if(localDirty){const saved=await settingsRequest('api/settings/storage',local);savedStorage={max_bytes:saved.max_bytes,policy:saved.policy};showStorage(saved);applied.push('로컬 용량 설정')}
   let refreshed=true;
   if(!localDirty)try{showStorage(await api('api/settings/storage'))}catch{refreshed=false}
-  editorStatus(refreshed?'저장했습니다. 재시작 없이 적용되었습니다.':'설정은 저장됐습니다. 현재 사용량을 갱신하지 못해 다시 펼쳐 확인해 주세요.','saved');
+  editorStatus(refreshed?'저장했습니다. 재시작 없이 적용되었습니다.':'설정은 저장됐습니다. 현재 사용량을 갱신하지 못해 저장공간 탭을 다시 열어 확인해 주세요.','saved');
  }catch(e){
   const message=e.code==='archive_running'?'아카이빙이 실행 중입니다. 완료 후 저장하세요.':e.message;
   editorStatus((applied.length?applied.join(' · ')+'은 저장됐지만 나머지는 저장하지 못했습니다. ':'')+message,'error');
@@ -416,7 +425,7 @@ async function loadDevices(){
   info.append(name,meta);row.append(info,button);return row;
  }));
 }
-deviceDetails.addEventListener('toggle',()=>{if(deviceDetails.open){loadNetwork();loadDevices().catch(e=>$('deviceStatus').textContent=e.message)}});
+deviceDetails.addEventListener('toggle',()=>{if(!deviceDetails.hidden){loadNetwork();loadDevices().catch(e=>$('deviceStatus').textContent=e.message)}});
 function renderPairing(p){
  const remaining=Math.max(0,Math.ceil((p.expires_at||0)-Date.now()/1000));
  const waiting=p.status==='waiting'&&remaining>0,paired=p.status==='paired';
@@ -529,5 +538,9 @@ $('deviceNetworkRestart').onclick=async()=>{
   }catch{}
  }
  networkRestarting=false;networkFormState();
- $('deviceNetworkStatus').textContent='아직 재시작 완료를 확인하지 못했습니다. 잠시 후 외부 장치 연결을 다시 펼쳐 확인하세요. 앱이 시작되지 않으면 Home Assistant의 Road Viewer 로그를 확인하세요.';
+ $('deviceNetworkStatus').textContent='아직 재시작 완료를 확인하지 못했습니다. 잠시 후 장치 탭을 다시 열어 확인하세요. 앱이 시작되지 않으면 Home Assistant의 Road Viewer 로그를 확인하세요.';
 };
+// The tab shown at load (a #storage or #devices link, or the last tab) loads like a freshly opened panel.
+if(!storageDetails.hidden)void loadStorageEditor();
+if(!deviceDetails.hidden){loadNetwork();loadDevices().catch(e=>$('deviceStatus').textContent=e.message)}
+void refreshHeaderStorage();setInterval(refreshHeaderStorage,30000);

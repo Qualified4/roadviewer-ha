@@ -1,6 +1,9 @@
 'use strict';
 (()=>{
- const colors=['#57d9b0','#bda0ff','#ffac70','#78c7ff'];
+ // Chart ink follows the screen mode: read the CSS variables once per theme change.
+ let colors=['#57d9b0','#bda0ff','#ffac70','#78c7ff'],ink={grid:'#29394a',text:'#94a5b8'};
+ function readChartInk(){const style=getComputedStyle(document.documentElement),read=(name,fallback)=>style.getPropertyValue(name).trim()||fallback;colors=colors.map((color,i)=>read('--chart-'+(i+1),color));ink={grid:read('--chart-grid',ink.grid),text:read('--muted',ink.text)}}
+ readChartInk();
  const line=(topic,key,label)=>({topic,key,label});
  const cs=(key,label)=>line('carState',key,label),cc=(key,label)=>line('carControl',key,label),out=(key,label)=>line('carOutput',key,label),ctl=(key,label)=>line('controlsState',key,label);
  const fallback=(primary,secondary)=>({...primary,fallback:secondary});
@@ -33,9 +36,9 @@
  const defaultGraphs=[...graphs];
  const key='roadviewer-vehicle-graphs',tabKey='roadviewer-analysis-tab',orderKey='roadviewer-graph-order';
  let selected=new Set(['speed','acceleration','pedals','angle','intervention','control']),tab='road';
- try{const saved=JSON.parse(localStorage.getItem(key));if(Array.isArray(saved))selected=new Set(saved.filter(id=>graphs.some(g=>g.id===id)));if(localStorage.getItem(tabKey)==='telemetry')tab='telemetry'}catch{}
+ try{const saved=JSON.parse(localStorage.getItem(key));if(Array.isArray(saved))selected=new Set(saved.filter(id=>graphs.some(g=>g.id===id)));const savedTab=localStorage.getItem(tabKey);if(['telemetry','bookmarks'].includes(savedTab))tab=savedTab}catch{}
  try{const saved=JSON.parse(localStorage.getItem(orderKey));if(Array.isArray(saved)){const order=[...new Set(saved.filter(id=>graphs.some(g=>g.id===id))),...graphs.map(g=>g.id).filter(id=>!saved.includes(id))];graphs.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id))}}catch{}
- const roadTab=$('roadTab'),telemetryTab=$('telemetryTab'),roadView=$('roadView'),view=$('telemetryView'),scroll=$('telemetryGraphs'),status=$('telemetryStatus');
+ const roadTab=$('roadTab'),telemetryTab=$('telemetryTab'),view=$('telemetryView'),scroll=$('telemetryGraphs'),status=$('telemetryStatus');
  let payload=null,loadedKey=null,loadingKey=null,failedKey=null,requestId=0,span=null,start=0,gesture=null;
  const cards=new Map(),seriesCache=new Map();
  const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
@@ -79,7 +82,8 @@
  }
  function format(value,unit='',precision=2){return value===null?'—':typeof value==='boolean'?(value?'켜짐':'꺼짐'):value.toFixed(precision)+(unit?' '+unit:'')}
  async function load(){
-  if(!data||tab!=='telemetry')return;
+  // Loaded once the replay is playable, whatever the tab: the event track under the video needs it too.
+  if(!data)return;
   const version=data.key||location.pathname;
   if(loadedKey===version||loadingKey===version||failedKey===version)return;
   stopZoom();payload=null;seriesCache.clear();loadingKey=version;status.textContent='차량 정보를 불러오는 중…';$('retryTelemetry').hidden=true;
@@ -90,25 +94,50 @@
    const result=await readReplayJson(r);if(!result.streams||!Number.isFinite(result.duration))throw Error('차량 정보 형식이 올바르지 않습니다. 로그 목록에서 제거 후 변환해 주세요.');
    if(ticket!==requestId)return;
    payload=result;seriesCache.clear();loadedKey=version;failedKey=null;span=null;start=0;status.textContent='';
-   for(const card of cards.values())card.cache='';
-  }catch(e){if(ticket===requestId){failedKey=version;status.textContent=controller.signal.aborted?'차량 정보 응답이 지연되었습니다. 다시 불러오기를 눌러 주세요.':e.message;$('retryTelemetry').hidden=false}}
+   for(const card of cards.values())card.cache='';renderEvents();
+  }catch(e){if(ticket===requestId){failedKey=version;renderEvents();status.textContent=controller.signal.aborted?'차량 정보 응답이 지연되었습니다. 다시 불러오기를 눌러 주세요.':e.message;$('retryTelemetry').hidden=false}}
   finally{clearTimeout(timeout);if(ticket===requestId){loadingKey=null;update()}}
  }
  // Only the selected-tab highlight moves; panel contents switch immediately.
+ const panes={road:[roadTab,$('roadView')],telemetry:[telemetryTab,view],bookmarks:[$('bookmarkTab'),$('bookmarkView')]},order=Object.keys(panes);
  const tabs=roadTab.parentElement,indicator=document.createElement('span');indicator.className='tab-indicator';indicator.setAttribute('aria-hidden','true');
  tabs.prepend(indicator);tabs.classList.add('has-indicator');
- function placeIndicator(){const selected=tab==='telemetry'?telemetryTab:roadTab;tabs.style.setProperty('--tab-x',selected.offsetLeft+'px');tabs.style.setProperty('--tab-width',selected.offsetWidth+'px');indicator.style.height=selected.offsetHeight+'px';indicator.style.top=selected.offsetTop+'px'}
+ function placeIndicator(){const selected=panes[tab][0];tabs.style.setProperty('--tab-x',selected.offsetLeft+'px');tabs.style.setProperty('--tab-width',selected.offsetWidth+'px');indicator.style.height=selected.offsetHeight+'px';indicator.style.top=selected.offsetTop+'px'}
  new ResizeObserver(placeIndicator).observe(tabs);
  function selectTab(next,save=true){
-  const update=()=>{stopZoom();tab=next;const show=tab==='telemetry';roadView.hidden=show;view.hidden=!show;document.querySelector('.road-ranges').hidden=show;
-  roadTab.setAttribute('aria-selected',String(!show));telemetryTab.setAttribute('aria-selected',String(show));roadTab.tabIndex=show?-1:0;telemetryTab.tabIndex=show?0:-1;
+  stopZoom();tab=panes[next]?next:'road';
+  for(const [name,[button,pane]] of Object.entries(panes)){const show=name===tab;pane.hidden=!show;button.setAttribute('aria-selected',String(show));button.tabIndex=show?0:-1}
   if(save)try{localStorage.setItem(tabKey,tab)}catch{}
   placeIndicator();void load();render();
-  };
-  update();
  }
- roadTab.onclick=()=>selectTab('road');telemetryTab.onclick=()=>selectTab('telemetry');
- for(const button of [roadTab,telemetryTab])button.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const next=e.key==='Home'?'road':e.key==='End'?'telemetry':tab==='road'?'telemetry':'road';selectTab(next);(next==='road'?roadTab:telemetryTab).focus()};
+ window.selectAnalysisTab=selectTab;
+ for(const [name,[button]] of Object.entries(panes)){
+  button.onclick=()=>selectTab(name);
+  button.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const i=order.indexOf(tab),next=e.key==='Home'?order[0]:e.key==='End'?order.at(-1):order[(i+(e.key==='ArrowRight'?1:order.length-1))%order.length];selectTab(next);panes[next][0].focus()};
+ }
+ // Event track under the video: green while the system is on, orange where the driver took over (steering, or
+ // gas/brake while on) or where the system switched off. Computed from the loaded vehicle data of this segment.
+ function renderEvents(){
+  const track=$('eventTrack'),duration=data?.duration;track.replaceChildren();
+  if(!payload||!(duration>0)){track.title=failedKey?'차량 정보를 불러오지 못해 자동 제어 구간을 표시할 수 없습니다.':'자동 제어와 운전자 개입 구간';track.setAttribute('aria-label',track.title);return}
+  const gap=payload.maxGap||.15,raw={engaged:[],takeover:[]};
+  const enabled=series(cc('enabled')),until=(times,i)=>Math.min(times[i]+gap,times[i+1]??Infinity);
+  const enabledAt=time=>{const i=lowerBound(enabled.times,time+1e-9)-1;return i>=0&&time-enabled.times[i]<gap&&enabled.values[i]===true};
+  enabled.times.forEach((time,i)=>{
+   if(enabled.values[i]===true)raw.engaged.push([time,until(enabled.times,i)]);
+   if(i>0&&enabled.values[i-1]===true&&enabled.values[i]===false&&time-enabled.times[i-1]<=gap*2)raw.takeover.push([time-.2,time+.2]);
+  });
+  for(const [source,whileOn] of [[cs('steeringPressed'),false],[cs('gasPressed'),true],[cs('brakePressed'),true]]){const s=series(source);s.times.forEach((time,i)=>{if(s.values[i]===true&&(!whileOn||enabledAt(time)))raw.takeover.push([time,until(s.times,i)])})}
+  const merged={};
+  for(const [kind,list] of Object.entries(raw)){
+   const runs=[];for(const [a,b] of list.map(([a,b])=>[Math.max(0,a),Math.min(duration,b)]).filter(([a,b])=>b>a).sort((x,y)=>x[0]-y[0])){const prev=runs.at(-1);if(prev&&a-prev[1]<=gap)prev[1]=Math.max(prev[1],b);else runs.push([a,b])}
+   merged[kind]=runs;
+   for(const [a,b] of runs){const span=document.createElement('span');span.className='event-'+kind;span.style.left=a/duration*100+'%';span.style.width=(b-a)/duration*100+'%';track.append(span)}
+  }
+  const on=merged.engaged.reduce((sum,[a,b])=>sum+b-a,0)/duration;
+  const label=merged.engaged.length||merged.takeover.length?`자동 제어 ${Math.round(on*100)}% · 운전자 개입 ${merged.takeover.length}회`:'이 구간에 자동 제어 기록 없음';
+  track.title=label;track.setAttribute('aria-label',label);
+ }
  function domain(){const duration=Math.max(.001,data?.duration||payload?.duration||1),width=Math.min(span??duration,duration);start=Math.max(0,Math.min(start,duration-width));return [start,start+width]}
  function seekFrom(event,canvas,range){const r=canvas.getBoundingClientRect(),left=48,right=Math.max(left+1,r.width-8),fraction=Math.max(0,Math.min(1,(event.clientX-r.left-left)/(right-left)));setTime(range[0]+fraction*(range[1]-range[0]));last=performance.now()}
  function installSeeking(canvas){
@@ -123,7 +152,7 @@
   for(const graph of graphs.filter(g=>selected.has(g.id))){
    const card=document.createElement('section');card.className='telemetry-chart';card.dataset.graph=graph.id;
    const title=document.createElement('h3');title.textContent=graph.title+(graph.unit?' · '+graph.unit:'');
-   const legend=document.createElement('div');legend.className='telemetry-legend';const labels=graph.lines.map((s,i)=>{const label=document.createElement('span');label.style.color=colors[i%colors.length];legend.append(label);return label});
+   const legend=document.createElement('div');legend.className='telemetry-legend';const labels=graph.lines.map((s,i)=>{const label=document.createElement('span');label.style.color=`var(--chart-${i%colors.length+1})`;legend.append(label);return label});
    const plot=document.createElement('div');plot.className='telemetry-plot';const canvas=document.createElement('canvas');canvas.tabIndex=0;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',graph.title+' 시간축 그래프. 클릭 또는 좌우 방향키로 재생 위치 이동');
    const cursor=document.createElement('div');cursor.className='telemetry-cursor';cursor.setAttribute('aria-hidden','true');plot.append(canvas,cursor);const note=document.createElement('p');note.className='telemetry-source-note';note.hidden=true;card.append(title,legend,plot,note);scroll.append(card);cards.set(graph.id,{graph,card,canvas,cursor,labels,note,noteKey:null,cache:''});installSeeking(canvas);
   }
@@ -140,7 +169,7 @@
   for(const s of sets)for(let i=s.begin;i<s.end;i++)if(valid(s.values[i])&&s.times[i]<=range[1]&&s.times[i]+gap>=range[0]){hasData=true;if(!graph.binary){low=Math.min(low,s.values[i]);high=Math.max(high,s.values[i])}}
   if(graph.bounds)[low,high]=graph.bounds;else{const pad=Math.max((high-low)*.08,graph.precision?10**(-graph.precision):.1);low-=pad;high+=pad}
   const Y=value=>bottom-(value-low)/(high-low)*(bottom-top);
-  c.font='10px "Pretendard Variable", system-ui';c.lineWidth=1;c.strokeStyle='#29394a';c.fillStyle='#94a5b8';
+  c.font='10px "Pretendard Variable", system-ui';c.lineWidth=1;c.strokeStyle=ink.grid;c.fillStyle=ink.text;
   for(let i=0;i<=4;i++){const x=left+(right-left)*i/4;c.beginPath();c.moveTo(x,top);c.lineTo(x,bottom);c.stroke();c.textAlign=i===0?'left':i===4?'right':'center';c.fillText((range[0]+(range[1]-range[0])*i/4).toFixed(1)+'s',x,104)}
   if(!graph.binary)for(let i=0;i<=2;i++){const value=low+(high-low)*i/2,y=Y(value);c.beginPath();c.moveTo(left,y);c.lineTo(right,y);c.stroke();c.textAlign='right';c.fillText(graph.precision?value.toFixed(graph.precision):Math.abs(value)>=100?value.toFixed(0):value.toFixed(1),left-5,y+3)}
   c.save();c.beginPath();c.rect(left,top,right-left,bottom-top);c.clip();
@@ -155,11 +184,11 @@
     for(let i=s.begin;i<s.end;i++){const value=s.values[i],time=s.times[i];if(!Number.isFinite(value)){connected=false;previous=null;continue}const x=X(time),y=Y(value);if(connected&&time-previous<=gap)c.lineTo(x,y);else{c.moveTo(x,y);c.fillRect(x-.8,y-.8,1.6,1.6)}connected=true;previous=time}c.stroke();
    }
   });c.restore();
-  if(!hasData){c.fillStyle='#94a5b8';c.textAlign='center';c.fillText('이 구간에 기록된 값 없음',(left+right)/2,48)}
+  if(!hasData){c.fillStyle=ink.text;c.textAlign='center';c.fillText('이 구간에 기록된 값 없음',(left+right)/2,48)}
  }
  function update(){
+  if(data&&loadedKey!==(data.key||location.pathname)&&(tab==='telemetry'||!loading)){void load();if(tab==='telemetry')return}
   if(tab!=='telemetry')return;
-  if(data&&loadedKey!==(data.key||location.pathname)){void load();return}
   initialPreviewTimes.clear();
   for(const summary of summaries){const value=current(summary.series);summary.value.textContent=summary.series.key==='steeringPressed'?(value===null?'확인 불가':value?'개입':'없음'):format(value,summary.unit)}
   if(!payload)return;
@@ -197,6 +226,7 @@
  }
  $('graphZoomIn').onclick=()=>zoom(.5);$('graphZoomOut').onclick=()=>zoom(2);$('graphReset').onclick=()=>zoom(null);
  $('retryTelemetry').onclick=()=>{failedKey=null;void load()};
+ window.addEventListener('rv:themechange',()=>{readChartInk();renderEvents();for(const card of cards.values())card.cache='';update()});
  scroll.addEventListener('scroll',update,{passive:true});new ResizeObserver(update).observe(scroll);
  const dialog=$('graphDialog'),opener=$('chooseGraphs');let oldOverflow='',dialogOpen=false;
  const options=$('graphOptions'),rows=new Map();let drag=null,dragFrame=0;

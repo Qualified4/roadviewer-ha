@@ -1,10 +1,10 @@
 # Installation and use
 
-This guide describes **0.13.20**.
+This guide describes **1.0.0**.
 
 [한국어](DOCS.md) · English
 
-Start with **Add files → Upload → Convert → Play**. The application currently uses Korean UI labels; their English meanings are given below.
+Start with **업로드 tab → Add files → Upload → Convert → Play**. The application currently uses Korean UI labels; their English meanings are given below.
 
 ## Installation and access
 
@@ -16,9 +16,23 @@ The UI uses Home Assistant Ingress, including remote access through your existin
 
 For local source builds, copy `roadviewer` to `/addons/roadviewer` and remove `image:` from that copy's `config.yaml`. Keeping it selects the published image instead of the local source.
 
+## Screen layout
+
+The library is split into five in-page tabs, shown at the top on wide screens and as a bottom tab bar on phones.
+
+| Tab | Contents |
+|---|---|
+| 로그 (Logs) | Search, filter chips, route cards grouped by date, per-segment ⋯ menu, selection mode (bulk actions), storage summary |
+| 업로드 (Upload) | Add files/drag and drop, upload progress, immediate storage cleanup |
+| 저장공간 (Storage) | Usage, budget and policy, NAS/Google Drive archiving |
+| 장치 (Devices) | External comma device HTTPS and pairing |
+| 설정 (Settings) | Automatic conversion, concurrency, display mode, conversion/file help, version |
+
+**화면 모드** (Display mode) is **자동 / 라이트 / 다크** (Auto/Light/Dark). Auto follows the device's light/dark setting; the choice is stored in this browser only. The replay video area stays dark in every mode. The replay ⋯ menu offers the same control.
+
 ## Uploading files
 
-Use **파일 추가** (Add files), or drag files onto the upload area, then press **업로드** (Upload). Selection does not start transmission. Files can be added together or one at a time. **선택 비우기** clears the selection; adding a selected filename again replaces that selection. Folder selection is unsupported.
+On the **업로드** tab, use **파일 추가** (Add files), or drag files onto the upload area, then press **업로드** (Upload). Selection does not start transmission. Uploads keep running when you switch tabs; the header's progress pill (`업로드 N%`) shows progress. Files can be added together or one at a time. **선택 비우기** clears the selection; adding a selected filename again replaces that selection. Folder selection is unsupported.
 
 | File | Purpose |
 |---|---|
@@ -65,26 +79,36 @@ If Android's native file picker cannot return multiple files, add one at a time.
 
 ## Library and conversion
 
-Segments with the same full route ID share a collapsible group. Groups are collapsed by default; select a heading to expand or collapse it. The browser remembers only the routes you expanded and keeps them open next time. The smallest segment number and that segment’s **upload date/time** remain visible when collapsed; this is not the actual driving timestamp. The header playback, route pin, and download controls remain visible in both fold states. Only the segment list animates, keeping header height and buttons stable. Header playback starts from the first segment. A yellow background and pin mean all pinned, a yellow pin without highlighted background means partially pinned, and a neutral pin means none. The header pin applies to every currently stored segment in that route (later uploads do not inherit it): a partial selection becomes fully pinned, and a fully pinned route becomes unpinned. The header download icon directly opens the download dialog for every segment in the route. Expanded-row pins and management menus remain segment-specific. Expand the group for other segments; there is no separate segment selector. Tag filters apply to individual segments and hide groups with no matches.
+The **로그** tab starts with a search box and filter chips. Search matches log names, tags and dates (start/upload). Chips are **전체** (All), **고정** (Pinned), **미변환** (Unconverted, including failed), **처리 중** (Processing, including queued), **Drive**, **NAS**, plus one chip per tag (and **태그 없음**, Untagged), each with its segment count. Drive/NAS chips appear only when some segment has files there. Search, the built-in chip and a tag chip combine (AND). Filters apply to individual segments and hide routes with no matches.
 
-`00000395--0d0eda17c5--7` is displayed as **395 / 구간 7**. The copy icon copies the full original identifier, including leading zeros and the hash.
+Segments with the same full route ID share one **route card**, and cards are grouped by date (today, yesterday, date). A card shows a thumbnail with the total length, the start time, a segment status bar (one block per segment, coloured by state), **자동 제어 N% · 개입 N회** (automatic control ratio and driver takeover count), and pin/tag badges. The start time comes from the log's real clock and reads **`HH:MM 출발`** (departed). When the log has no usable clock it falls back to **`업로드 HH:MM`**, the upload time, which is not the driving time. The control ratio and takeover count are computed from the prepared telemetry (control state and driver intervention).
+
+Cards are collapsed by default; the chevron expands or collapses the segment list. The browser remembers only the routes you expanded. The card's **재생** (Play) opens the first playable segment (or shows the first segment's Convert button). A yellow background and pin mean all pinned, a yellow pin without highlighted background means partially pinned, and a neutral pin means none. The card pin applies to every currently stored segment in that route (later uploads do not inherit it): a partial selection becomes fully pinned, and a fully pinned route becomes unpinned. The card's ⋯ menu offers **전체 구간 다운로드** (Download all segments) and **전체 구간 태그 편집** (Edit tags of all segments).
+
+An expanded segment row shows its thumbnail, name, state, storage chips, a **재생** or **변환** button and a per-segment ⋯ menu: **제거** (Remove, when ready or queued), **다운로드** (Download), **태그 편집** (Edit tags), **로그 이름 복사** (Copy log name), **구간 고정 / 해제** (Pin/unpin) and **완전 삭제** (Delete permanently).
+
+`00000395--0d0eda17c5--7` is displayed as **395 / 구간 7**. The copy icon, or **로그 이름 복사**, copies the full original identifier, including leading zeros and the hash.
 
 **새로고침** refreshes the list, state, sizes and conversion settings; it does not reload the page or restart conversion. The list refreshes about every three seconds, and active conversion progress about every second.
 
-The header reports Road Viewer file usage, including originals, prepared data and temporary uploads—not whole-disk utilization. Each recording separately reports retained files and removable prepared data. **영상 있음** indicates that any supported original or MP4 exists, not that conversion is complete. A log-only recording can also become playable.
+The Logs tab's storage summary reports Road Viewer file usage, including originals, prepared data and temporary uploads—not whole-disk utilization. When space runs short it shows a warning with a **정리** (Clean up) button leading to the Storage tab. Each recording separately reports retained files and removable prepared data. **영상 있음** indicates that any supported original or MP4 exists, not that conversion is complete. A log-only recording can also become playable.
 
-Choose **다운로드** (Download) in the compact recording menu to select files and MP4/original format in a modal. **전체 선택** (Select all) and **선택 해제** (Clear selection) control the ZIP contents. Use **받기** beside a file to download it individually without ZIP; for multiple segments, expand **개별 받기** to choose a segment’s file. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Selected files stream as one ZIP without a persistent download copy. Bulk download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
+Choose **다운로드** (Download) in the segment's ⋯ menu to select files and MP4/original format in a modal. **전체 선택** (Select all) and **선택 해제** (Clear selection) control the ZIP contents. Use **받기** beside a file to download it individually without ZIP; for multiple segments, expand **개별 받기** to choose a segment’s file. Original-format downloads remux f/e to HEVC and q to TS without re-encoding: quality is preserved, but bytes and hashes may differ from the uploaded file. Selected files stream as one ZIP without a persistent download copy. Selection-mode download uses the same modal for up to 150 selected segments, omitting absent cameras. Removing prepared data preserves each camera’s sole retained MP4.
 
-Choose **로그 선택** (Select logs) at the bottom of settings. The first **로그 일괄 관리** (Bulk log management) dialog groups recordings by route, with route-level select-all and individual segment checkboxes. A minus indicates a partial selection; the top select-all/count and bottom action buttons stay visible while scrolling. Then choose **다운로드** (Download) to select files and format. Individual library and replay downloads keep the compact file/format popup for the current segment.
+### Thumbnails and start time
+
+Thumbnails (a frame of the smallest front video) and the start time are generated during conversion. Logs converted before this feature, and logs archived to a NAS or Google Drive, are backfilled in the background one at a time. Local and NAS files are read in place (only their first part); Drive files are read with ranged requests for only the first ~2 MB, never downloaded whole. Backfill pauses while an upload is being received, a conversion or archive run is active, or a Drive video is being played. An unreachable archive or Drive error is retried later. Logs without a readable clock show the upload time; logs without a decodable frame show a placeholder. No reconversion is needed.
 
 ### Conversion and storage settings
 
 Newly completed conversions remux qcamera H.264 and front/wide HEVC into MP4 without re-encoding. Verification compares SHA-256 hashes of compressed pictures and headers, packet counts and timestamps without decoding every frame; it does not screen the source for every possible decoding error. Originals are removed only after compressed-picture, decoder-header, packet-count and log-clock verification; failed sources and rlog.zst are preserved. With automatic conversion off, uploads remain in their uploaded form until manual conversion. HEVC playback requires browser/device support; playback failure switches to the low-resolution camera when available.
 
+These options are on the **설정** (Settings) tab, together with **화면 모드** (display mode), the **처리 상태, 다운로드, 제거와 완전 삭제의 차이** help section and the app version.
+
 - **자동 변환:** enabled by default. Eligible recordings are queued oldest-upload first. Disabling clears automatic queued work; running and manually requested work continue.
 - **동시 처리 개수:** 1–4, default 1. Lowering the limit does not interrupt running jobs. Settings survive restart; parallel jobs may finish out of order.
 
-Processing options save immediately; storage budget/policy have their own Save button. Failed videos retain their uploaded originals.
+Settings-tab options save immediately; storage budget/policy on the **저장공간** tab have their own Save button. Failed videos retain their uploaded originals.
 
 | State | Meaning |
 |---|---|
@@ -98,9 +122,9 @@ The bar stays visible from preparation until the large compressed files have bee
 
 ### Individual and bulk actions
 
-<img src="../docs/images/roadviewer-bulk-selection.png" alt="Route/segment selection and pin protection" width="530">
+<img src="../docs/images/roadviewer-bulk-selection.png" alt="Selection mode in the log list with the bottom action bar" width="530">
 
-The primary action is Play or Convert. The adjacent dropdown contains removal, downloads and complete deletion when applicable.
+The primary action is Play or Convert. The adjacent ⋯ menu contains removal, download, tag editing, name copy, pin and complete deletion when applicable.
 
 | Action | Effect |
 |---|---|
@@ -110,21 +134,27 @@ The primary action is Play or Convert. The adjacent dropdown contains removal, d
 
 Manually removed recordings are excluded from automatic conversion until Convert is requested.
 
-Use **로그 선택** at the bottom of settings for bulk actions. Select-all and action controls remain visible while scrolling. **고정 항목도 삭제** is off whenever the dialog opens: pinned segments are protected from bulk removal/deletion unless explicitly included. This does not affect bulk conversion. Individual dropdown actions can explicitly delete pinned recordings.
+Bulk actions use an in-list **selection mode**; there is no separate dialog.
+
+1. Press **선택** (Select) on the Logs tab, or long-press a segment (about 0.5 s) on a touch screen; the pressed segment is selected immediately.
+2. Tick segment checkboxes or a route card's select-all checkbox. A minus marks a partially selected route, which shows `selected / total`. Selected items hidden by a filter are still counted and reported.
+3. Use the bottom action bar: **태그** (Tags), **다운로드** (Download), **변환** (Convert); on narrow screens **더보기** (More) reveals **변환 데이터 제거** (Remove prepared data), **완전 삭제** (Delete permanently) and **고정 포함** (Include pinned). **전체 선택** selects all visible segments and **취소** (Cancel) leaves selection mode.
+
+**고정 포함** is off whenever selection mode starts: pinned segments are protected from bulk removal/deletion unless explicitly included. This does not affect bulk conversion. Individual ⋯ menu actions can explicitly delete pinned recordings.
 
 Below each segment, chips show where the log and each camera video (high-quality, low-res, wide) are kept: **로컬** (local), **Drive** or **NAS**. Only files moved by archiving show Drive or NAS; everything else is local. A file removed by NAS cleanup shows **삭제됨** (removed). Recordings still uploading show no chips.
 
-The menu beside the pin on the replay page offers the same **제거** (Remove), **다운로드** (Download) and **완전 삭제** (Delete permanently) as the list; a confirmed remove or delete returns to the log list.
+The ⋯ menu in the replay app bar offers the same **제거** (Remove), **다운로드** (Download) and **완전 삭제** (Delete permanently) as the list; a confirmed remove or delete returns to the log list.
 
-During a bulk operation selection and closing are locked. Results show completed, skipped and incomplete counts; failed items remain selected.
+During a bulk operation selection, **고정 포함** and **취소** are locked. Results show completed, skipped and incomplete counts; failed items remain selected.
 
 ## Segment tags
 
 <img src="../docs/images/roadviewer-tags-editor.png" alt="Segment tag editor" width="490">
 
-Use the tag icon beside a recording name in the library or replay screen. A segment supports up to 100 tags, each up to 32 characters, with 12 colors and suggestions from existing tags. Click a selected tag to edit its name or color. Whitespace is normalized and names differing only by letter case are deduplicated.
+Use **태그 편집** (Edit tags) in a segment's ⋯ menu, **전체 구간 태그 편집** in a route card's ⋯ menu for every segment of the route, or the tag button on the replay screen. A segment supports up to 100 tags, each up to 32 characters, with 12 colors and suggestions from existing tags. Click a selected tag to edit its name or color. Whitespace is normalized and names differing only by letter case are deduplicated.
 
-Use **태그 필터** (Tag filter) to show a particular tag or **태그 없음** (Untagged). For bulk editing, open **로그 선택**, select segments, then choose **태그 편집** and Add or Remove. Only the selected tags change; unrelated tags and pins remain intact. Partial failures retain successful changes, and retry targets only the failed segments.
+Use the tag filter chips on the Logs tab to show a particular tag or **태그 없음** (Untagged). For bulk editing, press **선택**, select segments, then choose **태그** in the action bar and Add or Remove. Only the selected tags change; unrelated tags and pins remain intact. Partial failures retain successful changes, and retry targets only the failed segments.
 
 Tags are stored in server-side segment metadata and survive conversion, reconversion and prepared-data removal. Complete deletion removes them with the recording. These are segment tags, not camera-specific tags or timeline bookmarks.
 
@@ -134,25 +164,43 @@ The web UI bundles Pretendard Variable 1.3.9 for Korean text without contacting 
 
 <img src="../docs/images/roadviewer-bookmarks-editor.png" alt="Bookmarks based on log timestamps" width="490">
 
-Choose **북마크** (Bookmarks) beside the seek bar to capture the current log time. Enter a title (up to 80 characters) and an optional note (up to 1,000 characters). The captured time stays fixed during playback; **현재 시각으로** updates it to the current playhead. Each segment supports up to 100 bookmarks.
+Bookmarks are added and edited inline on the **북마크** analysis tab; there is no bookmark dialog. Choosing **북마크** in the bottom playback bar switches to that tab and captures the current log time in the **현재 장면 추가** (Add current scene) editor. Enter a title (up to 80 characters) and an optional note (up to 1,000 characters). The captured time stays fixed during playback; **현재 시각으로** updates it to the current playhead. Each segment supports up to 100 bookmarks; the tab label shows the count.
 
-Click a gold seek-bar marker or an entry in the chronological list to seek video, road view and graphs together, preserving playing or paused state. Entries can be edited or deleted from the dialog.
+Click a gold seek-bar marker or an entry in the tab's chronological list to seek video, road view and graphs together, preserving playing or paused state. **수정** (Edit) and **삭제** (Delete) change or remove an entry.
 
 Bookmarks use log time rather than camera time and are stored in segment metadata. They survive camera switching, reconversion and prepared-data removal; complete recording deletion removes them. No reanalysis is required.
 
 ## Video playback and layout
 
-A video opens on the quality chosen under **기본 화질** (default quality), beside 닫기 in the camera list below the video, qcamera or high-quality front, then the other front video, then wide. The choice is made separately for mobile data (default qcamera) and Wi-Fi/wired (default high-quality), kept per browser, and applied from the next video opened. The connection is told apart only where the browser reports it (Chromium browsers on Android); elsewhere phones and tablets follow the mobile-data choice and other devices the Wi-Fi/wired one. When multiple sources are available, use the selector below the video. Switching preserves log time and playing/paused state using each camera's time offset. A failing source triggers an attempt to use another available video.
+A video opens on the quality chosen under **기본 화질** (default quality; the **기본 재생 화질** window), beside 닫기 in the list opened by the camera/quality chooser over the video, qcamera or high-quality front, then the other front video, then wide. The choice is made separately for mobile data (default qcamera) and Wi-Fi/wired (default high-quality), kept per browser, and applied from the next video opened. The connection is told apart only where the browser reports it (Chromium browsers on Android); elsewhere phones and tablets follow the mobile-data choice and other devices the Wi-Fi/wired one. When multiple sources are available, switch with the same chooser. Switching preserves log time and playing/paused state using each camera's time offset. A failing source triggers an attempt to use another available video.
 
 Before playback is ready, the control area shows a message instead of active playback controls. The seek bar shows buffered video ranges. Errors provide a refresh action.
 
-The top navigation includes the library, segment selector, Pin and previous/next recording buttons. Neighbors within the same route are labeled previous/next **segment**. Pins are per segment and shared with the library.
+The replay page has a compact app bar, controls over the video, a floating playback bar at the bottom and analysis tabs.
 
-The heading becomes sticky while scrolling. Its center arrow/title-information row toggles navigation buttons, excluding the copy control. The arrow is hidden at the page top; collapsed state is remembered. The arrow alone brightens on interaction. Collapsed and expanded states use their corresponding heading rows for sticky positioning. Top and bottom sticky backgrounds share the configured width.
+**App bar**
 
-The fixed playback bar supports play/pause, frame stepping, seeking and speeds up to 4×. Seeking preserves the playing/paused state. Short boundary mismatches are tolerated; real gaps or missing tails are not invented.
+| Item | Behavior |
+|---|---|
+| Back | Returns to the library. |
+| Title | Drive start time · 구간 k with the position `(i/N)` within the route; falls back to `업로드 …` when the start time is unknown. Opens the route's **구간 선택** (segment chooser). Below it: log name (copy button), **태그** button, tags and the **고정** badge. |
+| Previous / next | **이전 구간 / 다음 구간** within the same route, otherwise **이전 로그 / 다음 로그**. Phones show them as large buttons below the content. |
+| Pin | Pins/unpins the current segment, shared with the library; yellow when pinned. |
+| 보기 (View) | **좌우 분할**, **상하 분리**, **화면 폭…**. On phones it sits inside the ⋯ menu. |
+| ⋯ | **제거**, **다운로드**, **카메라 설치 정보**, **화면 모드**, log details/version, **완전 삭제** |
 
-Both layout toggles off means automatic responsive layout. **좌우 분할** shows video and analysis side by side; **상하 분리** stacks them. **화면 폭** opens a stable slider dialog:
+**Over the video:** camera/quality chooser, the **겹쳐 보기** (overlay) toggle with its ⚙ settings button, vehicle speed (`carState.vEgo`), the steering-wheel state and fullscreen. When the driver intervenes in steering, an **개입** (takeover) ring surrounds the wheel.
+
+The **playback bar** floats at the bottom while scrolling.
+
+- **Segment strip:** one block per segment of the route, coloured by state. Clicking another playable segment opens it. On long drives the strip scrolls horizontally and keeps the current segment centred.
+- **Event track:** automatic-control spans (자동 제어) and driver takeovers (운전자 개입), with a legend for segments, control, takeover and bookmarks.
+- **Seek bar:** buffered video ranges and bookmark markers. Seeking preserves the playing/paused state.
+- **Play/pause** (Space), **frame step** (← / →), **time** (tap to toggle between current time and total length), **북마크**, **speed** (0.25–4×).
+
+Short boundary mismatches are tolerated; real gaps or missing tails are not invented.
+
+Both layout toggles off means automatic responsive layout. **좌우 분할** shows video and analysis side by side; **상하 분리** stacks them. **보기 → 화면 폭…** opens a stable slider dialog:
 
 | Viewport | Width adjustment | Default |
 |---|---|---|
@@ -160,7 +208,7 @@ Both layout toggles off means automatic responsive layout. **좌우 분할** sho
 | 601–1280px | 320–1280px | 1280px |
 | Above 1280px | 720–1920px | 1420px |
 
-Actual width never exceeds the viewport. Each category is remembered separately. Layout, display selections, graph selection/order and collapsed sections are local browser preferences, not account-wide settings.
+Actual width never exceeds the viewport. Each category is remembered separately. Display mode, layout, display selections, graph selection/order and collapsed sections are local browser preferences, not account-wide settings.
 
 ## Road view and camera overlay
 
@@ -176,17 +224,17 @@ In the video overlay, mint lane bands grow up to 75% confidence, reaching a maxi
 
 Coral red road-edge bands use confidence `1/(1+standard deviation)`; maximum fill opacity remains 10%. Glow is video-only.
 
-The road panel uses lane lines of 1–4px with confidence-based brightness and dashed lines below 50%. Road edges are 2px coral red lines, dashed above standard deviation 1. The model path is a purple line, not a vehicle-width ribbon.
+The road panel uses lane lines of 1–4px with confidence-based brightness and dashed lines below 50%. Road edges are 2px coral red lines, dashed above standard deviation 1. The model path is a translucent mint ribbon (not scaled to the vehicle width).
 
 The paired front/rear ranges **25/5m, 50/10m and 80/20m** affect **only the road panel**. **후방 표시 · LR / RR** defaults to on and remembers its state; turning it off restores the full forward view. LR/RR appear behind the ego vehicle and 0m line. Rear dashed lines are straight position guides, not measured lanes or extrapolated road curvature. Rear coordinates retain the cluster command distance without the front targets' 0.8 distance restoration or curvature correction. Existing logs need reconversion to populate rear values; existing playback remains available. LR/RR are not added to the camera overlay, which retains BSD. Camera lanes, paths, vehicle boxes, detection markers and TARGET are not clipped to this setting; they still require valid data and projection. BSD walls retain their separate 40m maximum length.
 
 ### Objects and labels
 
-Enable model paths, lanes, edges, model leads, radarState targets and liveTracks independently. **SCC 감지점 제외** hides SCC-source points from the road view, overlay and liveTracks table. A low-probability model lead remains visible but is dimmed below 50%.
+The road tab's **레이어** (Layers) popover enables the rear view, model paths, lanes, edges, model leads, radarState targets, liveTracks, SCC exclusion and labels independently. **범례** (Legend) expands the colour key. The ellipse on the map marks the lead currently being followed. **SCC 감지점 제외** hides SCC-source points from the road view, overlay and liveTracks table. A low-probability model lead remains visible but is dimmed below 50%.
 
 **정보 표시** selects one of Off, TrackID, Distance, yRel, Speed or Relative speed. TrackID is the default; Off leaves shapes only. **liveTracks 정보 표시** applies the selected label to raw points. The camera readouts can switch from lane probabilities/edge deviations to each line's initial `y[0]`.
 
-Road-view liveTracks uses × for measured points and hollow circles otherwise; video uses ×. Raw points are not necessarily vehicles. Radar/liveTracks tables retain roughly ten rows of height with internal scrolling and sticky headers, including when empty. Tables can include objects beyond the road view's range.
+Road-view liveTracks uses × for measured points and hollow circles otherwise; video uses ×. Raw points are not necessarily vehicles. Radar/liveTracks tables collapse and expand by their headings; expanded, they retain roughly ten rows of height with internal scrolling and sticky headers, including when empty. Tables can include objects beyond the road view's range.
 
 Raw `yRel` is positive left; the road coordinate is `-yRel`, with x forward and y right. Model and selected lead distances may use different reference points.
 
@@ -210,7 +258,7 @@ TARGET uses the configured path width (default 1.86m), with softly fading ends. 
 
 BSD uses `carState.leftBlindspot/rightBlindspot`. Video walls rise/fade in and lower/fade out, extend at most 40m, and default to 0.80m high. Ten vertical yellow lines move irregularly along each wall, five with stronger glow. The road panel uses a yellow glow on the detected side's border rather than a wall stripe. Walls are independent of marker height and the cluster-road toggle.
 
-Below the video, **주행 상황 겹쳐 보기**, **설정** and **카메라 설치 정보** provide the overlay controls. Settings include:
+Over the video, the ⚙ button beside **겹쳐 보기** opens **겹쳐 보기 설정** (overlay settings); **카메라 설치 정보** is in the app bar's ⋯ menu. Settings include:
 
 | Setting | Default / range |
 |---|---|
@@ -222,7 +270,7 @@ Below the video, **주행 상황 겹쳐 보기**, **설정** and **카메라 설
 | Box, BSD and TARGET labels | Independently enabled |
 | Labels below boxes | Optional text below the box without background/border |
 
-Every slider has an individual reset button. Settings are remembered. The path width affects video model paths and TARGET, not the road panel's purple line. Rendering preferences do not require log reconversion.
+Every slider has an individual reset button. Settings are remembered. The path width affects video model paths and TARGET, not the road panel's mint ribbon. Rendering preferences do not require log reconversion.
 
 ### Wide-camera overlays
 
@@ -232,7 +280,7 @@ Missing calibration or an unsupported sensor produces an explanation instead of 
 
 ## Vehicle information graphs
 
-Switch to **차량 정보** beside the road tab. The summary shows speed, acceleration, steering angle and steering intervention. Initial/last values can be held only within the supported data-boundary tolerances; initial preview identifies its first valid sample time.
+Switch to **차량 정보** in the analysis tabs (**주행 상황 · 차량 정보 · 북마크**). The summary shows speed, acceleration, steering angle and steering intervention. Initial/last values can be held only within the supported data-boundary tolerances; initial preview identifies its first valid sample time.
 
 **그래프 선택** chooses and reorders graphs by dragging the handle. Reset order keeps checkbox selections. Selection/order are remembered; additional graphs scroll inside the panel.
 
@@ -254,7 +302,7 @@ Driver pedal values differ from automatic requests and final commands. Some vehi
 
 <img src="../docs/images/roadviewer-camera-info.png" alt="Camera information with synthetic device ID" width="530">
 
-The camera dialog reports device type, dongle ID when available, sensor, calibration status, roll/pitch/yaw and height at the current sample. It distinguishes calibrated/default height. Installation translation offsets cannot be determined from the displayed information.
+The camera dialog (**카메라 설치 정보** in the replay ⋯ menu) reports device type, dongle ID when available, sensor, calibration status, roll/pitch/yaw and height at the current sample. It distinguishes calibrated/default height. Installation translation offsets cannot be determined from the displayed information.
 
 For camera installation directions viewed from inside the car facing forward:
 
@@ -266,13 +314,13 @@ For camera installation directions viewed from inside the car facing forward:
 
 Calibration normally assumes zero roll; a zero value does not prove a physically level installation.
 
-Speed is based on `carState.vEgo`, not necessarily the dashboard speed. The wheel follows recorded steering angle, turns white for `steeringPressed`, and changes appearance with steering control state/torque. It is not a hands-on-wheel or pedal detector.
+Speed is based on `carState.vEgo`, not necessarily the dashboard speed. The wheel follows recorded steering angle, turns white with an **개입** ring for `steeringPressed`, and changes appearance with steering control state/torque. It is not a hands-on-wheel or pedal detector.
 
 ## Storage, cleanup and backups
 
 The container data root is `/data/roadviewer`, not necessarily the same path on the host. UUID recording directories contain originals, metadata and prepared files. Replay data is gzip-compressed JSON. Data converted by 0.3.14 or earlier is migrated to compressed storage in the background; older application versions may need reconversion to read it.
 
-The cleanup timer checks incomplete uploads every minute; 15 minutes without progress expires them. **저장소 즉시 정리** in the upload section force-cleans incomplete browser uploads before that timeout, potentially interrupting another browser's upload. It preserves registered recordings, active registration and valid device upload sessions.
+The cleanup timer checks incomplete uploads every minute; 15 minutes without progress expires them. **저장소 즉시 정리**, under **업로드가 중단되었나요?** on the Upload tab, force-cleans incomplete browser uploads before that timeout, potentially interrupting another browser's upload. It preserves registered recordings, active registration and valid device upload sessions.
 
 Home Assistant app backups exclude originals (ZST, TS, HEVC), MP4s, analysis/graphs, per-recording metadata and upload staging. They retain configuration:
 
@@ -294,11 +342,11 @@ Restart cleans incomplete processing outputs and requeues eligible work; manual 
 
 The rejection/eviction rules below describe the existing policies outside effective Drive MOVE. Recordings referencing Drive are always excluded from automatic eviction.
 
-Under **저장공간 관리**, select unlimited or a byte budget and the full-storage policy. Defaults are unlimited and reject new uploads. Usage, budget, actual free disk and reservations are shown separately.
+On the **저장공간** (Storage) tab, select unlimited or a byte budget and the full-storage policy. Defaults are unlimited and reject new uploads. Usage, budget, actual free disk and reservations are shown separately.
 
 - **Reject new:** retain existing recordings.
 - **Delete oldest unpinned:** group by full route ID and order by earliest upload time, not driving time; delete only unpinned eligible segments.
-- **Pin:** affects only that segment, including after restart. New segments do not inherit another segment's pin.
+- **Pin:** set from a segment's ⋯ menu (**구간 고정**) or the replay app bar's pin; a route card's pin covers that route's current segments. A pin affects only its segment, including after restart. New segments do not inherit another segment's pin. Selection mode excludes pins from bulk removal/deletion unless **고정 포함** is on.
 
 Incoming/active-upload routes, groups with queued/processing work, and pinned segments are protected. Legacy route pins migrate to existing segments. Short display names are not storage grouping keys.
 
@@ -316,8 +364,8 @@ Archiving moves original videos and log files of converted recordings to network
 
 1. In Home Assistant **Settings → System → Storage**, add network storage with usage **Share**. The app sees it as `/share/<name>`.
 2. Create a folder for Road Viewer on the NAS first, for example `/share/<name>/roadviewer`. The app does not create it.
-3. In Road Viewer **Storage management → 아카이빙 기본 설정** (Archive basics), select **NAS · 네트워크 저장소**, enter the path under **실행 및 고급 설정 → 고급 설정**, enable **자동 아카이빙** and press **설정 저장**. Changes apply without restarting.
-4. Open **저장공간 관리** (Storage management) and check that **NAS 상태** (NAS status) reads **연결됨** (connected).
+3. In Road Viewer **Storage tab → 아카이빙 기본 설정** (Archive basics), select **NAS · 네트워크 저장소**, enter the path under **실행 및 고급 설정 → 고급 설정**, enable **자동 아카이빙** and press **설정 저장**. Changes apply without restarting.
+4. Open the **저장공간** (Storage) tab and check that **NAS 상태** (NAS status) reads **연결됨** (connected).
 
 `archive_path` must be below `/share/`, and a sub-folder is required, e.g. `/share/<name>/roadviewer`; the share itself (`/share/<name>`) is rejected. The first folder name may use letters, digits and underscores; later names may also use dots and hyphens; `..` is rejected. Saving an invalid path is refused. An invalid migrated path disables archiving and reports `settings_error`.
 
@@ -347,7 +395,7 @@ On first connection, and only while `/share/<name>` is actually mounted, the app
 
 ### Web UI settings
 
-Use **Storage management → 아카이빙 기본 설정** (Archive basics) for enabled, backend, mode, local deletion permission, minimum age and local usage criteria. **실행 및 고급 설정** contains the interval and an expandable advanced section for batch size, NAS path/capacity and the Drive folder. Presets and custom inputs preserve the existing hour/minute/MB values. **현재 설정 요약** previews draft behavior; only **설정 저장** applies it. Partial saves identify remaining changes and retries save only those changes. MB means 1024² bytes. NAS always moves after verification regardless of the mode selector. The keys below identify saved preferences, rather than add-on options.
+Use **Storage tab → 아카이빙 기본 설정** (Archive basics) for enabled, backend, mode, local deletion permission, minimum age and local usage criteria. **실행 및 고급 설정** contains the interval and an expandable advanced section for batch size, NAS path/capacity and the Drive folder. Presets and custom inputs preserve the existing hour/minute/MB values. **현재 설정 요약** previews draft behavior; only **설정 저장** applies it. Partial saves identify remaining changes and retries save only those changes. MB means 1024² bytes. NAS always moves after verification regardless of the mode selector. The keys below identify saved preferences, rather than add-on options.
 
 Preferences are written atomically to `/data/roadviewer/.archive-settings.json` with mode 0600. Only `archive_gdrive_client_id` and `archive_gdrive_client_secret` remain add-on options; neither value is returned by the API or shown in the web UI. On the first update, if the file is absent, the old archive options in `/data/options.json` are migrated once. Enabled and disabled values are preserved, with defaults for missing fields. Afterwards the file is authoritative: old keys are ignored and can be cleared. They remain optional schema entries for migration compatibility in this release.
 
@@ -393,7 +441,7 @@ Startup and settings saves wait `archive_interval_minutes` before running. Recov
 
 A run stops when the NAS is unreachable, NAS free space is below the file size plus 100MiB, a hash does not match, or copying fails; the next interval retries. An upload starting during a run lets the current file finish and then ends the run.
 
-**저장공간 관리** shows **NAS 상태 / NAS 사용 중 / NAS 여유 / 마지막 아카이브** (status, used, free, last run) and the latest error. Secondary statistics and recent results are under **실행 · 사본 정보** (Run and copy details). To run it by hand, see [Manually move or copy all eligible data](#manually-move-or-copy-all-eligible-data).
+The **저장공간** tab shows **NAS 상태 / NAS 사용 중 / NAS 여유 / 마지막 아카이브** (status, used, free, last run) and the latest error. Secondary statistics and recent results are under **실행 · 사본 정보** (Run and copy details). To run it by hand, see [Manually move or copy all eligible data](#manually-move-or-copy-all-eligible-data).
 
 ### Video states
 
@@ -424,7 +472,7 @@ When the NAS folder exceeds `archive_nas_max_mb` or NAS free space falls below `
 1. Videos of unpinned recordings, oldest upload first.
 2. If still short, `rlog.zst` of unpinned recordings, oldest first.
 
-Files of pinned segments and of recordings waiting for or undergoing conversion are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. Restarting the app keeps the converted data of such recordings. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). Cleanup records its intent in the index before removing a file and records the removal after it. If the app stops in between, the next start clears the intent when the file is still there and records the removal when it is gone. A file that is merely not visible on a connected NAS (for example right after a reconnect) shows as no video but is never recorded as removed. Files an earlier version recorded as removed because it could not find them are restored at the next start when the NAS holds their recorded content. SMB-specific behaviours (stale file handles, cache delays, power loss) were only simulated, not tested on a real SMB share. While space stays short, runs continue on every interval and retry cleanup; only moving files pauses until space is freed, and Storage management shows the error.
+Files of pinned segments and of recordings waiting for or undergoing conversion are never removed. `meta.json` and converted data stay, so a recording without its videos replays without video, and one without `rlog.zst` still replays but cannot be reconverted or have its original log downloaded. Restarting the app keeps the converted data of such recordings. **Videos removed by cleanup can only be restored by uploading the same log and videos again** (**Add video later** under [Uploading files](#uploading-files)). Cleanup records its intent in the index before removing a file and records the removal after it. If the app stops in between, the next start clears the intent when the file is still there and records the removal when it is gone. A file that is merely not visible on a connected NAS (for example right after a reconnect) shows as no video but is never recorded as removed. Files an earlier version recorded as removed because it could not find them are restored at the next start when the NAS holds their recorded content. SMB-specific behaviours (stale file handles, cache delays, power loss) were only simulated, not tested on a real SMB share. While space stays short, runs continue on every interval and retry cleanup; only moving files pauses until space is freed, and the Storage tab shows the error.
 
 ### Backups
 
@@ -435,7 +483,7 @@ Files on the NAS are not part of Home Assistant backups. `.archive-settings.json
 Google Drive can be used as the archive instead of a NAS. It is experimental and off by default (`archive_enabled: false`, `archive_backend: smb`). Nothing changes while archiving is off or uses the NAS.
 
 - **Copy mode is the default.** Each file gets a verified copy on Drive and **the local file is never deleted**, so copy mode frees no local space.
-- **Move mode** (the local original is deleted once a verified copy exists) needs **both** settings saved in the web UI under **저장공간 관리 → 아카이빙 기본 설정**: **보관 방식** (storage mode) set to **이동 · MOVE** and **검증 후 로컬 원본 삭제 허용** (allow deleting local originals after verification) turned on (saved keys `archive_mode: move`, `archive_allow_local_delete: true`; these are not add-on options). With either one missing, Drive runs in copy mode. Drive move mode was verified on a real Drive account with one segment in a test environment. In move mode the local maximum acts as a soft limit, and recordings with Drive files or copies are excluded from automatic deletion (see [Local quota with Google Drive MOVE](#local-quota-with-google-drive-move)).
+- **Move mode** (the local original is deleted once a verified copy exists) needs **both** settings saved in the web UI under **저장공간 tab → 아카이빙 기본 설정**: **보관 방식** (storage mode) set to **이동 · MOVE** and **검증 후 로컬 원본 삭제 허용** (allow deleting local originals after verification) turned on (saved keys `archive_mode: move`, `archive_allow_local_delete: true`; these are not add-on options). With either one missing, Drive runs in copy mode. Drive move mode was verified on a real Drive account with one segment in a test environment. In move mode the local maximum acts as a soft limit, and recordings with Drive files or copies are excluded from automatic deletion (see [Local quota with Google Drive MOVE](#local-quota-with-google-drive-move)).
 - **This version has no automatic Drive cleanup.** Files on Drive are deleted only for recordings the user deletes with **완전 삭제** (Delete permanently).
 - There is no feature that moves files on Drive back to local storage.
 
@@ -467,8 +515,8 @@ The [common web UI settings](#web-ui-settings) (`archive_enabled`, `archive_loca
 
 ### Connecting Drive
 
-1. Set client ID and secret in the add-on options, save and restart the app. Then select **Google Drive** under **저장공간 관리 → 아카이빙 기본 설정** (Archive basics) and save. Turn on **자동 아카이빙** (automatic archiving) there to copy files. With archiving off the account can still connect; the **이동 가능한 데이터 모두 이동 / 복사 가능한 데이터 모두 복사** (Archive now) button and Drive usage and copy rows are hidden.
-2. Open **저장공간 관리** (Storage management) and press **Google Drive 연결** (Connect Google Drive) in the extension-storage (Google Drive) card; with archiving off it appears in a separate Google Drive card. The panel shows a code, the address (`https://www.google.com/device`) and the time left.
+1. Set client ID and secret in the add-on options, save and restart the app. Then select **Google Drive** under **저장공간 tab → 아카이빙 기본 설정** (Archive basics) and save. Turn on **자동 아카이빙** (automatic archiving) there to copy files. With archiving off the account can still connect; the **이동 가능한 데이터 모두 이동 / 복사 가능한 데이터 모두 복사** (Archive now) button and Drive usage and copy rows are hidden.
+2. Open the **저장공간** (Storage) tab and press **Google Drive 연결** (Connect Google Drive) in the extension-storage (Google Drive) card; with archiving off it appears in a separate Google Drive card. The panel shows a code, the address (`https://www.google.com/device`) and the time left.
 3. On any device (phone, PC), open that address in a browser, enter the code and approve with the Google account to use.
 4. While the panel is open it checks for approval. Once approved the code disappears and **Drive 상태** (Drive status; **Drive 계정** with archiving off) reads **연결됨** (connected). The first connection creates the folder named in the settings. When connected with archiving off, the folder is created in the first run after archiving is enabled.
 
@@ -494,7 +542,7 @@ Uploads are resumable, in 1MiB chunks. The upload session is recorded in the ind
 
 ### Drive status and errors
 
-**저장공간 관리** shows **저장소 / Drive 상태 / Drive 사용 중 / Drive 여유 / 복제 사본 / 복제 사본 용량 / 검증 실패 / 마지막 아카이브** (storage, Drive status, used, free, copies, copy size, failed verifications, last run). **Drive 상태** is one of **연결 안 됨** (not connected: before signing in or after disconnecting), **연결됨** (connected), **연결 불가** (unavailable), **확인 중** (checking) or **인증 만료** (sign-in expired). The panel does not ask Drive on each request; it shows the last check, and checks run in the background, so the panel opens at once even when Drive does not answer.
+The **저장공간** tab shows **저장소 / Drive 상태 / Drive 사용 중 / Drive 여유 / 복제 사본 / 복제 사본 용량 / 검증 실패 / 마지막 아카이브** (storage, Drive status, used, free, copies, copy size, failed verifications, last run). **Drive 상태** is one of **연결 안 됨** (not connected: before signing in or after disconnecting), **연결됨** (connected), **연결 불가** (unavailable), **확인 중** (checking) or **인증 만료** (sign-in expired). The panel does not ask Drive on each request; it shows the last check, and checks run in the background, so the panel opens at once even when Drive does not answer.
 
 Last archive errors:
 
@@ -556,9 +604,9 @@ This does not establish recovery from unwritten data lost on power failure, long
 
 1. Prepare a trusted certificate and key under Home Assistant `/ssl`.
 2. Set `device_certfile` and `device_keyfile` to filenames directly under that directory, such as `fullchain.pem` and `privkey.pem`.
-3. In **로그 업로드 → 외부 장치 연결**, enable external access, choose a free HTTPS host port, save, then press **지금 재시작**. Only Road Viewer restarts.
+3. On the **장치** (Devices) tab, enable **외부 연결** (external access), choose a free HTTPS host port, save, then press **지금 재시작**. Only Road Viewer restarts.
 4. Forward the selected external TCP port to that Home Assistant host port. Never expose Ingress 8099 or private upstream 8098.
-5. Press **새 장치 연결** and enter the HTTPS base URL and one-time code in the compatible comma/Carrot Web uploader.
+5. Press **새 장치 연결** on the same tab and enter the HTTPS base URL and one-time code in the compatible comma/Carrot Web uploader.
 
 Codes last five minutes, work once, and support copy, cancel and reissue. A new code invalidates the old one; successful pairing changes Cancel to Close. Issuing another code does not disconnect previously paired devices.
 
@@ -587,4 +635,4 @@ The bundled openpilot schema may need updating for sufficiently different log fo
 
 ## Documentation screenshots
 
-New UI screenshots use main `6631968` (version 0.13.3) and example data, not real devices, accounts, or private driving logs. Pairing codes cannot connect a device. See the [image inventory and capture scope](../docs/images/README.en.md).
+Screenshots were captured on 2026-11-07 from version 1.0.0 (branch `feature/ui-redesign`) with example data, not real devices, accounts, or private driving logs; the three introduction photos composite the earlier footage into the new UI. Pairing codes cannot connect a device. See the [image inventory and capture scope](../docs/images/README.en.md).

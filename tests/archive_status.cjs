@@ -1,4 +1,5 @@
 const fs=require('fs'),os=require('os'),path=require('path'),assert=require('node:assert/strict'),{spawn}=require('child_process'),{once}=require('events'),{chromium}=require('playwright');
+const {showTab,reopenTab}=require('./browser-helpers.cjs');
 // Media state badges, the NAS block of the storage panel and the replay notice, against the real server.
 const SERVER=`import sys
 sys.path.insert(0,'roadviewer/app')
@@ -49,7 +50,7 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.match(await row(ids[1]).textContent(),/ · 영상 없음$/);assert.equal(await row(ids[1]).locator('.media-state').count(),0,'local-only rows keep the plain text');
   assert.equal(await row(ids[2]).locator('span.media-state.media-state-available').textContent(),'영상 있음','an available camera outranks a missing one');
   assert.equal(await row(ids[3]).locator('span.media-state.media-state-missing').textContent(),'영상 없음','every camera missing');
-  await page.locator('#storageSettings > summary').click();await page.locator('#archiveUsage>.archive-metric').first().waitFor();
+  await showTab(page,'storage');await page.locator('#archiveUsage>.archive-metric').first().waitFor();
   const metrics=await page.locator('#storageUsage>div,#archiveUsage>div,#archiveSecondaryUsage>div').evaluateAll(rows=>rows.map(row=>[row.querySelector('dt').textContent,row.querySelector('dd').textContent]));
   assert.equal(metrics.length,9);assert.deepEqual(metrics.slice(4).map(([label])=>label),['NAS 상태','NAS 사용 중','NAS 여유','마지막 아카이브','최근 실행 결과']);
   assert.deepEqual(metrics[4],['NAS 상태','연결 불가']);assert.deepEqual(metrics[7],['마지막 아카이브','—']);
@@ -70,12 +71,12 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert(fs.existsSync(path.join(onDir,ids[1],'rlog.zst')),'nothing moved while the share is unreachable');
   // While a run is active (as the server reports it), progress shows and the settings are locked.
   await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();body.archive={...body.archive,running:true,manual_active:true,manual:{state:'running',mode:'move',total_files:5,processed:2,succeeded:2,failed:0,freed_bytes:0,waiting:null}};await route.fulfill({response,json:body})});
-  await page.locator('#storageSettings > summary').click();await page.locator('#storageSettings > summary').click();
+  await reopenTab(page,'storage');
   await page.waitForFunction(()=>document.getElementById('archiveJobText').textContent.startsWith('이동 중 · 2/5개 파일 처리'));
   assert(await page.locator('#storageEditorFields').evaluate(f=>f.disabled));assert(await page.locator('#archiveIntervalPreset').isDisabled());assert(await page.locator('#archiveRun').isDisabled());
   assert.equal(await page.locator('#archiveJobProgress').evaluate(bar=>[bar.value,bar.max].join('/')),'2/5');
   await page.unroute('**/api/settings/storage');
-  await page.locator('#storageSettings > summary').click();await page.locator('#storageSettings > summary').click();
+  await reopenTab(page,'storage');
   await page.waitForFunction(()=>!document.getElementById('storageEditorFields').disabled&&document.getElementById('archiveRun')&&!document.getElementById('archiveRun').disabled);
   // A run already in progress (409) is explained in Korean and the button is usable again.
   await page.route('**/api/settings/archive/run',route=>route.fulfill({status:409,json:{error:'archive_running'}}));
@@ -85,7 +86,7 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   // 'checking' (the server probing in the background) is not left on screen: the panel asks again until it settles.
   let storageCalls=0;
   await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();if(++storageCalls===1)body.archive={...body.archive,state:'checking',reason:'probe_pending'};await route.fulfill({response,json:body})});
-  await page.locator('#storageSettings > summary').click();await page.locator('#storageSettings > summary').click();
+  await reopenTab(page,'storage');
   await page.waitForFunction(()=>document.querySelector('#archiveUsage .archive-metric[data-kind="state"] dd')?.textContent==='확인 중');
   await page.waitForFunction(()=>document.querySelector('#archiveUsage .archive-metric[data-kind="state"] dd')?.textContent==='연결 불가',null,{timeout:10000});
   assert(storageCalls>=2);await page.unroute('**/api/settings/storage');
@@ -107,7 +108,7 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.match(await plainRow(ids[0]).textContent(),/ · 영상 있음$/);assert.match(await plainRow(ids[1]).textContent(),/ · 영상 없음$/);
   assert.equal(await plain.locator('.media-state').count(),0);
   assert.equal(await plainRow(ids[0]).evaluate(meta=>meta.childElementCount),0,'meta stays a single text node');
-  await plain.locator('#storageSettings > summary').click();await plain.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true');
+  await showTab(plain,'storage');await plain.waitForFunction(()=>document.getElementById('archiveForm').dataset.loaded==='true');
   assert.deepEqual(await plain.locator('#storageUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약']);
   assert.equal(await plain.locator('#archiveRun').count(),0);assert.equal(await plain.locator('#storageStatus').textContent(),'');
   assert.deepEqual(errors,[]);

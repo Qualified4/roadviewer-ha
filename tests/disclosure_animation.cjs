@@ -8,12 +8,14 @@ const {settleLayout}=require('./browser-helpers.cjs');
    if(p==='/api/logs')return route.fulfill({json:{logs:[{id:'one',name:'test',status:'ready',uploaded:1,bytes:50,prepared_bytes:200,video:true,video_download:'qcamera.ts'}],concurrency:1,auto_convert:true,keep_original_video:true,max_upload_mb:512,storage_used_bytes:250}});
    if(p==='/api/progress')return route.fulfill({json:{progress:{}}});
    if(p.startsWith('/api/'))return route.fulfill({json:{}});
-   const name=p==='/'?'library.html':p.replace('/assets/','');
+   if(p==='/api/settings/storage')return route.fulfill({status:404,json:{error:'not_found'}});const name=p==='/'?'library.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   };
   const open=async options=>{
    const page=await browser.newPage({viewport:{width:1280,height:900},...options}),errors=[];page.on('pageerror',e=>errors.push(e.message));
    await page.route('https://rv.test/**',serve);await page.goto('https://rv.test/');await page.locator('.log-row').waitFor();
+   // The guides are in the 설정 tab.
+   await page.locator('#tab-settings').click();
    await page.evaluate(()=>{window.toggles=[];document.querySelector('.conversion-info').addEventListener('toggle',()=>toggles.push(document.querySelector('.conversion-info').open))});
    return {page,errors};
   };
@@ -61,23 +63,36 @@ const {settleLayout}=require('./browser-helpers.cjs');
   // Nested secondary settings use the same motion and chevron transition.
   const usage=page.locator('.usage-guide');
   assert.equal(await usage.locator('summary').evaluate(e=>getComputedStyle(e,'::after').transitionDuration),'0.25s');
-  const usageMotions=await usage.evaluate(e=>{e.querySelector('summary').click();return e.getAnimations().length});
-  assert.equal(usageMotions,1,'secondary settings animate their height');
+  const usageMotions=await usage.evaluate(e=>{e.querySelector('summary').click();const height=e.getAnimations()[0],fades=e.getAnimations({subtree:true}).filter(a=>a!==height&&!a.effect.pseudoElement&&a.effect.target.parentElement===e);
+   return {count:e.getAnimations().length,duration:height?.effect.getTiming().duration,easing:height?.effect.getTiming().easing,fades:fades.map(a=>[a.effect.getTiming().delay,a.effect.getTiming().duration,a.effect.getKeyframes().map(f=>f.opacity).join('>')])}});
+  assert.equal(usageMotions.count,1,'secondary settings animate their height');
+  assert.equal(usageMotions.duration,300);assert.equal(usageMotions.easing,'cubic-bezier(0.4, 0, 0.2, 1)','height uses the standard curve');
+  assert(usageMotions.fades.length&&usageMotions.fades.every(([delay,duration,frames])=>delay===75&&duration===150&&frames==='0>1'),'content fades in after a short delay: '+JSON.stringify(usageMotions.fades));
+  await settled(page);
+  const collapsing=await usage.evaluate(e=>{e.querySelector('summary').click();return e.getAnimations({subtree:true}).filter(a=>!e.getAnimations().includes(a)&&!a.effect.pseudoElement&&a.effect.target.parentElement===e).map(a=>[a.effect.getTiming().delay,a.effect.getTiming().duration,a.effect.getKeyframes().map(f=>f.opacity).join('>')])});
+  assert(collapsing.length&&collapsing.every(([delay,duration,frames])=>delay===0&&duration===75&&frames==='1>0'),'content fades out first on collapse: '+JSON.stringify(collapsing));
+  await settled(page);await usage.locator('summary').click();
   await settled(page);assert(await usage.evaluate(e=>e.open));
 
   // Dropdown menus fade and slide; outside clicks and Escape still close them at once.
-  const more=page.locator('.recording-more');
-  const opened=await more.evaluate(e=>{e.querySelector('summary').click();return e.open&&e.querySelector('.recording-menu').getAnimations().length===1});
-  assert(opened,'menu fades in');
+  await page.locator('#tab-logs').click();
+  const more=page.locator('.log-row .recording-more');
+  const opened=await more.evaluate(e=>{e.querySelector('summary').click();const a=e.querySelector('.recording-menu').getAnimations().map(a=>({duration:a.effect.getTiming().duration,easing:a.effect.getTiming().easing,frames:a.effect.getKeyframes()}));return {open:e.open,a}});
+  assert(opened.open&&opened.a.length===2,'menu fades and grows in');
+  const fade=opened.a.find(a=>'opacity' in a.frames[0]),grow=opened.a.find(a=>'transform' in a.frames[0]);
+  assert.deepEqual([fade.duration,fade.easing],[120,'linear'],'menu fades in over 120 ms');
+  assert.deepEqual([grow.duration,grow.easing,grow.frames[0].transform],[150,'cubic-bezier(0, 0, 0.2, 1)','scale(0.8)'],'menu grows from .8 with deceleration');
+  assert.match(grow.frames[0].transformOrigin,/^(top|bottom) (left|right)$|^(left|right) (top|bottom)$/,'menu grows out of a corner next to its button');
   await settled(page);
-  const closing=await more.evaluate(e=>{e.querySelector('summary').click();return e.open&&e.classList.contains('is-closing')});
-  assert(closing,'menu fades out before closing');
+  const closing=await more.evaluate(e=>{e.querySelector('summary').click();const a=e.querySelector('.recording-menu').getAnimations();return e.open&&e.classList.contains('is-closing')&&a.length===1&&a[0].effect.getTiming().duration===75&&!('transform' in a[0].effect.getKeyframes()[0])});
+  assert(closing,'menu fades out (75 ms, no scale) before closing');
   await settled(page);assert.equal(await more.evaluate(e=>e.open),false);
   await more.locator('summary').click();await page.keyboard.press('Escape');
   await settled(page);
   assert.equal(await more.evaluate(e=>e.open||e.classList.contains('is-closing')),false,'Escape during the fade wins');
 
   // Keyboard activation goes through the same animation.
+  await page.locator('#tab-settings').click();
   await summary.focus();await page.keyboard.press('Enter');
   await settled(page);assert.equal(await page.locator(guide).evaluate(e=>e.open),false);
   assert.deepEqual(errors,[]);

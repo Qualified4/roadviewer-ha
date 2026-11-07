@@ -1,4 +1,5 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
+const {showTab,reopenTab}=require('./browser-helpers.cjs');
 const {settleLayout}=require('./browser-helpers.cjs');
 (async()=>{
  const browser=await chromium.launch({headless:true});
@@ -12,13 +13,15 @@ const {settleLayout}=require('./browser-helpers.cjs');
    if(p==='/api/logs')return route.fulfill({json:{logs:[],max_upload_mb:512,storage_used_bytes:storage.used_bytes,concurrency:1}});
    if(p==='/api/settings/archive')return route.fulfill({json:{archive_enabled:true,archive_backend:'gdrive',archive_mode:'copy',archive_allow_local_delete:false,archive_path:'',archive_local_threshold_mb:3072,archive_min_age_hours:168,archive_interval_minutes:1440,archive_batch:2,archive_nas_max_mb:0,archive_nas_margin_mb:1024,archive_gdrive_folder_name:'Road Viewer'}});
    if(p==='/api/settings/storage')return route.fulfill({json:storage});
+   // The replay loads vehicle data in the background for the event track; none here.
+   if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
    if(p.endsWith('/data'))return route.fulfill({json:{route:'preview',key:'ui',duration:60,warnings:[],video:null,frames:[frame]}});
    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
    if(p.startsWith('/api/'))return route.fulfill({json:{progress:{}}});
    const name=p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.woff2')?'font/woff2':'image/svg+xml'});
   });
-  await page.goto('https://rv.test/');await page.locator('#storageSettings>summary').click();await page.locator('#archiveRun').waitFor();
+  await page.goto('https://rv.test/');await showTab(page,'storage');await page.locator('#archiveRun').waitFor();
   assert.equal(await page.locator('#storageUsage>div').count(),4);assert.equal(await page.locator('#archiveUsage>div,#archiveSecondaryUsage>div').count(),9);
   assert.equal(await page.locator('#storageMeter').getAttribute('aria-valuenow'),'95');
   for(const width of [320,390,768,1024,1100,1440,1920]){
@@ -54,13 +57,15 @@ const {settleLayout}=require('./browser-helpers.cjs');
   assert.deepEqual(await page.locator('#boundaryLanes strong').allTextContents(),['36.6%','94.5%','99.5%','0.1%']);
   assert.equal(await page.locator('#lead').textContent(),'35.3 m');
   for(const width of [320,390,768,1440]){
-   await page.setViewportSize({width,height:1000});await settleLayout(page,'.boundary-summary');
+   // The lane/boundary readouts live in the 레이어 popover of 주행 상황.
+   await page.setViewportSize({width,height:1000});await page.locator('#layerMenu').evaluate(d=>{d.open=true});await settleLayout(page,'.boundary-summary');
    let probabilityLayout;
    for(const distance of [false,true]){
     if((await page.locator('#boundaryDistance').getAttribute('aria-pressed')==='true')!==distance)await page.locator('#boundaryDistance').click();
     const cells=await page.locator('.boundary-lane,.boundary-edge').evaluateAll(nodes=>nodes.map(el=>({ok:el.scrollWidth<=el.clientWidth,title:el.textContent})));
     assert(cells.every(cell=>cell.ok),`readout overflow ${width} distance=${distance}: ${JSON.stringify(cells)}`);
-    const layout=await page.locator('.boundary-lane,.boundary-edge').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),value=el.querySelector('strong'),v=value.getBoundingClientRect();return {top:r.top,height:r.height,valueTop:v.top-r.top,valueLeft:v.left-r.left,font:getComputedStyle(value).fontSize}}));
+    // Page coordinates: clicking the toggle may scroll it clear of the floating transport bar.
+    const layout=await page.locator('.boundary-lane,.boundary-edge').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),value=el.querySelector('strong'),v=value.getBoundingClientRect();return {top:r.top+scrollY,height:r.height,valueTop:v.top-r.top,valueLeft:v.left-r.left,font:getComputedStyle(value).fontSize}}));
     if(!distance)probabilityLayout=layout;
     else for(let i=0;i<layout.length;i++){
      assert(Math.abs(layout[i].top-probabilityLayout[i].top)<1&&Math.abs(layout[i].height-probabilityLayout[i].height)<1,'readout cards keep their geometry when switching modes '+width+' card '+i+' '+JSON.stringify([probabilityLayout[i],layout[i]]));
