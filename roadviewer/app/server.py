@@ -70,6 +70,12 @@ def remote_result():
 def archive_state():
  # The active backend's state, outside the locks: the share's check for the NAS (as before), Drive's cache.
  return remote_result()[0] if remote_backend() else store.state()
+def shown_archive_result():
+ # For the screens (the storage panel and the library header): a remote backend's last known (state, reason) while a
+ # stale one is refreshed in the background. Answering 'checking' each time the 10 s cache ran out made the header
+ # read 'Drive 확인 중' until its next poll.
+ result=remote_result()
+ return (backend.known_result() or result) if result==('checking','probe_pending') else result
 def list_archive_state():
  # The log list shows a remote backend's last known state while a stale one is refreshed in the background. Drive's
  # state is cached for 10 s; reporting 'checking' meanwhile turned over every archived row's cached list entry (and

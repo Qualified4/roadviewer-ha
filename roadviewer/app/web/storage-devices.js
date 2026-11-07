@@ -30,7 +30,13 @@ function showHeaderStorage(s){
  headerStorage.archive=text?{text:(drive?'Drive ':'NAS ')+text,state:text==='연결됨'?'ok':text==='확인 중'?'checking':'error'}:null;
  syncHeaderStorage();
 }
-async function refreshHeaderStorage(){if(document.hidden||!storageDetails.hidden)return;try{showHeaderStorage(await storageSnapshot())}catch{}}
+// Every 3 s while the archive reads 'checking' (the server answers as soon as its probe is back), every 10 s otherwise.
+const HEADER_CHECKING_MS=3000,HEADER_MS=10000;let headerTimer=null;
+async function refreshHeaderStorage(){
+ clearTimeout(headerTimer);
+ if(!document.hidden&&storageDetails.hidden)try{showHeaderStorage(await storageSnapshot())}catch{}
+ headerTimer=setTimeout(refreshHeaderStorage,headerStorage.archive?.state==='checking'?HEADER_CHECKING_MS:HEADER_MS);
+}
 const ARCHIVE_STATES={connected:'연결됨',unavailable:'연결 불가',checking:'확인 중'},ARCHIVE_ERRORS={storage_unavailable:'NAS에 연결할 수 없습니다.',nas_full:'NAS 공간이 부족합니다.',nas_full_no_candidates:'NAS가 가득 찼지만 정리할 수 있는 파일이 없습니다.',hash_mismatch:'NAS 사본 검증에 실패했습니다.',os_error:'NAS에 파일을 복사하지 못했습니다.'};
 // Google Drive: the panel shows only what the status block names; of a waiting sign-in, only the code and the address.
 const DRIVE_ERRORS={storage_unavailable:'Google Drive에 연결할 수 없습니다.',remote_full:'Google Drive 공간이 부족합니다.',rate_limited:'Google Drive 요청 한도를 넘었습니다. 다음 주기에 다시 시도합니다.',auth_expired:'Google Drive 인증이 만료되었습니다. 다시 연결하세요.',hash_mismatch:'Google Drive 사본 검증에 실패했습니다.',os_error:'Google Drive에 파일을 올리지 못했습니다.'};
@@ -549,4 +555,4 @@ $('deviceNetworkRestart').onclick=async()=>{
 // The tab shown at load (a #storage or #devices link, or the last tab) loads like a freshly opened panel.
 if(!storageDetails.hidden)void loadStorageEditor();
 if(!deviceDetails.hidden){loadNetwork();loadDevices().catch(e=>$('deviceStatus').textContent=e.message)}
-void refreshHeaderStorage();setInterval(refreshHeaderStorage,30000);
+void refreshHeaderStorage();

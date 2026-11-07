@@ -327,6 +327,15 @@ class GdriveServerTests(unittest.TestCase):
         with patch.object(self.backend, 'probe', return_value=('checking', 'probe_pending')):
             self.assertEqual(server.list_archive_state(), 'checking')
 
+    def test_storage_status_keeps_last_known_drive_state_while_refreshing(self):
+        # The library header polls the storage status: a stale cache must not read 'checking' until its next poll.
+        self.assertEqual(self.backend.probe(), ('connected', None))
+        stamp, *result = self.backend.cached; self.backend.cached = (stamp - 60, *result)  # Stale.
+        with patch.object(self.backend, 'probe', return_value=('checking', 'probe_pending')):  # The refresh is still out.
+            self.assertEqual(self.get('/api/settings/storage').json['archive']['state'], 'connected')
+            self.backend.invalidate()  # Nothing known yet (as right after a start): 'checking' is the honest answer.
+            self.assertEqual(self.get('/api/settings/storage').json['archive']['state'], 'checking')
+
     def test_logs_remote_copies_field_only_when_present(self):
         p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': b'video' * 100}); self.ready(p)
         self.archive()

@@ -4,6 +4,14 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.9
+
+- Opening a replay from the log list no longer leaves the stacked video stuck at a small size (the 320px fallback height); its size follows the panel's width and the screen height.
+- No white focus ring around the video title after moving to the replay.
+- The glass of the over-video controls is thinner so the blur shows: 10% fill and less darkening in dark mode, 40% white in light mode. Text contrast is lower over very bright (dark mode) or very dark (light mode) footage.
+- The dark page glow is centred; on wide screens it sat to the right.
+- The Drive state at the top right of the library no longer flips to **확인 중** (checking) periodically: the last known state is shown while the server rechecks Drive, and the header refreshes every 3 s while checking, otherwise every 10 s (no more Google API calls than before).
+
 ## 1.0.8
 
 - The log list no longer rebuilds every row each time the Drive state is rechecked (about every 10 s): with the list open, responses that took 2.5-5 s are back to about 0.5 s. The list shows the last known state while it is rechecked in the background.
