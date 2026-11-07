@@ -4,6 +4,15 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.8
+
+- The log list no longer rebuilds every row each time the Drive state is rechecked (about every 10 s): with the list open, responses that took 2.5-5 s are back to about 0.5 s. The list shows the last known state while it is rechecked in the background.
+- The log list draws faster: rows inside folded cards are no longer measured for motion and dates use prebuilt formats, cutting drawing time on phones to about a quarter.
+- The list response leaves out the file hashes and storage details the screen never used, about halving its size.
+- On phones and tablets full screen opens in landscape: the orientation is locked where the browser allows it, and elsewhere (the Android Home Assistant app, iPad) the picture is turned a quarter turn, so hold the device on its left side. Touch seeking follows the turned bar.
+- Fixes the page background gradient missing since 1.0.7.
+- The **새 코드 발급** (new code) icon turns once per press, like the log list's refresh button.
+
 ## 1.0.7
 
 - Google Drive archiving is faster: uploads use 16MiB chunks over a reused connection to Google instead of a new connection per chunk.

@@ -422,7 +422,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 @media(hover:hover) and (pointer:fine){.lib-head-actions>.icon-button:hover{background:var(--hover);color:var(--text)}}
 #refresh.is-loading svg{animation:rv-orbit 1s linear infinite}
 /* A press turns the arrow once (then keeps turning while the list is still loading). */
-#refresh.spin-once svg{animation:rv-refresh-turn .6s cubic-bezier(.4,0,.2,1)}
+#refresh.spin-once svg,#pairRenew.spin-once svg{animation:rv-refresh-turn .6s cubic-bezier(.4,0,.2,1)}
 @keyframes rv-refresh-turn{to{transform:rotate(360deg)}}
 .lib-card{padding:24px;border:1px solid transparent;border-radius:16px;background:var(--surface);box-shadow:var(--surface-shadow)}
 .lib-panel>.lib-card+.lib-card,.lib-panel>.lib-card+.managed-settings,.lib-panel>.managed-settings+.managed-settings{margin-top:16px}
@@ -602,7 +602,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .replay,.actions>button:not(.pin-recording),.lib-head-actions>button{min-height:44px;height:44px}
  .actions>.pin-recording,.recording-more>summary,.lib-head-actions>.icon-button{width:44px;height:44px}
 }
-@media(prefers-reduced-motion:reduce){.log-route-chevron,.log-route-chevron svg,#headerMeterFill,.route-seg::after{transition:none}#refresh.is-loading svg,#refresh.spin-once svg,.route-seg[data-status=processing]::before{animation:none}.recording-more>summary svg{transition:none}}
+@media(prefers-reduced-motion:reduce){.log-route-chevron,.log-route-chevron svg,#headerMeterFill,.route-seg::after{transition:none}#refresh.is-loading svg,#refresh.spin-once svg,#pairRenew.spin-once svg,.route-seg[data-status=processing]::before{animation:none}.recording-more>summary svg{transition:none}}
 @media(max-width:719px){
  .lib-panel-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:2px 8px}
  .lib-panel-head>div:first-child{display:contents}

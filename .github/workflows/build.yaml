@@ -138,6 +138,8 @@ jobs:
         if: matrix.group == 'g4'
       - run: node tests/replay_format2.cjs
         if: matrix.group == 'g4'
+      - run: node tests/fullscreen_landscape.cjs
+        if: matrix.group == 'g4'
       - run: node tests/motion.cjs
         if: matrix.group == 'g4'
       - run: node tests/library_tabs.cjs

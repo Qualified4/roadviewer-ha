@@ -471,7 +471,7 @@ async function issuePairing(){
  }finally{pairingIssuing=false;$('pairOpen').disabled=false;$('pairRenew').disabled=false;$('pairClose').disabled=false}
 }
 $('pairOpen').onclick=issuePairing;
-$('pairRenew').onclick=issuePairing;
+$('pairRenew').onclick=()=>{$('pairRenew').classList.remove('spin-once');void $('pairRenew').offsetWidth;$('pairRenew').classList.add('spin-once');issuePairing()};
 $('pairDialog').addEventListener('cancel',e=>{if(pairingIssuing)e.preventDefault()});
 $('pairCopy').onclick=async()=>{
  const code=$('pairCode').textContent,generation=pairingGeneration;if(!code)return;

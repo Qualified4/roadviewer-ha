@@ -33,6 +33,9 @@ const {settleLayout}=require('./browser-helpers.cjs');
   // A status response started before renewal must not replace the newly issued code.
   const heldReady=once(requests,'held',{signal:AbortSignal.timeout(5000)});hold=true;await heldReady;assert(held);
   await page.locator('#pairRenew').click();await page.waitForFunction(()=>document.getElementById('pairCode').textContent.endsWith('2'));
+  // The new-code arrow turns once per press, like the list's refresh button, and the turn ends cleanly.
+  assert.deepEqual(await page.locator('#pairRenew svg').evaluate(svg=>({width:svg.getAttribute('stroke-width'),turn:getComputedStyle(svg).animationName})),{width:'2',turn:'rv-refresh-turn'});
+  await page.waitForFunction(()=>!document.getElementById('pairRenew').classList.contains('spin-once'));
   await held.route.fulfill({json:held.json});await page.waitForFunction(()=>!pairingBusy);
   assert.equal(await page.locator('#pairCode').textContent(),pairing.code);assert.equal(issued,2);
   fail=true;await page.locator('#pairRenew').click();await page.waitForFunction(()=>document.getElementById('pairStatus').textContent==='코드 발급 실패'&&!document.getElementById('pairRenew').disabled);assert.equal(issued,2);

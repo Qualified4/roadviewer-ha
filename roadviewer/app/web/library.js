@@ -310,12 +310,16 @@ function reconcileLogs(parent,children){
 // started_at is when the recording began (absent when unknown); uploaded is only when the file arrived, and is labelled so.
 const epochDate=seconds=>{const date=Number.isFinite(seconds)?new Date(seconds*1000):null;return date&&!Number.isNaN(date.getTime())?date:null};
 const startDate=m=>epochDate(m?.started_at),uploadDate=m=>epochDate(m?.uploaded),logDate=m=>startDate(m)||uploadDate(m);
-const clockText=date=>date.toLocaleTimeString('ko-KR',{hour:'numeric',minute:'2-digit'});
-const shortClock=date=>date.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false});
+// toLocale*String builds a new formatter on every call, which dominated rendering a long list on phones; the same
+// formats are made once. localeText/localeDate equal toLocaleString()/toLocaleDateString('ko-KR').
+const dateFormat=(locale,options)=>{const format=new Intl.DateTimeFormat(locale,options);return date=>format.format(date)};
+const clockText=dateFormat('ko-KR',{hour:'numeric',minute:'2-digit'}),shortClock=dateFormat('ko-KR',{hour:'2-digit',minute:'2-digit',hour12:false});
+const fullDay=dateFormat('ko-KR',{month:'long',day:'numeric',weekday:'long'}),localeDate=dateFormat('ko-KR');
+const localeText=dateFormat(undefined,{year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric'});
 const dayKey=date=>date?`${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`:'none';
 function dayLabel(date){
  if(!date)return ['날짜 없음',''];
- const today=new Date(),yesterday=new Date(today.getFullYear(),today.getMonth(),today.getDate()-1),full=date.toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'long'});
+ const today=new Date(),yesterday=new Date(today.getFullYear(),today.getMonth(),today.getDate()-1),full=fullDay(date);
  return [dayKey(date)===dayKey(today)?'오늘':dayKey(date)===dayKey(yesterday)?'어제':'',(date.getFullYear()===today.getFullYear()?'':date.getFullYear()+'년 ')+full];
 }
 const durationText=seconds=>{const s=Math.max(0,Math.round(seconds)),h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}:${String(m).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`:`${m}:${String(s%60).padStart(2,'0')}`};
@@ -502,9 +506,10 @@ async function refresh({poll=false}={}){
    logRows.set(m.id,{...parts,signature,status:m.status,tags:m.tags||[],video:m.video,conversion_revision:m.conversion_revision,log:m,display:identity.display,search:searchText(m,identity)});
    return parts.row;
   });
-  const motion=window.RoadViewerMotion,before=new Map([...logRows].map(([id,cached])=>[id,motion.capture(cached.row)]));
+  // Only rows in an open card can move on screen; rows of folded cards (most of a long list) are not measured.
+  const motion=window.RoadViewerMotion,before=new Map([...logRows].filter(([,cached])=>cached.row.parentNode?.parentNode?.open).map(([id,cached])=>[id,motion.capture(cached.row)]));
   const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id);
-  arrangeLogGroups(data.logs,rows);renderChips();applyFilters();if(motion.allowed())rows.forEach(row=>motion.play(row,before.get(row.dataset.id)));
+  arrangeLogGroups(data.logs,rows);renderChips();applyFilters();if(motion.allowed())rows.forEach(row=>before.has(row.dataset.id)&&motion.play(row,before.get(row.dataset.id)));
  }catch(e){if(!request.signal.aborted)error(e.message)}finally{if(revision===listRevision){refreshing=false;$('refresh').classList.remove('is-loading')}}
 }
 async function refreshProgress(){
@@ -530,7 +535,7 @@ const FILTERS=[['all','전체',()=>true],['pinned','고정',m=>!!m.pinned],['unc
 let logFilter='all',tagFilter='',logQuery='';
 function searchText(m,identity){
  const date=logDate(m),uploaded=uploadDate(m),route=logRoute(m);
- return [identity.display,identity.original,route.key,route.title,...(m.tags||[]).map(tag=>tag.name),...(uploaded?[uploaded.toLocaleString()]:[]),...(date?[date.toLocaleString(),date.toLocaleDateString('ko-KR',{month:'long',day:'numeric',weekday:'long'}),dayLabel(date)[0],date.toLocaleDateString('ko-KR'),clockText(date)]:[])].join('\n').toLowerCase();
+ return [identity.display,identity.original,route.key,route.title,...(m.tags||[]).map(tag=>tag.name),...(uploaded?[localeText(uploaded)]:[]),...(date?[localeText(date),fullDay(date),dayLabel(date)[0],localeDate(date),clockText(date)]:[])].join('\n').toLowerCase();
 }
 const tagMatches=(tags,value)=>!value||(value==='untagged'?!tags.length:tags.some(tag=>'tag:'+tagKey(tag.name)===value));
 function chip(value,label,count,pressed,color){
@@ -576,8 +581,10 @@ function applyFilters(){
  $('tagFilterStatus').hidden=!active;$('tagFilterStatus').textContent=shown?`${shown}개 로그 표시 중`:tagFilter&&logFilter==='all'&&!query?'선택한 태그에 해당하는 로그가 없습니다.':'조건에 맞는 로그가 없습니다.';
  bulkSelection?.sync();
 }
-$('refresh').onclick=()=>{const button=$('refresh');button.classList.remove('spin-once');void button.offsetWidth;button.classList.add('spin-once');refresh()};
-$('refresh').addEventListener('animationend',e=>{if(e.animationName==='rv-refresh-turn')$('refresh').classList.remove('spin-once')});
+// Refresh-style buttons turn their arrow once per press (restarted when pressed again mid-turn).
+const spinOnce=button=>{button.classList.remove('spin-once');void button.offsetWidth;button.classList.add('spin-once')};
+for(const id of ['refresh','pairRenew'])$(id).addEventListener('animationend',e=>{if(e.animationName==='rv-refresh-turn')$(id).classList.remove('spin-once')});
+$('refresh').onclick=()=>{spinOnce($('refresh'));refresh()};
 function abortable(promise,signal){
  if(!signal)return promise;
  return new Promise((resolve,reject)=>{
