@@ -1,28 +1,30 @@
 """The wall-clock start of a segment (epoch seconds), from the clocks its log recorded.
 
-GPS time is the source of truth: a comma device often starts a route before its system clock is synced, so
-initData and clocks then carry a stale time (near the last shutdown) in every segment of that route. They are
-used only when the log has no GPS fix, and the start is then marked unreliable (source 'device').
-logMonoTime is continuous within a route (one boot), so gps_offset (unix - logMonoTime/1e9) of one segment also
-dates the other segments of its route (server.route_starts)."""
+Sources, best first: a GPS fix ('gps'); the system clock as clocks.wallTimeNanos reports it ('clock'); initData
+('device'). initData is a copy of the route's start record in every segment, written when the route began, often
+before the system clock was synced (devices without a GPS fix then show a time weeks old), so it is the last resort,
+and its logMonoTime is the route's, not the segment's: the segment's first logMonoTime ignores it.
+logMonoTime is continuous within a route (one boot), so an offset (wall - logMonoTime/1e9) from one segment dates
+every segment of its route (server.route_starts): gps_offset from any GPS segment, else clock_offset from the
+route's latest segment (by then the clock has long been synced)."""
 from pathlib import Path
 import struct,time
 
 EARLIEST=1420070400.0 # 2015-01-01: a device clock before this was never set.
 SCAN_BYTES=2*1024*1024 # Compressed bytes read from the start of an rlog.zst.
 SCAN_RAW=12*1024*1024  # Decompressed bytes scanned at most (GPS may come a few seconds in).
-START_V=2  # summary.json start_v: started_at from GPS first, with start_source, first_mono and gps_offset.
-FIELDS=('started_at','start_source','first_mono','gps_offset','start_v')
+START_V=3  # summary.json start_v: GPS, then clocks, then initData; first_mono without initData; clock_offset.
+FIELDS=('started_at','start_source','first_mono','gps_offset','clock_offset','start_v')
 
 def plausible(seconds,now=None):
  return isinstance(seconds,(int,float)) and EARLIEST<=seconds<=(time.time() if now is None else now)+86400
 
 def pick(first_mono,init=None,clocks=None,gps=None,now=None):
  """(start, source) or (None, None). Each source is (logMonoTime, wall seconds) or None, in order of preference:
- the first valid GPS fix ('gps'), then initData.wallTimeNanos and the first clocks.wallTimeNanos ('device').
+ the first valid GPS fix ('gps'), then the latest clocks.wallTimeNanos read ('clock'), then initData ('device').
  The wall time is moved back to the segment's first logMonoTime; implausible values (before 2015, more than a
  day ahead) are skipped."""
- for source,name in ((gps,'gps'),(init,'device'),(clocks,'device')):
+ for source,name in ((gps,'gps'),(clocks,'clock'),(init,'device')):
   if not source:continue
   mono,wall=source
   if not plausible(wall,now):continue
@@ -34,16 +36,20 @@ def pick_start(first_mono,init=None,clocks=None,gps=None,now=None):return pick(f
 
 class Starts:
  """Collects the candidates while a log is read (decoder.prepare and scan below)."""
- def __init__(self):self.first=None;self.init=self.clocks=self.gps=None
+ def __init__(self):self.first=self.init_mono=None;self.init=self.clocks=self.gps=None
  def add(self,e,kind):
   mono=e.logMonoTime
-  if self.first is None or mono<self.first:self.first=mono
-  if kind=='initData' and self.init is None:
+  if kind=='initData':
+   # The route's start record, copied into each segment: its time is the route's, not this segment's.
+   if self.init_mono is None:self.init_mono=mono
    wall=e.initData.wallTimeNanos
-   if wall:self.init=(mono,wall/1e9)
-  elif kind=='clocks' and self.clocks is None:
+   if wall and self.init is None:self.init=(mono,wall/1e9)
+   return
+  if self.first is None or mono<self.first:self.first=mono
+  if kind=='clocks':
+   # The latest reading: the further in, the likelier the clock has been synced.
    wall=e.clocks.wallTimeNanos
-   if wall:self.clocks=(mono,wall/1e9)
+   if wall and plausible(wall/1e9):self.clocks=(mono,wall/1e9)
   elif kind in ('gpsLocationExternal','gpsLocation') and self.gps is None and e.valid:
    fix=getattr(e,kind)
    if fix.hasFix and fix.unixTimestampMillis>0 and plausible(fix.unixTimestampMillis/1e3):
@@ -52,9 +58,11 @@ class Starts:
  def start(self,now=None):return self.fields(now)['started_at']
  def fields(self,now=None):
   """What summary.json stores (FIELDS); started_at None when no clock is usable."""
-  start,source=(None,None) if self.first is None else pick(self.first,self.init,self.clocks,self.gps,now)
-  offset=round(self.gps[1]-self.gps[0]/1e9,6) if source=='gps' else None
-  return {'started_at':start,'start_source':source,'first_mono':self.first,'gps_offset':offset,'start_v':START_V}
+  first=self.first if self.first is not None else self.init_mono
+  start,source=(None,None) if first is None else pick(first,self.init,self.clocks,self.gps,now)
+  gps=round(self.gps[1]-self.gps[0]/1e9,6) if source=='gps' else None
+  clock=round(self.clocks[1]-self.clocks[0]/1e9,6) if self.clocks else None
+  return {'started_at':start,'start_source':source,'first_mono':first,'gps_offset':gps,'clock_offset':clock,'start_v':START_V}
 
 _schema=[]
 def schema():

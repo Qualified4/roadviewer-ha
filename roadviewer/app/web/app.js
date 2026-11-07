@@ -312,18 +312,30 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
  data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;t=0;const source=setupVideoSources();if(source){selectVideo(source)}else{videoSource=null;setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
-$('seek').addEventListener('pointerdown',e=>{if(loading||e.button!==0)return;seekPointer=e.pointerId;pauseVideo();if(e.pointerType==='touch'){try{$('seek').setPointerCapture(e.pointerId)}catch{}seekFromPointer(e)}});
-// Touch drags are driven from the finger position itself (the slider has touch-action:none), so a slightly diagonal drag
-// is never handed to the page scroll on Android and the thumb follows the finger wherever it goes.
-function seekFromPointer(e){
+// Mouse and pen drag the native slider. Touch is driven from touch events on the whole seek bar: the browser's default
+// (page scroll, the native slider, and the pointercancel an Android WebView sends when it claims the gesture) is
+// prevented, and the time follows the finger's x wherever it moves until the finger lifts.
+$('seek').addEventListener('pointerdown',e=>{if(loading||e.button!==0||e.pointerType==='touch')return;seekPointer=e.pointerId;pauseVideo()});
+function seekFromX(clientX){
  const input=$('seek'),r=input.getBoundingClientRect(),thumb=16,min=Number(input.min),max=Number(input.max);
  if(!(r.width>thumb)||!(max>min))return;
- const fraction=Math.max(0,Math.min(1,(e.clientX-r.left-thumb/2)/(r.width-thumb)));
+ const fraction=Math.max(0,Math.min(1,(clientX-r.left-thumb/2)/(r.width-thumb)));
  input.value=String(min+fraction*(max-min));input.dispatchEvent(new Event('input',{bubbles:true}));
 }
-$('seek').addEventListener('pointermove',e=>{if(e.pointerType==='touch'&&e.pointerId===seekPointer)seekFromPointer(e)});
+{
+ const bar=document.querySelector('.seekbar');let touchId=null;
+ const own=e=>[...e.changedTouches].find(t=>t.identifier===touchId);
+ bar.addEventListener('touchstart',e=>{
+  if(loading||touchId!==null||e.target.closest('.bookmark-marker'))return;
+  const t=e.changedTouches[0];touchId=t.identifier;e.preventDefault();
+  seekPointer='touch';pauseVideo();seekFromX(t.clientX);
+ },{passive:false});
+ bar.addEventListener('touchmove',e=>{const t=own(e);if(!t)return;e.preventDefault();seekFromX(t.clientX)},{passive:false});
+ const end=e=>{const t=own(e);if(!t)return;touchId=null;if(seekPointer==='touch')finishSeekDrag()};
+ bar.addEventListener('touchend',end);bar.addEventListener('touchcancel',end);
+}
 function finishSeekDrag(){if(seekPointer===null)return;seekPointer=null;seekReleased=true;setTime(Number($('seek').value));seekReleased=false;last=performance.now()}
-for(const event of ['pointerup','pointercancel'])window.addEventListener(event,e=>{if(e.pointerId===seekPointer)finishSeekDrag()});
+for(const event of ['pointerup','pointercancel'])window.addEventListener(event,e=>{if(e.pointerType!=='touch'&&e.pointerId===seekPointer)finishSeekDrag()});
 window.addEventListener('blur',finishSeekDrag);
 v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});

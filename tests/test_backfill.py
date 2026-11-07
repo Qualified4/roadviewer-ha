@@ -76,12 +76,13 @@ class NasBackfillTests(unittest.TestCase):
   e.gpsLocationExternal.hasFix=True;e.gpsLocationExternal.unixTimestampMillis=int((START+2)*1000);messages.append(e.to_bytes())
   p=self.log('e'*32,{'rlog.zst':zstandard.ZstdCompressor().compress(b''.join(messages))});summary(p,started_at=stale)
   q=self.log('f'*32,{'rlog.zst':b'not a log'});summary(q,started_at=stale)
-  done=self.log('9'*32,{'rlog.zst':rlog()});summary(done,started_at=START+5,start_source='gps',start_v=2)
+  done=self.log('9'*32,{'rlog.zst':rlog()});summary(done,started_at=START+5,start_source='gps',start_v=wall_clock.START_V)
   with self.assertLogs('backfill','WARNING'):self.assertEqual(self.worker.run_once(),(3,False))
-  self.assertEqual({k:saved(p)[k] for k in wall_clock.FIELDS},{'started_at':START,'start_source':'gps','first_mono':1_000_000_000,'gps_offset':START-1,'start_v':2})
+  # The segment's first message is the GPS one (initData is the route's record), so the start is that fix's time.
+  self.assertEqual({k:saved(p)[k] for k in wall_clock.FIELDS},{'started_at':START+2,'start_source':'gps','first_mono':3_000_000_000,'gps_offset':START-1,'clock_offset':None,'start_v':3})
   # No readable log: the old start is kept, marked as the device clock, and not tried again.
-  self.assertEqual({k:saved(q)[k] for k in wall_clock.FIELDS},{'started_at':stale,'start_source':'device','first_mono':None,'gps_offset':None,'start_v':2})
-  self.assertEqual(saved(done)['started_at'],START+5) # Already start_v 2: not read again.
+  self.assertEqual({k:saved(q)[k] for k in wall_clock.FIELDS},{'started_at':stale,'start_source':'device','first_mono':None,'gps_offset':None,'clock_offset':None,'start_v':3})
+  self.assertEqual(saved(done)['started_at'],START+5) # Already the current start_v: not read again.
   with patch.object(wall_clock,'scan_bytes',side_effect=AssertionError('read again')):self.assertEqual(self.worker.run_once(),(0,False))
  def test_result_dropped_when_the_conversion_changed_meanwhile(self):
   p=self.log('d'*32,{'rlog.zst':rlog()})
