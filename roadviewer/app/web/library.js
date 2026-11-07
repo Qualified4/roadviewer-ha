@@ -329,6 +329,13 @@ function setThumbnail(box,url){
  box.querySelector('img')?.remove();if(!url)return;
  const img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.onerror=()=>img.remove();img.src=url;box.prepend(img);
 }
+// The card shows the drive's first picture: the lowest-numbered ready segment that has (or will have) a thumbnail,
+// whatever order the server lists the segments in.
+function cardThumbnail(group){
+ let best=null,bestSegment=Infinity;
+ for(const log of group.logs){if(log.status!=='ready'||!thumbnailUrl(log))continue;const n=logRoute(log).segment??Infinity;if(n<bestSegment){best=log;bestSegment=n}}
+ return best;
+}
 function thumbnailBox(className){const box=document.createElement('div');box.className=className;box.insertAdjacentHTML('beforeend',`<span class="thumb-placeholder">${CAMERA_ICON}</span>`);return box}
 const STATUS_BUCKETS=[['ready','재생 가능'],['processing','처리 중'],['queued','대기 중'],['unconverted','미변환'],['error','변환 실패']];
 const ROUTE_BAR_BLOCKS=20;
@@ -355,7 +362,7 @@ function syncRouteBar(group){
 }
 // The route card summarises its segments; only changed parts are rebuilt so polling never flickers.
 function syncRouteCard(group,route){
- const logs=group.logs,thumb=logs.find(log=>log.status==='ready'&&thumbnailUrl(log)),duration=logs.reduce((sum,log)=>sum+(Number.isFinite(log.duration)?log.duration:0),0);
+ const logs=group.logs,thumb=cardThumbnail(group),duration=logs.reduce((sum,log)=>sum+(Number.isFinite(log.duration)?log.duration:0),0);
  const statusSignature=JSON.stringify([route.title,group.firstLog.id,group.firstLog.started_at,group.firstLog.uploaded,logs.map(log=>[log.id,log.status,log.duration,log.tags,log.drive_summary,log.storage_locations,log.video_downloads?.length,log.name])]);
  setThumbnail(group.thumb,thumbnailUrl(thumb));
  if(group.cardSignature!==statusSignature){

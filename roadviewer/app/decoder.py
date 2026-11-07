@@ -152,8 +152,8 @@ def prepare(value,route=None):
   return data
  key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str(media(src,name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if media(src,name).is_file())+'v28-runtime-geometry-rear1').encode()).hexdigest()[:20]
  dest=prepared_dir(src);dest.mkdir(parents=True,exist_ok=True)
- def save_summary(data,drive,started_at):
-  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{}),'drive_summary':drive,'started_at':started_at},ensure_ascii=False))
+ def save_summary(data,drive,start):
+  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{}),'drive_summary':drive,**start},ensure_ascii=False))
  print('로그 읽는 중:',src,flush=True)
  report('log_prepare',100)
  compressed_size=max(src.stat().st_size,1)
@@ -341,9 +341,11 @@ def prepare(value,route=None):
  report('summary_save',0)
  try:drive=drive_summary(telemetry)
  except Exception as exc:drive=None;print('경고: 주행 요약을 계산하지 못했습니다:',exc,flush=True)
- try:started_at=starts.start()
- except Exception as exc:started_at=None;print('경고: 주행 시작 시각을 읽지 못했습니다:',exc,flush=True)
- save_summary(data,drive,started_at)
+ # started_at, start_source, first_mono, gps_offset, start_v (wall_clock.Starts.fields). Without start_v the
+ # backfill tries again.
+ try:start=starts.fields()
+ except Exception as exc:start={'started_at':None};print('경고: 주행 시작 시각을 읽지 못했습니다:',exc,flush=True)
+ save_summary(data,drive,start)
  report('summary_save',100)
  print('준비 완료:',len(frames),'개 모델 프레임',flush=True)
  return dest,attach(data)

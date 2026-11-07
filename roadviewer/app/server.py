@@ -526,7 +526,8 @@ def recording_order(m):
  return (0,m.get('uploaded',0),'',0,m['id'])
 
 SKIPPED_EVENTS_WARNING='지원하지 않는 새 로그 이벤트'
-LIST_FIELDS=('drive_summary','started_at')  # Of prepared/summary.json, shown in the list.
+LIST_FIELDS=('drive_summary','started_at','start_source','first_mono','gps_offset')  # Of prepared/summary.json, for the list.
+ROUTE_START_FIELDS=('first_mono','gps_offset')  # Used by route_starts only, not sent.
 def recording_summary(p,m):
  # Read only: conversion writes these fields, and the backfill (backfill.py) fills them in for older logs.
  # The list never opens telemetry, logs or videos.
@@ -617,6 +618,26 @@ def list_snapshot():
  for id in set(list_rows)-ids:list_rows.pop(id,None)
  return items,used+storage_used_outside(ids)
 
+def route_starts(items):
+ """Dates the segments of a route that have no GPS fix of their own from one that has (the nearest one): within
+ a route (one boot) logMonoTime is continuous, so started_at = first_mono/1e9 + that segment's gps_offset. A
+ route without any GPS keeps its device times. Changes the items (copies of the cached rows) in place."""
+ routes={}
+ for item in items:
+  order=recording_order(item)
+  if order[0]==1:routes.setdefault(order[1:3],[]).append((order[3],item))
+ for segments in routes.values():
+  gps=[(number,item['gps_offset']) for number,item in segments if item.get('start_source')=='gps' and isinstance(item.get('gps_offset'),(int,float))]
+  if not gps:continue
+  for number,item in segments:
+   mono=item.get('first_mono')
+   if item.get('start_source')=='gps' or not isinstance(mono,int):continue
+   offset=min(gps,key=lambda row:abs(row[0]-number))[1];start=round(mono/1e9+offset,3)
+   if wall_clock.plausible(start):item.update(started_at=start,start_source='gps')
+ for item in items:
+  for key in ROUTE_START_FIELDS:item.pop(key,None)
+ return items
+
 def warm_list():
  # At start: the first list after a restart is served from the cache too.
  try:list_snapshot()
@@ -626,6 +647,7 @@ def warm_list():
 def logs():
  cleanup_uploads()
  items,used=list_snapshot()
+ route_starts(items)
  return jsonify(logs=sorted(items,key=recording_order,reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=used,concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 @app.route('/api/upload',methods=['POST'])
 def upload():

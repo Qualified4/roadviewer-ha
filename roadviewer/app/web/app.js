@@ -312,7 +312,16 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
  data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;t=0;const source=setupVideoSources();if(source){selectVideo(source)}else{videoSource=null;setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
-$('seek').addEventListener('pointerdown',e=>{if(loading||e.button!==0)return;seekPointer=e.pointerId;pauseVideo()});
+$('seek').addEventListener('pointerdown',e=>{if(loading||e.button!==0)return;seekPointer=e.pointerId;pauseVideo();if(e.pointerType==='touch'){try{$('seek').setPointerCapture(e.pointerId)}catch{}seekFromPointer(e)}});
+// Touch drags are driven from the finger position itself (the slider has touch-action:none), so a slightly diagonal drag
+// is never handed to the page scroll on Android and the thumb follows the finger wherever it goes.
+function seekFromPointer(e){
+ const input=$('seek'),r=input.getBoundingClientRect(),thumb=16,min=Number(input.min),max=Number(input.max);
+ if(!(r.width>thumb)||!(max>min))return;
+ const fraction=Math.max(0,Math.min(1,(e.clientX-r.left-thumb/2)/(r.width-thumb)));
+ input.value=String(min+fraction*(max-min));input.dispatchEvent(new Event('input',{bubbles:true}));
+}
+$('seek').addEventListener('pointermove',e=>{if(e.pointerType==='touch'&&e.pointerId===seekPointer)seekFromPointer(e)});
 function finishSeekDrag(){if(seekPointer===null)return;seekPointer=null;seekReleased=true;setTime(Number($('seek').value));seekReleased=false;last=performance.now()}
 for(const event of ['pointerup','pointercancel'])window.addEventListener(event,e=>{if(e.pointerId===seekPointer)finishSeekDrag()});
 window.addEventListener('blur',finishSeekDrag);
@@ -796,50 +805,73 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
  }
  function sleepLater(){clearTimeout(timer);timer=setTimeout(()=>{if(busy())return sleepLater();root.classList.remove('hud-awake');sync()},SHOW)}
  function wake(){root.classList.add('hud-awake');sleepLater();sync()}
- // Any touch on the video or its transport bar (pointer, touch or click, whichever the browser delivers) wakes them.
- for(const type of ['pointerdown','touchstart','click'])cameraPanel.addEventListener(type,wake,{capture:true,passive:true});
- stage.addEventListener('pointermove',e=>{if(e.pointerType==='mouse')wake()});
+ // A tap on the picture itself toggles them while playing (shown → hidden at once, hidden → shown); a tap on a control or
+ // on the transport bar only keeps them up. One tap delivers pointerdown, touchstart and click, whichever the browser
+ // supports, so only the first of them within a short window counts.
+ let lastTap=0,dismissed=-1e9;
+ function tap(e){
+  const now=performance.now();if(now-lastTap<450)return;lastTap=now;
+  const onPicture=stage.contains(e.target)&&!e.target.closest('button,select,input,label,a,summary,[role=button],.glass,.video-tools,.video-title,.video-hud,.video-messages');
+  if(onPicture&&playing()&&!root.classList.contains('hud-idle')){clearTimeout(timer);root.classList.remove('hud-awake');dismissed=now;sync();return}
+  wake();
+ }
+ for(const type of ['pointerdown','touchstart','click'])cameraPanel.addEventListener(type,tap,{capture:true,passive:true});
+ // Mouse movement over the video shows them too, but not the jitter of the click that just hid them.
+ stage.addEventListener('pointermove',e=>{if(e.pointerType==='mouse'&&performance.now()-dismissed>800)wake()});
  stage.addEventListener('focusin',wake);appBar.addEventListener('focusin',sync);appBar.addEventListener('focusout',()=>setTimeout(sync));
  new MutationObserver(()=>{if(!playing()){clearTimeout(timer);root.classList.remove('hud-awake')}sync()}).observe($('play'),{attributes:true,attributeFilter:['data-playing']});
  short.addEventListener?.('change',sync);document.addEventListener('fullscreenchange',sync);sync();
 })();
 
-// The video stays in view while the analysis scrolls: beside it (side by side) or above it (stacked). Stacked, scrolling down
-// into the analysis shrinks the sticky video to 60% (narrower and centred on wide screens, letterboxed on phones), and on short
-// phone screens (Fold cover display) the transport bar also folds into one row (play · seek · time). Scrolling back up
-// restores the bar, the top of the page restores the video, and a tap on the folded bar's free area opens it again.
+// The video stays in view while the analysis scrolls: beside it (side by side) or above it (stacked). Stacked, the video
+// collapses with the scroll like a collapsing header: its place in the page keeps the full height, the card sticks once the
+// video has given up 40% of its height, and the picture's height (and width on wide screens) follows the scroll position
+// pixel for pixel, so the page moves exactly with the finger and the video keeps whatever size the scroll stopped at.
+// On short phone screens (Fold cover display) the transport bar also folds into one row (play · seek · time) while
+// scrolling down; scrolling up or a tap on its free area opens it again.
 (()=>{
  const root=document.body,stage=$('videoStage'),road=document.querySelector('.road-panel'),shortPhone=matchMedia('(max-width:719px) and (max-height:720px)');
+ const MIN=.6;
  function set(name,on){if(root.classList.contains(name)!==on)root.classList.toggle(name,on)}
  // Side by side (analysis to the right of the video) or stacked, from the actual layout; horizontal offsets ignore sticky shifts.
  function layout(){
   const stacked=road.offsetLeft<cameraPanel.offsetLeft+cameraPanel.offsetWidth-1;
   set('layout-stacked',stacked);set('layout-side',!stacked);
  }
- let lastY=scrollY,travel=0;
- // The full height follows the full (unshrunk) width and the picture's aspect ratio.
- let fullWidth=0;
+ let lastY=scrollY,travel=0,fullWidth=0,fullHeight=0,shrink=-1,frame=0;
+ // The full size follows the uncollapsed width and the picture's aspect ratio.
  function sizeVideo(){
-  if(!root.classList.contains('media-shrunk'))fullWidth=stage.getBoundingClientRect().width||fullWidth;if(!fullWidth)return;
-  root.style.setProperty('--video-full-h',`${Math.round(fullWidth/videoAspect())}px`);
+  if(shrink<=0)fullWidth=stage.getBoundingClientRect().width||fullWidth;if(!fullWidth)return;
+  fullHeight=Math.round(fullWidth/videoAspect());
+  root.style.setProperty('--video-full-h',fullHeight+'px');root.style.setProperty('--shrink-range',Math.round(fullHeight*(1-MIN))+'px');
  }
  v.addEventListener('loadedmetadata',sizeVideo);
+ // How far the card has scrolled under the app bar = how much height the video gives up.
+ function collapse(){
+  frame=0;
+  if(!root.classList.contains('compact-media')||!fullHeight){if(shrink!==0){shrink=0;root.style.setProperty('--shrink-d','0px');set('media-shrunk',false)}return}
+  const barBottom=Math.max(0,appBar.getBoundingClientRect().bottom),range=fullHeight*(1-MIN);
+  const d=Math.round(Math.max(0,Math.min(range,barBottom-cameraPanel.getBoundingClientRect().top)));
+  if(d===shrink)return;shrink=d;
+  root.style.setProperty('--shrink-d',d+'px');set('media-shrunk',d>range/2);
+ }
+ const schedule=()=>{if(!frame)frame=requestAnimationFrame(collapse)};
  function update(){
   const on=root.classList.contains('layout-stacked')&&!document.fullscreenElement;
-  set('compact-media',on);
-  if(!on){set('media-shrunk',false);set('transport-mini',false);return}
+  set('compact-media',on);schedule();
+  if(!on){set('transport-mini',false);return}
   const y=scrollY,delta=y-lastY;lastY=y;
-  // An open menu or dialog keeps the layout still, so the menu it hangs from does not move under the pointer.
+  // An open menu or dialog keeps the transport bar still, so nothing moves under the pointer.
   if(appBar.querySelector('details[open]')||document.querySelector('dialog[open]')){travel=0;return}
   travel=Math.sign(delta)===Math.sign(travel)?travel+delta:delta;
-  if(y<8){set('media-shrunk',false);set('transport-mini',false);travel=0;return}
-  if(y>60)set('media-shrunk',true);
+  if(y<8){set('transport-mini',false);travel=0;return}
   if(travel>24&&y>80&&shortPhone.matches)set('transport-mini',true);
   else if(travel<-32)set('transport-mini',false);
  }
  addEventListener('scroll',update,{passive:true});shortPhone.addEventListener?.('change',update);document.addEventListener('fullscreenchange',update);
  new ResizeObserver(()=>{layout();update()}).observe(document.getElementById('replayViews'));
- new ResizeObserver(()=>{if(!root.classList.contains('media-shrunk'))sizeVideo()}).observe(stage);
+ new ResizeObserver(()=>{if(shrink<=0)sizeVideo();schedule()}).observe(stage);
+ new ResizeObserver(schedule).observe(appBar);
  transport.addEventListener('pointerdown',e=>{if(root.classList.contains('transport-mini')&&!e.target.closest('button,input,select,label,a,.seekbar')){root.classList.remove('transport-mini');travel=0}});
  layout();sizeVideo();update();
 })();

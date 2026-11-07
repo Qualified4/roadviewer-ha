@@ -40,8 +40,11 @@ async function serve(route){
  return route.fulfill({body:fs.readFileSync(path.join('roadviewer/app/web',name)),contentType:type});
 }
 async function assertFlatControls(page){
- const controls=await page.locator('button,select,input:not([type=checkbox]):not([type=radio]),.replay,.filter-chip,.log-search,.auto-convert-control span').evaluateAll(es=>es.filter(e=>e.getBoundingClientRect().width).map(e=>({id:e.id||e.className,shadow:getComputedStyle(e).boxShadow,image:getComputedStyle(e).backgroundImage})));
- assert.deepEqual(controls.filter(e=>e.shadow!=='none'||e.image!=='none'),[],'visible controls are flat');
+ // As in the design: raised buttons are lit gradients with a soft ring and shadow, never a hard outline.
+ const controls=await page.locator('button').evaluateAll(es=>es.filter(e=>e.getBoundingClientRect().width).map(e=>{const c=getComputedStyle(e);return {id:e.id||e.className||e.getAttribute('aria-label')||e.textContent.trim().slice(0,24)||e.parentElement.className,image:c.backgroundImage,shadow:c.boxShadow,border:c.borderTopStyle!=='none'&&parseFloat(c.borderTopWidth)>0&&!/rgba\(0, 0, 0, 0\)|transparent/.test(c.borderTopColor)}}));
+ assert(controls.some(e=>/gradient/.test(e.image)),'raised buttons use the lit gradient');
+ {const flat=controls.filter(e=>/gradient/.test(e.image)&&e.shadow==='none').map(e=>e.id);assert.deepEqual(flat,[],'raised buttons keep their depth: '+JSON.stringify(flat))}
+ {const lined=controls.filter(e=>e.border).map(e=>e.id);assert.deepEqual(lined,[],'no hard outlines on buttons: '+JSON.stringify(lined))}
 }
 (async()=>{
  fs.mkdirSync(shots,{recursive:true});const browser=await chromium.launch({headless:true});
@@ -70,7 +73,9 @@ async function assertFlatControls(page){
      for(const video of [[0,0,0],[255,255,255]]){const bg=over(fill,video.map(v=>Math.min(255,v*bright)));worst.push([sel,+ratio(over(rgba(getComputedStyle(e).color),bg),bg).toFixed(2)])}}
     return worst});
    assert(contrast.every(([,r])=>r>=4.5),'over-video text meets 4.5:1 on its pill over black and white footage: '+JSON.stringify(contrast));
-   assert(!/inset/.test(hud.card),'static cards have no inset highlight: '+hud.card);
+   if(width>=720)assert(hud.card!=='none','cards keep their soft shadow: '+hud.card);
+   const play=await page.evaluate(()=>{const c=getComputedStyle(document.getElementById('play'));return [c.backgroundImage,c.color]});
+   assert(/linear-gradient/.test(play[0])&&play[1]==='rgb(4, 36, 26)','play button uses the design mint gradient: '+play);
    assert.equal(card.bar,theme==='light'?'rgba(255, 255, 255, 0.68)':'rgba(18, 20, 24, 0.42)','transport glass fill');assert.equal(card.stage,'rgb(6, 9, 13)');
    if(theme==='light'){assert(['rgba(0, 0, 0, 0)','rgb(238, 240, 243)'].includes(card.card),'no white card around the video: '+card.card);assert.equal(card.text,'rgb(20, 23, 28)')}
    // The bookmark marker is centred on the seek track.

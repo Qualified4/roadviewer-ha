@@ -29,6 +29,10 @@
 :is(button.primary,.play-button)>.rv-ripple>span{color:#fff;opacity:.22}
 @keyframes rv-ripple{from{transform:scale(.2)}to{transform:scale(1)}}
 .rv-pressed{opacity:.7}
+/* Page change in progress (navigation.js, after 120ms): a slim mint line sweeping along the top edge. */
+html.rv-navigating::after{content:"";position:fixed;z-index:10000;top:0;left:0;right:0;height:2px;pointer-events:none;background:linear-gradient(90deg,transparent,var(--accent,#3DCB92),transparent) 0 0/40% 100% no-repeat;animation:rv-nav-sweep 1s linear infinite}
+@keyframes rv-nav-sweep{from{background-position:-40% 0}to{background-position:140% 0}}
+@media(prefers-reduced-motion:reduce){html.rv-navigating::after{animation:none;background:var(--accent,#3DCB92);opacity:.6}}
 
 @media (prefers-reduced-motion:no-preference){
 

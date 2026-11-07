@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.2**.
+This guide describes **1.0.3**.
 
 [한국어](DOCS.md) · English
 
@@ -196,7 +196,7 @@ The replay page has a compact app bar, controls over the video, a floating playb
 - **Top right:** vehicle speed (`carState.vEgo`) and the steering-wheel state; when the driver intervenes in steering, an **개입** (takeover) ring surrounds the wheel.
 - **Bottom right:** fullscreen.
 
-While playing, the title, the bottom-left controls and fullscreen fade out; touching the video or moving the mouse shows them for a few seconds. On touch or short screens the app bar also folds away while playing and returns on pause. The video is sized to the screen height so the floating playback bar never covers it.
+While playing, the title, the bottom-left controls and fullscreen fade out; touching the video or moving the mouse shows them for a few seconds, and touching the video again while they show hides them at once. On touch or short screens the app bar also folds away while playing and returns on pause. The video is sized to the screen height so the floating playback bar never covers it.
 
 The **playback bar** floats at the bottom while scrolling.
 
@@ -207,7 +207,7 @@ The **playback bar** floats at the bottom while scrolling.
 
 Short boundary mismatches are tolerated; real gaps or missing tails are not invented.
 
-Both layout toggles off means automatic responsive layout. **좌우 분할** shows video and analysis side by side; **상하 분리** stacks them. Side by side, the video stays under the app bar while only the analysis scrolls; stacked, the video sticks to the top and shrinks to 60% while scrolling down, returning at the top. On short phone screens (such as the Fold cover display) the playback bar also folds into one row (play, seek, time) while scrolling down and opens again on scrolling up or tapping its free area. **보기 → 화면 폭…** opens a stable slider dialog:
+Both layout toggles off means automatic responsive layout. **좌우 분할** shows video and analysis side by side; **상하 분리** stacks them. Side by side, the video stays under the app bar while only the analysis scrolls; stacked, the video sticks to the top and shrinks with the scroll down to 60% of its height, keeping whatever size the scroll stops at and growing back as you scroll up. On short phone screens (such as the Fold cover display) the playback bar also folds into one row (play, seek, time) while scrolling down and opens again on scrolling up or tapping its free area. **보기 → 화면 폭…** opens a stable slider dialog:
 
 | Viewport | Width adjustment | Default |
 |---|---|---|

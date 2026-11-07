@@ -4,6 +4,15 @@
 
 These are the current 0.13.x release notes. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.3
+
+- Drive start times come from GPS time. A device clock not yet set at start-up no longer puts different days' drives at the same time and date; segments without GPS are corrected from another segment of the same drive. Existing logs (Drive and NAS too) are recalculated in the background.
+- Drive cards take their thumbnail from the first segment instead of the last.
+- Stacked, the video shrinks and grows exactly with the scroll position, so the page follows the finger 1:1; on the cover display the 차선·도로 tab scrolls to its end.
+- While playing, touching the video again while the controls show hides them at once. The playback bar can be dragged by touch.
+- Buttons and cards regain the design's depth and the play button its mint gradient. The screen-mode switch has one consistent shape and its highlight slides to the chosen mode.
+- Back responds at once with a progress line at the top and returns faster, as the library page is fetched ahead.
+
 ## 1.0.2
 
 - Over-video controls use the same glass as the magazine home's tab bar: blur only (no milky brightening) and a 1px rim lit along the top instead of an even white outline. The quality chooser keeps its chevron.

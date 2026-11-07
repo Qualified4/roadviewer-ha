@@ -198,7 +198,16 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    assert(Math.abs(bar.y)<1,'app bar sticks to the top at '+width);
    assert(await page.locator('#logNavigation').isVisible()&&await page.locator('#pinLog').isVisible(),'no folded navigation');
    const stuck=await page.locator('.camera-panel').boundingBox();
-   if(width<720)assert(Math.abs(stuck.y-(bar.y+bar.height))<1.5,'phone video stays under the app bar');
+   if(width<720){
+    // Stacked phones: the card slides 40% under the app bar and the video fills the rest, right under the bar.
+    const shown=await page.locator('#videoStage').boundingBox(),full=await page.evaluate(()=>parseFloat(document.querySelector('.replay-page').style.getPropertyValue('--video-full-h')));
+    assert(Math.abs(shown.y-(bar.y+bar.height))<1.5,'phone video stays under the app bar: '+JSON.stringify([shown,bar]));
+    assert(Math.abs(shown.height-full*.6)<1.5,'scrolled past the collapse range, the video keeps 60% of its height: '+JSON.stringify([shown.height,full]));
+    await page.evaluate(()=>scrollTo(0,20));await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+    const partial=await page.locator('#videoStage').boundingBox();
+    assert(Math.abs(partial.height-(full-20))<1.5,'the video height follows the scroll position pixel for pixel: '+JSON.stringify([partial.height,full]));
+    await page.evaluate(()=>scrollTo(0,400));await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+   }
    else assert(Math.abs(stuck.y-(bar.y+bar.height+12))<1.5,'desktop video stays beside the scrolling analysis: '+JSON.stringify([stuck,bar]));
    await page.evaluate(()=>{document.getElementById('roadView').style.minHeight='';scrollTo(0,0)});
   }
