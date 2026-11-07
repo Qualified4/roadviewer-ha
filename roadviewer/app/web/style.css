@@ -147,7 +147,7 @@ i.model-path{background:var(--map-path)}
 
 
 /* The video and projected overlay must share the same box at every layout width. */
-.video-wrap{overflow:hidden}
+.video-wrap{overflow:clip}
 .video-wrap>video{position:absolute;inset:0;min-width:0;min-height:0;width:100%;height:100%;object-fit:contain}
 
 
@@ -350,7 +350,7 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .replay-page.stack-view .views>article{flex-basis:100%}
 .stack-view .road-wrap{height:clamp(450px,60vw,760px)}
 /* Video stage: always dark; everything drawn on it uses the glass style. */
-.replay-page .video-wrap{overflow:hidden;container-type:inline-size;aspect-ratio:var(--video-ar,1.594);background:#06090d;color:var(--hud-text);border-radius:16px}
+.replay-page .video-wrap{overflow:clip;container-type:inline-size;aspect-ratio:var(--video-ar,1.594);background:#06090d;color:var(--hud-text);border-radius:16px}
 #noVideo{color:rgba(242,244,246,.72);z-index:1}
 .video-tools{position:absolute;top:12px;left:12px;z-index:3;display:flex;align-items:center;flex-wrap:wrap;gap:8px;max-width:calc(100% - 190px)}
 .video-source{display:flex;min-width:0}
