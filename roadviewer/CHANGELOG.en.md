@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.12
+
+- After holding a finger on the segment strip to show a thumbnail, sliding it scrubs through the segments like a mouse pointer; the strip does not scroll meanwhile, and lifting the finger hides the preview without changing segments.
+- On long drives, resting the held finger near an end of the strip moves the strip on to further segments.
+
 ## 1.0.11
 
 - Hovering a block of the replay segment strip (or holding a finger on it) shows that segment's thumbnail and start time above the strip; it goes away on release, and a hold does not change segments.
