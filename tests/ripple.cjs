@@ -19,17 +19,18 @@ const replay={route:'ripple',key:'ripple',duration:1,warnings:[],video:null,fram
     return route.fulfill(asset(p==='/'?'library.html':p.startsWith('/view/')?'index.html':p.replace('/assets/','')));
    });
    await page.goto('https://rv.test/view/ripple/');await page.locator('#play:enabled').waitFor();
-   const watch=selector=>page.evaluate(sel=>new Promise(done=>{
+   // Install the observer first (awaited), then press, then collect: avoids a race where the press beats the observer.
+   const watch=async selector=>{await page.evaluate(sel=>{window.__rvWatch=new Promise(done=>{
     const el=document.querySelector(sel),seen={wave:null,dimmed:false,overflow:getComputedStyle(el).overflow};
     const check=()=>{const layer=el.querySelector(':scope>.rv-ripple');if(layer&&!seen.wave){const w=layer.firstElementChild.getBoundingClientRect(),b=el.getBoundingClientRect(),l=getComputedStyle(layer);seen.wave={clip:l.overflow,radius:l.borderRadius===getComputedStyle(el).borderRadius,inside:(r=>r.left>=b.left&&r.right<=b.right&&r.top>=b.top&&r.bottom<=b.bottom&&r.width>=b.width-4)(layer.getBoundingClientRect()),animation:getComputedStyle(layer.firstElementChild).animationName,centre:[w.left+w.width/2-b.left,w.top+w.height/2-b.top]}}if(el.classList.contains('rv-pressed'))seen.dimmed=true};
     new MutationObserver(check).observe(el,{childList:true,attributes:true,attributeFilter:['class']});
     setTimeout(()=>{check();done({...seen,left:!!el.querySelector('.rv-ripple'),after:getComputedStyle(el).overflow})},1100);
-   }),selector);
+   })},selector);return ()=>page.evaluate(()=>window.__rvWatch)};
    // Pointer press on the speed chooser trigger (no action besides opening the list, which we close).
-   let pending=watch('#bookmarkOpen');
+   let pending=await watch('#bookmarkOpen');
    const box=await page.locator('#bookmarkOpen').boundingBox();
    await page.mouse.move(box.x+10,box.y+box.height/2);await page.mouse.down();await page.mouse.up();
-   let seen=await pending;
+   let seen=await (await pending)();
    if(reduced){assert.equal(seen.wave,null,'no ripple with reduced motion');assert(seen.dimmed,'reduced motion dims briefly instead')}
    else{
     assert(seen.wave,'ripple appears inside the pressed button');
@@ -39,7 +40,7 @@ const replay={route:'ripple',key:'ripple',duration:1,warnings:[],video:null,fram
    }
    assert.equal(seen.left,false,'ripple is removed afterwards');assert.equal(seen.after,seen.overflow,'host overflow untouched');
    // Keyboard: ripple from the centre.
-   await page.locator('#prev').focus();pending=watch('#prev');await page.keyboard.press('Enter');seen=await pending;
+   await page.locator('#prev').focus();pending=await watch('#prev');await page.keyboard.press('Enter');seen=await (await pending)();
    if(!reduced){const b=await page.locator('#prev').boundingBox();assert(Math.abs(seen.wave.centre[0]-b.width/2)<1.5&&Math.abs(seen.wave.centre[1]-b.height/2)<1.5,'keyboard ripple starts at the centre')}
    assert.equal(seen.left,false);
    // Mint primary: white wave.
