@@ -526,8 +526,8 @@ def recording_order(m):
  return (0,m.get('uploaded',0),'',0,m['id'])
 
 SKIPPED_EVENTS_WARNING='지원하지 않는 새 로그 이벤트'
-LIST_FIELDS=('drive_summary','started_at','start_source','first_mono','gps_offset')  # Of prepared/summary.json, for the list.
-ROUTE_START_FIELDS=('first_mono','gps_offset')  # Used by route_starts only, not sent.
+LIST_FIELDS=('drive_summary','started_at','start_source','first_mono','gps_offset','clock_offset')  # Of prepared/summary.json, for the list.
+ROUTE_START_FIELDS=('first_mono','gps_offset','clock_offset')  # Used by route_starts only, not sent.
 def recording_summary(p,m):
  # Read only: conversion writes these fields, and the backfill (backfill.py) fills them in for older logs.
  # The list never opens telemetry, logs or videos.
@@ -619,21 +619,26 @@ def list_snapshot():
  return items,used+storage_used_outside(ids)
 
 def route_starts(items):
- """Dates the segments of a route that have no GPS fix of their own from one that has (the nearest one): within
- a route (one boot) logMonoTime is continuous, so started_at = first_mono/1e9 + that segment's gps_offset. A
- route without any GPS keeps its device times. Changes the items (copies of the cached rows) in place."""
+ """Dates every segment of a route from one offset (wall - logMonoTime/1e9): within a route (one boot) logMonoTime
+ is continuous, so started_at = first_mono/1e9 + offset. The offset is the nearest GPS segment's gps_offset; a
+ route without GPS uses the clock_offset of its latest segment (by then the system clock has long been synced,
+ while the first segment may still read a stale clock). Changes the items (copies of the cached rows) in place."""
  routes={}
  for item in items:
   order=recording_order(item)
   if order[0]==1:routes.setdefault(order[1:3],[]).append((order[3],item))
  for segments in routes.values():
   gps=[(number,item['gps_offset']) for number,item in segments if item.get('start_source')=='gps' and isinstance(item.get('gps_offset'),(int,float))]
-  if not gps:continue
+  clocks=[(number,item['clock_offset']) for number,item in segments if isinstance(item.get('clock_offset'),(int,float))]
+  if not gps and not clocks:continue
+  latest_clock=max(clocks)[1] if clocks else None
   for number,item in segments:
    mono=item.get('first_mono')
    if item.get('start_source')=='gps' or not isinstance(mono,int):continue
-   offset=min(gps,key=lambda row:abs(row[0]-number))[1];start=round(mono/1e9+offset,3)
-   if wall_clock.plausible(start):item.update(started_at=start,start_source='gps')
+   if gps:offset,source=min(gps,key=lambda row:abs(row[0]-number))[1],'gps'
+   else:offset,source=latest_clock,'clock'
+   start=round(mono/1e9+offset,3)
+   if wall_clock.plausible(start):item.update(started_at=start,start_source=source)
  for item in items:
   for key in ROUTE_START_FIELDS:item.pop(key,None)
  return items
@@ -1486,8 +1491,11 @@ def log_thumbnail(id):
  response.headers['Cache-Control']='private, max-age=86400'
  return response
 
+# When any video (local or archived) was last requested: the background backfill yields to playback meanwhile.
+last_video_request=-1e9
 @app.route('/api/logs/<id>/video')
 def video(id):
+ global last_video_request;last_video_request=time.monotonic()
  p=folder(id);m=read_meta(p)
  if m['status']!='ready':return jsonify(error='로그를 준비 중이거나 변환에 실패했습니다.'),409
  summary_file=p/'prepared/summary.json'

@@ -107,6 +107,8 @@ class Backfill:
  def busy(self):
   s=self.s
   if s.processes or s.upload_receiving() or getattr(s.archiver,'running',False):return True
+  # Someone is watching: any video request (local files included, not only archived ones) in the last two minutes.
+  if time.monotonic()-getattr(s,'last_video_request',-1e9)<WATCHING_SECONDS:return True
   entry=getattr(s.playback,'entry',None)
   return entry is not None and s.playback.clock()-entry.used<WATCHING_SECONDS
 
@@ -231,7 +233,7 @@ class Backfill:
   if fields is not None:return fields
   try:old=json.loads((p/'prepared'/'summary.json').read_text()).get('started_at')
   except (OSError,ValueError):old=None
-  return {'started_at':old,'start_source':'device' if old is not None else None,'first_mono':None,'gps_offset':None,'start_v':wall_clock.START_V}
+  return {'started_at':old,'start_source':'device' if old is not None else None,'first_mono':None,'gps_offset':None,'clock_offset':None,'start_v':wall_clock.START_V}
 
  def remote_thumbnail(self,thumbnails,found):
   head=self.read(found,0,PREFIX_BYTES)

@@ -428,7 +428,7 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .event-track{position:relative;height:6px;border-radius:3px;overflow:hidden;background:var(--track);box-shadow:var(--track-shadow)}
 .event-track>span{position:absolute;top:0;bottom:0}
 .event-engaged{background:var(--ready)}.event-takeover{min-width:2px;background:var(--takeover)}
-.replay-page .seekbar{margin:2px 0 0}
+.replay-page .seekbar{margin:2px 0 0;touch-action:none}
 /* Centred on the 4px seek track (top 10px), above the range input so it stays clickable. */
 .replay-page button.bookmark-marker{top:12px;transform:translate(-50%,-50%);z-index:3}
 .timeline-legend{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:2px;font-size:11px;color:var(--muted)}
