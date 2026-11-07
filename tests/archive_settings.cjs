@@ -36,7 +36,7 @@ http.serve_forever()`;
   async function save(){await page.locator('#storageSave').click();await page.waitForFunction(()=>document.getElementById('archiveSettingsStatus').textContent==='저장했습니다. 재시작 없이 적용되었습니다.')}
   await page.goto(base);await page.locator('.log-row').first().waitFor();await open();
   assert.equal(await field('enabled').isChecked(),false);
-  assert.equal(await field('min_age_hours').inputValue(),'49');assert.equal(await field('interval_minutes').inputValue(),'37');assert.equal(await field('local_threshold_mb').inputValue(),'3333');
+  assert.equal(await field('min_age_hours').inputValue(),'49');assert.equal(await field('interval_minutes').inputValue(),'37');assert.equal(await field('local_threshold_mb').inputValue(),'3333');assert.equal(await page.locator('#archiveThresholdGb').inputValue(),'3.255','the start is shown in GB');
   assert.equal(await page.locator('#archiveAgePreset').inputValue(),'custom');assert.equal(await page.locator('#archiveIntervalPreset').inputValue(),'custom');assert.equal(await page.locator('#archiveThresholdPreset').inputValue(),'custom');
   assert(await page.locator('#storageSave').isDisabled(),'unchanged values do not trigger a write');
   assert(await field('path').isVisible());assert(await field('gdrive_folder_name').isHidden());assert(await field('allow_local_delete').isHidden());
@@ -50,10 +50,13 @@ http.serve_forever()`;
   assert.match(await page.locator('#storagePolicyInfo').textContent(),/소프트 리밋/);assert.match(await page.locator('#storageBehaviorSummary').textContent(),/로컬 원본만 삭제/);
   await page.getByRole('radio',{name:/복제 · COPY/}).check();assert.equal(await page.locator('#archiveWarning.archive-warning').count(),0);
   await page.getByRole('radio',{name:/이동 · MOVE/}).check();await field('allow_local_delete').uncheck();await page.getByRole('radio',{name:/복제 · COPY/}).check();await field('enabled').check();
-  await page.locator('#archiveIntervalPresetChoice').click();await page.getByRole('option',{name:'직접 입력',exact:true}).click();await field('interval_minutes').fill('37');await page.locator('#archiveAgePresetChoice').click();await page.getByRole('option',{name:'7일',exact:true}).click();await field('batch').fill('2');await page.locator('#archiveThresholdPresetChoice').click();await page.getByRole('option',{name:'3 GB',exact:true}).click();
+  await page.locator('#archiveIntervalPresetChoice').click();await page.getByRole('option',{name:'직접 입력',exact:true}).click();await field('interval_minutes').fill('37');await page.locator('#archiveAgePresetChoice').click();await page.getByRole('option',{name:'7일',exact:true}).click();await field('batch').fill('2');await page.locator('#archiveThresholdPresetChoice').click();await page.getByRole('option',{name:'3 GB',exact:true}).click();assert.equal(await page.locator('#archiveThresholdGb').inputValue(),'3');
+  // Custom sizes are typed in GB with decimals and stored in whole MB.
+  await page.locator('#archiveThresholdPresetChoice').click();await page.getByRole('option',{name:'직접 입력',exact:true}).click();await page.locator('#archiveThresholdGb').fill('1.5');
   await field('gdrive_folder_name').fill('UI archive folder');await save();
   await page.locator('#gdriveConnect').waitFor();await page.locator('#archiveRun').waitFor();
   let prefs=await page.evaluate(()=>fetch('api/settings/archive').then(r=>r.json()));
+  assert.equal(prefs.archive_local_threshold_mb,1536,'1.5 GB is stored as 1536 MB');
   assert.equal(prefs.archive_interval_minutes,37);assert.equal(prefs.archive_mode,'copy');assert.equal(prefs.effective_mode,'copy');assert.equal(prefs.archive_enabled,true);
   assert.equal(prefs.archive_gdrive_folder_name,'UI archive folder');assert(prefs.client_configured);
   // The reload keeps the 저장공간 tab (#storage), so the list rows are only attached.

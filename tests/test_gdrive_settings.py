@@ -28,7 +28,7 @@ class GdriveSettingsTests(unittest.TestCase):
         for patcher in (patch.dict(os.environ, self.drive.env()), patch.object(server, 'ROOT', self.root),
                         patch.object(server, 'cleanup_uploads'), patch.object(server, 'UPLOADS', self.root / '.uploads'),
                         patch.object(server, 'upload_receiving', return_value=False), patch.object(server, 'submit'),
-                        patch.object(server, 'connection', None)):
+                        patch.object(server, 'connection', None), patch.object(ab, 'UPLOAD_CHUNK', 2**20)):  # Uploads stop between 1 MiB pieces.
             patcher.start(); self.addCleanup(patcher.stop)
         (self.root / '.uploads').mkdir()
         # The poll thread waits a hundredth of what Google asks for; the asked intervals are recorded.

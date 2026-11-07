@@ -281,10 +281,14 @@ function archiveValues(){
  const data={};
  for(const field of archiveInputs()){
   if(field.type==='radio'&&!field.checked)continue;
-  data[field.name]=field.type==='checkbox'?field.checked:field.type==='number'?(field.value===''?null:Number(field.value)):field.value;
+  data[field.name]=field.type==='checkbox'?field.checked:field.type==='number'||'number' in field.dataset?(field.value===''?null:Number(field.value)):field.value;
  }
  return data;
 }
+// Sizes are typed in GB with decimals; the archive start is stored in whole MB, the local limit in bytes.
+const gbText=gb=>String(Math.round(gb*1000)/1000);
+function syncThresholdGb(){const mb=archiveForm.elements.archive_local_threshold_mb.value;$('archiveThresholdGb').value=mb===''?'':gbText(Number(mb)/1024)}
+$('archiveThresholdGb').addEventListener('input',()=>{const gb=$('archiveThresholdGb').value;archiveForm.elements.archive_local_threshold_mb.value=gb===''||!(Number(gb)>=0)?'':String(Math.round(Number(gb)*1024))});
 function localStorageValues(){
  const custom=$('storageLimit').value==='custom',gb=Number(custom?$('storageCustom').value:$('storageLimit').value);
  return {max_bytes:custom&&$('storageCustom').value===''?null:Math.round(gb*1073741824),policy:$('storagePolicy').value};
@@ -304,10 +308,11 @@ function fillArchiveSettings(data){
   else if(field.type==='checkbox')field.checked=data[field.name];else field.value=String(data[field.name]);
  }
  for(const preset of archivePresets)syncPreset(...preset);
+ syncThresholdGb();
 }
 function fillLocalSettings(data){
  const gb=data.max_bytes/1073741824;
- $('storageLimit').value=[0,10,20,50,100].includes(gb)?String(gb):'custom';$('storageCustom').value=String(gb||10);$('storagePolicy').value=data.policy;
+ $('storageLimit').value=[0,10,20,50,100].includes(gb)?String(gb):'custom';$('storageCustom').value=gbText(gb||10);$('storagePolicy').value=data.policy;
  for(const id of ['storageLimit','storagePolicy'])$(id).dispatchEvent(new Event('rv:sync'));
 }
 function archiveFields(){
@@ -380,6 +385,7 @@ for(const [id,name,custom] of archivePresets){
  $(id).addEventListener('change',()=>{
   $(custom).hidden=$(id).value!=='custom';
   if($(id).value!=='custom')archiveForm.elements[name].value=$(id).value;
+  if(name==='archive_local_threshold_mb')syncThresholdGb();
   updateEditor(true);
  });
 }

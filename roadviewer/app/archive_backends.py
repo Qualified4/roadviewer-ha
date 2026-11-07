@@ -1,7 +1,7 @@
 """Archive backends: the HTTP client with backoff, Google Drive device-flow auth, the Drive client and the
 Drive/NAS backends behind one interface (standard library only)."""
 import hashlib, http.client, io, json, os, random, re, ssl, threading, time, uuid
-import urllib.error, urllib.parse, urllib.request
+import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 from storage_policy import atomic_json
@@ -87,34 +87,74 @@ def error_reason(response):
         return error.get('status')
     return None
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    # A redirect comes back as the response itself: a resumable session's 308 is an answer, and a token must
-    # never follow a Location to another host.
-    def redirect_request(self, *args, **kwargs): return None
+class _Stream:
+    # A streamed answer owns its connection: closing the answer closes the connection, which is never pooled.
+    def __init__(self, raw, conn): self.raw, self.conn = raw, conn
+    def read(self, *args): return self.raw.read(*args)
+    def close(self):
+        try: self.raw.close()
+        finally: self.conn.close()
+
+# Kept-alive connections: urllib closes the connection after every request, so each 1 MiB chunk used to pay a new
+# TCP and TLS handshake and restart from a slow TCP window, far below the line's speed. Connections are kept per
+# thread (no locking) and dropped after IDLE_SECONDS, before Google closes them on its side.
+IDLE_SECONDS = 15
+_STALE = (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)  # RemoteDisconnected is a ConnectionResetError.
 
 class Http:
     def __init__(self, sleep=time.sleep, rand=random.random, attempts=5):
         self.sleep, self.rand, self.attempts = sleep, rand, attempts
-        # Environment proxies are ignored: the add-on talks to Google directly.
-        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect(),
-                                                  urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+        # Direct connections only: no environment proxies, and redirects come back as the answer (http.client never
+        # follows them): a resumable session's 308 is an answer, and a token must never follow a Location elsewhere.
+        self.context = ssl.create_default_context()
+        self._local = threading.local()
 
     def __repr__(self): return 'Http()'
 
+    def _connection(self, scheme, netloc, timeout, fresh):
+        pool = self._local.__dict__.setdefault('pool', {})
+        held = None if fresh else pool.pop((scheme, netloc), None)
+        if held is not None:
+            conn, used = held
+            if time.monotonic() - used <= IDLE_SECONDS:
+                conn.timeout = timeout
+                if conn.sock is not None: conn.sock.settimeout(timeout)
+                return conn, True
+            conn.close()
+        if scheme == 'https': return http.client.HTTPSConnection(netloc, timeout=timeout, context=self.context), False
+        return http.client.HTTPConnection(netloc, timeout=timeout), False
+
     def _once(self, method, url, headers, body, stream, timeout):
         if body is None and method in ('POST', 'PUT', 'PATCH'): body = b''  # Sends Content-Length: 0.
-        req = urllib.request.Request(url, data=body, headers=headers or {}, method=method)
-        try:
-            try: raw = self.opener.open(req, timeout=timeout); status = raw.status
-            except urllib.error.HTTPError as e: raw = e; status = e.code
-            headers = raw.headers
-            if stream and status < 400: return HttpResponse(status, headers, raw)
-            try: data = raw.read()
-            finally: raw.close()
-            return HttpResponse(status, headers, None, data)
-        except (OSError, http.client.HTTPException, ValueError) as e:
-            # urllib.error.URLError is an OSError. The cause is dropped: its text can carry the URL.
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme not in ('http', 'https') or not parts.netloc: raise BackendError('unavailable', reason='bad_url')
+        target = (parts.path or '/') + ('?' + parts.query if parts.query else '')
+        headers = dict(headers or {})
+        # As urllib did: a body without a type is sent as a form.
+        if body is not None and not any(k.lower() == 'content-type' for k in headers): headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        for attempt in (0, 1):
+            conn, reused = self._connection(parts.scheme, parts.netloc, timeout, fresh=stream or attempt > 0)
+            try:
+                conn.request(method, target, body=body, headers=headers)
+                raw = conn.getresponse()
+                break
+            except (OSError, http.client.HTTPException) as e:
+                conn.close()
+                # A kept-alive connection the server had already closed: a request without a body (a read, a
+                # delete, a session's status) goes once more on a new connection. Anything else is the caller's
+                # to check (a chunk PUT asks the session how far it got; a create looks the file up).
+                if reused and attempt == 0 and isinstance(e, _STALE) and not body: continue
+                # The cause is dropped: its text can carry the URL.
+                raise BackendError('unavailable', retryable=True, reason=type(e).__name__) from None
+        status, answer_headers = raw.status, raw.headers
+        if stream and status < 400: return HttpResponse(status, answer_headers, _Stream(raw, conn))
+        try: data = raw.read()
+        except (OSError, http.client.HTTPException) as e:
+            conn.close()
             raise BackendError('unavailable', retryable=True, reason=type(e).__name__) from None
+        if stream or raw.will_close: conn.close()
+        else: self._local.pool[(parts.scheme, parts.netloc)] = (conn, time.monotonic())
+        return HttpResponse(status, answer_headers, None, data)
 
     def backoff(self, attempt): self.sleep(min(2 ** attempt + self.rand(), 64))
 
@@ -262,7 +302,10 @@ class DriveAuth:
 
 # --- Shared types ---
 FOLDER_MIME = 'application/vnd.google-apps.folder'
-CHUNK = 2**20  # Resumable chunks must be multiples of 256 KiB, except the last.
+# Resumable chunks must be multiples of 256 KiB, except the last. Google recommends 8 MiB or more: every chunk waits
+# for Google's answer before the next one goes out, so small chunks leave the line idle.
+UPLOAD_CHUNK = 16 * 2**20
+CHUNK = 2**20  # NAS copies and reads.
 CACHE_SECONDS = media_store.CACHE_SECONDS
 READ_BLOCK = 2**16  # Downloads are read in small blocks so playback gets its first bytes without waiting for a whole CHUNK.
 STAT_SECONDS = 600  # A file's metadata is reused this long for playback (each seek is a new request).
@@ -599,7 +642,7 @@ class DriveBackend(_Availability):
                 if (f.get('appProperties') or {}).get('rv_storage_id') == local]
 
     def upload(self, local, id, kind, sha256, md5, size, resume=None, on_progress=None):
-        """Resumable upload in 1 MiB chunks. `resume` ({session, bytes_sent, sha256, size} from an earlier attempt,
+        """Resumable upload in UPLOAD_CHUNK (16 MiB) pieces. `resume` ({session, bytes_sent, sha256, size} from an earlier attempt,
         or {}) is updated in place before every on_progress(bytes_sent) call so the caller can persist it; a
         session recorded for another sha256/size is discarded. Returns the completed file's ref; verify() is a
         separate step."""
@@ -656,13 +699,13 @@ class DriveBackend(_Availability):
         with f:
             read = 0
             while read < offset:
-                data = f.read(min(CHUNK, offset - read))
+                data = f.read(min(UPLOAD_CHUNK, offset - read))
                 if not data: raise BackendError('io', reason='local_shrank')
                 h256.update(data); hmd5.update(data); read += len(data)
             sent, buf, stalls = offset, b'', 0
             while True:
-                while len(buf) < CHUNK and read < size:
-                    data = f.read(min(CHUNK - len(buf), size - read))
+                while len(buf) < UPLOAD_CHUNK and read < size:
+                    data = f.read(min(UPLOAD_CHUNK - len(buf), size - read))
                     if not data: raise BackendError('io', reason='local_shrank')
                     h256.update(data); hmd5.update(data); buf += data; read += len(data)
                 if read == size and not checked:

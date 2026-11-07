@@ -153,7 +153,7 @@ def prepare(value,route=None):
  key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str(media(src,name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if media(src,name).is_file())+'v28-runtime-geometry-rear1').encode()).hexdigest()[:20]
  dest=prepared_dir(src);dest.mkdir(parents=True,exist_ok=True)
  def save_summary(data,drive,start):
-  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{}),'drive_summary':drive,**start},ensure_ascii=False))
+  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{}),'drive_summary':drive,'replay_v':data.get('replayV'),**start},ensure_ascii=False))
  print('로그 읽는 중:',src,flush=True)
  report('log_prepare',100)
  compressed_size=max(src.stat().st_size,1)

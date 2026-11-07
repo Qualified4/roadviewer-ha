@@ -31,8 +31,7 @@ const {showTab}=require('./browser-helpers.cjs');
    const name=p==='/'?'library.html':p.replace('/assets/','');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
-  await page.addInitScript(()=>{if(!sessionStorage.getItem('seeded')){sessionStorage.setItem('seeded','1');localStorage.setItem('roadviewer-expanded-routes',JSON.stringify(['0000041b--a1b2c3d4e5']))}});
-  await page.goto('https://rv.test/');await page.locator('.log-row').first().waitFor();
+  await page.goto('https://rv.test/');await page.locator('.log-row').first().waitFor();  // openRouteGroups unfolds every drive.
   // Tabs: 로그 by default; one tab stop with arrow keys; only the selected panel is shown.
   assert.deepEqual(await page.getByRole('tab').allTextContents(),['로그','업로드','저장공간','장치','설정']);
   assert.equal(await page.locator('[role=tab][tabindex="0"]').count(),1);

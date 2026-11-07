@@ -1,7 +1,7 @@
 from pathlib import Path,PurePosixPath
 import gzip,hashlib,unicodedata,math,zipfile
 import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
-import playback_cache
+import playback_cache,compact
 from collections import Counter
 from progress import ProgressChannel
 from work_queue import ProcessingQueue
@@ -1544,6 +1544,11 @@ def requeue_startup():
   m.update(status='queued');save_meta(p,m)
  for p,_ in pending:submit(p.name)
 
+def replay_outdated(p):
+ # A gzip replay written before compact.REPLAY_V: summary.json records the version, so the file itself is not opened.
+ if not (p/'prepared'/'data.json.gz').is_file():return False
+ try:return json.loads((p/'prepared'/'summary.json').read_text()).get('replay_v')!=compact.REPLAY_V
+ except (OSError,ValueError):return False
 def migrate_prepared():
  # One log at a time in a low-priority child process, so the server never holds a whole replay in memory.
  for p in sorted(recording_paths(),key=lambda path:path.stat().st_mtime,reverse=True):
@@ -1551,7 +1556,7 @@ def migrate_prepared():
   try:
    with lock:
     m=read_meta(p)
-    if m['status']!='ready' or not any((p/'prepared'/name).is_file() for name in ('data.json','telemetry.json')):continue
+    if m['status']!='ready' or not (any((p/'prepared'/name).is_file() for name in ('data.json','telemetry.json')) or replay_outdated(p)):continue
     revision=m.get('conversion_revision',0)
    done=subprocess.run([sys.executable,'-B',str(BASE/'compact.py'),str(p/'prepared')],capture_output=True,text=True,timeout=600,preexec_fn=lambda:os.nice(10))
    with lock:
@@ -1563,6 +1568,11 @@ def migrate_prepared():
      continue
     for f in staged:
      f.replace(f.with_suffix(''));(p/'prepared'/f.with_suffix('').stem).unlink(missing_ok=True)
+    # The replay is in the current format now (written, or found already current): recorded so it is not read again.
+    summary_file=p/'prepared'/'summary.json'
+    if summary_file.is_file() and (p/'prepared'/'data.json.gz').is_file():
+     summary=json.loads(summary_file.read_text())
+     if summary.get('replay_v')!=compact.REPLAY_V:atomic_json(summary_file,{**summary,'replay_v':compact.REPLAY_V})
   except (OSError,ValueError,KeyError,subprocess.SubprocessError):
    app.logger.exception('Replay data migration failed for %s',p.name)
 

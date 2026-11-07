@@ -38,11 +38,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   // Saved logs start folded: every route group is closed and its segment rows hidden until opened.
   assert.deepEqual(await page.locator('.log-route').evaluateAll(groups=>groups.map(g=>g.open)),[false,false]);
   assert(await page.locator('.log-row').first().isHidden());
-  // Only groups opened by hand are remembered; the others stay folded after a reload.
+  // Expansion is not remembered: a group opened by hand is folded again after a reload.
   await page.locator('.log-route[data-route="00000395--0d0eda17c5"]>summary .log-route-name').tap();
   await page.waitForFunction(()=>document.querySelector('.log-route[data-route="00000395--0d0eda17c5"]').open&&!document.querySelector('.log-route')._foldAnimation);
   await page.reload();await page.waitForSelector('.log-row',{state:'attached'});
-  assert.deepEqual(await page.locator('.log-route').evaluateAll(groups=>Object.fromEntries(groups.map(g=>[g.dataset.route,g.open]))),{'00000395--0d0eda17c5':true,'00000395--1234567890':false});
+  assert.deepEqual(await page.locator('.log-route').evaluateAll(groups=>Object.fromEntries(groups.map(g=>[g.dataset.route,g.open]))),{'00000395--0d0eda17c5':false,'00000395--1234567890':false});
   await page.evaluate(()=>document.querySelectorAll('.log-route').forEach(g=>{g.open=true}));await page.waitForSelector('.log-row');
   // Full route IDs group segments without merging equal shortened counters with different hashes.
   const group=page.locator('.log-route[data-route="00000395--0d0eda17c5"]'),summary=group.locator(':scope>summary');

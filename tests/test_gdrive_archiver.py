@@ -20,7 +20,8 @@ class GdriveArchiverTests(unittest.TestCase):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup); self.root = Path(temp.name)
         self.drive = FakeDrive().start(); self.addCleanup(self.drive.stop)
         for patcher in (patch.dict(os.environ, self.drive.env()), patch.object(server, 'ROOT', self.root),
-                        patch.object(server, 'upload_receiving', return_value=False), patch.object(server, 'submit')):
+                        patch.object(server, 'upload_receiving', return_value=False), patch.object(server, 'submit'),
+                        patch.object(ab, 'UPLOAD_CHUNK', 2**20)):  # Resume tests count 1 MiB pieces.
             patcher.start(); self.addCleanup(patcher.stop)
         self.http = ab.Http(sleep=lambda seconds: None, rand=lambda: 0.0)
         auth = self.auth(); auth.start_device_flow(); self.assertEqual(auth.poll_once(), 'granted')
