@@ -528,11 +528,15 @@ class _Availability:
         cached = self.cached
         return tuple(cached[1:]) if cached and self.clock() - cached[0] < CACHE_SECONDS else None
 
-    def known_state(self):
-        # The latest probe's state however old (None before the first or after invalidate()), for display only.
-        if not self._enabled(): return 'disabled'
+    def known_result(self):
+        # The latest probe's (state, reason) however old (None before the first or after invalidate()), for display only.
+        if not self._enabled(): return 'disabled', getattr(self.settings, 'error', None)
         cached = self.cached
-        return cached[1] if cached else None
+        return tuple(cached[1:]) if cached else None
+
+    def known_state(self):
+        known = self.known_result()
+        return known[0] if known else None
 
     def invalidate(self): self.cached = self.usage_cached = None; self.stat_cache = {}
 

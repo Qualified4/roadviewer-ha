@@ -123,7 +123,8 @@ async function waitForStorageRefresh(page,action){
   await waitForStorageRefresh(page,()=>page.clock.runFor(3500));assert(polls.length>=1,'polls while the code waits');
   // Leaving the tab or hiding the page stops it; reopening or returning resumes it after a fresh fetch.
   await page.locator('#tab-logs').click();
-  let mark=polls.length;await page.clock.runFor(4000);await settle(page);assert.equal(polls.length,mark,'no polling with the panel closed');
+  // The panel's 3 s polling stops; the library header still asks every 10 s (3 s only while it reads 'checking').
+  let mark=polls.length;await page.clock.runFor(9000);await settle(page);assert(polls.length-mark<=1,'no panel polling with the panel closed: '+(polls.length-mark));
   await openPanel(page);await page.locator('#gdriveCode').waitFor();
   mark=polls.length;await waitForStorageRefresh(page,()=>page.clock.runFor(3500));assert(polls.length>mark,'polling resumes on reopen');
   await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'))});

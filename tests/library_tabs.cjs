@@ -49,6 +49,12 @@ const {showTab}=require('./browser-helpers.cjs');
   await page.waitForFunction(()=>document.getElementById('headerStorageText').textContent==='3.8/4.0 GB');
   assert(await page.locator('#summary').evaluate(e=>e.classList.contains('is-near-limit')));
   assert.equal(await page.locator('#headerArchiveText').textContent(),'NAS 연결됨');
+  // The header asks again every 10 s, and every 3 s while the archive reads 'checking', so a finished check shows soon.
+  storage.archive.state='checking';
+  await page.waitForFunction(()=>document.getElementById('headerArchiveText').textContent==='NAS 확인 중',null,{timeout:11500});
+  storage.archive.state='connected';const recovered=Date.now();
+  await page.waitForFunction(()=>document.getElementById('headerArchiveText').textContent==='NAS 연결됨',null,{timeout:4000});
+  assert(Date.now()-recovered<4000,'checking is asked again within 3 s');
   assert.match(await page.locator('#summary').getAttribute('title'),/^6개 로그 · 저장공간 3\.8 GB 사용 중/);
   // Counts, date sections (newest first) and route cards.
   assert.equal(await page.locator('#logCounts').textContent(),'주행 3번 · 구간 6개 · 재생 가능 3개');

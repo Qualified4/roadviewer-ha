@@ -72,6 +72,14 @@ http.serve_forever()
    assert(await page.evaluate(()=>documentToken===originalToken),'document persists');
    // The replay page has its own app bar instead of the brand header; focus lands on its title.
    assert(await page.evaluate(()=>!document.querySelector('.app-brand')&&document.activeElement.tagName==='H1'&&document.activeElement.closest('.video-title')),'replay app bar replaces the brand and takes focus');
+   // Opened from the list the page is prepared hidden: the stacked video must still take the room it has (it used to keep
+   // the 320px fallback height), and the focused title shows no focus ring.
+   const stackedVideo=await page.evaluate(()=>{const page=document.querySelector('.replay-page'),panel=document.querySelector('.camera-panel'),style=getComputedStyle(panel),wrap=document.getElementById('videoStage').getBoundingClientRect();
+    const room=panel.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),ratio=parseFloat(getComputedStyle(page).getPropertyValue('--video-ar'))||1.594;
+    const tall=(innerHeight-document.querySelector('.app-bar').offsetHeight-document.querySelector('.playback').offsetHeight-60)*ratio;
+    return {compact:page.classList.contains('compact-media'),width:wrap.width,expected:Math.max(160,Math.min(room,tall)),outline:getComputedStyle(document.activeElement).outlineStyle}});
+   if(stackedVideo.compact)assert(Math.abs(stackedVideo.width-stackedVideo.expected)<2,`stacked video takes its room after list entry at ${width}: ${JSON.stringify(stackedVideo)}`);
+   assert.equal(stackedVideo.outline,'none','the focused replay title shows no focus ring');
    assert.equal(await page.locator('#navigationStatus').textContent(),'','successful navigation has no top loading notice');
    await page.locator('#play').click();await page.waitForFunction(()=>document.getElementById('video').currentTime>.1);
    const leftAt=await page.evaluate(()=>{window.departedVideo=document.getElementById('video');const target=Math.min(200,document.documentElement.scrollHeight-innerHeight-10);scrollTo(0,target);return scrollY});

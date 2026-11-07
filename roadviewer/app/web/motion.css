@@ -15,7 +15,7 @@
  --spring:linear(0,.009,.035 2.1%,.141 4.4%,.723 12.9%,.938 16.7%,1.017 19.9%,1.067,1.099 24.3%,1.108 26%,1.104,1.088 30.6%,1.019 39.7%,.995 45.5%,.987 50.6%,.991 59.3%,1.001 74.7%,1);
 }
 
-.app-brand h1:focus{outline:none}
+.app-brand h1:focus,.video-title h1:focus{outline:none}
 
 /* Press ripple (ripple.js): a soft-edged wave of the control's own colour (white on mint) in a clipping layer. It grows from
    a fifth of its size with a long decelerating curve, stays faint (10%, 22% on mint) and fades out on release.

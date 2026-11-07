@@ -115,7 +115,7 @@ class StoragePolicy:
             # the archiver measures it each cycle, and the panel starts one in the background when there is no
             # recent figure (at most every 5 min).
             measuring = settings.enabled and s.backend.refresh_usage()
-            (state, reason), usage = s.remote_result(), s.backend.last_usage()
+            (state, reason), usage = s.shown_archive_result(), s.backend.last_usage()
             used, free = (usage.used, usage.free or 0) if usage else (0, 0)
         else:
             state, reason = store.state(), store.reason()

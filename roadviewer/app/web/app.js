@@ -865,9 +865,17 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
   set('layout-stacked',stacked);set('layout-side',!stacked);
  }
  let lastY=scrollY,travel=0,fullWidth=0,fullHeight=0,shrink=-1,frame=0;
- // The full size follows the uncollapsed width and the picture's aspect ratio.
+ // The full size follows the room the panel gives (its content width, and the screen height left by the app bar and
+ // the transport bar, as in the side-by-side layout) and the picture's aspect ratio. Not the video's own width: that
+ // is set from this size, so a first measure taken while the page was still hidden (opened from the list) kept the
+ // video at the 320px fallback for good.
  function sizeVideo(){
-  if(shrink<=0)fullWidth=stage.getBoundingClientRect().width||fullWidth;if(!fullWidth)return;
+  if(shrink<=0){
+   const style=getComputedStyle(cameraPanel),room=cameraPanel.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight);
+   const tall=(innerHeight-appBar.offsetHeight-transport.offsetHeight-60)*videoAspect();
+   if(room>0)fullWidth=Math.max(160,Math.min(room,tall));
+  }
+  if(!fullWidth)return;
   fullHeight=Math.round(fullWidth/videoAspect());
   root.style.setProperty('--video-full-h',fullHeight+'px');root.style.setProperty('--shrink-range',Math.round(fullHeight*(1-MIN))+'px');
  }
@@ -896,7 +904,8 @@ new ResizeObserver(sizeTransport).observe(transport);sizeTransport();
  }
  addEventListener('scroll',update,{passive:true});shortPhone.addEventListener?.('change',update);document.addEventListener('fullscreenchange',update);
  new ResizeObserver(()=>{layout();update()}).observe(document.getElementById('replayViews'));
- new ResizeObserver(()=>{if(shrink<=0)sizeVideo();schedule()}).observe(stage);
+ const resized=()=>{if(shrink<=0)sizeVideo();schedule()};
+ new ResizeObserver(resized).observe(cameraPanel);addEventListener('resize',resized);
  new ResizeObserver(schedule).observe(appBar);
  transport.addEventListener('pointerdown',e=>{if(root.classList.contains('transport-mini')&&!e.target.closest('button,input,select,label,a,.seekbar')){root.classList.remove('transport-mini');travel=0}});
  layout();sizeVideo();update();
