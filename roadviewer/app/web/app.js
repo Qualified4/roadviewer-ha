@@ -327,7 +327,8 @@ $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>st
 // prevented, and the time follows the finger's x wherever it moves until the finger lifts.
 $('seek').addEventListener('pointerdown',e=>{if(loading||e.button!==0||e.pointerType==='touch')return;seekPointer=e.pointerId;pauseVideo()});
 // While full screen is turned a quarter turn (see the full screen button), the page's x axis runs down the screen.
-const stageTurned=()=>document.documentElement.classList.contains('stage-turned');
+// This page's own stage (the root class can be a previous page's, until its full screen ends).
+const stageTurned=()=>!!document.querySelector('.camera-panel')?.classList.contains('is-turned');
 function seekFromX(point){
  const input=$('seek'),r=input.getBoundingClientRect(),thumb=16,min=Number(input.min),max=Number(input.max),turned=stageTurned();
  const start=turned?r.top:r.left,length=turned?r.height:r.width,at=turned?point.clientY:point.clientX;
@@ -657,9 +658,13 @@ function render(lazy){
  const frameKey=data?`${idx}|${frameAvailable(data.frames[idx])}|${v.hidden}`:'';
  if(lazy===true&&frameKey===renderedFrame){window.renderVideoOverlayMotion?.();return;}
  renderedFrame=frameKey;
- const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);if(!data)return;
+ if(!data)return;
  const f=data.frames[idx],valid=f.valid&&frameAvailable(f);
  window.renderVideoOverlay?.(f,frameAvailable(f));
+ const rawVisible=frameAvailable(f)&&f.liveTracksValid;
+ const rawTargets=rawVisible?(f.liveTracks||[]).filter(target=>!checked('hideScc')||String(target.source).toLowerCase()!=='scc'):[];
+ if(document.fullscreenElement!==v.closest('.camera-panel')){
+ const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
  const range=Number($('range').value),rear=checked('rearView')?({25:5,50:10,80:20}[range]||0):0,bottom=h-48,scale=(h-78)/(range+rear),lateral=Number($('lateralRange').value),manualLateral=Number.isFinite(lateral)&&lateral>0,cx=manualLateral?(38+w-12)/2:w/2,cy=bottom-rear*scale;
  const lateralScale=manualLateral?(w-50)/(2*lateral):scale;
  const X=y=>cx+y*lateralScale,Y=x=>cy-x*scale;
@@ -681,13 +686,20 @@ function render(lazy){
   }
   return target.x<0?'후방 '+Math.abs(target.x).toFixed(1)+'m':target.x.toFixed(1)+'m';
  };
- function annotate(text,x,y,color,side=1){
-  if(checked('hideLabels'))return;
+ // Labels are collected and drawn last, by priority: the followed lead (선택) and the FF car take their places first, so
+ // crowded traffic can never push them out; every other label then gets the nearest free place, as many as fit.
+ const pending=[];
+ function annotate(text,x,y,color,side=1,priority=0){if(!checked('hideLabels'))pending.push({text,x,y,color,side,priority,order:pending.length})}
+ function placeLabels(){
+  pending.sort((a,b)=>b.priority-a.priority||a.order-b.order);
+  for(const {text,x,y,color,side,priority} of pending)placeLabel(text,x,y,color,side);
+ }
+ function placeLabel(text,x,y,color,side){
   const lines=text.split('\n'),width=Math.max(...lines.map(line=>ctx.measureText(line).width)),height=lines.length*13;let box=null;
   for(const offset of [-8,12,-28,32,-48,52,-68,72]){
    const left=Math.max(42,Math.min(w-16-width,x+(side>0?12:-width-12))),top=Math.max(26,Math.min(bottom-height-3,y+offset));
    const next={left,top,right:left+width,bottom:top+height};
-   if(!labels.some(b=>next.left<b.right+4&&next.right>b.left-4&&next.top<b.bottom+3&&next.bottom>b.top-3)){box=next;break}
+   if(!labels.some(b=>next.left<b.right+11&&next.right>b.left-11&&next.top<b.bottom+5&&next.bottom>b.top-5)){box=next;break}
   }
   if(!box)return;labels.push(box);ctx.fillStyle=mapInk('label');ctx.beginPath();ctx.roundRect(box.left-5,box.top-2,width+10,height+4,6);ctx.fill();ctx.fillStyle=color;ctx.textAlign='left';lines.forEach((line,i)=>ctx.fillText(line,box.left,box.top+10+i*13));
  }
@@ -737,7 +749,7 @@ function render(lazy){
 
   if(checked('leads')){
    f.leads.forEach((l,i)=>{if(l.x<0||l.x>range)return;ctx.globalAlpha=l.p<.5?.45:1;vehicle(X(l.y),Y(l.x),tone('#81b5ff'));annotate(`모델 ${i+1} · ${targetValue(l,-l.y)}`,X(l.y),Y(l.x),tone('#c5daff'),i===0?1:-1);ctx.globalAlpha=1});
-   const l=f.selected;if(l&&l.x>=0&&l.x<=range){const x=X(l.y),y=Y(l.x);vehicle(x,y,tone('#eee7bc'),12,19,true);annotate(`선택 · ${targetValue(l,-l.y)}`,x,y,tone('#eee7bc'))}
+   const l=f.selected;if(l&&l.x>=0&&l.x<=range){const x=X(l.y),y=Y(l.x);vehicle(x,y,tone('#eee7bc'),12,19,true);annotate(`선택 · ${targetValue(l,-l.y)}`,x,y,tone('#eee7bc'),1,2)}
   }
   for(const target of f.radarTargets||[]){
    const style=targetStyle[target.group];if(!style||!checked(style.toggle)||target.x< -rear||target.x>range)continue;
@@ -752,7 +764,7 @@ function render(lazy){
   if(checked('boxLabels')){
    const text=`${target.slot} · ${targetValue(target,target.yRel)}`;
    if(checked('boxLabelsBelow'))hudLabel(ctx,text,x,y+24,color,4,ctx.canvas.clientWidth||ctx.canvas.width,false);
-   else annotate(text,x,y,tone(color),target.slot==='LF'?-1:1);
+   else annotate(text,x,y,tone(color),target.slot==='LF'?-1:1,target.slot==='FF'?1:0);
   }
  }
  if(rear&&valid)for(const target of f.ccncRearTargets||[]){
@@ -762,8 +774,6 @@ function render(lazy){
  }
  $('rearStatus').textContent=rear&&f.ccncRearTargets===undefined?'기존 변환 데이터에 후방 정보가 없습니다. 로그를 다시 변환하면 기록된 LR·RR을 확인할 수 있습니다.':'';
  $('ccncStatus').textContent=checked('ccncTargets')&&(!frameAvailable(f)||f.ccncTargets==null)?'이 시점의 CCNC 송신 데이터가 없습니다.':'';
- const rawVisible=frameAvailable(f)&&f.liveTracksValid;
- const rawTargets=rawVisible?(f.liveTracks||[]).filter(target=>!checked('hideScc')||String(target.source).toLowerCase()!=='scc'):[];
  if(checked('liveTracks'))for(const target of rawTargets){
   if(target.x< -rear||target.x>range)continue;
   const x=X(target.y),y=Y(target.x);ctx.strokeStyle=tone('#78e9fa');ctx.lineWidth=1.5;ctx.globalAlpha=target.measured?.9:.5;ctx.beginPath();
@@ -774,8 +784,11 @@ function render(lazy){
  ctx.restore();
  if(valid&&checked('bsdWalls'))blindspotLevels(data.frames,idx,t).forEach((amount,i)=>paintBlindspotEdge(ctx,w,h,amount,i,t));
  if(checked('ccncRoad')&&frameAvailable(f))drawBlinkers(ctx,f.roadSignals??f.ccncRoad,f.t,42,w-16,(h-48)/2);
+ placeLabels();
  vehicle(cx,cy,mapInk('ego'),12,22);ctx.fillStyle=mapInk('text');ctx.textAlign='center';ctx.fillText('내 차량',cx,cy+25);ctx.textAlign='left';
  if(!valid){ctx.fillStyle=mapInk('warn');ctx.fillText(missingModelMessage(),45,45)}
+ canvas.setAttribute('aria-label',`주행 상황. 현재 radarState 중앙·좌우 차량 ${(valid?f.radarTargets||[]:[]).length}개. 전방 범위 ${range}m, 후방 범위 ${rear}m.`);
+ }
  const percent=n=>Number.isFinite(n)?(n*100).toFixed(1)+'%':'—';
  const distance=$('boundaryDistance').getAttribute('aria-pressed')==='true';
  const meters=value=>Number.isFinite(value)?(value>0?'+':'')+value.toFixed(3)+' m':'—';
@@ -783,18 +796,39 @@ function render(lazy){
  // Cluster lane code next to the own-lane lines: LANELINE_LEFT/RIGHT raw value and its meaning.
  [['laneLineLeft',1],['laneLineRight',2]].forEach(([id,i])=>{const code=valid?laneLineCode(f,i):undefined,el=$(id);el.hidden=!Number.isInteger(code);if(!el.hidden)el.textContent=`${i===1?'LANELINE_LEFT':'LANELINE_RIGHT'} ${code} · ${LANE_LINE_CODES[code]?.label||'미정의'}`});
  ['edge0','edge1'].forEach((id,i)=>{$(id).textContent=valid?(distance?meters(f.edgeY0?.[i]):Number.isFinite(f.es[i])?f.es[i].toFixed(3)+' m':'—'):'—'});
- const targets=valid?(f.radarTargets||[]):[];
- $('radarRows').replaceChildren(...targets.map(target=>{const row=document.createElement('tr');const style=targetStyle[target.group];const values=[style.label+' '+(target.index+1),target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.radar?'예':'아니오',String(target.trackId)];for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}row.firstChild.style.color=tone(style.color);return row}));
- if(!targets.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=6;cell.textContent='이 시점에 유효한 중앙·좌우 차량이 없습니다.';row.append(cell);$('radarRows').append(row)}
- $('rawCount').textContent=`· ${rawTargets.length}개`;
- $('rawTiming').textContent=rawVisible?`메시지 시각 차이 ${f.liveTracksDeltaMs.toFixed(1)}ms`: '이 시점의 유효한 liveTracks 메시지가 없습니다.';
- $('rawRows').replaceChildren(...rawTargets.map(target=>{const row=document.createElement('tr');for(const value of [target.trackId,target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.measured?'예':'아니오',target.source,target.trackState]){const cell=document.createElement('td');cell.textContent=value;row.append(cell)}return row}));
- if(!rawTargets.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=7;cell.textContent='표시할 liveTracks 감지점이 없습니다.';row.append(cell);$('rawRows').append(row)}
- canvas.setAttribute('aria-label',`주행 상황. 현재 radarState 중앙·좌우 차량 ${targets.length}개. 전방 범위 ${range}m, 후방 범위 ${rear}m.`);
+ renderRadarValues(f,valid,rawTargets,rawVisible);
  renderSteering(f);
  $('egoSpeed').textContent=frameAvailable(f)&&Number.isFinite(f.egoSpeedKph)?f.egoSpeedKph.toFixed(1):'—';
  $('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'앞차 미감지';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent=frameAvailable(f)?'FRAME '+f.id:'FRAME —';
 }
+// Folded details keep their rows untouched. Open tables retain row/cell identity across model frames.
+function updateValueRows(body,values,empty,columns,colors=[]){
+ if(!values.length)values=[[empty]];
+ while(body.rows.length>values.length)body.deleteRow(-1);
+ values.forEach((values,i)=>{
+  const row=body.rows[i]||body.insertRow();
+  while(row.cells.length>values.length)row.deleteCell(-1);
+  values.forEach((value,j)=>{
+   const cell=row.cells[j]||row.insertCell(),text=String(value);
+   const span=values.length===1?columns:1;if(cell.colSpan!==span)cell.colSpan=span;
+   if(cell.textContent!==text)cell.textContent=text;
+   if(j===0){const color=colors[i]||'';if(cell.dataset.color!==color){cell.style.color=color;cell.dataset.color=color}}
+  });
+ });
+}
+function renderRadarValues(f,valid,rawTargets,rawVisible){
+ const radar=$('radarRows'),raw=$('rawRows');
+ const count=`· ${rawTargets.length}개`;if($('rawCount').textContent!==count)$('rawCount').textContent=count;
+ if(radar.closest('details').open){
+  const targets=valid?(f.radarTargets||[]):[];
+  updateValueRows(radar,targets.map(target=>[targetStyle[target.group].label+' '+(target.index+1),target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.radar?'예':'아니오',target.trackId]),'이 시점에 유효한 중앙·좌우 차량이 없습니다.',6,targets.map(target=>tone(targetStyle[target.group].color)));
+ }
+ if(raw.closest('details').open){
+  $('rawTiming').textContent=rawVisible?`메시지 시각 차이 ${f.liveTracksDeltaMs.toFixed(1)}ms`:'이 시점의 유효한 liveTracks 메시지가 없습니다.';
+  updateValueRows(raw,rawTargets.map(target=>[target.trackId,target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.measured?'예':'아니오',target.source,target.trackState]),'표시할 liveTracks 감지점이 없습니다.',7);
+ }
+}
+for(const id of ['radarRows','rawRows'])$(id).closest('details').addEventListener('toggle',event=>{if(event.currentTarget.open)render()});
 new ResizeObserver(render).observe(canvas);loadData().catch(e=>playbackError(e.message));requestAnimationFrame(tick);
 
 // The sticky video (phones) starts right below the app bar, whatever its wrapped height.
@@ -1255,7 +1289,11 @@ const pageReady=loadLogNavigation();
  // (the Home Assistant app's Android WebView, iPad Safari), a portrait screen shows the stage turned a quarter turn
  // clockwise instead, so the device is simply held sideways. Turning the device to landscape undoes the turn.
  const touch=matchMedia('(pointer:coarse)'),portrait=matchMedia('(orientation:portrait)');let locked=false;
- const syncTurn=()=>{const on=document.fullscreenElement===stage&&touch.matches&&!locked&&portrait.matches;stage.classList.toggle('is-turned',on);document.documentElement.classList.toggle('stage-turned',on)};
+ // The root class (turned dialogs) is shared by the shell's pages: this page sets it for its own full screen and clears it
+ // once nothing is full screen, so a turn left behind by a page that went away in full screen (another segment opened
+ // from the full-screen controls) does not stay on this one. Another page's live full screen is left alone.
+ const syncTurn=()=>{const on=document.fullscreenElement===stage&&touch.matches&&!locked&&portrait.matches;stage.classList.toggle('is-turned',on);if(on||!document.fullscreenElement)document.documentElement.classList.toggle('stage-turned',on)};
+ addEventListener('fullscreenchange',syncTurn);syncTurn();
  portrait.addEventListener('change',()=>{syncTurn();render()});
  button.onclick=()=>{if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});else stage.requestFullscreen().then(async()=>{
   if(!touch.matches)return;

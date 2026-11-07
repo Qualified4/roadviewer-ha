@@ -4,6 +4,13 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.13
+
+- Leaving a turned phone/tablet fullscreen by moving to another segment no longer leaves the next segment's seek touches and dialogs in the turned orientation.
+- The driving map places the followed lead (선택) and FF labels first, so traffic never pushes them out; other labels still fill free places as before, and label backgrounds no longer touch.
+- On 320px-wide phones the speed sits at the right edge with the wheel below it, clear of the segment navigation, and the playback buttons flow in one row without overlapping; 360px and wider keep the existing layout.
+- Folded radarState/liveTracks tables are no longer rebuilt during playback (they fill with current values when opened), and the hidden driving map is not drawn during video fullscreen.
+
 ## 1.0.12
 
 - After holding a finger on the segment strip to show a thumbnail, sliding it scrubs through the segments like a mouse pointer; the strip does not scroll meanwhile, and lifting the finger hides the preview without changing segments.
