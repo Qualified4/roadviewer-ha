@@ -26,7 +26,7 @@ const replay={route:'ripple',key:'ripple',duration:1,warnings:[],video:null,fram
     new MutationObserver(check).observe(el,{childList:true,attributes:true,attributeFilter:['class']});
     setTimeout(()=>{check();done({...seen,left:!!el.querySelector('.rv-ripple'),after:getComputedStyle(el).overflow})},1100);
    })},selector);return ()=>page.evaluate(()=>window.__rvWatch)};
-   // Pointer press on the speed chooser trigger (no action besides opening the list, which we close).
+   // The bookmark press opens an editor; dismiss it before exercising the background playback controls.
    let pending=await watch('#bookmarkOpen');
    const box=await page.locator('#bookmarkOpen').boundingBox();
    await page.mouse.move(box.x+10,box.y+box.height/2);await page.mouse.down();await page.mouse.up();
@@ -39,6 +39,8 @@ const replay={route:'ripple',key:'ripple',duration:1,warnings:[],video:null,fram
     assert(Math.abs(seen.wave.centre[0]-10)<2,'ripple starts at the pointer: '+seen.wave.centre);
    }
    assert.equal(seen.left,false,'ripple is removed afterwards');assert.equal(seen.after,seen.overflow,'host overflow untouched');
+   await page.locator('.bookmark-close').click();await page.locator('.bookmark-dialog').waitFor({state:'hidden'});
+   await page.waitForFunction(()=>document.body.style.overflow!=='hidden');
    // Keyboard: ripple from the centre.
    await page.locator('#prev').focus();pending=await watch('#prev');await page.keyboard.press('Enter');seen=await (await pending)();
    if(!reduced){const b=await page.locator('#prev').boundingBox();assert(Math.abs(seen.wave.centre[0]-b.width/2)<1.5&&Math.abs(seen.wave.centre[1]-b.height/2)<1.5,'keyboard ripple starts at the centre')}
