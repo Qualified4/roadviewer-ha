@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.18
+
+- Uploads from a device or another browser now show their progress in the library header's upload pill (`업로드 N%`); before, only this browser's own uploads did.
+- The current segment's ring is no longer cut off at either end of a scrolling segment strip, and coloured segment blocks are drawn flat, without the dark inner edge they showed on phones.
+
 ## 1.0.17
 
 - Mobile text entry no longer sits under the floating playback controls. Tag and bookmark editors follow the keyboard's visible viewport and keep their save action reachable.

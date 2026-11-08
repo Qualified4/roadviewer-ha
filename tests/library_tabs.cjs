@@ -16,11 +16,11 @@ const {showTab}=require('./browser-helpers.cjs');
    seg('00000396--0d0eda17c5',0,at(1,7,0),{status:'unconverted',thumbnail:true}),
   ];
   const storage={used_bytes:3.8*GB,max_bytes:4*GB,free_bytes:GB,reserved_bytes:0,policy:'reject_new',archive:{enabled:true,backend:'smb',state:'connected',used_bytes:0,free_bytes:0}};
-  const thumbs=[];
+  const thumbs=[];let uploads={received_bytes:37,total_bytes:100};
   const page=await browser.newPage({viewport:{width:1300,height:900}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.route('https://rv.test/**',route=>{
    const p=new URL(route.request().url()).pathname,url=new URL(route.request().url());
-   if(p==='/api/logs')return route.fulfill({json:{logs,concurrency:1,auto_convert:true,max_upload_mb:512,storage_used_bytes:storage.used_bytes}});
+   if(p==='/api/logs')return route.fulfill({json:{logs,concurrency:1,auto_convert:true,max_upload_mb:512,storage_used_bytes:storage.used_bytes,uploads}});
    if(p==='/api/progress')return route.fulfill({json:{progress:{}}});
    if(p==='/api/settings/storage')return route.fulfill({json:storage});
    if(p==='/api/settings/archive')return route.fulfill({json:{archive_enabled:true,archive_backend:'smb',archive_mode:'move',archive_allow_local_delete:true,archive_path:'/share',archive_local_threshold_mb:0,archive_min_age_hours:0,archive_interval_minutes:60,archive_batch:2,archive_nas_max_mb:0,archive_nas_margin_mb:0,archive_gdrive_folder_name:'Road Viewer'}});
@@ -49,6 +49,9 @@ const {showTab}=require('./browser-helpers.cjs');
   await page.waitForFunction(()=>document.getElementById('headerStorageText').textContent==='3.8/4.0 GB');
   assert(await page.locator('#summary').evaluate(e=>e.classList.contains('is-near-limit')));
   assert.equal(await page.locator('#headerArchiveText').textContent(),'NAS 연결됨');
+  // A device's (or another browser's) upload shows in the header chip from the list, and leaves with it.
+  await page.waitForFunction(()=>!document.getElementById('uploadPill').hidden&&document.getElementById('uploadPillText').textContent==='업로드 37%');
+  uploads=null;await page.waitForFunction(()=>document.getElementById('uploadPill').hidden,null,{timeout:8000});
   // The header asks again every 10 s, and every 3 s while the archive reads 'checking', so a finished check shows soon.
   storage.archive.state='checking';
   await page.waitForFunction(()=>document.getElementById('headerArchiveText').textContent==='NAS 확인 중',null,{timeout:11500});
