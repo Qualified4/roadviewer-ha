@@ -78,6 +78,19 @@ class PlaybackCache:
         while True:
             time.sleep(30); self.expire()
 
+    def wait_range(self, ref, start, end, timeout=30, step=.1):
+        """Like local_range, but while the held copy of this file is still filling, waits (up to timeout) for it to
+        reach start. None when it is not held (failed, dropped, too big) or does not get there in time."""
+        deadline = self.clock() + timeout
+        while True:
+            found = self.local_range(ref, start, end)
+            if found: return found
+            with self.lock:
+                entry = self.entry
+                filling = entry is not None and entry.key == self.key(ref) and not entry.complete
+            if not filling or self.clock() >= deadline: return None
+            time.sleep(step)
+
     def local_range(self, ref, start, end):
         """(entry, end) when the held copy already has start..; end is lowered to what it has. None otherwise."""
         if not ref.file_id: return None

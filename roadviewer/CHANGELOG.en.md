@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.15
+
+- The current segment's whole video is read in the background, also while paused, so every seek within the segment is then immediate. Browsers read only a little ahead while paused, so seeking past it lagged and the seek bar's loaded parts were scattered. Drive videos come from the app's in-memory copy, not Google again; videos over 256 MB still stream.
+
 ## 1.0.14
 
 - The video is sized against where the floating transport bar actually is instead of a fixed allowance, so it grows right up to the bar with smaller side margins.

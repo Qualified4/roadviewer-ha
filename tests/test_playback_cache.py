@@ -39,6 +39,24 @@ class PlaybackCacheTests(unittest.TestCase):
         self.assertEqual((end, b''.join(self.cache.blocks(entry, 250, end))), (299, data[250:]))
         self.cache.ensure(r, 300, lambda: self.fail('a second copy'))  # Held already.
 
+    def test_wait_range_waits_for_the_filling_copy(self):
+        data = os.urandom(300); r = ref('W1', data); gate = threading.Event()
+        def blocks():
+            yield data[:100]; gate.wait(5); yield data[100:]
+        cache = pc.PlaybackCache(max_bytes=1000, janitor=False)  # Real clock: wait_range times out on it.
+        self.assertIsNone(cache.wait_range(r, 0, 299, timeout=.2), 'not held: no wait')
+        cache.ensure(r, 300, blocks)
+        threading.Timer(.2, gate.set).start()
+        entry, end = cache.wait_range(r, 150, 299, timeout=5)  # Beyond what has arrived: waits for it.
+        self.assertEqual(b''.join(cache.blocks(entry, 150, end)), data[150:end + 1])
+        gate2 = threading.Event(); other = os.urandom(300); r2 = ref('W2', other)
+        def stuck():
+            yield other[:10]; gate2.wait(5); yield other[10:]
+        cache.ensure(r2, 300, stuck)
+        started = time.monotonic()
+        self.assertIsNone(cache.wait_range(r2, 200, 299, timeout=.3), 'gives up after the timeout')
+        self.assertLess(time.monotonic() - started, 2); gate2.set()
+
     def test_only_the_video_being_watched_is_held(self):
         a, b = os.urandom(400), os.urandom(400); ra, rb = ref('A', a), ref('B', b)
         self.cache.ensure(ra, 400, lambda: iter([a])); self.wait()

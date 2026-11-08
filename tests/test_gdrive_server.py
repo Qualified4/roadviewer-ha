@@ -115,6 +115,21 @@ class GdriveServerTests(unittest.TestCase):
         with self.drive.lock: asked = self.drive.requests[before:]
         self.assertEqual(asked, [], 'seeks into the copy make no request to Google (state and metadata are recent)')
 
+    def test_whole_video_copy_reads_the_held_copy_not_google_again(self):
+        # The page's background copy of the whole video (X-Roadviewer-Whole-Video) waits for the held copy instead of
+        # downloading the same file from Google a second time; its parts add up to the file.
+        video = os.urandom(3 * MIB + 77)
+        p = self.log('d' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': video}); self.ready(p)
+        self.move(); self.playback.max_bytes = 64 * MIB
+        r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': 'bytes=0-'}); r.close()
+        got, at = b'', 0
+        while at < len(video):
+            r = self.get(f'/api/logs/{p.name}/video?source=front', headers={'Range': f'bytes={at}-', 'X-Roadviewer-Whole-Video': '1'})
+            self.assertEqual(r.status_code, 206); self.assertTrue(r.data); got += r.data; at += len(r.data)
+        self.assertEqual(got, video)
+        # The player's own first range and the held copy: nothing more for the whole-video parts.
+        self.assertEqual(len(self.media_requests()), 2, 'no second download from Google')
+
     def test_remote_video_range_streams_without_buffering(self):
         video = os.urandom(3 * MIB + 123)
         p = self.log('a' * 32, {'rlog.zst': b'log' * 100, 'fcamera.mp4': video}); self.ready(p)
