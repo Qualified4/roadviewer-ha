@@ -427,6 +427,8 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .segment-block[data-status=error]{background:var(--danger)}
 .segment-block[data-status=unconverted]{background:var(--unconverted)}
 .segment-block[aria-current=true]{outline:2px solid var(--text);outline-offset:1.5px}
+/* Coloured blocks are flat: the track's inset shadow (dark theme) read as a dark inner edge on them, most on the 8px phone strip. */
+.segment-block:is([data-status=ready],[data-status=queued],[data-status=processing],[data-status=error],[data-status=unconverted]){box-shadow:none}
 .segment-block:disabled{opacity:.6}
 @media(hover:hover) and (pointer:fine){.segment-block:enabled:not([aria-current]):hover{filter:brightness(1.12) saturate(1.1)}}
 .segment-block:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
@@ -443,6 +445,8 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .segment-strip.is-scrolling .segment-block{flex:0 0 28px;scroll-snap-align:center}
 .segment-strip.fade-left{--fade-left:28px}.segment-strip.fade-right{--fade-right:28px}
 .segment-strip,.event-track,.timeline-legend{margin-left:8px;margin-right:8px}
+/* The scrolling strip clips at its padding box: 4px of side padding (taken from the margins) keeps the current block's ring whole at either end. */
+.segment-strip.is-scrolling{padding-inline:4px;margin-inline:4px;scroll-padding-inline:4px}
 .event-track{position:relative;height:6px;border-radius:3px;overflow:hidden;background:var(--track);box-shadow:var(--track-shadow)}
 .event-track>span{position:absolute;top:0;bottom:0}
 .event-engaged{background:var(--ready)}.event-takeover{min-width:2px;background:var(--takeover)}

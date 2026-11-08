@@ -44,6 +44,11 @@ const replay={route:'0000041b--a1b2c3d4e5',key:'long',duration:2,warnings:[],vid
    await page.locator('#segmentStrip').evaluate(e=>{e.dispatchEvent(new WheelEvent('wheel'));e.scrollLeft=0});await page.waitForFunction(()=>!document.getElementById('segmentStrip').classList.contains('fade-left'));
    await page.evaluate(()=>window.dispatchEvent(new Event('resize')));await page.waitForTimeout(50);
    assert.equal((await strip()).left,0,'manual scroll position is kept');
+   // At either end the strip's clip keeps a block's 2px ring (offset 1.5px) whole.
+   const room=await page.locator('#segmentStrip').evaluate(s=>{const f=s.getBoundingClientRect(),first=s.firstElementChild.getBoundingClientRect();s.scrollLeft=s.scrollWidth;
+    const last=s.lastElementChild.getBoundingClientRect();return [first.left-(f.left+s.clientLeft),(f.left+s.clientLeft+s.clientWidth)-last.right]});
+   assert(room.every(r=>r>=3.5),'room for the current ring at the strip ends at '+width+': '+room);
+   await page.locator('#segmentStrip').evaluate(s=>{s.scrollLeft=0});
    // Mouse drag scrolls without opening a segment.
    if(width===1300){
     const box=await page.locator('#segmentStrip').boundingBox();const url=page.url();

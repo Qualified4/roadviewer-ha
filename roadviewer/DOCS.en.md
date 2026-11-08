@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.17**.
+This guide describes **1.0.18**.
 
 [한국어](DOCS.md) · English
 
@@ -32,7 +32,7 @@ The library is split into five in-page tabs, shown at the top on wide screens an
 
 ## Uploading files
 
-On the **업로드** tab, use **파일 추가** (Add files), or drag files onto the upload area, then press **업로드** (Upload). Selection does not start transmission. Uploads keep running when you switch tabs; the header's progress pill (`업로드 N%`) shows progress. Files can be added together or one at a time. **선택 비우기** clears the selection; adding a selected filename again replaces that selection. Folder selection is unsupported.
+On the **업로드** tab, use **파일 추가** (Add files), or drag files onto the upload area, then press **업로드** (Upload). Selection does not start transmission. Uploads keep running when you switch tabs; the header's progress pill (`업로드 N%`) shows progress. Uploads from a device or another browser show in the same pill (updated every 3 s). Files can be added together or one at a time. **선택 비우기** clears the selection; adding a selected filename again replaces that selection. Folder selection is unsupported.
 
 | File | Purpose |
 |---|---|

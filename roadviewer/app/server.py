@@ -668,12 +668,29 @@ def warm_list():
  try:list_snapshot()
  except Exception:app.logger.warning('List warm-up failed',exc_info=True)
 
+def upload_progress():
+ # Uploads from any client (a device, another browser) still receiving or being registered: bytes received of
+ # their total, for the library header's upload chip. None when nothing is uploading.
+ now,total,received=time.time(),0,0
+ try:sessions=[d for d in UPLOADS.iterdir() if d.is_dir()]
+ except OSError:return None
+ for d in sessions:
+  try:
+   finishing=d.name in finishing_uploads
+   if not (finishing or active_uploads.get(d.name) or now-d.stat().st_mtime<UPLOAD_QUIET_SECONDS):continue
+   files=json.loads((d/'manifest.json').read_text())
+   size=sum(f['size'] for f in files)
+   total+=size
+   received+=size if finishing else sum(min((d/str(i)).stat().st_size,f['size']) for i,f in enumerate(files) if (d/str(i)).is_file())
+  except (OSError,ValueError,KeyError,TypeError):continue
+ return None if not total else {'received_bytes':received,'total_bytes':total}
+
 @app.route('/api/logs')
 def logs():
  cleanup_uploads()
  items,used=list_snapshot()
  route_starts(items)
- return jsonify(logs=sorted(items,key=recording_order,reverse=True),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=used,concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
+ return jsonify(logs=sorted(items,key=recording_order,reverse=True),uploads=upload_progress(),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=used,concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
 @app.route('/api/upload',methods=['POST'])
 def upload():
  # Legacy multipart uploads use the same admission reservation. Browsers use chunks.

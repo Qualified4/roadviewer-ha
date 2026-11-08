@@ -498,6 +498,8 @@ async function refresh({poll=false}={}){
   if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=[1,2,3,4].includes(data.concurrency)?data.concurrency:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'));savedAutoConvert=data.auto_convert!==false;syncAutoConvert()}
   updateTagCatalog(data.logs);
   headerStorage.used=data.storage_used_bytes;headerStorage.logs=data.logs.length;syncHeaderStorage();
+  // Uploads from a device or another browser show in the header chip too (this page's own upload drives it itself).
+  if(!busy){const u=data.uploads;showUploadPill(u&&u.total_bytes>0?Math.min(100,Math.floor(u.received_bytes/u.total_bytes*100)):null)}
   $('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;
   const rows=data.logs.map(m=>{
    const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id),identity=recordingIdentity(m.name,m.files);

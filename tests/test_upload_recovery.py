@@ -25,6 +25,16 @@ class RecoveryTests(unittest.TestCase):
   self.assertEqual(self.put(id).json['received'],3)
   self.assertEqual((server.UPLOADS/id/'0').read_bytes(),b'log')
   self.assertEqual(self.put(id,b'bad').status_code,409)
+ def test_list_reports_uploads_from_any_client(self):
+  # The library header chip shows a device's (or another browser's) upload, not only this page's own.
+  logs=lambda:self.c.get('/api/logs',headers=HEADERS,environ_overrides=PEER).json['uploads']
+  self.assertIsNone(logs())
+  r=self.c.post('/api/uploads',json={'files':[{'name':'rlog.zst','size':3},{'name':'qcamera.ts','size':5}]},headers=HEADERS,environ_overrides=PEER)
+  id=r.json['id']
+  self.assertEqual(self.put(id).status_code,200)
+  self.assertEqual(logs(),{'received_bytes':3,'total_bytes':8})
+  old=time.time()-server.UPLOAD_QUIET_SECONDS-5;os.utime(server.UPLOADS/id,(old,old))
+  self.assertIsNone(logs(),'a stalled session is not shown as uploading')
  def test_chunk_write_and_hash_run_outside_the_job_lock(self):
   # A slow disk write must not stall the other files, the web UI or conversion progress.
   id=self.begin();seen=[];real=server.hashlib.sha256
