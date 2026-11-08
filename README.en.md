@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **1.0.16**
+Feature reference: **1.0.17**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -144,7 +144,7 @@ The following tag and bookmark screenshots use **synthetic examples in the actua
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-tags-library-dark.png"><img src="docs/images/roadviewer-tags-library.png" alt="Saved example segments with colored lane-change, review and rainy-weather tags, plus the tag filter chips"></picture>
 
 1. Choose **태그 편집** (Edit tags) in a segment's ⋯ menu (**전체 구간 태그 편집** in a route card's ⋯ menu) or **태그** (Tags) in playback.
-2. Enter a name, select a color, then choose **추가 → 저장** (Add → Save). Reuse an existing tag or click a badge in the editor to change its name/color.
+2. Enter a name, select a color, then choose **추가 → 저장** (Add → Save). Select an existing tag without raising the mobile keyboard, or click a badge in the editor to change its name/color.
 3. To tag several segments together, press **선택** (Select) on the Logs tab (or long-press a segment on touch screens), select the segments and use **태그** in the bottom action bar.
 
 Tags support 12 colors, names up to 32 characters and up to 100 tags per segment. Saving tags does not reconvert logs or videos.
@@ -155,8 +155,8 @@ Tags support 12 colors, names up to 32 characters and up to 100 tags per segment
 
 A bookmark stores **a specific log timestamp within one segment**. Mark a lane change, a lead-distance check or the start of deceleration to return directly to that moment later.
 
-1. Play or seek to the desired time, then click **북마크** (Bookmark) in the floating playback bar. The analysis panel switches to the **북마크** tab with that time in the **현재 장면 추가** (Add current scene) editor.
-2. Check the captured timestamp, add a title and optional note, and **저장** (Save). **현재 시각으로** (Use current time) updates the editor’s timestamp to the current playback position.
+1. Play or seek to the desired time, then click **북마크** (Bookmark) in the floating playback bar. A recording popup captures that time without switching the current analysis view.
+2. Check the captured timestamp and choose **저장** (Save). The title and note are optional; an empty title defaults to the scene time. **현재 시각으로** (Use current time) updates the editor’s timestamp to the current playback position.
 3. Click a saved **time/title** in the bookmark tab or a **seek-bar marker** to move the video, road view and graphs together, preserving the playing/paused state.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-bookmarks-editor-dark.png"><img src="docs/images/roadviewer-bookmarks-editor.png" alt="Bookmark tab capturing the 22-second moment with a title/note and a chronological list of saved lane-change, lead-distance and deceleration scenes" width="556"></picture>

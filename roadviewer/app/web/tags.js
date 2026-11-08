@@ -19,15 +19,33 @@ function recordingTagButton(log,onSaved){
  const button=document.createElement('button');button.type='button';button.className='tag-edit';button.innerHTML=RECORDING_TAG_ICON;button.title='태그 편집';button.setAttribute('aria-label','태그 편집');
  button.onclick=()=>editRecordingTags([log],onSaved);return button;
 }
+// The keyboard can shrink the visual viewport without resizing the layout viewport in Android WebView.
+// Keep the editor and its fixed footer inside that visible area; release listeners when the page closes it.
+function fitEditorViewport(dialog){
+ const viewport=window.visualViewport;let frame=0;
+ const fit=()=>{
+  frame=0;if(!dialog.open)return;
+  dialog.style.setProperty('--editor-top',(viewport?.offsetTop||0)+'px');
+  dialog.style.setProperty('--editor-height',(viewport?.height||innerHeight)+'px');
+  const input=document.activeElement;
+  if(dialog.contains(input)&&input.matches('input,textarea'))input.scrollIntoView({block:'nearest',inline:'nearest'});
+ };
+ const schedule=()=>{if(!frame)frame=requestAnimationFrame(fit)};
+ dialog.classList.add('keyboard-editor');viewport?.addEventListener('resize',schedule);viewport?.addEventListener('scroll',schedule);
+ window.addEventListener('resize',schedule);dialog.addEventListener('focusin',schedule);
+ dialog.addEventListener('close',()=>{viewport?.removeEventListener('resize',schedule);viewport?.removeEventListener('scroll',schedule);window.removeEventListener('resize',schedule);dialog.removeEventListener('focusin',schedule);cancelAnimationFrame(frame)},{once:true});
+ fit();
+}
 function editRecordingTags(logs,onSaved,bulk=false){
  if(!logs.length||document.querySelector('.tag-dialog[open]'))return;
- const opener=document.activeElement,overflow=document.body.style.overflow,dialog=document.createElement('dialog');dialog.className='tag-dialog';dialog.setAttribute('aria-labelledby','tagDialogTitle');
+ const opener=document.activeElement,overflow=document.body.style.overflow,dialog=document.createElement('dialog');dialog.className='tag-dialog editor-dialog';dialog.setAttribute('aria-labelledby','tagDialogTitle');
  dialog.innerHTML=`<div class="tag-dialog-head"><div><span class="tag-eyebrow">LOG TAGS</span><h2 id="tagDialogTitle">${bulk?'선택한 구간의 태그':'구간 태그 편집'}</h2></div><button type="button" class="tag-close">닫기</button></div>
  <p class="tag-dialog-description"></p><form class="tag-form"><fieldset class="tag-fields"><legend class="tag-sr-only">태그 편집</legend>
  <div class="tag-mode" ${bulk?'':'hidden'}><label><input type="radio" name="tagAction" value="add" checked> 태그 추가</label><label><input type="radio" name="tagAction" value="remove"> 태그 제거</label></div>
- <label class="tag-input-label" for="tagNameInput">태그 이름</label><div class="tag-input-row"><input id="tagNameInput" type="text" placeholder="예: 급제동, 인식 오류, 야간" autocomplete="off" aria-describedby="tagHelp"><button class="tag-add" type="submit">추가</button></div>
- <div class="tag-colors" role="group" aria-label="태그 색상"></div><p id="tagHelp">이름은 최대 32자, 구간당 최대 100개입니다. 배지를 누르면 이름과 색상을 바꿀 수 있습니다.</p>
- <div class="tag-draft" aria-label="선택한 태그"></div><div class="tag-suggestions" aria-label="기존 태그 추천"></div>
+ <div class="tag-draft" aria-label="선택한 태그"></div>
+ <label class="tag-input-label" for="tagNameInput">태그 검색 또는 새로 만들기</label><div class="tag-input-row"><input id="tagNameInput" type="text" placeholder="태그를 선택하거나 새 이름 입력" autocomplete="off" enterkeyhint="done" aria-describedby="tagHelp"><button class="tag-add" type="submit">추가</button></div>
+ <div class="tag-colors" role="group" aria-label="태그 색상" hidden></div><p id="tagHelp">기존 태그를 누르면 선택됩니다. 새 이름은 최대 32자, 구간당 최대 100개입니다. 선택한 태그를 누르면 수정할 수 있습니다.</p>
+ <div class="tag-suggestions" aria-label="기존 태그 추천"></div>
  </fieldset></form><div class="tag-dialog-footer"><p class="tag-result" role="status"></p><button type="button" class="primary tag-save">저장</button></div>`;
  const find=selector=>dialog.querySelector(selector),input=find('input[type=text]'),fields=find('fieldset'),draftArea=find('.tag-draft'),suggestions=find('.tag-suggestions'),result=find('.tag-result'),save=find('.tag-save'),close=find('.tag-close');
  find('.tag-dialog-description').textContent=bulk?`${logs.length}개 구간에 선택한 태그만 추가하거나 제거합니다. 다른 태그와 고정 상태는 유지됩니다.`:recordingIdentity(logs[0].name,logs[0].files).display+' · 재변환 없이 저장됩니다.';
@@ -39,9 +57,10 @@ function editRecordingTags(logs,onSaved,bulk=false){
  function syncColors(){for(const button of palette.children)button.setAttribute('aria-pressed',String(button.dataset.color===color))}
  function updateSave(){save.disabled=saving||(bulk&&!draft.length&&!input.value.trim())}
  function suggest(){
+  palette.hidden=!input.value.trim()||dialog.querySelector('[name=tagAction]:checked').value==='remove';
   suggestions.replaceChildren();const query=tagKey(input.value),matches=recordingTagCatalog.filter(tag=>(!query||tagKey(tag.name).includes(query))&&!draft.some(d=>tagKey(d.name)===tagKey(tag.name)));
   if(matches.length){const label=document.createElement('p');label.textContent=query?'일치하는 태그':'기존 태그';suggestions.append(label)}
-  for(const tag of matches){const button=document.createElement('button');button.type='button';button.textContent=tag.name;button.dataset.color=tag.color;button.className='recording-tag';button.onclick=()=>{input.value=tag.name;color=tag.color;syncColors();addDraft()};suggestions.append(button)}
+  for(const tag of matches){const button=document.createElement('button');button.type='button';button.textContent=tag.name;button.dataset.color=tag.color;button.className='recording-tag';button.onclick=()=>{input.blur();input.value=tag.name;color=tag.color;syncColors();addDraft()};suggestions.append(button)}
   updateSave();
  }
  function renderDraft(){
@@ -54,15 +73,15 @@ function editRecordingTags(logs,onSaved,bulk=false){
   if(!draft.length){const empty=document.createElement('p');empty.textContent=bulk?'추가하거나 제거할 태그를 선택하세요.':'등록된 태그가 없습니다.';draftArea.append(empty)}
   suggest();
  }
- function addDraft(){
+ function addDraft(refocus=false){
   const name=input.value.normalize('NFC').trim().replace(/\s+/gu,' '),key=tagKey(name);
   if(!name||Array.from(name).length>32||/\p{C}/u.test(name)){result.textContent='태그 이름은 1~32자의 표시 가능한 문자로 입력해 주세요.';return false}
   const next=draft.filter(tag=>tagKey(tag.name)!==key&&tagKey(tag.name)!==editing);
   if(next.length>=100){result.textContent='태그는 최대 100개까지 선택할 수 있습니다.';return false}
-  draft=[...next,{name,color}];input.value='';editing=null;find('.tag-add').textContent='추가';result.textContent='';renderDraft();input.focus();return true;
+  draft=[...next,{name,color}];input.value='';editing=null;find('.tag-add').textContent='추가';result.textContent='';renderDraft();if(refocus)input.focus();return true;
  }
- find('form').onsubmit=event=>{event.preventDefault();addDraft()};input.oninput=suggest;
- for(const radio of dialog.querySelectorAll('[name=tagAction]'))radio.onchange=()=>{palette.hidden=radio.value==='remove'&&radio.checked;save.textContent=dialog.querySelector('[name=tagAction]:checked').value==='remove'?'태그 제거':'태그 추가'};
+ find('form').onsubmit=event=>{event.preventDefault();addDraft(document.activeElement===input)};input.oninput=suggest;
+ for(const radio of dialog.querySelectorAll('[name=tagAction]'))radio.onchange=()=>{suggest();save.textContent=dialog.querySelector('[name=tagAction]:checked').value==='remove'?'태그 제거':'태그 추가'};
  const dismiss=()=>{if(!saving)dialog.close()};close.onclick=dismiss;
  dialog.addEventListener('cancel',event=>{event.preventDefault();dismiss()});
  dialog.onclick=event=>{if(event.target!==dialog)return;const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dismiss()};
@@ -85,5 +104,6 @@ function editRecordingTags(logs,onSaved,bulk=false){
    else{logs=logs.filter(log=>!changes.some(change=>change.id===log.id));result.textContent=`${changes.length}개 저장 · ${failures.length}개 미완료\n${failures.join('\n')}\n저장을 누르면 미완료 항목만 다시 시도합니다.`}
   }finally{saving=false;fields.disabled=false;close.disabled=false;updateSave()}
  };
- document.body.append(dialog);document.body.style.overflow='hidden';syncColors();renderDraft();dialog.showModal();input.focus();
+ document.body.append(dialog);document.body.style.overflow='hidden';syncColors();renderDraft();dialog.showModal();fitEditorViewport(dialog);
+ (matchMedia('(pointer:coarse)').matches?close:input).focus({preventScroll:true});
 }

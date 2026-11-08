@@ -1445,3 +1445,8 @@ settingsDialog($('layoutWidthDialog'),$('layoutWidthButton'),$('layoutWidthClose
 
 // Web fonts may finish after the first paused canvas frame.
 document.fonts.ready.then(()=>{if(canvas.isConnected)render()});
+
+// Mobile text entry must not scroll underneath the floating transport bar.
+const syncTextEditing=()=>document.body.classList.toggle('text-editing',matchMedia('(pointer:coarse)').matches&&!!document.activeElement?.matches('textarea,input:not([type]),input[type=text],input[type=search],[contenteditable=true]'));
+document.addEventListener('focusin',syncTextEditing);
+document.addEventListener('focusout',()=>requestAnimationFrame(syncTextEditing));

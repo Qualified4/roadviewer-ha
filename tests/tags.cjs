@@ -20,7 +20,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
  let stderr='',browser;python.stderr.on('data',x=>stderr+=x);
  try{
   const port=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Server timeout '+stderr)),15000);python.once('exit',code=>{clearTimeout(timer);reject(Error('Server exit '+code+stderr))});python.stdout.on('data',x=>{const m=/READY (\d+)/.exec(String(x));if(m){clearTimeout(timer);resolve(Number(m[1]))}})});
-  browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);const context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'}),page=await context.newPage(),errors=[];
+  browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true,reducedMotion:'reduce'}),page=await context.newPage(),errors=[];
   page.on('pageerror',error=>errors.push(error.message));
   const base=`http://127.0.0.1:${port}/api/hassio_ingress/test/`,read=id=>JSON.parse(fs.readFileSync(path.join(dir,id,'meta.json')));
   await page.goto(base);await page.locator('.log-row').first().waitFor();
@@ -29,7 +29,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   assert((await page.locator('body').evaluate(e=>getComputedStyle(e).fontFamily)).includes('Pretendard Variable'));
   const row=id=>page.locator(`.log-row[data-id="${id}"]`),dialog=page.locator('.tag-dialog');
   // 태그 편집 lives in each segment's ⋯ menu.
-  const open=async id=>{await row(id).locator('.recording-more>summary').click();await row(id).getByRole('button',{name:'태그 편집',exact:true}).click();await dialog.waitFor()};
+  const open=async id=>{await row(id).locator('.recording-more>summary').click();await row(id).getByRole('button',{name:'태그 편집',exact:true}).click();await dialog.waitFor();assert(await dialog.locator('#tagNameInput').evaluate(e=>e!==document.activeElement),'opening the picker does not raise the keyboard')};
   const add=async(name,color)=>{await dialog.locator('#tagNameInput').fill(name);if(color)await dialog.getByRole('button',{name:color,exact:true}).click();await dialog.locator('.tag-add').click()};
   const save=async()=>{await dialog.locator('.tag-save').click();await dialog.waitFor({state:'detached'})};
   await open(ids[0]);await page.keyboard.press('Escape');await dialog.waitFor({state:'detached'});assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
@@ -78,7 +78,20 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    const last=dialog.locator('.tag-suggestions button').last();await last.scrollIntoViewIfNeeded();assert(await last.isVisible());
    assert(await dialog.locator('.tag-save').isVisible());assert(await dialog.evaluate(e=>e.scrollWidth<=e.clientWidth));
   }
-  await dialog.locator('.tag-suggestions').getByRole('button',{name:'기존 태그 29',exact:true}).click();await save();
+  // Android WebView can leave innerHeight unchanged while the keyboard reduces/pans visualViewport.
+  await page.setViewportSize({width:390,height:844});
+  await page.evaluate(()=>{
+   Object.defineProperty(visualViewport,'height',{configurable:true,get:()=>400});
+   Object.defineProperty(visualViewport,'offsetTop',{configurable:true,get:()=>64});
+   visualViewport.dispatchEvent(new Event('resize'));
+  });
+  await dialog.locator('#tagNameInput').focus();
+  await page.waitForFunction(()=>{const d=document.querySelector('.tag-dialog').getBoundingClientRect(),input=document.getElementById('tagNameInput').getBoundingClientRect(),save=document.querySelector('.tag-save').getBoundingClientRect();return d.top>=64&&d.bottom<=464&&input.top>=d.top&&input.bottom<=save.top&&save.bottom<=464});
+  for(const colorScheme of ['dark','light']){await page.emulateMedia({colorScheme});await settleLayout(page,'.tag-dialog');if(process.env.RV_MOBILE_SHOTS){fs.mkdirSync(process.env.RV_MOBILE_SHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.RV_MOBILE_SHOTS,`tags-keyboard-${colorScheme}.png`)})}}
+  const last=dialog.locator('.tag-suggestions').getByRole('button',{name:'기존 태그 29',exact:true});await last.scrollIntoViewIfNeeded();await last.click();
+  assert(await dialog.locator('#tagNameInput').evaluate(e=>e!==document.activeElement),'selecting an existing tag never refocuses the text field');
+  assert((await dialog.locator('.tag-save').boundingBox()).y+(await dialog.locator('.tag-save').boundingBox()).height<=464,'save stays above the keyboard');
+  await save();
   assert(read(ids[1]).tags.some(tag=>tag.name==='기존 태그 29'),'last existing tag remains selectable');
   console.log('PASS: tag editing, colors, text safety, persistence, filters, replay/Ingress, bulk add/remove/retry, responsive dialog and prepared-data removal');
  }finally{await browser?.close();if(python.exitCode===null){python.kill();await once(python,'exit')}fs.rmSync(dir,{recursive:true,force:true})}
