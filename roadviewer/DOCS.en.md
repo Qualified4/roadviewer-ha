@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.16**.
+This guide describes **1.0.17**.
 
 [한국어](DOCS.md) · English
 
@@ -164,7 +164,7 @@ The web UI bundles Pretendard Variable 1.3.9 for Korean text without contacting 
 
 <img src="../docs/images/roadviewer-bookmarks-editor.png" alt="Bookmarks based on log timestamps" width="490">
 
-Bookmarks are added and edited inline on the **북마크** analysis tab; there is no bookmark dialog. Choosing **북마크** in the bottom playback bar switches to that tab and captures the current log time in the **현재 장면 추가** (Add current scene) editor. Enter a title (up to 80 characters) and an optional note (up to 1,000 characters). The captured time stays fixed during playback; **현재 시각으로** updates it to the current playhead. Each segment supports up to 100 bookmarks; the tab label shows the count.
+Choose **현재 장면 기록** (Record current scene) in the bookmark tab or **북마크** in the playback bar to open a popup without switching the current replay view. The captured log time stays fixed during playback; **현재 시각으로** updates it to the current playhead. The title (up to 80 characters) and note (up to 1,000 characters) are optional; an empty title defaults to the scene time. Closing the popup preserves the unfinished draft in that segment. On mobile, the editor and save button stay above the keyboard, and playback controls are hidden during text entry. Each segment supports up to 100 bookmarks; use the bookmark tab to list, edit or delete them.
 
 Click a gold seek-bar marker or an entry in the tab's chronological list to seek video, road view and graphs together, preserving playing or paused state. **수정** (Edit) and **삭제** (Delete) change or remove an entry.
 

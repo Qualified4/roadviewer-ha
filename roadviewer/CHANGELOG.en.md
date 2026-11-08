@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.17
+
+- Mobile text entry no longer sits under the floating playback controls. Tag and bookmark editors follow the keyboard's visible viewport and keep their save action reachable.
+- Picking existing tags no longer raises the keyboard. Selected tags appear first, with search and new-tag entry below.
+- Capture bookmarks in a popup without leaving the current replay view. Titles are optional and default to the scene time; the captured time and unfinished draft are preserved.
+
 ## 1.0.16
 
 - Added log export and import. Home Assistant backups do not include logs, so all recordings (Storage tab, local storage card) or the selected ones (library selection mode) can be saved as one .tar file: the original log and videos plus name, upload time, tags, bookmarks and pin; files moved to Drive/NAS are included as references only.

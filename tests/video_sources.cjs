@@ -53,7 +53,9 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert(Math.abs(clockSteps[1]-.77)<1e-9,'the next frame must count only time since resume');
   await page.evaluate(()=>{pause();setTime(.75)});
   await page.locator('#videoSourceChoice').click();await page.getByRole('option',{name:'와이드',exact:true}).click();
-  await page.waitForFunction(()=>!loading&&videoSource==='wide');
+  // A paused source can immediately reload from its background whole-video copy. The app's loading flag
+  // alone does not mean the media element has finished that reload and its pending seek.
+  await page.waitForFunction(()=>!loading&&videoSource==='wide'&&!v.seeking&&v.readyState>=3);
   let state=await page.evaluate(()=>({t,playing,time:v.currentTime,overlay:$('videoOverlay').hidden}));
   assert.equal(state.t,.75);assert.equal(state.playing,false);assert(Math.abs(state.time-.55)<.02,JSON.stringify(state));
   assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true');assert.doesNotMatch(await page.locator('#overlayStatus').textContent(),/없습니다|표시할 수 없습니다|재분석/);
