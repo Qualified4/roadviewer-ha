@@ -142,6 +142,8 @@ jobs:
         if: matrix.group == 'g4'
       - run: node tests/segment_peek.cjs
         if: matrix.group == 'g4'
+      - run: node tests/whole_video.cjs
+        if: matrix.group == 'g4'
       - run: node tests/replay_rendering.cjs
         if: matrix.group == 'g4'
       - run: node tests/motion.cjs

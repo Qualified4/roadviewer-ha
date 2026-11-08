@@ -215,9 +215,12 @@ def remote_response(rf,mimetype,as_attachment=False,name=None):
  if not as_attachment:
   # Playback: the part of the held copy already received answers at once (an open range is shortened to it);
   # holding the whole file starts with the first request and drops the video watched before.
-  local=playback.local_range(rf.ref,start,end) if partial else None
-  if local and (local[1]==end or not (match and match[2])):body=playback.blocks(local[0],start,local[1]);end=local[1]
   source=backend;playback.ensure(rf.ref,rf.size,lambda:source.open(rf.ref))
+  # The page's background copy of the whole video (app.js) waits for the held copy rather than starting a second
+  # download of the same file from Google; it takes whatever part is there and asks again for the rest.
+  whole=partial and request.headers.get('X-Roadviewer-Whole-Video')=='1'
+  local=(playback.wait_range if whole else playback.local_range)(rf.ref,start,end) if partial else None
+  if local and (local[1]==end or not (match and match[2])):body=playback.blocks(local[0],start,local[1]);end=local[1]
  if body is None:body=remote_chunks(rf,start,end) if partial else remote_chunks(rf)
  response=app.response_class(body,status=206 if partial else 200,mimetype=mimetype,direct_passthrough=True)
  response.headers['Accept-Ranges']='bytes'

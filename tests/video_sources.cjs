@@ -14,7 +14,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
    if(p.endsWith('/data'))return route.fulfill({json:legacy?{...data,videos:undefined,video:videos.qcamera,defaultVideo:undefined}:data});
    if(p.endsWith('/video')){
-    requested.push(url.searchParams.get('source'));
+    // The page's background copy of the whole video (app.js) is not a choice of source.
+    if(route.request().headers()['x-roadviewer-whole-video']!=='1')requested.push(url.searchParams.get('source'));
     if(failFront&&url.searchParams.get('source')==='front')return route.fulfill({status:404,body:'missing'});
     // The server's answers while Google Drive is being checked (first visit) or unreachable.
     if(checking>0){checking--;return route.fulfill({status:503,json:{error:'storage_checking',message:'영상 저장소 연결을 확인하는 중입니다. 잠시 후 다시 시도하세요.'},headers:{'Retry-After':'1'}})}

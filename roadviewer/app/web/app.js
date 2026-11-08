@@ -278,8 +278,38 @@ function selectVideo(source){
  const id=location.pathname.split('/').filter(Boolean).at(-1);
  const url=new URL('../../api/logs/'+id+'/video',location.href);
  url.searchParams.set('v',data.key||Date.now());if(data.videos)url.searchParams.set('source',source);
- v.src=url.href;setPlaybackState(false,'영상을 불러오는 중입니다. 잠시 기다려 주세요.');v.load();updateVideoBuffer();setTime(t);
+ dropWholeVideo();v.src=url.href;setPlaybackState(false,'영상을 불러오는 중입니다. 잠시 기다려 주세요.');v.load();updateVideoBuffer();setTime(t);
 }
+// The browser stops reading ahead while the video is paused, so a seek past what it has read waits for the network
+// (and on long videos it keeps scattered pieces). Once the video can play, the whole file is read in the background
+// (from the server's held copy for Drive/NAS videos), and the video switches to that copy while paused: from then on
+// every seek within this video is immediate. Above WHOLE_VIDEO_MAX it stays streamed.
+const WHOLE_VIDEO_MAX=256*2**20;
+let wholeVideo=null;
+function dropWholeVideo(){if(!wholeVideo)return;wholeVideo.controller.abort();if(wholeVideo.url)URL.revokeObjectURL(wholeVideo.url);wholeVideo=null}
+async function readWholeVideo(entry){
+ const parts=[];let at=0,size=Infinity;
+ while(at<size){
+  const response=await fetch(entry.src,{signal:entry.controller.signal,headers:{Range:`bytes=${at}-`,'X-Roadviewer-Whole-Video':'1'}});
+  if(response.status===200){size=Number(response.headers.get('Content-Length'))||0;if(size>WHOLE_VIDEO_MAX)throw Error('too big');parts.length=0;parts.push(await response.blob());break}
+  if(response.status!==206)throw Error('status '+response.status);
+  size=Number((response.headers.get('Content-Range')||'').split('/')[1]);if(!(size>0)||size>WHOLE_VIDEO_MAX)throw Error('size');
+  const part=await response.blob();if(!part.size)throw Error('empty');parts.push(part);at+=part.size;
+ }
+ return new Blob(parts,{type:'video/mp4'});
+}
+function startWholeVideo(){
+ if(!v.src||v.src.startsWith('blob:')||wholeVideo?.src===v.src)return;
+ dropWholeVideo();const entry=wholeVideo={src:v.src,controller:new AbortController(),url:null};
+ readWholeVideo(entry).then(blob=>{if(wholeVideo!==entry)return;entry.url=URL.createObjectURL(blob);useWholeVideo()}).catch(()=>{if(wholeVideo===entry)wholeVideo=null});
+}
+// Switched only while paused and settled, so a playing video does not stall; a later pause switches it.
+function useWholeVideo(){
+ const entry=wholeVideo;
+ if(!entry?.url||v.src!==entry.src||playing||!v.paused||v.seeking||videoReadyPending||seekPointer!==null||pendingVideoSeek!==null)return;
+ v.src=entry.url;v.load();
+}
+v.addEventListener('pause',()=>setTimeout(useWholeVideo));v.addEventListener('seeked',()=>setTimeout(useWholeVideo));
 function videoFailure(message,keepLog=false){
  if(!data?.video)return;
  failedVideos.add(videoSource);
@@ -288,13 +318,14 @@ function videoFailure(message,keepLog=false){
  resumeAfterVideo=false;
  if(!keepLog){playbackError(message);return}
  // The video store is unreachable: the log replays without video; choosing a camera again retries.
- data.video=null;videoReadyPending=false;v.removeAttribute('src');v.load();setPlaybackState(true,'재생 준비 완료');showError(message);setTime(t);
+ data.video=null;videoReadyPending=false;dropWholeVideo();v.removeAttribute('src');v.load();setPlaybackState(true,'재생 준비 완료');showError(message);setTime(t);
 }
 const STORAGE_FAILURE='영상 저장소에 연결할 수 없습니다. 저장소 연결을 확인하세요.',STORAGE_RETRIES=3;
 let storageRetries=0,storageRetryTimer=null;
 async function videoError(){
  // The <video> element hides the HTTP status; only after an error, one byte is requested to read it.
  if(!data?.video)return;
+ if(v.error&&v.src.startsWith('blob:')&&wholeVideo){const src=wholeVideo.src;URL.revokeObjectURL(wholeVideo.url);wholeVideo.url=null;v.src=src;v.load();return}
  const src=v.src;let status=0,body=null,after=5;
  try{
   const res=await fetch(src,{headers:{Range:'bytes=0-0'},cache:'no-store'});status=res.status;
@@ -355,7 +386,7 @@ for(const event of ['pointerup','pointercancel'])window.addEventListener(event,e
 window.addEventListener('blur',finishSeekDrag);
 v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});
-v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();playLabel(true);syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=videoError;
+v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error)startWholeVideo();if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();playLabel(true);syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=videoError;
 for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','ccncRoad','laneMarking','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Space and arrows keep their own meaning on focused controls, links and menus.
 document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
