@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.16
+
+- Added log export and import. Home Assistant backups do not include logs, so all recordings (Storage tab, local storage card) or the selected ones (library selection mode) can be saved as one .tar file: the original log and videos plus name, upload time, tags, bookmarks and pin; files moved to Drive/NAS are included as references only.
+- Import uploads that file recording by recording: existing recordings are skipped, a recording that fails its checks is not added, and imported recordings are converted again per the auto-convert setting. With the same Drive/NAS connected, moved files play as before.
+
 ## 1.0.15
 
 - The current segment's whole video is read in the background, also while paused, so every seek within the segment is then immediate. Browsers read only a little ahead while paused, so seeking past it lagged and the seek bar's loaded parts were scattered. Drive videos come from the app's in-memory copy, not Google again; videos over 256 MB still stream.

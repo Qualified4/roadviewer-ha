@@ -32,7 +32,7 @@
    group.element.classList.toggle('has-selection',active&&count>0);
   }
   setText($('bulkCount'),`${picked.length}개 구간 선택${pinned?` · 고정 ${pinned}`:''}${hidden?` · 필터로 숨김 ${hidden}개`:''}`);
-  $('bulkTags').disabled=download.disabled=running||!picked.length;
+  $('bulkTags').disabled=download.disabled=$('bulkExport').disabled=running||!picked.length;
   convert.disabled=running||!picked.some(row=>!['ready','queued','processing'].includes(row.log.status));
   const targets=picked.filter(row=>includePinned.checked||!row.log.pinned),blocked=!running&&!includePinned.checked&&picked.length>0&&pinned===picked.length;
   remove.disabled=running||!targets.some(row=>row.log.status!=='processing');del.disabled=running||!targets.length;
@@ -146,6 +146,14 @@
    running=false;sync();if(!converting&&!failures.length)exit({keepResult:true});await refresh();
   }
  }
+ // Selected segments as one export .tar (log-transfer.js); every segment selected exports the whole list.
+ $('bulkExport').onclick=()=>{
+  const logs=chosen().map(row=>row.log);if(!logs.length||running)return;
+  $('bulkExtra').classList.remove('is-expanded');$('bulkMore').setAttribute('aria-expanded','false');
+  const all=logs.length===rows().length;
+  if(!all&&logs.length>150){feedback('한 번에 150개 구간까지 내보낼 수 있습니다. 전체를 선택하거나 선택을 나눠 주세요.');return}
+  downloadExport(all?null:logs.map(log=>log.id));feedback(`${logs.length}개 구간 내보내기를 시작했습니다. 받는 동안 이 화면을 닫아도 됩니다.`);
+ };
  $('bulkTags').onclick=()=>editRecordingTags(chosen().map(row=>row.log),changes=>{for(const change of changes){const row=logRows.get(change.id);if(row)recordingChanged({...row.log,tags:change.tags})}void refresh()},true);
  convert.onclick=()=>perform('convert');remove.onclick=()=>perform('remove');del.onclick=()=>perform('delete');
 })();
