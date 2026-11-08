@@ -168,6 +168,8 @@ jobs:
         if: matrix.group == 'g4'
       - run: node tests/upload_drop.cjs
         if: matrix.group == 'g6'
+      - run: node tests/log_export.cjs
+        if: matrix.group == 'g3'
   browser-tests:
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs: [browser-test-groups]
@@ -221,6 +223,7 @@ jobs:
       - run: python tests/test_playback_cache.py
       - run: python tests/test_gdrive_crash.py
       - run: python tests/test_gdrive_server.py
+      - run: python tests/test_log_export.py
       - run: python tests/test_gdrive_settings.py
       - run: python tests/test_archive_settings.py
       - run: python tests/test_gdrive_e2e.py

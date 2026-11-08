@@ -10,6 +10,7 @@ from werkzeug.exceptions import HTTPException
 from storage_policy import StoragePolicy,StorageError,atomic_json
 import media_store,archive_backends,archive_settings as archive_config
 from device_api import DeviceAPI
+from log_transfer import LogTransfer
 from device_network import DeviceNetwork
 from telemetry import drive_summary
 import wall_clock,backfill
@@ -480,7 +481,7 @@ def not_found(e):
  if request.path.startswith('/api/device/'):return jsonify(error='session_not_found' if '/uploads/' in request.path else 'not_found'),404
  return jsonify(error='로그 또는 파일을 찾을 수 없습니다.'),404
 PAGE_SCRIPTS={
- 'library':['disclosure','recording-name','download-dialog','tags','library','choices','bulk','storage-devices'],
+ 'library':['disclosure','recording-name','download-dialog','tags','library','choices','bulk','storage-devices','log-transfer'],
  'replay':['recording-name','download-dialog','tags','app','choices','video-overlay','camera-info','telemetry','bookmarks'],
 }
 
@@ -1036,6 +1037,7 @@ class ReceivedFile:
 def finish_upload(id,expected_hashes=None):
  with lock:
   p,files=upload_session(id)
+  if (p/'import.json').is_file():return upload_error('invalid_upload','불러오기 업로드는 불러오기로만 등록합니다.',409)  # log_transfer.py
   if expected_hashes is None and any(f.get('sha256','') is None for f in files):return upload_error('invalid_file','체크섬이 필요합니다.',400)
   if active_uploads[id]:return upload_error('upload_busy','업로드 조각을 전송 중입니다.',409)
   if any(not (p/str(i)).is_file() or (p/str(i)).stat().st_size!=f['size'] for i,f in enumerate(files)):return upload_error('incomplete_upload','아직 전송되지 않은 파일이 있습니다.',409)
@@ -1731,6 +1733,7 @@ def retry_archive(id):
  return jsonify(retried=failed)
 storage_policy=StoragePolicy(sys.modules[__name__])
 devices=DeviceAPI(sys.modules[__name__])
+log_transfer=LogTransfer(sys.modules[__name__])  # Export to one tar file and import back (log_transfer.py).
 device_network=DeviceNetwork(sys.modules[__name__])
 requeue_startup()
 # start.py enables this for the app; tests and tools importing the module do not migrate in the background.

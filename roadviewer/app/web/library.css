@@ -326,6 +326,13 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .archive-metric[data-kind=capacity]{grid-column:span 3;padding:10px 12px;border-radius:10px;background:var(--well)}.archive-metric[data-kind=capacity] dd{font-size:20px}
 .archive-metric[data-kind=copies] dt,.archive-metric[data-kind=errors] dt{font-size:10.5px;letter-spacing:-.02em}.archive-metric[data-kind=updated]{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:10px;border-top:1px solid var(--line)}.archive-metric[data-kind=updated] dd{font-size:11px;text-align:right;margin:0}
 .storage-archive #archiveRun{display:block;margin:14px 0 0 auto;padding:7px 11px;font-size:12px;min-height:36px}
+/* 내보내기 · 불러오기 (log-transfer.js): at the foot of the local storage card. */
+.storage-transfer{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.storage-transfer-row{display:flex;align-items:center;justify-content:space-between;gap:10px 16px;flex-wrap:wrap}.storage-transfer-row>p{flex:1 1 220px;margin:0;font-size:11px;line-height:1.6;color:var(--muted)}
+.storage-transfer-actions{display:flex;gap:8px;flex:none}.storage-transfer-actions button{min-height:36px;padding:7px 12px;font-size:12px}#importCancel{background:transparent;box-shadow:none;border-color:transparent;color:var(--danger-text)}
+.storage-transfer progress{height:6px;margin-top:12px}.storage-transfer #transferStatus{margin:8px 0 0;font-size:12px;color:var(--text-2);overflow-wrap:anywhere}.storage-transfer #transferStatus:empty{display:none}
+#transferFailures{max-height:120px;overflow-y:auto;margin-top:6px;font-size:12px;color:var(--danger-text);overflow-wrap:anywhere}#transferFailures p{margin:3px 0}
+@media(max-width:600px){.storage-transfer-actions{width:100%}.storage-transfer-actions button{flex:1;min-height:44px}}
 @media(max-width:380px){.storage-local,.storage-archive{padding:13px}.storage-local .storage-metrics{column-gap:12px}.archive-metrics{column-gap:8px}.archive-metric[data-kind=capacity]{padding:9px}}
 @media(prefers-reduced-motion:reduce){.storage-meter>span{transition:none}}
 
@@ -365,6 +372,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 
 @media(min-width:1100px){
  .storage-overview:has(.storage-archive:not([hidden]))>.storage-local,.storage-overview>.storage-archive{display:flex;flex-direction:column}
+ .storage-overview:has(.storage-archive:not([hidden])) .storage-transfer{margin-top:auto}
  .storage-overview .storage-archive>.gdrive-panel{margin-top:auto}.storage-overview .gdrive-panel+.archive-health{margin-top:14px}
  .storage-overview .archive-health{margin-top:auto;padding-top:14px}.storage-overview .archive-health>summary{min-height:44px;align-content:center}
 }
@@ -654,7 +662,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .bulk-buttons,.bulk-destructive,.bulk-extra{display:flex;align-items:center;gap:4px}
 .bulk-buttons,.bulk-destructive{padding-left:10px;border-left:1px solid var(--line-strong)}
 .bulk-extra{gap:10px}.bulk-destructive{flex:none}
-#bulkRemove,#bulkDelete,#bulkClose{border-color:transparent;background:transparent;box-shadow:none}#bulkDelete{color:var(--danger-text)}
+#bulkExport,#bulkRemove,#bulkDelete,#bulkClose{border-color:transparent;background:transparent;box-shadow:none}#bulkDelete{color:var(--danger-text)}
 #bulkOpen[aria-pressed=true]{background:var(--accent-soft);border-color:transparent;box-shadow:inset 0 0 0 1px var(--accent-line);color:var(--accent-text)}
 .bulk-pin-option{position:relative;flex:none}
 .bulk-pin-option input{width:16px;height:16px;margin:0;accent-color:var(--danger);cursor:pointer}
@@ -667,7 +675,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 #panel-logs:not(.selection-mode) #bulkDismiss{display:block;flex:none;width:44px;font-size:22px;padding:0}
 .bulk-download{position:static}.bulk-download-menu{position:absolute;bottom:calc(100% + 8px);left:0;width:330px;max-width:100%;max-height:min(340px,calc(100dvh - 200px));overflow:auto;z-index:2;padding:8px;border:1px solid var(--line);border-radius:14px;background:var(--pop);box-shadow:var(--pop-shadow)}
 .bulk-download-menu p{margin:8px;font-size:12px;color:var(--muted)}.bulk-download-menu a{display:flex;flex-direction:column;justify-content:center;gap:3px;min-height:52px;padding:8px 12px;border-radius:8px;color:var(--text);font-size:14px;text-decoration:none}.bulk-download-menu a small{color:var(--muted);font-size:12px}.bulk-download-menu a:hover{background:var(--well)}
-@media(hover:hover) and (pointer:fine){#bulkRemove:hover:enabled,#bulkClose:hover:enabled{background:var(--hover)}#bulkDelete:hover:enabled{background:var(--danger-soft)}}
+@media(hover:hover) and (pointer:fine){#bulkExport:hover:enabled,#bulkRemove:hover:enabled,#bulkClose:hover:enabled{background:var(--hover)}#bulkDelete:hover:enabled{background:var(--danger-soft)}}
 @media(max-width:1099px){
  .bulk-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px;padding:4px 10px}
  .bulk-selection-head{gap:10px;justify-content:space-between}.bulk-selection-head #bulkCount{font-size:12px}
@@ -676,7 +684,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .bulk-buttons button{width:100%;padding:0 8px}.bulk-buttons #bulkMore{display:block}
  .bulk-extra{display:none;position:absolute;right:0;bottom:calc(100% + 8px);width:260px;max-width:100%;z-index:2;padding:8px;border:1px solid var(--line-strong);border-radius:12px;background:var(--pop);box-shadow:var(--pop-shadow)}
  .bulk-extra.is-expanded{display:flex;flex-direction:column;align-items:stretch;gap:0}.bulk-destructive{flex-direction:column;align-items:stretch;padding:0;border:0}
- .bulk-destructive button{text-align:left}.bulk-pin-option{padding:0 10px;border-top:1px solid var(--line)}
+ .bulk-destructive button,#bulkExport{text-align:left}.bulk-pin-option{padding:0 10px;border-top:1px solid var(--line)}
  .bulk-pin-option label{font-size:13px}.bulk-pin-option #bulkPinHint{right:0;bottom:100%}
 }
 @media(max-width:719px){

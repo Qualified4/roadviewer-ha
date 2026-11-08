@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.15**.
+This guide describes **1.0.16**.
 
 [한국어](DOCS.md) · English
 
@@ -138,7 +138,7 @@ Bulk actions use an in-list **selection mode**; there is no separate dialog.
 
 1. Press **선택** (Select) on the Logs tab, or long-press a segment (about 0.5 s) on a touch screen; the pressed segment is selected immediately.
 2. Tick segment checkboxes or a route card's select-all checkbox. A minus marks a partially selected route, which shows `selected / total`. Selected items hidden by a filter are still counted and reported.
-3. Use the bottom action bar: **태그** (Tags), **다운로드** (Download), **변환** (Convert); on narrow screens **더보기** (More) reveals **변환 데이터 제거** (Remove prepared data), **완전 삭제** (Delete permanently) and **고정 포함** (Include pinned). **전체 선택** selects all visible segments and **취소** (Cancel) leaves selection mode.
+3. Use the bottom action bar: **태그** (Tags), **다운로드** (Download), **변환** (Convert); on narrow screens **더보기** (More) reveals **내보내기** (Export: the selected segments as one `.tar`, see [Export and import](#export-and-import); up to 150 segments, or every recording when all are selected), **변환 데이터 제거** (Remove prepared data), **완전 삭제** (Delete permanently) and **고정 포함** (Include pinned). **전체 선택** selects all visible segments and **취소** (Cancel) leaves selection mode.
 
 **고정 포함** is off whenever selection mode starts: pinned segments are protected from bulk removal/deletion unless explicitly included. This does not affect bulk conversion. Individual ⋯ menu actions can explicitly delete pinned recordings.
 
@@ -339,7 +339,22 @@ Home Assistant app backups exclude originals (ZST, TS, HEVC), MP4s, analysis/gra
 | Device authentication | `/data/roadviewer/.devices.json` |
 | NAS archive storage ID (files on the NAS are not backed up) | `/data/roadviewer/.archive.json` |
 
-Supervisor manages external port mappings. Browser preferences are not included in app backups. Restoring a backup does not restore recordings: keep originals separately. Previously created backup archives are unchanged.
+Supervisor manages external port mappings. Browser preferences are not included in app backups. Restoring a backup does not restore recordings: export them first (**Storage tab → 로컬 저장공간 → 내보내기**) and import the file after the restore (see below). Previously created backup archives are unchanged.
+
+### Export and import
+
+**내보내기** (Export) at the foot of the **로컬 저장공간** (Local storage) card on the Storage tab downloads every recording as one `roadviewer-export-<date>-<time>.tar` file; **내보내기** in selection mode exports only the selected segments. The server streams the file as it builds it, without a copy on disk.
+
+- **Included:** locally stored originals (`rlog.zst` and camera originals, or the MP4 kept instead of an original) and each recording's record: name, upload time, tags, bookmarks, pin, upload filenames, video codec facts and storage locations.
+- **Not included:** prepared data, thumbnails and upload staging. Imported recordings are converted again like uploads, following the automatic conversion setting (unconverted when it is off).
+- **Drive/NAS files:** never downloaded; only their location (file ID, size, hash) is exported. Imported into an app connected to the same Drive folder or NAS, they play and download as before; otherwise the recording is imported and those files show as an unreachable archive. Upload sessions, tokens and other credentials are never exported.
+
+**불러오기** (Import) takes an exported `.tar`. The browser reads it and uploads one recording at a time, so the server never stores the whole `.tar`: free space for the imported originals is enough. The card shows progress (bytes sent) and a summary: new recordings, recordings skipped because they already exist, and failures with their reason.
+
+- Recording IDs are kept (NAS file paths derive from them). A recording whose ID or original log already exists is skipped.
+- Every file is checked against the SHA-256 recorded at export and goes through the upload limits (`max_upload_mb`, per recording) and disk checks. A failed recording never appears in the list.
+- **중단** (Stop) or closing the page keeps the recordings already registered; leftover staging is cleaned like an incomplete upload.
+- Export files of another format version are refused.
 
 Restart cleans incomplete processing outputs and requeues eligible work; manual conversion can resume with automatic conversion disabled. Decoder-format changes can invalidate prepared data before oldest-first reprocessing. Rendering-only updates do not inherently require reconversion.
 
@@ -380,7 +395,7 @@ On first connection, and only while `/share/<name>` is actually mounted, the app
 
 ### Reading the storage screen
 
-1. **Storage and connection status:** compare local usage, soft limit, actual disk headroom, and outstanding reservations. The selected Drive/NAS has its own connection and capacity display. Expand secondary details for the last run and copy statistics. A full usage bar does not necessarily mean the physical disk is full.
+1. **Storage and connection status:** compare local usage, soft limit, actual disk headroom, and outstanding reservations. The selected Drive/NAS has its own connection and capacity display. Expand secondary details for the last run and copy statistics. A full usage bar does not necessarily mean the physical disk is full. **내보내기** / **불러오기** at the foot of the local storage card move recordings to and from a file ([Export and import](#export-and-import)).
 2. **Archiving basics:** choose the backend and COPY/MOVE. COPY keeps both verified remote copies and local files. Drive MOVE additionally requires permission to delete local originals, and removes them only after verification. NAS always uses verified moves. Minimum local age offers 7, 14, or 30 days and custom input.
 3. **Execution and advanced settings:** choose 1, 6, 12, or 24 hours, or a custom interval. Batch size, NAS path/capacity, and the Drive folder belong under advanced settings. Existing custom values are preserved; stored units remain MB, hours, and minutes.
 4. **Current settings summary:** preview the behavior in plain language, then choose **설정 저장** (Save settings). Unsaved, saving, saved, failed, and partially saved states are distinct. A retry saves only remaining changes; manual archiving is disabled while changes are unsaved. Editing the summary alone never starts a MOVE.
