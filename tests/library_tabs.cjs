@@ -149,6 +149,9 @@ const {showTab}=require('./browser-helpers.cjs');
    await page.evaluate(on=>{const p=document.getElementById('uploadPill');p.hidden=!on;document.getElementById('uploadPillText').textContent='업로드 100%'},pill);
    await page.locator('#uploadPill').waitFor({state:pill?'visible':'hidden'});
    await page.waitForFunction(()=>document.querySelector('.lib-appbar h1').getAnimations().length===0);
+   // Off-screen cards settle their real heights over the next frames (content-visibility), which can add or remove the
+   // scrollbar and so change the width the header has.
+   await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
    const m=await page.evaluate(()=>{
     const h=document.querySelector('.lib-appbar h1').getBoundingClientRect(),st=document.querySelector('.lib-status').getBoundingClientRect(),inner=document.querySelector('.lib-appbar-inner').getBoundingClientRect();
     const t=document.querySelector('.lib-appbar h1');
@@ -168,6 +171,8 @@ const {showTab}=require('./browser-helpers.cjs');
   // Phone card: the empty part of the actions row (under the thumbnail, left of 재생) folds the card like the rest of it;
   // the gaps between the buttons do not.
   {const open=()=>card.evaluate(e=>e.open),before=await open();
+   // Off-screen cards skip rendering (content-visibility): the card is brought into view and rendered before measuring.
+   await card.scrollIntoViewIfNeeded();await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
    const spot=await card.evaluate(e=>{const row=e.querySelector('.log-route-actions').getBoundingClientRect(),buttons=e.querySelector('.log-route-actions .actions').getBoundingClientRect();
     return {x:row.left+8,y:row.top+row.height/2,inside:buttons.left-row.left>40,gap:(()=>{const b=[...e.querySelectorAll('.log-route-actions .actions>*')].map(n=>n.getBoundingClientRect());return {x:(b[0].right+b[1].left)/2,y:b[0].top+b[0].height/2}})()}});
    assert(spot.inside,'the actions row has empty room left of the buttons on a phone');
