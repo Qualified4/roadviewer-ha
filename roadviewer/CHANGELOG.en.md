@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.22
+
+- While a library card folds or unfolds, its list keeps moving until the end: the slide was capped at 40px, so long lists looked stopped halfway; it is now a third of the height change, on the edge's curve.
+- During the fold the divider between the card header and its list stays visible, and soft shades under the divider and above the moving bottom edge make the list seem to roll under them; they come in as a card starts to close and fade out just before it is fully open.
+
 ## 1.0.21
 
 - On tablets and desktops the library's tag filter shows at most two rows; the rest fold behind a **+N개 더보기** chip at the end of the second row, which unfolds them all and then reads **접기**. A selected tag is moved forward and never folded away. Phones keep one sideways-scrolling row.

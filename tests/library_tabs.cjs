@@ -175,6 +175,21 @@ const {showTab}=require('./browser-helpers.cjs');
    await page.waitForTimeout(400);const after=await open();await page.mouse.click(spot.gap.x,spot.gap.y);await page.waitForTimeout(400);
    assert.equal(await open(),after,'a tap between the buttons does not fold the card');
    await page.mouse.click(spot.x,spot.y);await page.waitForFunction(b=>document.querySelector('.log-route[data-route="0000041b--a1b2c3d4e5"]').open===b,before);await page.waitForTimeout(400)}
+  // While a card folds, its header (with the divider) stays above the sliding list; shades under the divider and over
+  // the closing edge follow how folded the card is: fading out as it opens, coming in as it closes; none remain at rest.
+  {const shade=()=>card.evaluate(e=>{const s=e.querySelector(':scope>summary'),of=name=>s.getAnimations({subtree:true}).find(a=>a.effect.target===s&&a.effect.pseudoElement===name)?.effect.getKeyframes().map(f=>Number(f.opacity));
+    const after=of('::after'),before=of('::before');
+    return {folding:e.classList.contains('is-folding'),z:getComputedStyle(s).zIndex,divider:getComputedStyle(s).boxShadow.includes('inset'),after:after&&[after[0],after.at(-1)],same:JSON.stringify(after)===JSON.stringify(before)}});
+   const wasOpen=await card.evaluate(e=>e.open);
+   if(wasOpen){await card.locator('.log-route-chevron').click();await page.waitForTimeout(400)}
+   await card.locator('.log-route-chevron').click();
+   assert.deepEqual(await shade(),{folding:true,z:'1',divider:true,after:[1,0],same:true},'opening: header on top, shades fade out');
+   await page.waitForTimeout(400);
+   await card.locator('.log-route-chevron').click();
+   assert.deepEqual(await shade(),{folding:true,z:'1',divider:true,after:[0,1],same:true},'closing: header on top, shades come in');
+   await page.waitForTimeout(400);
+   assert.deepEqual(await card.evaluate(e=>[e.open,e.classList.contains('is-folding'),getComputedStyle(e.querySelector(':scope>summary'),'::after').content]),[false,false,'none'],'nothing remains after the fold');
+   if(wasOpen){await card.locator('.log-route-chevron').click();await page.waitForTimeout(400)}}
   assert.deepEqual(errors,[]);
   // Tapping a ready row plays it.
   await page.locator('.log-row[data-id="041b0"] .log-meta').click();await page.waitForURL('https://rv.test/view/041b0/');
