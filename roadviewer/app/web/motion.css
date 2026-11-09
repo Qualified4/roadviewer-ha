@@ -82,8 +82,6 @@ dialog:not([open])::backdrop{opacity:0}
 /* Appear-once springs: the floating transport on load, the play/pause icon swap and a chosen filter chip. */
 .replay-page .playback{animation:rv-transport-in .5s var(--spring) backwards,rv-fade-in .2s linear backwards}
 @keyframes rv-transport-in{from{transform:translateY(24px)}}
-.play-button[data-playing=true] .icon-pause,.play-button:not([data-playing=true]) .icon-play{animation:rv-icon-pop .35s var(--spring)}
-@keyframes rv-icon-pop{from{transform:scale(.7)}}
 .filter-chip.is-selected-pop{animation:rv-chip-pop .35s var(--spring)}
 @keyframes rv-chip-pop{from{transform:scale(.92)}}
 

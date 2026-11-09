@@ -138,11 +138,18 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    assert.equal(await page.locator('#previousLog').textContent(),'이전 로그');
    assert.equal(await page.evaluate(()=>sessionStorage.getItem('rv-route')),null,'handoff is consumed');
    assert.equal(await page.evaluate(()=>document.body.classList.contains('replay-loading')),false,'loading skeleton ends with the data');
-   // Appear-once springs: the transport bar on load and the play/pause icon swap; reduced motion has none.
+   // Appear-once springs: the transport bar on load; reduced motion has none.
    assert.equal(await page.locator('.playback').evaluate(e=>getComputedStyle(e).animationName),reduced?'none':'rv-transport-in, rv-fade-in');
+   // The play triangle's two halves pull apart into the pause bars and close back; reduced motion swaps at once.
+   const icon=()=>page.locator('#play .icon-playpause').evaluate(e=>[...e.querySelectorAll('path')].map(p=>p.getAttribute('d')).join(' '));
+   const PLAY='M7 4L13.5 8L13.5 16L7 20Z M13.5 8L20 12L20 12L13.5 16Z',PAUSE='M6 4L10 4L10 20L6 20Z M14 4L18 4L18 20L14 20Z';
+   assert.equal(await icon(),PLAY);
+   const mid=await page.evaluate(()=>new Promise(done=>{document.getElementById('play').click();setTimeout(()=>done([...document.querySelectorAll('#play .icon-playpause path')].map(p=>p.getAttribute('d')).join(' ')),110)}));
+   if(reduced)assert.equal(mid,PAUSE,'reduced motion swaps the icon at once');
+   else assert(mid!==PLAY&&mid!==PAUSE,'the icon morphs between play and pause: '+mid);
+   await page.waitForFunction(p=>[...document.querySelectorAll('#play .icon-playpause path')].map(x=>x.getAttribute('d')).join(' ')===p,PAUSE,{timeout:2000});
    await page.locator('#play').click();
-   assert.equal(await page.locator('#play .icon-pause').evaluate(e=>getComputedStyle(e).animationName),reduced?'none':'rv-icon-pop');
-   await page.locator('#play').click();
+   await page.waitForFunction(p=>[...document.querySelectorAll('#play .icon-playpause path')].map(x=>x.getAttribute('d')).join(' ')===p,PLAY,{timeout:2000});
    // The wheel turns via a CSS transform that glides between 20 Hz samples.
    await page.evaluate(()=>setTime(.5));
    assert.match(await page.locator('#wheelRotate').evaluate(e=>e.style.transform),/rotate\(-100deg\)/);

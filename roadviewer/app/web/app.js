@@ -10,7 +10,19 @@ try{
 function clock(n){n=Math.max(0,n);return `${Math.floor(n/60)}:${(n%60).toFixed(2).padStart(5,'0')}`}
 function nearest(time){const f=data.frames;let a=0,b=f.length-1;while(a<b){const m=(a+b)>>1;if(f[m].t<time)a=m+1;else b=m}return a>0&&Math.abs(f[a-1].t-time)<Math.abs(f[a].t-time)?a-1:a}
 // The play button is an icon; its hidden text stays the accessible name.
-function playLabel(on){const button=$('play');button.querySelector('.play-label').textContent=on?'일시정지':'재생';button.dataset.playing=String(on)}
+// The play triangle is two halves that pull apart into the pause bars (and close back into the triangle) over 240 ms
+// on the standard curve. Each half is a quadrilateral with matching corners, so the shapes interpolate point by point.
+const PLAY_ICON=[[7,4,13.5,8,13.5,16,7,20],[13.5,8,20,12,20,12,13.5,16]],PAUSE_ICON=[[6,4,10,4,10,20,6,20],[14,4,18,4,18,20,14,20]];
+let playIconFrame=0,playIconShape=PLAY_ICON;
+function drawPlayIcon(shape){playIconShape=shape;$('play').querySelectorAll('.icon-playpause path').forEach((path,i)=>{const p=shape[i].map(v=>+v.toFixed(2));path.setAttribute('d',`M${p[0]} ${p[1]}L${p[2]} ${p[3]}L${p[4]} ${p[5]}L${p[6]} ${p[7]}Z`)})}
+function morphPlayIcon(on){
+ cancelAnimationFrame(playIconFrame);const from=playIconShape,to=on?PAUSE_ICON:PLAY_ICON;
+ if(matchMedia('(prefers-reduced-motion: reduce)').matches){drawPlayIcon(to);return}
+ const start=performance.now(),ease=x=>{let lo=0,hi=1;for(let i=0;i<24;i++){const m=(lo+hi)/2,bx=3*.4*m*(1-m)**2+3*.2*m*m*(1-m)+m**3;if(bx<x)lo=m;else hi=m}const m=(lo+hi)/2;return 3*m*m*(1-m)+m**3};
+ const step=now=>{const k=ease(Math.min(1,(now-start)/240));drawPlayIcon(from.map((half,i)=>half.map((v,j)=>v+(to[i][j]-v)*k)));if(k<1)playIconFrame=requestAnimationFrame(step)};
+ playIconFrame=requestAnimationFrame(step);
+}
+function playLabel(on){const button=$('play'),was=button.dataset.playing==='true';button.querySelector('.play-label').textContent=on?'일시정지':'재생';button.dataset.playing=String(on);if(was!==on)morphPlayIcon(on)}
 function pause(){playing=false;pauseVideo();playLabel(false)}
 let videoPlayPending=false,videoPauseRevision=0,videoSource=null,resumeAfterVideo=false;
 const failedVideos=new Set();

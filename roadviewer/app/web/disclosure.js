@@ -1,6 +1,6 @@
 // Animated <details> folding (Material 2 timing, see motion.css): the panel's height eases over 300 ms with the
 // standard curve and clips its content, which moves with it in parallax: on expand it slides down into place from a
-// little above (a third of the height change) while the growing edge reveals it; on collapse it slides
+// little above (a third of the height change it makes on screen) while the growing edge reveals it; on collapse it slides
 // back up as the edge closes over it. No fade. A closing panel stays open until the motion ends, and a second tap
 // reverses from the current height and offset.
 // Floating bodies (dropdown menus) do not change the layout: they fade in (120 ms) while growing from .8 (150 ms)
@@ -49,9 +49,10 @@
    details.open=false;const closed=details.getBoundingClientRect().height;details.open=true;const full=details.getBoundingClientRect().height,to=opening?full:closed;
    if(Math.abs(to-from)<1){finish();return}
    // The full travel sets the parallax distance, so a reversed fold keeps the same path.
-   // A third of the travel, uncapped: with a fixed cap a tall list finished its few pixels early and looked stopped
-   // while the edge was still moving; a proportional offset keeps both moving until the end.
-   const lift=-Math.max(0,full-closed)/3,start=i=>offsets[i]||(opening?lift:0);
+   // A third of the travel the edge makes on screen: with a fixed 40px cap a tall list finished its few pixels early and
+   // looked stopped while the edge was still moving, while a third of the whole travel made a long list (most of it
+   // below the screen) slide by hundreds of pixels as if it were scrolling.
+   const onScreen=Math.max(0,innerHeight-(details.getBoundingClientRect().top+closed)),lift=-Math.min(Math.max(0,full-closed),onScreen)/3,start=i=>offsets[i]||(opening?lift:0);
    // The height holds its end until [open] changes: without fill, a folded panel showed its full height for a frame
    // between the motion ending and the promise that closes it.
    motions=[details.animate([{height:from+'px'},{height:to+'px'}],{duration:DURATION,easing:STANDARD,fill:'forwards'}),

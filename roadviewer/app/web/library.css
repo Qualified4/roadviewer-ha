@@ -507,13 +507,15 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 /* The divider belongs to the open card's summary, the edge the segments slide under while folding (disclosure.js), so it
    stays put instead of moving and being clipped with the list. */
 .log-route[open]>summary{border-radius:14px 14px 0 0;box-shadow:inset 0 -1px 0 var(--line)}
-/* While a card folds, its header (and divider) stays above the sliding list. A soft shade under the divider (::after)
+/* While a card folds, its header (and divider) stays above the sliding list, on the card's own background: on phones
+   the list's clip can trail its slide by a frame, and the opaque header then still hides the list instead of letting it
+   show through. A soft shade under the divider (::after)
    and one above the closing bottom edge (::before) come in as the card starts to close and leave as it finishes
    opening, so the list seems to roll under both edges. disclosure.js animates them; .is-folding only exists during
    the motion (menus in the header keep their stacking at rest). */
 @property --fold-shadow{syntax:'*';inherits:false}
 .log-route{--fold-shadow:1}
-.log-route.is-folding>summary{position:relative;z-index:1}
+.log-route.is-folding>summary{position:relative;z-index:1;background:var(--surface)}
 .log-route.is-folding>summary::after,.log-route.is-folding>summary::before{content:'';position:absolute;left:0;right:0;height:22px;opacity:0;pointer-events:none}
 .log-route.is-folding>summary::after{top:100%;background:linear-gradient(var(--fold-shade),transparent)}
 .log-route.is-folding>summary::before{top:0;background:linear-gradient(transparent,var(--fold-shade))}
