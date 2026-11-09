@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.23
+
+- The play button's icon morphs between play and pause: the two halves of the play triangle pull apart into the pause bars and close back into the triangle (240 ms; instant with reduced motion).
+- On phones the segment list no longer shows through a library card's header while the card folds or unfolds; the header covers it with the card's background during the motion.
+- Unfolding a card with many segments no longer slides the list by hundreds of pixels as if scrolling; the list moves a third of the height change visible on screen.
+
 ## 1.0.22
 
 - While a library card folds or unfolds, its list keeps moving until the end: the slide was capped at 40px, so long lists looked stopped halfway; it is now a third of the height change, on the edge's curve.
