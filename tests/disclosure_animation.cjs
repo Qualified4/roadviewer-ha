@@ -64,9 +64,9 @@ const {settleLayout}=require('./browser-helpers.cjs');
   const usage=page.locator('.usage-guide');
   assert.equal(await usage.locator('summary').evaluate(e=>getComputedStyle(e,'::after').transitionDuration),'0.25s');
   const usageMotions=await usage.evaluate(e=>{e.querySelector('summary').click();const height=e.getAnimations()[0],fades=e.getAnimations({subtree:true}).filter(a=>a!==height&&!a.effect.pseudoElement&&a.effect.target.parentElement===e);
-   return {count:e.getAnimations().length,duration:height?.effect.getTiming().duration,easing:height?.effect.getTiming().easing,fades:fades.map(a=>[a.effect.getTiming().duration,a.effect.getTiming().easing,a.effect.getKeyframes().map(f=>[f.opacity,new DOMMatrixReadOnly(f.transform).m42])])}});
+   return {count:e.getAnimations().length,duration:height?.effect.getTiming().duration,easing:height?.effect.getTiming().easing,fill:height?.effect.getTiming().fill,fades:fades.map(a=>[a.effect.getTiming().duration,a.effect.getTiming().easing,a.effect.getKeyframes().map(f=>[f.opacity,new DOMMatrixReadOnly(f.transform).m42])])}});
   assert.equal(usageMotions.count,1,'secondary settings animate their height');
-  assert.equal(usageMotions.duration,300);assert.equal(usageMotions.easing,'cubic-bezier(0.4, 0, 0.2, 1)','height uses the standard curve');
+  assert.equal(usageMotions.fill,'forwards','the height holds its end until [open] changes (no full-height frame after a fold)');assert.equal(usageMotions.duration,300);assert.equal(usageMotions.easing,'cubic-bezier(0.4, 0, 0.2, 1)','height uses the standard curve');
   // Content is clipped by the growing panel and slides down into place in parallax (no fade): from a quarter of the
   // height change above (at most 40px) to 0, with the height's timing.
   const parallax=([duration,easing,frames])=>duration===300&&easing==='cubic-bezier(0.4, 0, 0.2, 1)'&&frames.every(([opacity])=>opacity===undefined);

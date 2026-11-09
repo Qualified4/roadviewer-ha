@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.20**.
+This guide describes **1.0.21**.
 
 [한국어](DOCS.md) · English
 
@@ -79,7 +79,7 @@ If Android's native file picker cannot return multiple files, add one at a time.
 
 ## Library and conversion
 
-The **로그** tab starts with a search box and filter chips. Search matches log names, tags and dates (start/upload). Chips are **전체** (All), **고정** (Pinned), **미변환** (Unconverted, including failed), **처리 중** (Processing, including queued), **Drive**, **NAS**, plus one chip per tag (and **태그 없음**, Untagged), each with its segment count. Drive/NAS chips appear only when some segment has files there. Search, the built-in chip and a tag chip combine (AND). Filters apply to individual segments and hide routes with no matches.
+The **로그** tab starts with a search box and filter chips. Search matches log names, tags and dates (start/upload). Chips are **전체** (All), **고정** (Pinned), **미변환** (Unconverted, including failed), **처리 중** (Processing, including queued), **Drive**, **NAS**, plus one chip per tag (and **태그 없음**, Untagged), each with its segment count. Drive/NAS chips appear only when some segment has files there. Search, the built-in chip and a tag chip combine (AND). Filters apply to individual segments and hide routes with no matches. On tablets and desktops chips beyond two rows fold behind **+N개 더보기** (show more) at the end of the second row, which unfolds them all (**접기** folds them again); a selected tag is moved forward so it stays visible. On phones the chips scroll sideways in one row.
 
 Segments with the same full route ID share one **route card**, and cards are grouped by date (today, yesterday, date). A card shows a thumbnail with the total length, the start time, a segment status bar (one block per segment, coloured by state; past 20 segments it shows the first 20 blocks and a **+** coloured by the most urgent state among the rest), **자동 제어 N% · 개입 N회** (automatic control ratio and driver takeover count), and pin/tag badges. The start time comes from the log's real clock and reads **`HH:MM 출발`** (departed). When the log has no usable clock it falls back to **`업로드 HH:MM`**, the upload time, which is not the driving time. The control ratio and takeover count are computed from the prepared telemetry (control state and driver intervention).
 

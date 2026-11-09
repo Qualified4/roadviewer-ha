@@ -121,7 +121,7 @@ const {showTab}=require('./browser-helpers.cjs');
   assert.equal(await page.locator('.log-row[data-id="041b0"] .log-time').count(),0);
   logs[0]=first;logs[1]=second;first.started_at=at(0,8,40);await page.evaluate(()=>refresh());
   // Chips: built-in group AND one tag; every tag has its own chip with a count.
-  const chips=await page.locator('#logChips .filter-chip').evaluateAll(c=>c.map(e=>e.textContent));
+  const chips=await page.locator('#logChips .filter-chip:not(.chip-more)').evaluateAll(c=>c.map(e=>e.textContent));
   assert.deepEqual(chips,['전체','고정1','미변환2','처리 중1','Drive1','NAS1','태그 없음4','고속도로1','야간1']);
   const chip=name=>page.locator('#logChips .filter-chip').filter({hasText:name}).first();
   const shown=()=>page.locator('.log-row').evaluateAll(rows=>rows.filter(r=>!r.hidden).map(r=>r.dataset.id));
