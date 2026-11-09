@@ -170,6 +170,45 @@ class ManualArchiveTests(unittest.TestCase):
             archiver.manual.join(20)
             self.assertEqual(client.get('/api/settings/archive/run', environ_overrides=tga.PEER).json['manual']['state'], 'done')
 
+    def test_running_job_reports_the_file_in_progress_speed_and_time_left(self):
+        # The panel shows bytes sent (the file being uploaded included), the speed and the time left while a run goes.
+        logs = [self.log(c * 32) for c in 'ab']
+        archiver = self.archiver(mode='copy')
+        seen, upload = [], archiver.backend.upload
+        def watched(*args, on_progress=None, **kw):
+            def progress(sent):
+                on_progress(sent); seen.append(archiver.status()['manual'])
+            return upload(*args, on_progress=progress, **kw)
+        with patch.object(archiver.backend, 'upload', watched):
+            job = self.run_manual(archiver)
+        total = sum((p / k).stat().st_size for p in logs for k in KINDS)
+        self.assertEqual((job['state'], job['processed_bytes'], job['total_bytes']), ('done', total, total))
+        self.assertNotIn('rate', job)  # Not persisted: a finished run shows no speed.
+        running = [m for m in seen if m.get('current_bytes')]
+        self.assertTrue(running, 'the file in progress is reported')
+        for m in running:
+            self.assertIn('rate', m); self.assertIn('eta_seconds', m)
+            self.assertLessEqual(m['processed_bytes'] + m['current_bytes'], total)
+
+class TransferTests(unittest.TestCase):
+    def test_speed_over_the_latest_window_without_resumed_bytes(self):
+        now = [0.0]
+        t = media_store._Transfer(clock=lambda: now[0])
+        self.assertEqual(t.snapshot(), (0, None))  # Nothing sent yet (startup checks): no speed.
+        t.begin(50)  # A resumed upload: its first 50 bytes were sent before.
+        for i in range(1, 5): now[0] = i; t.progress(50 + 100 * i)
+        self.assertEqual(t.snapshot(), (450, None))  # Under RATE_MIN seconds measured.
+        now[0] = 5; t.progress(550)
+        self.assertEqual(t.snapshot(), (550, 100.0))
+        t.end()
+        # A stall lowers the speed; old samples leave the window.
+        now[0] = 10; self.assertEqual(t.snapshot()[1], 50.0)
+        now[0] = 100; t.begin(); t.progress(3000)
+        now[0] = 110; self.assertEqual(t.snapshot()[1], 300.0)  # Measured from this file's start, not the idle gap.
+        # A restarted upload (sent goes back) counts only new bytes.
+        t.progress(1000); self.assertEqual(t.sent, 3500)
+        t.end(200); self.assertEqual((t.sent, t.file), (3700, 0))
+
 class ManualNasTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup); self.root = Path(temp.name)

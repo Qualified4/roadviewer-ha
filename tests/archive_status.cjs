@@ -72,9 +72,17 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   // While a run is active (as the server reports it), progress shows and the settings are locked.
   await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();body.archive={...body.archive,running:true,manual_active:true,manual:{state:'running',mode:'move',total_files:5,processed:2,succeeded:2,failed:0,freed_bytes:0,waiting:null}};await route.fulfill({response,json:body})});
   await reopenTab(page,'storage');
-  await page.waitForFunction(()=>document.getElementById('archiveJobText').textContent.startsWith('이동 중 · 2/5개 파일 처리'));
+  await page.waitForFunction(()=>document.getElementById('archiveJobText').textContent==='이동 중 · 2/5개 파일\n속도 계산 중 (성공 2개 · 실패 0개)');
   assert(await page.locator('#storageEditorFields').evaluate(f=>f.disabled));assert(await page.locator('#archiveIntervalPreset').isDisabled());assert(await page.locator('#archiveRun').isDisabled());
   assert.equal(await page.locator('#archiveJobProgress').evaluate(bar=>[bar.value,bar.max].join('/')),'2/5');
+  // With sizes and a measured speed: bytes (the file being uploaded included) move the bar, and the time left shows.
+  await page.unroute('**/api/settings/storage');
+  const MB=2**20;
+  await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();body.archive={...body.archive,running:true,manual_active:true,manual:{state:'running',mode:'move',total_files:5,total_bytes:1000*MB,processed:2,processed_bytes:300*MB,current_bytes:100*MB,succeeded:2,failed:0,freed_bytes:0,waiting:null,rate:8.4*MB,eta_seconds:780}};await route.fulfill({response,json:body})});
+  await reopenTab(page,'storage');
+  await page.waitForFunction(()=>document.getElementById('archiveJobText').textContent==='이동 중 · 2/5개 파일 · 400.0 MB / 1000.0 MB\n8.4 MB/s · 약 13분 남음 (성공 2개 · 실패 0개)');
+  assert.equal(await page.locator('#archiveJobProgress').evaluate(bar=>[bar.value,bar.max].join('/')),`${400*MB}/${1000*MB}`);
+  assert.equal(await page.locator('#archiveJobText').evaluate(p=>getComputedStyle(p).whiteSpace),'pre-line','speed on its own line');
   // Before its first file, a run after a restart waits for the archive's startup checks: their progress shows.
   await page.unroute('**/api/settings/storage');
   await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();body.archive={...body.archive,running:true,manual_active:true,manual:{state:'running',mode:'move',total_files:5,processed:0,succeeded:0,failed:0,freed_bytes:0,waiting:null,checking:{done:120,total:1027}}};await route.fulfill({response,json:body})});
