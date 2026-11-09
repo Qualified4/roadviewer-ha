@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.26
+
+- In the dark theme the glass highlight along the top of a library card's header shows again. Since 1.0.24 the header's background had hidden it except while a card folded; it is now the same at rest and in motion.
+
 ## 1.0.25
 
 - A library card's header reads as a card of its own and the segment list as a panel behind it: unfolding rolls the panel out from behind the header, folding rolls it back, and just before the card closes the panel's rounded edge rises slightly above the header's so it is fully tucked away instead of its outline merging into the header's.
