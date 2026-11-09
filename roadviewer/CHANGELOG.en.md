@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.31
+
+- The replay's ⋯, 보기 and 레이어 menu buttons fill from where they were pressed when their menu opens (300 ms; from the middle when opened by keyboard) and the fill fades out in 200 ms on close. These buttons skip the separate press ripple.
+- The ⋯ button has no background at rest or on hover; it is filled only while its menu is open.
+
 ## 1.0.30
 
 - The ⋯ button at the top right of the replay turns into ✕ while its menu is open: the three dots gather in the middle and the ✕'s four strokes draw out of them at full weight; closing reverses it. The ✕ is as wide as the ⋯.
