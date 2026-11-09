@@ -515,13 +515,15 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
    with an open menu is raised so the menu is not covered by the next card. */
 .log-route{--route-r:14px;--fold-shadow:1;position:relative;isolation:isolate}
 .log-route:has(.recording-more[open]){z-index:3}
-.log-route>summary{position:relative;z-index:1;background:var(--surface)}
-.log-route[open]>summary{border-bottom-left-radius:0;border-bottom-right-radius:0;box-shadow:inset 0 -1px 0 var(--line)}
+.log-route>summary{position:relative;z-index:1;background:var(--surface);box-shadow:var(--surface-highlight)}
+.log-route[open]>summary{border-bottom-left-radius:0;border-bottom-right-radius:0;box-shadow:var(--surface-highlight),inset 0 -1px 0 var(--line)}
 @property --fold-shadow{syntax:'*';inherits:false}
 .log-route.is-folding{background:none;box-shadow:none}
 .log-route.is-folding>summary::before,.log-route.is-folding>summary::after,.log-route.is-folding>.log-route-segments::after{content:'';position:absolute;left:0;right:0;pointer-events:none}
 .log-route.is-folding>summary::before{top:0;bottom:0;border-radius:inherit;opacity:0}
-.log-route.is-folding>summary::after{top:0;height:100%;border-radius:var(--route-r);box-shadow:var(--surface-shadow)}
+/* The card's outer outline and shadow without its inset top highlight, which the header carries itself (the dark
+   theme's glass edge), so it is lit the same at rest and while folding instead of twice as bright. */
+.log-route.is-folding>summary::after{top:0;height:100%;border-radius:var(--route-r);box-shadow:var(--surface-outline)}
 .log-route.is-folding>.log-route-segments{position:relative}
 .log-route.is-folding>.log-route-segments::after{top:0;height:0;border-radius:0 0 var(--route-r) var(--route-r);opacity:0}
 .log-route-segments{margin-top:calc(-1 * var(--route-r));padding-top:var(--route-r);border-radius:0 0 14px 14px;background:linear-gradient(var(--well),var(--well)),var(--surface)}
