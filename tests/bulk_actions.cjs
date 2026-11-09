@@ -5,10 +5,11 @@ const {settleLayout}=require('./browser-helpers.cjs');
  try{
   const page=await browser.newPage({viewport:{width:390,height:844},hasTouch:true}),errors=[],calls=[],conversions=[];
   page.on('pageerror',e=>errors.push(e.message));
-  let deleteGate=null,releaseDelete,failLoad=false,failConvert=true,expectPinProtection=true;
+  let deleteGate=null,releaseDelete,failLoad=false,failOnce=false,failConvert=true,expectPinProtection=true;
   let logs=Array.from({length:30},(_,i)=>({id:String(i),name:`00000395--${i<15?'aaaaaaaaaa':'bbbbbbbbbb'}--${i%15}`,status:i===0?'processing':'ready',bytes:10,prepared_bytes:20,uploaded:i,video:true,log_bytes:1048576,video_downloads:i%2?[{source:'qcamera',kind:'qcamera.ts',bytes:2097152},{source:'front',kind:'fcamera.hevc',bytes:52428800}]:[]}));
   await page.route('**/*',async route=>{
    const p=new URL(route.request().url()).pathname,request=route.request();
+   if(p==='/api/logs'&&failOnce){failOnce=false;return route.fulfill({status:502,body:''})}
    if(p==='/api/logs')return failLoad?route.fulfill({status:500,json:{error:'목록 실패'}}):route.fulfill({json:{logs,concurrency:1,auto_convert:false,max_upload_mb:512,storage_used_bytes:logs.reduce((sum,log)=>sum+log.bytes+log.prepared_bytes,0)}});
    if(p==='/api/progress')return route.fulfill({json:{progress:{}}});
    if(request.method()==='POST'&&p.endsWith('/convert')){
@@ -41,6 +42,10 @@ const {settleLayout}=require('./browser-helpers.cjs');
   const result=async text=>{await page.waitForFunction(text=>document.getElementById('bulkStatus').textContent.includes(text)&&!document.getElementById('bulkClose').disabled,text)};
   const replace=async items=>{logs=items;await page.evaluate(()=>refresh())};
   failLoad=true;await page.locator('#refresh').click();await page.waitForFunction(()=>document.getElementById('error').textContent==='로그 목록을 읽을 수 없습니다.');failLoad=false;
+  // A list that reads again clears that failure; a single failed read (e.g. back from the background) retries quietly.
+  await page.evaluate(()=>refresh());await page.waitForFunction(()=>document.getElementById('error').hidden);
+  failOnce=true;await page.evaluate(()=>refresh());await page.waitForFunction(()=>!document.getElementById('refresh').classList.contains('is-loading'));
+  await page.waitForTimeout(1500);assert(!failOnce&&await page.locator('#error').isHidden(),'one failed read is retried without a warning');
   await enter();assert.equal(await page.locator('#bulkDialog').count(),0,'the old dialog is removed');assert.equal(await inputs.count(),30);
   assert(await page.locator('#bulkAll').evaluate(e=>e===document.activeElement));assert(await page.locator('#bulkRemove').isDisabled());assert.equal(await routeSelects.count(),2,'full route hashes stay separate');
   assert(await page.locator('#bulkFeedback').isHidden(),'no result panel without a message');assert(await page.locator('#bulkOpen').isEnabled());assert.equal(await page.locator('#bulkOpen').getAttribute('aria-pressed'),'true');

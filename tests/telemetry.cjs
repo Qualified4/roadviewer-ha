@@ -137,6 +137,8 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await page.keyboard.press('End');assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');
   await page.keyboard.press('Home');assert.equal(await page.locator('#roadTab').getAttribute('aria-selected'),'true');
   await page.keyboard.press('ArrowLeft');assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');
+  // Every tab is remembered, 차선·도로 included.
+  await page.locator('#laneTab').click();await page.reload();await page.locator('#laneTab[aria-selected=true]').waitFor();assert(await page.locator('#laneView').isVisible());
   await page.locator('#telemetryTab').click();await settle(page);
   await page.reload();await page.waitForFunction(()=>document.getElementById('graphTime').textContent.includes('s'));assert.equal(await page.locator('#telemetryTab').getAttribute('aria-selected'),'true');assert.equal(await page.locator('.telemetry-chart').count(),24);
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');

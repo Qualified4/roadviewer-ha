@@ -64,13 +64,16 @@ const {settleLayout}=require('./browser-helpers.cjs');
   const usage=page.locator('.usage-guide');
   assert.equal(await usage.locator('summary').evaluate(e=>getComputedStyle(e,'::after').transitionDuration),'0.25s');
   const usageMotions=await usage.evaluate(e=>{e.querySelector('summary').click();const height=e.getAnimations()[0],fades=e.getAnimations({subtree:true}).filter(a=>a!==height&&!a.effect.pseudoElement&&a.effect.target.parentElement===e);
-   return {count:e.getAnimations().length,duration:height?.effect.getTiming().duration,easing:height?.effect.getTiming().easing,fades:fades.map(a=>[a.effect.getTiming().delay,a.effect.getTiming().duration,a.effect.getKeyframes().map(f=>f.opacity).join('>')])}});
+   return {count:e.getAnimations().length,duration:height?.effect.getTiming().duration,easing:height?.effect.getTiming().easing,fades:fades.map(a=>[a.effect.getTiming().duration,a.effect.getTiming().easing,a.effect.getKeyframes().map(f=>[f.opacity,new DOMMatrixReadOnly(f.transform).m42])])}});
   assert.equal(usageMotions.count,1,'secondary settings animate their height');
   assert.equal(usageMotions.duration,300);assert.equal(usageMotions.easing,'cubic-bezier(0.4, 0, 0.2, 1)','height uses the standard curve');
-  assert(usageMotions.fades.length&&usageMotions.fades.every(([delay,duration,frames])=>delay===75&&duration===150&&frames==='0>1'),'content fades in after a short delay: '+JSON.stringify(usageMotions.fades));
+  // Content is clipped by the growing panel and slides down into place in parallax (no fade): from a quarter of the
+  // height change above (at most 40px) to 0, with the height's timing.
+  const parallax=([duration,easing,frames])=>duration===300&&easing==='cubic-bezier(0.4, 0, 0.2, 1)'&&frames.every(([opacity])=>opacity===undefined);
+  assert(usageMotions.fades.length&&usageMotions.fades.every(m=>parallax(m)&&m[2][0][1]<0&&m[2][0][1]>=-40&&m[2][1][1]===0),'content slides down into place: '+JSON.stringify(usageMotions.fades));
   await settled(page);
-  const collapsing=await usage.evaluate(e=>{e.querySelector('summary').click();return e.getAnimations({subtree:true}).filter(a=>!e.getAnimations().includes(a)&&!a.effect.pseudoElement&&a.effect.target.parentElement===e).map(a=>[a.effect.getTiming().delay,a.effect.getTiming().duration,a.effect.getKeyframes().map(f=>f.opacity).join('>')])});
-  assert(collapsing.length&&collapsing.every(([delay,duration,frames])=>delay===0&&duration===75&&frames==='1>0'),'content fades out first on collapse: '+JSON.stringify(collapsing));
+  const collapsing=await usage.evaluate(e=>{e.querySelector('summary').click();return e.getAnimations({subtree:true}).filter(a=>!e.getAnimations().includes(a)&&!a.effect.pseudoElement&&a.effect.target.parentElement===e).map(a=>[a.effect.getTiming().duration,a.effect.getTiming().easing,a.effect.getKeyframes().map(f=>[f.opacity,new DOMMatrixReadOnly(f.transform).m42])])});
+  assert(collapsing.length&&collapsing.every(m=>parallax(m)&&m[2][0][1]===0&&m[2][1][1]<0),'content slides up as the panel closes over it: '+JSON.stringify(collapsing));
   await settled(page);await usage.locator('summary').click();
   await settled(page);assert(await usage.evaluate(e=>e.open));
 

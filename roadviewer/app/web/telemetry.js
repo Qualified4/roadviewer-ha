@@ -36,7 +36,7 @@
  const defaultGraphs=[...graphs];
  const key='roadviewer-vehicle-graphs',tabKey='roadviewer-analysis-tab',orderKey='roadviewer-graph-order';
  let selected=new Set(['speed','acceleration','pedals','angle','intervention','control']),tab='road';
- try{const saved=JSON.parse(localStorage.getItem(key));if(Array.isArray(saved))selected=new Set(saved.filter(id=>graphs.some(g=>g.id===id)));const savedTab=localStorage.getItem(tabKey);if(['telemetry','bookmarks'].includes(savedTab))tab=savedTab}catch{}
+ try{const saved=JSON.parse(localStorage.getItem(key));if(Array.isArray(saved))selected=new Set(saved.filter(id=>graphs.some(g=>g.id===id)));const savedTab=localStorage.getItem(tabKey);if(['road','lanes','telemetry','bookmarks'].includes(savedTab))tab=savedTab}catch{}
  try{const saved=JSON.parse(localStorage.getItem(orderKey));if(Array.isArray(saved)){const order=[...new Set(saved.filter(id=>graphs.some(g=>g.id===id))),...graphs.map(g=>g.id).filter(id=>!saved.includes(id))];graphs.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id))}}catch{}
  const roadTab=$('roadTab'),telemetryTab=$('telemetryTab'),view=$('telemetryView'),scroll=$('telemetryGraphs'),status=$('telemetryStatus');
  let payload=null,loadedKey=null,loadingKey=null,failedKey=null,requestId=0,span=null,start=0,gesture=null;

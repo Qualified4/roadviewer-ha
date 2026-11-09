@@ -4,6 +4,15 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.20
+
+- The replay page remembers the last of all four analysis tabs (주행 상황, 차선도로, 차량 정보, 북마크); before, only 차량 정보 and 북마크 were restored.
+- Folds in the library and settings no longer fade: the growing panel clips its content, which slides down slightly into place (and back up when folding). Rows unfolded with the chevron no longer look faded.
+- Back from a long time in the background, a single failed library read retries after a second without a warning, and a later successful read clears the '로그 목록을 읽을 수 없습니다' warning.
+- The scrolling segment strip's edge fades widen gradually with the distance from each end instead of switching on at once.
+- On tablets and desktops the play button no longer shows a dark band along its top edge and a light one along its bottom (which made it look shifted down); other mint buttons (e.g. upload) no longer show border bands either.
+- The segment preview bubble's tail no longer shows a thin line where it joins the bubble.
+
 ## 1.0.19
 
 - The empty part of a route card's button row (on phones, under the thumbnail left of 재생) now folds and unfolds the card like the rest of it; the gaps between the buttons still do nothing.
