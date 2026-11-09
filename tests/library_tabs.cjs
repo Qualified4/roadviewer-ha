@@ -165,6 +165,16 @@ const {showTab}=require('./browser-helpers.cjs');
   await page.locator('#storageWarning button').click();assert.equal(await page.locator('#tab-storage').getAttribute('aria-selected'),'true');
   await page.locator('#archiveForm[data-loaded=true]').waitFor();
   await showTab(page,'logs');
+  // Phone card: the empty part of the actions row (under the thumbnail, left of 재생) folds the card like the rest of it;
+  // the gaps between the buttons do not.
+  {const open=()=>card.evaluate(e=>e.open),before=await open();
+   const spot=await card.evaluate(e=>{const row=e.querySelector('.log-route-actions').getBoundingClientRect(),buttons=e.querySelector('.log-route-actions .actions').getBoundingClientRect();
+    return {x:row.left+8,y:row.top+row.height/2,inside:buttons.left-row.left>40,gap:(()=>{const b=[...e.querySelectorAll('.log-route-actions .actions>*')].map(n=>n.getBoundingClientRect());return {x:(b[0].right+b[1].left)/2,y:b[0].top+b[0].height/2}})()}});
+   assert(spot.inside,'the actions row has empty room left of the buttons on a phone');
+   await page.mouse.click(spot.x,spot.y);await page.waitForFunction(b=>document.querySelector('.log-route[data-route="0000041b--a1b2c3d4e5"]').open!==b,before);
+   await page.waitForTimeout(400);const after=await open();await page.mouse.click(spot.gap.x,spot.gap.y);await page.waitForTimeout(400);
+   assert.equal(await open(),after,'a tap between the buttons does not fold the card');
+   await page.mouse.click(spot.x,spot.y);await page.waitForFunction(b=>document.querySelector('.log-route[data-route="0000041b--a1b2c3d4e5"]').open===b,before);await page.waitForTimeout(400)}
   assert.deepEqual(errors,[]);
   // Tapping a ready row plays it.
   await page.locator('.log-row[data-id="041b0"] .log-meta').click();await page.waitForURL('https://rv.test/view/041b0/');
