@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.19
+
+- The empty part of a route card's button row (on phones, under the thumbnail left of 재생) now folds and unfolds the card like the rest of it; the gaps between the buttons still do nothing.
+
 ## 1.0.18
 
 - Uploads from a device or another browser now show their progress in the library header's upload pill (`업로드 N%`); before, only this browser's own uploads did.

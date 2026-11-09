@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.18**.
+This guide describes **1.0.19**.
 
 [한국어](DOCS.md) · English
 

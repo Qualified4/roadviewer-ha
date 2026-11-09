@@ -430,9 +430,11 @@ function createLogGroup(route){
  actions.className='log-route-actions';summary.append(thumb,main,actions,chevron);body.className='log-route-segments';element.append(summary,body);
  const group={element,body,count,actions,thumb,duration,time,name,tags,bar,facts};
  summary.addEventListener('click',event=>{
-  // Menus and buttons in the header act on their own; a click on a menu's padding must not fold the card.
-  if(event.target.closest('.log-route-actions')&&event.target.closest('a,button,summary,input,label')===summary){event.preventDefault();return}
-  if(!event.target.closest('.log-route-actions'))group.rows.forEach(row=>row.classList.add('is-update'));
+  // Menus and buttons in the header act on their own; a click on a menu's padding must not fold the card. The empty
+  // rest of the actions row (beside the buttons, e.g. under the thumbnail on phones) folds it like the rest of the card.
+  const onActions=event.target.closest('.log-route-actions .actions');
+  if(onActions&&event.target.closest('a,button,summary,input,label')===summary){event.preventDefault();return}
+  if(!onActions)group.rows.forEach(row=>row.classList.add('is-update'));
  });
  return group;
 }
