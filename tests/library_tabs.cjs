@@ -178,15 +178,18 @@ const {showTab}=require('./browser-helpers.cjs');
   // While a card folds, its header (with the divider) stays above the sliding list on an opaque background (on phones the list's clip can trail its slide); shades under the divider and over
   // the closing edge follow how folded the card is: fading out as it opens, coming in as it closes; none remain at rest.
   {const shade=()=>card.evaluate(e=>{const s=e.querySelector(':scope>summary'),of=name=>s.getAnimations({subtree:true}).find(a=>a.effect.target===s&&a.effect.pseudoElement===name)?.effect.getKeyframes().map(f=>Number(f.opacity));
-    const after=of('::after'),before=of('::before');
-    const css=getComputedStyle(s);return {folding:e.classList.contains('is-folding'),z:css.zIndex,opaque:css.backgroundImage!=='none'||!/rgba\(0, 0, 0, 0\)|transparent/.test(css.backgroundColor),divider:getComputedStyle(s).boxShadow.includes('inset'),after:after&&[after[0],after.at(-1)],same:JSON.stringify(after)===JSON.stringify(before)}});
+    const after=of('::after'),before=of('::before'),heights=s.getAnimations({subtree:true}).find(a=>a.effect.target===s&&a.effect.pseudoElement==='::after')?.effect.getKeyframes().map(f=>parseFloat(f.height));
+    const css=getComputedStyle(s);return {folding:e.classList.contains('is-folding'),z:css.zIndex,opaque:css.backgroundImage!=='none'||!/rgba\(0, 0, 0, 0\)|transparent/.test(css.backgroundColor),divider:getComputedStyle(s).boxShadow.includes('inset'),after:after&&[after[0],after.at(-1)],strip:heights&&[heights[0],heights.at(-1)],before:before??null}});
    const wasOpen=await card.evaluate(e=>e.open);
+   // The shade strip spans the list between the divider and the bottom edge (never the header).
+   const stripFull=await card.evaluate(e=>{const o=e.open;e.open=true;const h=e.clientHeight-e.querySelector(':scope>summary').offsetHeight;e.open=o;return h});
+   const near=(a,b)=>a&&Math.abs(a[0]-b[0])<3&&Math.abs(a[1]-b[1])<3;
    if(wasOpen){await card.locator('.log-route-chevron').click();await card.evaluate(e=>e.classList.contains('is-folding')?new Promise(done=>{const o=new MutationObserver(()=>{if(!e.classList.contains('is-folding')){o.disconnect();done()}});o.observe(e,{attributes:true,attributeFilter:['class']})}):null)}
    await card.locator('.log-route-chevron').click();
-   assert.deepEqual(await shade(),{folding:true,z:'1',opaque:true,divider:true,after:[1,0],same:true},'opening: header on top, shades fade out');
+   {const s=await shade();assert(near(s.strip,[0,stripFull]),'opening: the shade strip spans the list under the divider '+JSON.stringify(s.strip));delete s.strip;assert.deepEqual(s,{folding:true,z:'1',opaque:true,divider:true,after:[1,0],before:null},'opening: header on top, shades fade out')}
    await card.evaluate(e=>e.classList.contains('is-folding')?new Promise(done=>{const o=new MutationObserver(()=>{if(!e.classList.contains('is-folding')){o.disconnect();done()}});o.observe(e,{attributes:true,attributeFilter:['class']})}):null);
    await card.locator('.log-route-chevron').click();
-   assert.deepEqual(await shade(),{folding:true,z:'1',opaque:true,divider:true,after:[0,1],same:true},'closing: header on top, shades come in');
+   {const s=await shade();assert(near(s.strip,[stripFull,0]),'closing: the shade strip spans the list under the divider '+JSON.stringify(s.strip));delete s.strip;assert.deepEqual(s,{folding:true,z:'1',opaque:true,divider:true,after:[0,1],before:null},'closing: header on top, shades come in')}
    await card.evaluate(e=>e.classList.contains('is-folding')?new Promise(done=>{const o=new MutationObserver(()=>{if(!e.classList.contains('is-folding')){o.disconnect();done()}});o.observe(e,{attributes:true,attributeFilter:['class']})}):null);
    assert.deepEqual(await card.evaluate(e=>[e.open,e.classList.contains('is-folding'),getComputedStyle(e.querySelector(':scope>summary'),'::after').content]),[false,false,'none'],'nothing remains after the fold');
    if(wasOpen){await card.locator('.log-route-chevron').click();await card.evaluate(e=>e.classList.contains('is-folding')?new Promise(done=>{const o=new MutationObserver(()=>{if(!e.classList.contains('is-folding')){o.disconnect();done()}});o.observe(e,{attributes:true,attributeFilter:['class']})}):null)}}

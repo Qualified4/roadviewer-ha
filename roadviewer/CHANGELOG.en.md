@@ -4,6 +4,13 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.24
+
+- A library card's header carries its own background gradient, so an open card no longer stretches it until the header looks flat, and the header no longer changes shade when a fold ends.
+- Fold shades are drawn only over the visible list between the divider and the moving bottom edge; the bottom shade no longer rises over the header just before a card closes.
+- When a card folds or unfolds, its list always slides 48px, whatever its length.
+- Dragging the replay page's segment strip with the mouse no longer selects the surrounding text.
+
 ## 1.0.23
 
 - The play button's icon morphs between play and pause: the two halves of the play triangle pull apart into the pause bars and close back into the triangle (240 ms; instant with reduced motion).

@@ -67,10 +67,10 @@ const {settleLayout}=require('./browser-helpers.cjs');
    return {count:e.getAnimations().length,duration:height?.effect.getTiming().duration,easing:height?.effect.getTiming().easing,fill:height?.effect.getTiming().fill,onScreen,travel:height&&Math.abs(parseFloat(height.effect.getKeyframes()[1].height)-parseFloat(height.effect.getKeyframes()[0].height)),fades:fades.map(a=>[a.effect.getTiming().duration,a.effect.getTiming().easing,a.effect.getKeyframes().map(f=>[f.opacity,new DOMMatrixReadOnly(f.transform).m42])])}});
   assert.equal(usageMotions.count,1,'secondary settings animate their height');
   assert.equal(usageMotions.fill,'forwards','the height holds its end until [open] changes (no full-height frame after a fold)');assert.equal(usageMotions.duration,300);assert.equal(usageMotions.easing,'cubic-bezier(0.4, 0, 0.2, 1)','height uses the standard curve');
-  // Content is clipped by the growing panel and slides down into place in parallax (no fade): from a third of the
-  // height change it makes on screen above (so it keeps moving as long as the visible edge does) to 0, with the height's timing.
+  // Content is clipped by the growing panel and slides down into place in parallax (no fade): from 48px above
+  // whatever the panel's length (long lists used to race past) to 0, with the height's timing.
   const parallax=([duration,easing,frames])=>duration===300&&easing==='cubic-bezier(0.4, 0, 0.2, 1)'&&frames.every(([opacity])=>opacity===undefined);
-  assert(usageMotions.fades.length&&usageMotions.fades.every(m=>parallax(m)&&Math.abs(m[2][0][1]+Math.min(usageMotions.travel,usageMotions.onScreen)/3)<1&&m[2][0][1]<0&&m[2][1][1]===0),'content slides down into place: '+JSON.stringify(usageMotions.fades));
+  assert(usageMotions.fades.length&&usageMotions.fades.every(m=>parallax(m)&&m[2][0][1]===-48&&m[2][1][1]===0),'content slides down into place: '+JSON.stringify(usageMotions.fades));
   await settled(page);
   const collapsing=await usage.evaluate(e=>{e.querySelector('summary').click();return e.getAnimations({subtree:true}).filter(a=>!e.getAnimations().includes(a)&&!a.effect.pseudoElement&&a.effect.target.parentElement===e).map(a=>[a.effect.getTiming().duration,a.effect.getTiming().easing,a.effect.getKeyframes().map(f=>[f.opacity,new DOMMatrixReadOnly(f.transform).m42])])});
   assert(collapsing.length&&collapsing.every(m=>parallax(m)&&m[2][0][1]===0&&m[2][1][1]<0),'content slides up as the panel closes over it: '+JSON.stringify(collapsing));
