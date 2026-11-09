@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.29
+
+- While ‘이동 가능한 데이터 모두 이동’ runs, the Storage tab shows the bytes processed (the file being uploaded included), the transfer speed over the last 30 seconds and the time left. The progress bar follows bytes rather than files, so it keeps moving while a large video uploads.
+- Bytes a resumed upload sent earlier and Drive copies adopted without uploading are left out of the speed; for the first seconds, and while the run waits for an upload or conversion, that state shows instead.
+
 ## 1.0.28
 
 - After an add-on restart, the first archive run (including ‘이동 가능한 데이터 모두 이동’) checks the archived copies with one Google Drive folder listing instead of a request per file, which took minutes with about a thousand files while the run showed 0 done. A file the listing lacks is still checked by itself, and a local original is still deleted only after Drive itself confirms its copy.

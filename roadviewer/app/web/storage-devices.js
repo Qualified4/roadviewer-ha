@@ -239,11 +239,23 @@ $('archiveAllConfirm').onclick=async()=>{
  }catch(e){$('archiveAllDialog').close();$('storageStatus').textContent=ARCHIVE_RUN_ERRORS[e.code]||e.message}
  finally{archivePlanBusy=false;$('archiveAllConfirm').disabled=false;updateEditor()}
 };
+// Bytes processed so far, the file being uploaded included (older runs record only files).
+function archiveJobBytes(job){return Math.min(Number(job.total_bytes)||0,(Number(job.processed_bytes ?? job.bytes_done)||0)+(Number(job.current_bytes)||0))}
+function archiveEta(seconds){
+ const m=Math.round(seconds/60);
+ if(m<1)return '1분 미만 남음';
+ return m<60?`약 ${m}분 남음`:`약 ${Math.floor(m/60)}시간${m%60?` ${m%60}분`:''} 남음`;
+}
 function archiveJobText(job,drive){
  const verb=job.mode==='move'?'이동':'복사',done=`성공 ${job.succeeded}개 · 실패 ${job.failed}개`;
  // Before its first file a run may wait for the archive's startup checks (after a restart): their progress is shown.
  if(job.state==='running'&&job.checking&&job.checking.total)return `${verb} 준비 중 · 보관본 확인 ${job.checking.done}/${job.checking.total}`;
- if(job.state==='running')return `${verb} 중 · ${job.processed}/${job.total_files}개 파일 처리 (${done})`+(job.waiting==='uploading'?' · 업로드가 끝나기를 기다리는 중':job.waiting==='processing'?' · 변환이 끝나기를 기다리는 중':'');
+ if(job.state==='running'){
+  const bytes=Number(job.total_bytes)>0?` · ${storageSize(archiveJobBytes(job))} / ${storageSize(job.total_bytes)}`:'';
+  const wait=job.waiting==='uploading'?'업로드가 끝나기를 기다리는 중':job.waiting==='processing'?'변환이 끝나기를 기다리는 중':'';
+  const rate=Number(job.rate),speed=wait||(Number.isFinite(rate)&&job.rate!==null?`${storageSize(rate)}/s`+(Number.isFinite(job.eta_seconds)&&job.eta_seconds!==null?` · ${archiveEta(job.eta_seconds)}`:''):'속도 계산 중');
+  return `${verb} 중 · ${job.processed}/${job.total_files}개 파일${bytes}\n${speed} (${done})`;
+ }
  const freed=job.mode==='move'?` · 로컬 ${storageSize(job.freed_bytes||0)} 확보`:'';
  if(job.state==='done')return `${verb} 완료 · ${job.succeeded}개 파일${freed}`;
  if(job.state==='partial')return `일부 완료 · ${done}${freed}. 실패한 파일의 로컬 원본은 그대로 유지됩니다.`;
@@ -254,8 +266,9 @@ function showArchiveJob(a){
  const job=a?.manual,box=$('archiveJob');
  box.hidden=!job;if(!job){archiveJobPoll(false);return}
  box.dataset.state=job.state;
- const progress=$('archiveJobProgress'),total=Math.max(1,Number(job.total_files)||0);
- progress.max=total;progress.value=job.state==='done'?total:Math.min(total,Number(job.processed)||0);
+ // By bytes while running (the file being uploaded moves the bar too), else by files.
+ const progress=$('archiveJobProgress'),bytes=job.state==='running'&&Number(job.total_bytes)>0,total=bytes?Number(job.total_bytes):Math.max(1,Number(job.total_files)||0);
+ progress.max=total;progress.value=job.state==='done'?total:Math.min(total,bytes?archiveJobBytes(job):Number(job.processed)||0);
  $('archiveJobText').textContent=archiveJobText(job,a.backend==='gdrive');
  archiveJobPoll(!!a.manual_active&&!storageDetails.hidden&&!document.hidden);
 }

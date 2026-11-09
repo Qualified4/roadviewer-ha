@@ -1,5 +1,5 @@
 """Archive (NAS) settings, availability via a sentinel file, per-recording media resolution and the archiver."""
-import hashlib, json, logging, os, re, shutil, threading, time, uuid
+import collections, hashlib, json, logging, os, re, shutil, threading, time, uuid
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -561,6 +561,48 @@ REMOTE_ERRORS = {'unavailable': 'storage_unavailable', 'auth_expired': 'auth_exp
 # An upload in progress is recorded when its session starts, then at most once per this many bytes or seconds.
 PROGRESS_BYTES, PROGRESS_SECONDS = 8 * MB, 30
 
+# A manual run's speed is measured over about this many seconds of the latest transfer, once it spans RATE_MIN.
+RATE_WINDOW, RATE_MIN = 30, 5
+
+class _Transfer:
+    """Bytes a manual run has actually sent, for its speed and remaining time (memory only). The file being uploaded
+    counts as it goes, so a large video does not freeze the numbers; copies adopted without uploading add nothing."""
+
+    def __init__(self, clock=time.monotonic):
+        self.clock, self.lock = clock, threading.Lock()
+        self.sent = self.file = 0  # All bytes sent; bytes of the file in progress.
+        self.samples = collections.deque()
+
+    def _sample(self, now):
+        # At most a sample a second; those older than the window go (the latest stays as the speed's start).
+        s = self.samples
+        if not s or now - s[-1][0] >= 1: s.append((now, self.sent))
+        while len(s) > 1 and s[0][0] < now - RATE_WINDOW: s.popleft()
+
+    def begin(self, offset=0):
+        # A file starts; a resumed upload starts at its offset (those bytes were sent by an earlier attempt).
+        with self.lock: self.file = offset; self._sample(self.clock())
+
+    def progress(self, sent):
+        with self.lock:
+            if sent > self.file: self.sent += sent - self.file
+            self.file = sent
+            self._sample(self.clock())
+
+    def end(self, size=0):
+        # The file is done (or failed); `size` adds a file copied in one piece (the NAS).
+        with self.lock:
+            self.sent += size; self.file = 0
+            if size: self._sample(self.clock())
+
+    def snapshot(self):
+        # (bytes of the file in progress, bytes/s or None while too little has been measured).
+        with self.lock:
+            if not self.samples: return self.file, None
+            now = self.clock(); self._sample(now)
+            t, sent = self.samples[0]
+            return self.file, (self.sent - sent) / (now - t) if now - t >= RATE_MIN else None
+
 class _Changed(Exception):
     """The recording changed while its file was being uploaded: the upload stops, nothing is committed."""
 
@@ -620,6 +662,7 @@ class Archiver:
         # The latest 'archive everything eligible' run (start_manual), persisted so a reload or restart shows it.
         self.manual_active, self.job = False, self._load_job()
         self.checking = None  # {'done', 'total'} while the startup checks run (_startup).
+        self.transfer = None  # The running manual run's _Transfer.
         self.startup_failure = None  # The remote error that stopped the startup checks' folder listing.
 
     def status(self):
@@ -629,8 +672,18 @@ class Archiver:
                 'rechecked_held': self.rechecked_held, 'missing_archived': len(self.missing),
                 'backend': self.settings.backend, 'effective_mode': self.settings.effective_mode,
                 'remote_copies_total': self.remote_copies_total, 'last_auth_error': self.last_auth_error,
-                'manual': dict(self.job, checking=self.checking) if self.job else None, 'manual_active': self.manual_active,
+                'manual': self._job_status() if self.job else None, 'manual_active': self.manual_active,
                 'checking': self.checking}
+
+    def _job_status(self):
+        # The run as persisted, with the startup checks and, while it runs, its transfer: bytes of the file in
+        # progress, speed (bytes/s) and the remaining time (seconds); speed and time are None until measured.
+        job, transfer = dict(self.job, checking=self.checking), self.transfer
+        if self.manual_active and transfer and job.get('state') == 'running':
+            current, rate = transfer.snapshot()
+            left = max(0, (job.get('total_bytes') or 0) - (job.get('processed_bytes') or 0) - current)
+            job.update(current_bytes=current, rate=rate, eta_seconds=left / rate if rate and not job.get('waiting') else None)
+        return job
 
     # --- 'Archive everything eligible' (manual). The same cycle lock and per-file engine as the scheduled cycle,
     # repeated until nothing eligible is left: no batch and no local threshold. The minimum age stays, and in move
@@ -699,7 +752,8 @@ class Archiver:
             plan = self.manual_plan()
             self.job = dict(id=uuid.uuid4().hex, state='running', started_at=time.time(), finished_at=None,
                             mode=plan['mode'], deletes_local=plan['deletes_local'], total_files=plan['files'], total_bytes=plan['bytes'],
-                            processed=0, succeeded=0, failed=0, bytes_done=0, freed_bytes=0, error=None, last_failure=None, waiting=None)
+                            processed=0, succeeded=0, failed=0, bytes_done=0, processed_bytes=0, freed_bytes=0, error=None, last_failure=None, waiting=None)
+            self.transfer = _Transfer()
             self._save_job()
             started = dict(self.job)  # As started: the thread may finish before this returns.
             self.manual_active = self.running = True
@@ -736,7 +790,8 @@ class Archiver:
         self._save_job()
 
     def _job_file(self, p, kind, size, ok):
-        job = self.job; job['processed'] += 1
+        job = self.job; job['processed'] += 1; job['processed_bytes'] = job.get('processed_bytes', 0) + size
+        if self.transfer: self.transfer.end(size if ok and not self.remote else 0)
         if ok:
             job['succeeded'] += 1; job['bytes_done'] += size
             try: moved = location(self.server.read_meta(p), kind) != 'local' and not (p / kind).exists()
@@ -1579,7 +1634,10 @@ class Archiver:
         s = self.server
         last = {'session': resume.get('session'), 'bytes': resume.get('bytes_sent') or 0, 'at': time.monotonic()}
         started = {'session': resume.get('session'), 'at': (pending or {}).get('started_at') or time.time()}
+        transfer = self.transfer if self.manual_active else None
+        if transfer: transfer.begin(last['bytes'] if last['session'] else 0)
         def on_progress(sent):
+            if transfer: transfer.progress(sent)
             session = resume.get('session')
             if not session or sent >= (resume.get('size') or 0) > 0: return  # Complete: the commit follows.
             if session == last['session'] and sent - last['bytes'] < PROGRESS_BYTES and time.monotonic() - last['at'] < PROGRESS_SECONDS: return
