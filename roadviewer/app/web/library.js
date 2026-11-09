@@ -565,13 +565,36 @@ function renderChips(){
  if(tagFilter.startsWith('tag:')&&!tags.some(tag=>'tag:'+tagKey(tag.name)===tagFilter))tags.push({name:tagFilter.slice(4),color:'slate',missing:true});
  const tagChips=[chip('tag:untagged','태그 없음',logs.filter(m=>!(m.tags||[]).length).length,tagFilter==='untagged'),...tags.map(tag=>chip('tag:tag:'+tagKey(tag.name),tag.name,tag.missing?0:logs.filter(m=>tagMatches(m.tags||[],'tag:'+tagKey(tag.name))).length,tagFilter==='tag:'+tagKey(tag.name),Object.hasOwn(TAG_PALETTE,tag.color)?tag.color:'mint'))];
  const separator=document.createElement('span');separator.className='chip-separator';separator.setAttribute('aria-hidden','true');
- const next=[...items,separator,...tagChips],signature=JSON.stringify(next.map(e=>[e.dataset.filter,e.textContent,e.getAttribute('aria-pressed')]));
+ // Folded to two rows, a selected tag comes first among the tags so it is never folded away.
+ if(!chipsExpanded){const picked=tagChips.findIndex(c=>c.getAttribute('aria-pressed')==='true');if(picked>0)tagChips.unshift(...tagChips.splice(picked,1))}
+ const more=document.createElement('button');more.type='button';more.className='filter-chip chip-more';more.dataset.more='';more.setAttribute('aria-expanded',String(chipsExpanded));more.hidden=true;
+ const next=[...items,separator,...tagChips,more],signature=JSON.stringify([chipsExpanded,next.map(e=>[e.dataset.filter,e.textContent,e.getAttribute('aria-pressed')])]);
  if(box.dataset.signature===signature)return;
- const focused=document.activeElement?.closest?.('#logChips')?document.activeElement.dataset.filter:null;
- box.dataset.signature=signature;box.replaceChildren(...next);
- if(focused)box.querySelector(`[data-filter="${CSS.escape(focused)}"]`)?.focus({preventScroll:true});
+ const active=document.activeElement?.closest?.('#logChips')?document.activeElement:null,focused=active&&(active.classList.contains('chip-more')?'.chip-more':`[data-filter="${CSS.escape(active.dataset.filter)}"]`);
+ box.dataset.signature=signature;box.replaceChildren(...next);fitChips();
+ if(focused)box.querySelector(focused)?.focus({preventScroll:true});
 }
+// Tablets and desktops wrap the chips: past two rows the rest fold behind a "+N개 더보기" chip at the end of the second
+// row, which unfolds them all (then reads 접기). Phones scroll one row sideways instead and never fold.
+let chipsExpanded=false;
+const MORE_CHEVRON='<svg aria-hidden="true" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+function fitChips(){
+ const box=$('logChips'),more=box.querySelector('.chip-more');if(!more)return;
+ // The toggle is only hidden when nothing folds: hiding it while measuring would drop its keyboard focus.
+ const tags=[...box.querySelectorAll('.filter-chip[data-filter^="tag:"]')];tags.forEach(c=>c.hidden=false);
+ if(!box.offsetParent||getComputedStyle(box).flexWrap==='nowrap'){more.hidden=true;return}
+ const first=box.firstElementChild,top=first.offsetTop,pitch=first.offsetHeight+(parseFloat(getComputedStyle(box).rowGap)||0);
+ const row=el=>Math.round((el.offsetTop-top)/pitch),last=[...box.children].filter(e=>e!==more).at(-1);
+ if(row(last)<2){more.hidden=true;return}
+ more.hidden=false;
+ if(chipsExpanded){more.innerHTML='접기 '+MORE_CHEVRON;more.setAttribute('aria-label','태그 접기');return}
+ // Fold tags from the end until the more chip itself fits on the second row.
+ let folded=0;const label=()=>{more.innerHTML=`+${folded}개 더보기 `+MORE_CHEVRON;more.setAttribute('aria-label',`태그 ${folded}개 더보기`)};
+ for(let i=tags.length-1;i>=0&&(folded===0||row(more)>1);i--){if(tags[i].getAttribute('aria-pressed')==='true')continue;tags[i].hidden=true;folded++;label()}
+}
+new ResizeObserver(()=>fitChips()).observe($('logChips'));
 $('logChips').addEventListener('click',e=>{
+ if(e.target.closest('.chip-more')){chipsExpanded=!chipsExpanded;renderChips();return}
  const button=e.target.closest('.filter-chip');if(!button)return;
  const [kind,...rest]=button.dataset.filter.split(':'),value=rest.join(':');
  if(kind==='filter'){if(value==='all'){logFilter='all';tagFilter=''}else logFilter=logFilter===value?'all':value}

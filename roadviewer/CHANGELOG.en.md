@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.21
+
+- On tablets and desktops the library's tag filter shows at most two rows; the rest fold behind a **+N개 더보기** chip at the end of the second row, which unfolds them all and then reads **접기**. A selected tag is moved forward and never folded away. Phones keep one sideways-scrolling row.
+- Folding a library card no longer occasionally flashes its full height for a frame at the end, and the divider between the card header and its segments stays in place instead of moving and being clipped with the list.
+- The segment strip's edge fades fill faster (full after 14px of scrolling), so end blocks no longer look cut off early in a scroll.
+
 ## 1.0.20
 
 - The replay page remembers the last of all four analysis tabs (주행 상황, 차선도로, 차량 정보, 북마크); before, only 차량 정보 and 북마크 were restored.

@@ -47,7 +47,9 @@
    if(Math.abs(to-from)<1){finish();return}
    // The full travel sets the parallax distance, so a reversed fold keeps the same path.
    const lift=-Math.min(40,Math.max(0,full-closed)/4),start=i=>offsets[i]||(opening?lift:0);
-   motions=[details.animate([{height:from+'px'},{height:to+'px'}],{duration:DURATION,easing:STANDARD}),
+   // The height holds its end until [open] changes: without fill, a folded panel showed its full height for a frame
+   // between the motion ending and the promise that closes it.
+   motions=[details.animate([{height:from+'px'},{height:to+'px'}],{duration:DURATION,easing:STANDARD,fill:'forwards'}),
     // The part moved above its resting place is clipped, so the content never slides over the summary.
     ...bodies.map((node,i)=>{const frame=y=>({transform:`translateY(${y}px)`,clipPath:`inset(${-y}px 0 0 0)`});
      return node.animate([frame(start(i)),frame(opening?0:lift)],{duration:DURATION,easing:STANDARD,fill:'forwards'})})];

@@ -170,6 +170,8 @@ jobs:
         if: matrix.group == 'g6'
       - run: node tests/log_export.cjs
         if: matrix.group == 'g3'
+      - run: node tests/tag_filter_fold.cjs
+        if: matrix.group == 'g5'
   browser-tests:
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs: [browser-test-groups]

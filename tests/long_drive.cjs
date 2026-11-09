@@ -44,9 +44,9 @@ const replay={route:'0000041b--a1b2c3d4e5',key:'long',duration:2,warnings:[],vid
    await page.locator('#segmentStrip').evaluate(e=>{e.dispatchEvent(new WheelEvent('wheel'));e.scrollLeft=0});await page.waitForFunction(()=>!document.getElementById('segmentStrip').classList.contains('fade-left'));
    await page.evaluate(()=>window.dispatchEvent(new Event('resize')));await page.waitForTimeout(50);
    assert.equal((await strip()).left,0,'manual scroll position is kept');
-   // The fade widens with the distance scrolled from the end: none at the start, half after 28px, full (28px) after 56px.
+   // The fade widens with the distance scrolled from the end: none at the start, half after 7px, full (28px) after 14px.
    const fade=async left=>page.locator('#segmentStrip').evaluate((s,left)=>{s.style.scrollSnapType='none';s.scrollLeft=left;s.dispatchEvent(new Event('scroll'));const f=parseFloat(s.style.getPropertyValue('--fade-left'));s.style.scrollSnapType='';return f},left);
-   assert.deepEqual([await fade(0),await fade(28),await fade(200)],[0,14,28],'left fade width follows the scroll distance');await fade(0);
+   assert.deepEqual([await fade(0),await fade(7),await fade(200)],[0,14,28],'left fade width follows the scroll distance');await fade(0);
    // At either end the strip's clip keeps a block's 2px ring (offset 1.5px) whole.
    const room=await page.locator('#segmentStrip').evaluate(s=>{const f=s.getBoundingClientRect(),first=s.firstElementChild.getBoundingClientRect();s.scrollLeft=s.scrollWidth;
     const last=s.lastElementChild.getBoundingClientRect();return [first.left-(f.left+s.clientLeft),(f.left+s.clientLeft+s.clientWidth)-last.right]});

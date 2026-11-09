@@ -1147,13 +1147,14 @@ function hideSegmentPeek(){$('segmentPeek').classList.remove('is-shown');segment
 // segment when it changes. Manual scrolling (touch, trackpad, shift+wheel, mouse drag) is left alone until then.
 let segmentStripCurrent=null,segmentStripScrolled=false;
 const SEGMENT_COMFORT=16,SEGMENT_GAP=3;
-// Each edge fade widens with the distance scrolled from that end (full width after 56px), instead of switching on at once.
+// Each edge fade widens with the distance scrolled from that end (full width after 14px), instead of switching on at once;
+// a slower fill left blocks looking cut off at the edge early in a scroll.
 const SEGMENT_FADE=28;
 function segmentStripFades(){
  const strip=$('segmentStrip'),scrolling=strip.classList.contains('is-scrolling');
  const before=scrolling?Math.max(0,strip.scrollLeft):0,after=scrolling?Math.max(0,strip.scrollWidth-strip.clientWidth-strip.scrollLeft):0;
  strip.classList.toggle('fade-left',before>1);strip.classList.toggle('fade-right',after>1);
- strip.style.setProperty('--fade-left',Math.min(SEGMENT_FADE,before/2).toFixed(1)+'px');strip.style.setProperty('--fade-right',Math.min(SEGMENT_FADE,after/2).toFixed(1)+'px');
+ strip.style.setProperty('--fade-left',Math.min(SEGMENT_FADE,before*2).toFixed(1)+'px');strip.style.setProperty('--fade-right',Math.min(SEGMENT_FADE,after*2).toFixed(1)+'px');
 }
 function fitSegmentStrip(recentre=false){
  const strip=$('segmentStrip'),count=strip.children.length,was=strip.classList.contains('is-scrolling');
