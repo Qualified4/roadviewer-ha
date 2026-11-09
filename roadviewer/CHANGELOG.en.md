@@ -4,6 +4,13 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.28
+
+- After an add-on restart, the first archive run (including ‘이동 가능한 데이터 모두 이동’) checks the archived copies with one Google Drive folder listing instead of a request per file, which took minutes with about a thousand files while the run showed 0 done. A file the listing lacks is still checked by itself, and a local original is still deleted only after Drive itself confirms its copy.
+- While those checks run, the Storage tab shows their progress (‘이동 준비 중 · 보관본 확인 n/N’).
+- The divider between a card's header and its list fades over the whole 300 ms fold with an ease-out curve, so the change is visible in the dark theme.
+- Progress bars (upload, import, archiving) no longer light up on hover as if they could be clicked.
+
 ## 1.0.27
 
 - Library cards off screen skip layout and paint, so folding a card in a long list stutters less (on a phone-speed CPU with 30 cards, about 35 to 60 fps).

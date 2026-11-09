@@ -1,5 +1,6 @@
 """Archive (NAS) settings, availability via a sentinel file, per-recording media resolution and the archiver."""
 import hashlib, json, logging, os, re, shutil, threading, time, uuid
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from storage_policy import atomic_json
@@ -618,6 +619,8 @@ class Archiver:
         self.reason = None
         # The latest 'archive everything eligible' run (start_manual), persisted so a reload or restart shows it.
         self.manual_active, self.job = False, self._load_job()
+        self.checking = None  # {'done', 'total'} while the startup checks run (_startup).
+        self.startup_failure = None  # The remote error that stopped the startup checks' folder listing.
 
     def status(self):
         return {'last_cycle_at': self.last_cycle_at, 'last_error': self.last_error, 'consecutive_failures': self.consecutive_failures,
@@ -626,7 +629,8 @@ class Archiver:
                 'rechecked_held': self.rechecked_held, 'missing_archived': len(self.missing),
                 'backend': self.settings.backend, 'effective_mode': self.settings.effective_mode,
                 'remote_copies_total': self.remote_copies_total, 'last_auth_error': self.last_auth_error,
-                'manual': dict(self.job) if self.job else None, 'manual_active': self.manual_active}
+                'manual': dict(self.job, checking=self.checking) if self.job else None, 'manual_active': self.manual_active,
+                'checking': self.checking}
 
     # --- 'Archive everything eligible' (manual). The same cycle lock and per-file engine as the scheduled cycle,
     # repeated until nothing eligible is left: no batch and no local threshold. The minimum age stays, and in move
@@ -1317,14 +1321,37 @@ class Archiver:
     def _startup(self):
         # Caller holds self.cycle. Both run at the first connected cycle when skipped at startup (share down);
         # recovery also when requested by a commit whose local unlink failed.
+        self.startup_failure = None
         if not self._connected(): return
-        if not self.held_checked and self.recheck_held() is None: self._failed('recheck_failed')
-        if self.remote:
-            if not self.recovered: self._recover_remote()
-            elif self.missing: self._recheck_missing_remote()
-            return
-        if not self.recovered: self._recover()
-        elif self.missing: self._recheck_missing()
+        if self.held_checked and self.recovered and not self.missing: return
+        # Progress for the panel (a manual run waits for these checks before its first file): one step per recording
+        # and pass. A remote backend answers them from one folder listing (bulk_stats) where it can.
+        phases = (not self.held_checked) + (not self.recovered)
+        self.checking = {'done': 0, 'total': phases * len(self.server.recording_paths())} if phases else None
+        bulk = getattr(self.backend, 'bulk_stats', None) if self.remote else None
+        from archive_backends import BackendError  # archive_backends imports this module.
+        try:
+            with ExitStack() as stack:
+                if bulk:
+                    try: stack.enter_context(bulk())
+                    except BackendError as e:
+                        # As a failed per-file request: the cycle stops with the reason (_remote_cycle), nothing is decided.
+                        self._remote_fail(e)
+                        self.startup_failure = self.reason
+                        return
+                if not self.held_checked and self.recheck_held() is None: self._failed('recheck_failed')
+                if self.remote:
+                    if not self.recovered: self._recover_remote()
+                    elif self.missing: self._recheck_missing_remote()
+                    return
+                if not self.recovered: self._recover()
+                elif self.missing: self._recheck_missing()
+        finally: self.checking = None
+
+    def _checked(self):
+        # One recording checked by a startup pass.
+        checking = self.checking
+        if checking: checking['done'] = min(checking['total'], checking['done'] + 1)
 
     def _connected(self):
         # The active backend answers: the share's sentinel check for the NAS, the backend's probe otherwise.
@@ -1339,6 +1366,7 @@ class Archiver:
         # None when one failed: then it is tried again by the next connected cycle.
         s, rows, ids, unsure, failed = self.server, [], [], False, False
         for p in s.recording_paths():
+            self._checked()
             try: m = s.read_meta(p)
             except (OSError, ValueError): continue
             if not isinstance(m, dict) or m.get('status') != 'ready' or not s.archived(m): continue
@@ -1384,6 +1412,7 @@ class Archiver:
             self.store.invalidate()
             return
         for p in s.recording_paths():
+            self._checked()
             try: m = s.read_meta(p)
             except (OSError, ValueError): continue
             if not isinstance(m, dict): continue
@@ -1464,7 +1493,7 @@ class Archiver:
         if failure: return self._failed(failure)
         self.last_cycle_at = time.time()
         self._startup()
-        failure = self._remote_state()
+        failure = self.startup_failure or self._remote_state()
         if failure: return self._failed(failure)
         self._measure_usage()
         try: PendingDeletes(s.ROOT).process(self.backend)
@@ -1659,6 +1688,7 @@ class Archiver:
         s = self.server
         try:
             for p in s.recording_paths():
+                self._checked()
                 try: m = s.read_meta(p)
                 except (OSError, ValueError): continue
                 if not isinstance(m, dict): continue

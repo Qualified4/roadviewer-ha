@@ -1,6 +1,7 @@
 """Archive backends: the HTTP client with backoff, Google Drive device-flow auth, the Drive client and the
 Drive/NAS backends behind one interface (standard library only)."""
 import hashlib, http.client, io, json, os, random, re, ssl, threading, time, uuid
+from contextlib import contextmanager
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
@@ -549,6 +550,7 @@ class DriveBackend(_Availability):
         self._init_cache(clock)
         self.usage_seen = None  # (measured_at, Usage): the panel's figure, kept across invalidate().
         self.usage_guard, self.usage_thread, self.usage_tried_at = threading.Lock(), None, None
+        self.bulk = None  # {file_id: RemoteStat} from one folder listing while bulk_stats() is active.
 
     def __repr__(self): return 'DriveBackend(connected=%r)' % self.auth.connected
 
@@ -637,7 +639,28 @@ class DriveBackend(_Availability):
         self.stat_cache[ref.file_id] = (now, stat)
         return stat
 
+    def snapshot(self):
+        # Every file in the archive folder from one listing (1000 a page): {file_id: RemoteStat}. Files in the trash or
+        # outside the folder are not listed; stat() asks Google for those, so a file missing here is never taken as gone.
+        folder_id = self.auth.folder_id
+        if not folder_id: return {}
+        q = "'%s' in parents and trashed=false" % _q(folder_id)
+        return {f['id']: RemoteStat(True, _int_or(f.get('size'), 0), f.get('sha256Checksum') or None, f.get('md5Checksum') or None, False)
+                for f in self.client.list(q, 'files(id,size,sha256Checksum,md5Checksum)') if f.get('id')}
+
+    @contextmanager
+    def bulk_stats(self):
+        # For the archiver's startup checks, which ask about every archived file: one listing instead of a request per
+        # file (about a thousand requests, minutes, before a run could start). verify() and delete() still ask Google
+        # about the file itself, so nothing is deleted on the listing's word. A listing that fails raises, as the first
+        # per-file request would have (a rate limit or an expired sign-in stops the cycle the same way).
+        self.bulk = self.snapshot()
+        try: yield
+        finally: self.bulk = None
+
     def stat(self, ref):
+        bulk = self.bulk
+        if bulk and ref.file_id in bulk: return bulk[ref.file_id]
         meta = self.client.get(ref.file_id, 'id,size,sha256Checksum,md5Checksum,trashed')
         if meta is None: return None
         trashed = bool(meta.get('trashed'))

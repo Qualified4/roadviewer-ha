@@ -75,6 +75,11 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   await page.waitForFunction(()=>document.getElementById('archiveJobText').textContent.startsWith('이동 중 · 2/5개 파일 처리'));
   assert(await page.locator('#storageEditorFields').evaluate(f=>f.disabled));assert(await page.locator('#archiveIntervalPreset').isDisabled());assert(await page.locator('#archiveRun').isDisabled());
   assert.equal(await page.locator('#archiveJobProgress').evaluate(bar=>[bar.value,bar.max].join('/')),'2/5');
+  // Before its first file, a run after a restart waits for the archive's startup checks: their progress shows.
+  await page.unroute('**/api/settings/storage');
+  await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();body.archive={...body.archive,running:true,manual_active:true,manual:{state:'running',mode:'move',total_files:5,processed:0,succeeded:0,failed:0,freed_bytes:0,waiting:null,checking:{done:120,total:1027}}};await route.fulfill({response,json:body})});
+  await reopenTab(page,'storage');
+  await page.waitForFunction(()=>document.getElementById('archiveJobText').textContent==='이동 준비 중 · 보관본 확인 120/1027');
   await page.unroute('**/api/settings/storage');
   await reopenTab(page,'storage');
   await page.waitForFunction(()=>!document.getElementById('storageEditorFields').disabled&&document.getElementById('archiveRun')&&!document.getElementById('archiveRun').disabled);

@@ -69,6 +69,37 @@ class GdriveArchiverTests(unittest.TestCase):
         self.assertEqual(self.files()[block['file_id']]['content'], data)
         return block
 
+    def test_startup_checks_use_one_folder_listing_and_report_progress(self):
+        # After a restart the checks ask about every archived file. They come from one listing of the folder instead of
+        # a request per file (about a thousand requests, minutes, delayed a manual run's first file), and the panel
+        # sees their progress.
+        paths = [self.log(c * 32) for c in 'abcd']
+        first = self.archiver()
+        while first.run_cycle()['archived']: pass  # A cycle archives a batch.
+        self.assertTrue(all(media_store.remote(server.read_meta(p), kind) for p in paths for kind in KINDS))
+        restarted, seen = self.archiver(), []
+        recover = restarted._recover_remote
+        def spy():
+            seen.append(dict(restarted.checking)); recover()
+            seen.append(dict(restarted.checking))
+        restarted._recover_remote = spy
+        since = len(self.requests())
+        restarted.recover_startup()
+        self.assertTrue(restarted.recovered)
+        media = {media_store.remote(server.read_meta(p), kind)['file_id'] for p in paths for kind in KINDS}
+        gets = [r['path'].split('?')[0] for r in self.requests()[since:] if r['method'] == 'GET']
+        asked = [path.rsplit('/', 1)[-1] for path in gets]
+        self.assertEqual([i for i in asked if i in media], [], 'no per-file metadata request')
+        self.assertEqual(gets.count('/drive/v3/files'), 1, 'one listing')
+        # Two passes (held results, recovery) over the four recordings.
+        self.assertEqual(seen[0]['total'], 8); self.assertEqual(seen[-1], {'done': 8, 'total': 8})
+        self.assertIsNone(restarted.checking); self.assertIsNone(restarted.status()['checking'])
+        # A file the listing does not have is asked about by itself, never taken as gone.
+        restarted.recovered = False
+        with patch.object(self.backend, 'snapshot', return_value={}):
+            restarted._recover_remote = recover; restarted.recover_startup()
+        self.assertEqual(restarted.status()['missing_archived'], 0)
+
     def test_copy_mode_uploads_verifies_and_keeps_local(self):
         p = self.log('a' * 32)
         archiver = self.archiver()

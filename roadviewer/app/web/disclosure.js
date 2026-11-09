@@ -100,8 +100,9 @@
     motions.push(summary.animate(bottom.map(b=>({height:`${Math.max(head,b)}px`})),{duration:DURATION,easing:'linear',fill:'forwards',pseudoElement:'::after'}),
      summary.animate(size.map((s,k)=>({opacity:shade[k],boxShadow:`0 ${s}px 0 ${edge},0 ${10*s}px ${16*s}px ${-8*s}px ${tone}`})),{duration:DURATION,easing:'linear',fill:'forwards',pseudoElement:'::before'}),
      summary.animate([corner(cornerNow),corner(opening?0:radius)],{duration:DURATION,easing:STANDARD,fill:'forwards'}),
-     // The divider under the summary fades in over the first 90 ms of an unfold and out over the last 90 ms of a fold.
-     summary.animate(opening?[{'--divider':dividerNow||'transparent'},{'--divider':line,offset:.3},{'--divider':line}]:[{'--divider':dividerNow||line},{'--divider':dividerNow||line,offset:.7},{'--divider':'transparent'}],{duration:DURATION,easing:'linear',fill:'forwards'}));
+     // The divider under the summary fades with the whole motion, easing out (a short fade at either end was too quick
+     // to see).
+     summary.animate([{'--divider':dividerNow||(opening?'transparent':line)},{'--divider':opening?line:'transparent'}],{duration:DURATION,easing:DECELERATE,fill:'forwards'}));
    }
   }
   animation={cancel(){motions.forEach(motion=>motion.cancel())},finished:Promise.all(motions.map(motion=>motion.finished))};

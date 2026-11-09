@@ -241,6 +241,8 @@ $('archiveAllConfirm').onclick=async()=>{
 };
 function archiveJobText(job,drive){
  const verb=job.mode==='move'?'이동':'복사',done=`성공 ${job.succeeded}개 · 실패 ${job.failed}개`;
+ // Before its first file a run may wait for the archive's startup checks (after a restart): their progress is shown.
+ if(job.state==='running'&&job.checking&&job.checking.total)return `${verb} 준비 중 · 보관본 확인 ${job.checking.done}/${job.checking.total}`;
  if(job.state==='running')return `${verb} 중 · ${job.processed}/${job.total_files}개 파일 처리 (${done})`+(job.waiting==='uploading'?' · 업로드가 끝나기를 기다리는 중':job.waiting==='processing'?' · 변환이 끝나기를 기다리는 중':'');
  const freed=job.mode==='move'?` · 로컬 ${storageSize(job.freed_bytes||0)} 확보`:'';
  if(job.state==='done')return `${verb} 완료 · ${job.succeeded}개 파일${freed}`;
