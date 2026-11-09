@@ -154,21 +154,24 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    // the menu fading out in 75 ms. Reduced motion switches at once.
    const more=()=>page.evaluate(()=>{const d=document.getElementById('replayDownload'),m=document.getElementById('replayDownloadMenu'),x=d.querySelector('.more-x'),line=d.querySelector('.more-x line'),dot=d.querySelector('.more-dot-l');
     const running=e=>e.getAnimations().map(a=>a.transitionProperty).filter(Boolean).sort().join();
-    return {open:d.open,shown:m.checkVisibility(),menu:+getComputedStyle(m).opacity,x:+getComputedStyle(x).opacity,dot:+getComputedStyle(dot).opacity,menuRuns:running(m),xRuns:running(x)+'|'+running(line),dotRuns:running(dot)}});
+    const summary=d.querySelector('summary'),fill=getComputedStyle(summary,'::before'),fillRuns=document.getAnimations().filter(a=>a.effect?.target===summary&&a.effect.pseudoElement==='::before').map(a=>a.transitionProperty).sort().join();
+    return {fill:+fill.opacity,clip:fill.clipPath,fillRuns,open:d.open,shown:m.checkVisibility(),menu:+getComputedStyle(m).opacity,x:+getComputedStyle(x).opacity,dot:+getComputedStyle(dot).opacity,menuRuns:running(m),xRuns:running(x)+'|'+running(line),dotRuns:running(dot)}});
    const frames=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
    const settled=()=>page.waitForFunction(()=>!document.querySelector('#replayDownload').getAnimations({subtree:true}).some(a=>a.transitionProperty),null,{timeout:2000});
-   await page.locator('#replayDownload>summary').click();await frames();
+   await page.locator('#replayDownload>summary').click({position:{x:10,y:10}});await frames();
    const opening=await more();
    if(reduced)assert.deepEqual([opening.menu,opening.x,opening.dot,opening.menuRuns],[1,1,0,''],'reduced motion opens at once');
-   else assert.deepEqual([opening.menuRuns,opening.dotRuns,opening.xRuns],['opacity,transform','opacity,transform','opacity|stroke-dashoffset'],'opening: the menu grows in, the dots gather, then the ✕ grows: '+JSON.stringify(opening));
+   else assert.deepEqual([opening.fillRuns,opening.menuRuns,opening.dotRuns,opening.xRuns],['clip-path','opacity,transform','opacity,transform','opacity|stroke-dashoffset'],'opening: the button fill ripples from the tap, the menu grows in, the dots gather, then the ✕ grows: '+JSON.stringify(opening));
    await settled();
-   assert.deepEqual(await more(),{open:true,shown:true,menu:1,x:1,dot:0,menuRuns:'',xRuns:'|',dotRuns:''},'open: ✕ and the full menu');
+   const opened=await more();
+   assert.deepEqual({...opened,clip:undefined},{fill:1,clip:undefined,fillRuns:'',open:true,shown:true,menu:1,x:1,dot:0,menuRuns:'',xRuns:'|',dotRuns:''},'open: filled button, ✕ and the full menu');
+   if(!reduced)assert.match(opened.clip,/^circle\((3[0-9]|4[0-9])px at 10px 10px\)$/,'the fill covers the button from the tap point: '+opened.clip);
    assert(await page.locator('#replayDownloadMenu').evaluate(m=>{const o=m.style.transformOrigin,b=document.querySelector('#replayDownload').getBoundingClientRect(),r=m.getBoundingClientRect();return Math.abs(r.left+parseFloat(o)-(b.left+b.width/2))<2}),'it grows from the button');
    await page.keyboard.press('Escape');await frames();
    const closing=await more();
-   if(!reduced)assert(closing.shown&&closing.menuRuns==='opacity,transform'&&closing.xRuns==='opacity|stroke-dashoffset'&&closing.dotRuns==='opacity,transform','closing: the menu fades out while still shown, the ✕ shrinks and the dots spread: '+JSON.stringify(closing));
+   if(!reduced)assert(closing.shown&&closing.menuRuns==='opacity,transform'&&closing.xRuns==='opacity|stroke-dashoffset'&&closing.dotRuns==='opacity,transform'&&closing.fillRuns.includes('opacity')&&closing.fill>0,'closing: the fill fades out, the menu fades out while still shown, the ✕ shrinks and the dots spread: '+JSON.stringify(closing));
    await settled();
-   assert.deepEqual(await more(),{open:false,shown:false,menu:reduced?1:0,x:0,dot:1,menuRuns:'',xRuns:'|',dotRuns:''},'closed: ⋯ again');
+   assert.deepEqual(await more(),{fill:0,clip:(await more()).clip,fillRuns:'',open:false,shown:false,menu:reduced?1:0,x:0,dot:1,menuRuns:'',xRuns:'|',dotRuns:''},'closed: ⋯ again');
    // The wheel turns via a CSS transform that glides between 20 Hz samples.
    await page.evaluate(()=>setTime(.5));
    assert.match(await page.locator('#wheelRotate').evaluate(e=>e.style.transform),/rotate\(-100deg\)/);

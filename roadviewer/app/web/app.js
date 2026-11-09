@@ -1312,6 +1312,13 @@ function placeReplayMenu(details){
  menu.style.maxHeight=(opensAbove?above:below)+'px';
 }
 const placeReplayMenus=()=>replayMenus.forEach(placeReplayMenu);
+// The open fill ripples out from where the button was pressed (motion.css); a keyboard press starts from the middle.
+for(const details of replayMenus){
+ const summary=details.querySelector('summary');
+ const origin=(x,y)=>{const b=summary.getBoundingClientRect();summary.style.setProperty('--fill-x',x+'px');summary.style.setProperty('--fill-y',y+'px');summary.style.setProperty('--fill-r',Math.ceil(Math.hypot(Math.max(x,b.width-x),Math.max(y,b.height-y)))+'px')};
+ summary.addEventListener('pointerdown',e=>{if(details.open)return;const b=summary.getBoundingClientRect();origin(e.clientX-b.left,e.clientY-b.top)});
+ summary.addEventListener('keydown',e=>{if(!details.open&&(e.key==='Enter'||e.key===' ')){const b=summary.getBoundingClientRect();origin(b.width/2,b.height/2)}});
+}
 for(const details of replayMenus)details.addEventListener('toggle',()=>{if(details.open)for(const other of replayMenus)if(other!==details)other.open=false;placeReplayMenu(details)});
 window.addEventListener('resize',placeReplayMenus);
 window.addEventListener('scroll',placeReplayMenus,{passive:true});
