@@ -1,5 +1,5 @@
 /* Library list and recording actions */
-.delete{background:transparent;box-shadow:none;color:var(--danger-text)}#selection{color:var(--muted);font-size:12px}progress{width:100%;height:10px;accent-color:var(--accent);margin-top:20px}.back{display:inline-block;color:var(--accent-text);margin:0 0 20px;text-decoration:none}
+.delete{background:transparent;box-shadow:none;color:var(--danger-text)}#selection{color:var(--muted);font-size:12px}progress{width:100%;height:10px;accent-color:var(--accent);margin-top:20px;pointer-events:none}.back{display:inline-block;color:var(--accent-text);margin:0 0 20px;text-decoration:none}
 .recording-more{position:relative}
 .storage-parts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .storage-part{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border:1px solid var(--line-strong);border-radius:999px;font-size:11px;line-height:18px;color:var(--muted)}
