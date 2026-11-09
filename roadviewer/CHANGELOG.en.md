@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.25
+
+- A library card's header reads as a card of its own and the segment list as a panel behind it: unfolding rolls the panel out from behind the header, folding rolls it back, and just before the card closes the panel's rounded edge rises slightly above the header's so it is fully tucked away instead of its outline merging into the header's.
+- While a card folds, its outline and shadow wrap the header and the visible panel, so the shadow is no longer cut off at the sides, and the white line around the list is gone.
+- The header's lower corners ease to square as a card unfolds and back as it folds. The header's shadow on the list and the shade inside the panel's edge are the same soft shadow, follow the rounded corners, last the whole motion and shrink with the visible panel.
+
 ## 1.0.24
 
 - A library card's header carries its own background gradient, so an open card no longer stretches it until the header looks flat, and the header no longer changes shade when a fold ends.

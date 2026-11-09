@@ -464,7 +464,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .log-day-title>span:first-child:not(:only-child){color:var(--text)}
 .log-day-routes{display:flex;flex-direction:column;gap:12px}
 
-.log-route{border:1px solid transparent;border-radius:14px;background:var(--surface);box-shadow:var(--surface-shadow)}
+.log-route{border-radius:14px;background:var(--surface);box-shadow:var(--surface-shadow)}
 .log-route>summary{display:flex;flex-wrap:wrap;align-items:center;gap:14px 18px;padding:14px;border-radius:14px;list-style:none;cursor:pointer}
 .log-route>summary::-webkit-details-marker{display:none}
 .log-route>summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
@@ -506,20 +506,25 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .log-route[open]:not(.is-closing)>summary .log-route-chevron svg{transform:rotate(180deg)}
 /* The divider belongs to the open card's summary, the edge the segments slide under while folding (disclosure.js), so it
    stays put instead of moving and being clipped with the list. */
-.log-route[open]>summary{border-radius:14px 14px 0 0;box-shadow:inset 0 -1px 0 var(--line)}
-/* The header carries its own copy of the card background, so its gradient spans the header alone whether the card is
-   open, closed or folding (painted on the whole card, an open card stretched it until the header looked flat). While a
-   card folds, the header (and divider) stays above the sliding list, which also hides the list on phones where its clip
-   trails its slide by a frame. summary::after covers the visible strip of list under the divider, with a soft shade at
-   its top and bottom; disclosure.js animates its height and opacity, so the list seems to roll under both edges without
-   any shade reaching into the header. .is-folding only exists during the motion (menus in the header keep their
-   stacking at rest). */
+/* The header is a card of its own and the list a panel behind it (the list starts one corner radius under the header,
+   which is raised above it inside the card's own layer). While a card folds, disclosure.js rolls the panel out from
+   under the header and back: the list clips itself to the panel's rounded moving edge, the card's outline and shadow
+   move to summary::after (wrapping the header and the visible panel, so nothing is cut off and the closed card's outline
+   is exactly what remains), the header casts a soft shadow with a fine edge onto the panel (::before), the panel's edge
+   carries the same shade inside it (list::after), and the header's lower corners ease between round and square. A card
+   with an open menu is raised so the menu is not covered by the next card. */
+.log-route{--route-r:14px;--fold-shadow:1;position:relative;isolation:isolate}
+.log-route:has(.recording-more[open]){z-index:3}
+.log-route>summary{position:relative;z-index:1;background:var(--surface)}
+.log-route[open]>summary{border-bottom-left-radius:0;border-bottom-right-radius:0;box-shadow:inset 0 -1px 0 var(--line)}
 @property --fold-shadow{syntax:'*';inherits:false}
-.log-route{--fold-shadow:1}
-.log-route>summary{background:var(--surface)}
-.log-route.is-folding>summary{position:relative;z-index:1}
-.log-route.is-folding>summary::after{content:'';position:absolute;left:0;right:0;top:100%;height:0;opacity:0;pointer-events:none;background:linear-gradient(var(--fold-shade),transparent) top/100% 22px no-repeat,linear-gradient(transparent,var(--fold-shade)) bottom/100% 22px no-repeat}
-.log-route-segments{border-radius:0 0 14px 14px;background:var(--well)}
+.log-route.is-folding{background:none;box-shadow:none}
+.log-route.is-folding>summary::before,.log-route.is-folding>summary::after,.log-route.is-folding>.log-route-segments::after{content:'';position:absolute;left:0;right:0;pointer-events:none}
+.log-route.is-folding>summary::before{top:0;bottom:0;border-radius:inherit;opacity:0}
+.log-route.is-folding>summary::after{top:0;height:100%;border-radius:var(--route-r);box-shadow:var(--surface-shadow)}
+.log-route.is-folding>.log-route-segments{position:relative}
+.log-route.is-folding>.log-route-segments::after{top:0;height:0;border-radius:0 0 var(--route-r) var(--route-r);opacity:0}
+.log-route-segments{margin-top:calc(-1 * var(--route-r));padding-top:var(--route-r);border-radius:0 0 14px 14px;background:linear-gradient(var(--well),var(--well)),var(--surface)}
 
 /* Actions: primary mint 재생, secondary 변환, quiet icon buttons for pin and ⋯. */
 .actions{display:flex;align-items:center;gap:4px;flex:none}
@@ -605,11 +610,10 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .filter-chips::-webkit-scrollbar{display:none}
  .log-day{margin-top:24px}.log-day .log-day-title{margin-bottom:12px}
  .log-day-routes{gap:10px}
- .log-route{border-radius:16px}
+ .log-route{border-radius:16px;--route-r:16px}
  /* Phones: the text takes the full width beside the picture; the fold arrow ends the action row (재생 · pin · ⋯ · arrow)
     instead of floating alone at the top right. */
  .log-route>summary{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:10px 12px;padding:10px;border-radius:16px}
- .log-route[open]>summary{border-radius:16px 16px 0 0}
  .route-thumb{grid-column:1;grid-row:1;width:112px;height:63px;border-radius:9px;align-self:start}
  .route-thumb .thumb-placeholder svg{width:16px;height:16px}
  .route-duration{right:4px;bottom:4px;padding:0 5px;font-size:10px}
