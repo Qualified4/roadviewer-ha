@@ -1187,6 +1187,9 @@ function fitSegmentStrip(recentre=false){
  // A user gesture marks the position as theirs; the next segment change re-centres.
  for(const type of ['wheel','touchstart','keydown'])strip.addEventListener(type,()=>{segmentStripScrolled=true},{passive:true});
  // Mouse drag scrolls; a drag never counts as a click on a block.
+ // Pressing the mouse on the strip never starts a text selection (a drag otherwise selected the page text the pointer
+ // crossed); the pressed block still takes focus, as a click would give it.
+ strip.addEventListener('mousedown',e=>{if(e.button!==0)return;e.preventDefault();e.target.closest('button,a,[tabindex]')?.focus({preventScroll:true})});
  strip.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button===0&&strip.classList.contains('is-scrolling')){drag={x:e.clientX,left:strip.scrollLeft};dragged=false}});
  addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x;if(Math.abs(dx)>4&&!dragged){dragged=true;segmentStripScrolled=true;strip.classList.add('is-dragging')}if(dragged)strip.scrollLeft=drag.left-dx});
  addEventListener('pointerup',()=>{drag=null;strip.classList.remove('is-dragging')});

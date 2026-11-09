@@ -55,8 +55,15 @@ const replay={route:'0000041b--a1b2c3d4e5',key:'long',duration:2,warnings:[],vid
    // Mouse drag scrolls without opening a segment.
    if(width===1300){
     const box=await page.locator('#segmentStrip').boundingBox();const url=page.url();
-    await page.mouse.move(box.x+300,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+100,box.y+box.height/2,{steps:5});await page.mouse.up();
+    await page.mouse.move(box.x+300,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+100,box.y+box.height/2,{steps:5});
+    // Dragging on past the strip over the page text selects nothing.
+    await page.mouse.move(box.x+100,box.y+box.height+160,{steps:4});await page.mouse.move(box.x+100,box.y+box.height/2,{steps:4});
+    assert.equal(await page.evaluate(()=>getSelection().toString()),'','a strip drag selects no text');await page.mouse.up();
     const dragLeft=(await strip()).left;assert(Math.abs(dragLeft-200)<=16,'drag scrolls the strip (then may snap to a block): '+dragLeft);assert.equal(page.url(),url,'a drag is not a click');
+    // Pressing between blocks and dragging down over the page text selects nothing either.
+    const gap=await page.evaluate(()=>{const b=[...document.querySelectorAll('#segmentStrip .segment-block')].map(e=>e.getBoundingClientRect()).filter(r=>r.left>20&&r.right<innerWidth-20);for(let i=1;i<b.length;i++)if(b[i].left-b[i-1].right>=2)return {x:(b[i-1].right+b[i].left)/2,y:b[i].top+b[i].height/2};const s=document.getElementById('segmentStrip').getBoundingClientRect();return {x:b[0].left+1,y:s.top+2}});
+    await page.mouse.move(gap.x,gap.y);await page.mouse.down();await page.mouse.move(gap.x,gap.y+260,{steps:6});
+    assert.equal(await page.evaluate(()=>getSelection().toString()),'','a drag from the strip selects no text');await page.mouse.up();assert.equal(page.url(),url);
    }
    // Keyboard: blocks stay focusable and scroll into view.
    await page.locator('#segmentStrip .segment-block').nth(150).focus();
