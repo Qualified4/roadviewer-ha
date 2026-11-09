@@ -327,6 +327,11 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .replay-menu{position:relative;flex-shrink:0}
 .replay-menu>summary{display:flex;align-items:center;justify-content:center;gap:7px;min-width:40px;height:40px;padding:0 12px;border-radius:10px;list-style:none;cursor:pointer;color:var(--muted);font-weight:500;-webkit-tap-highlight-color:transparent}
 .replay-menu>summary::-webkit-details-marker{display:none}
+/* ⋯ turns into ✕ while its menu is open (motion.css animates the change). */
+.icon-more .more-dot{fill:currentColor}/* The ✕ is four strokes drawn out from the middle (dash offset), so its lines keep their weight at every size; with its
+   round caps it is as wide as the ⋯ (3.2–20.8). */
+.icon-more .more-x{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;opacity:0}.icon-more .more-x line{stroke-dasharray:1 1;stroke-dashoffset:1}
+.replay-download[open] .icon-more .more-dot{opacity:0}.replay-download[open] .icon-more .more-x{opacity:1}.replay-download[open] .icon-more .more-x line{stroke-dashoffset:0}
 .view-menu>summary,.layer-menu>summary{background:var(--raised);box-shadow:var(--raised-shadow);color:var(--text)}
 .replay-download>summary{width:40px;padding:0}
 .replay-menu[open]>summary{color:var(--text);background:var(--hover)}.view-menu[open]>summary,.layer-menu[open]>summary{background:var(--raised-hover)}

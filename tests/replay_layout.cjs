@@ -215,7 +215,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await page.setViewportSize({width:390,height:844});
   await page.locator('#replayDownload>summary').click();
   assert.match(await page.locator('#replayDownloadMenu .menu-version .app-version').textContent(),/^v[0-9]+[.][0-9]+[.][0-9]+$/,'version is an info line in ⋯');
-  assert(await page.locator('#replayDownloadMenu #splitView').isVisible(),'보기 choices are in ⋯ on phones');
+  await page.locator('#replayDownloadMenu #splitView').waitFor({timeout:2000});  // 보기 choices are in ⋯ on phones (the menu grows in).
   await page.keyboard.press('Escape');
   // The app bar stays at the top; the video stays in view: right under it on phones, 12px under it beside the analysis.
   // The retired heading fold leaves its old key harmless.

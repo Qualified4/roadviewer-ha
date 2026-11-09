@@ -48,6 +48,20 @@ html.rv-navigating::after{content:"";position:fixed;z-index:10000;top:0;left:0;r
 .rv-choice-dialog[open]{transition:opacity .12s linear,transform .15s var(--m2-decelerate),overlay .15s allow-discrete,display .15s allow-discrete}
 .rv-choice-dialog:not([open]){opacity:0}
 @starting-style{.rv-choice-dialog[open]{opacity:0;transform:scale(.8)}}
+/* App bar and layer menus (details) are menus too: they grow from .8 out of their button's side and fade in, and fade
+   out in 75 ms (::details-content keeps them rendered meanwhile; without it they close at once). app.js sets the origin.
+   The scale jumps back only once the fade is over. */
+.replay-menu::details-content{transition:content-visibility 75ms allow-discrete}
+.replay-menu>.replay-download-menu{transition:opacity .12s linear,transform .15s var(--m2-decelerate)}
+.replay-menu:not([open])>.replay-download-menu{opacity:0;transform:scale(.8);transition:opacity 75ms linear,transform 0s 75ms}
+@starting-style{.replay-menu[open]>.replay-download-menu{opacity:0;transform:scale(.8)}}
+/* ⋯ ↔ ✕: opening, the dots gather in the middle (140 ms) and the ✕'s strokes draw out of them (180 ms, decelerating);
+   closing, the strokes draw back into the middle (120 ms) and the dots spread back out (180 ms). */
+.icon-more .more-dot{transition:transform .18s var(--m2-decelerate) .12s,opacity 0s .12s}
+.icon-more .more-x{transition:opacity 0s .12s}.icon-more .more-x line{transition:stroke-dashoffset .12s var(--m2-accelerate)}
+.replay-download[open] .icon-more .more-dot{transition:transform .14s var(--m2-accelerate),opacity 0s .14s}
+.replay-download[open] .icon-more .more-dot-l{transform:translateX(7px)}.replay-download[open] .icon-more .more-dot-r{transform:translateX(-7px)}
+.replay-download[open] .icon-more .more-x{transition:opacity 0s .14s}.replay-download[open] .icon-more .more-x line{transition:stroke-dashoffset .18s var(--m2-decelerate) .14s}
 /* Scrims fade with their dialog. */
 dialog::backdrop{transition:opacity .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
 dialog[open]::backdrop{transition:opacity .25s linear,overlay .4s allow-discrete,display .4s allow-discrete}

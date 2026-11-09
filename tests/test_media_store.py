@@ -412,7 +412,8 @@ class MediaStoreTests(unittest.TestCase):
    credential = key in ('archive_gdrive_client_id', 'archive_gdrive_client_secret')
    if credential: self.assertRegex(options, rf'(?m)^  {key}: {re.escape(default)}$', key)
    else: self.assertNotRegex(options, rf'(?m)^  {key}:', key)
-   self.assertRegex(schema, rf'(?m)^  {key}: {re.escape(rule)}' + ('' if credential else r'\?') + '$', key)
+   if credential: self.assertRegex(schema, rf'(?m)^  {key}: {re.escape(rule)}$', key)
+   else: self.assertNotRegex(schema, rf'(?m)^  {key}:', key)  # A web setting now.
   # The defaults parse to the archiving-off settings.
   defaults = {k: (False if v == 'false' else v.strip('"')) for k, (v, _) in expected.items()}
   s = m.ArchiveSettings.from_options(defaults)

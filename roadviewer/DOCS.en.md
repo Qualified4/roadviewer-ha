@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.29**.
+This guide describes **1.0.30**.
 
 [한국어](DOCS.md) · English
 
@@ -419,7 +419,7 @@ On first connection, and only while `/share/<name>` is actually mounted, the app
 
 Use **Storage tab → 아카이빙 기본 설정** (Archive basics) for enabled, backend, mode, local deletion permission, minimum age and local usage criteria. **실행 및 고급 설정** contains the interval and an expandable advanced section for batch size, NAS path/capacity and the Drive folder. Presets and custom inputs preserve the existing hour/minute/MB values. **현재 설정 요약** previews draft behavior; only **설정 저장** applies it. Partial saves identify remaining changes and retries save only those changes. The start threshold is entered in GB with decimals (e.g. 2.5) and stored as MB (1 GB = 1024 MB); the custom local storage limit also accepts decimal GB. MB means 1024² bytes. NAS always moves after verification regardless of the mode selector. The keys below identify saved preferences, rather than add-on options.
 
-Preferences are written atomically to `/data/roadviewer/.archive-settings.json` with mode 0600. Only `archive_gdrive_client_id` and `archive_gdrive_client_secret` remain add-on options; neither value is returned by the API or shown in the web UI. On the first update, if the file is absent, the old archive options in `/data/options.json` are migrated once. Enabled and disabled values are preserved, with defaults for missing fields. Afterwards the file is authoritative: old keys are ignored and can be cleared. They remain optional schema entries for migration compatibility in this release.
+Preferences are written atomically to `/data/roadviewer/.archive-settings.json` with mode 0600. Only `archive_gdrive_client_id` and `archive_gdrive_client_secret` remain add-on options; neither value is returned by the API or shown in the web UI. On the first update, if the file is absent, the old archive options in `/data/options.json` are migrated once. Enabled and disabled values are preserved, with defaults for missing fields. Afterwards the file is authoritative and old keys are ignored. Since 1.0.30 the old archive keys are no longer in the add-on configuration.
 
 An unreadable/corrupt file or invalid migrated values disable archiving and show `settings_error`. The bad file is left untouched until the user saves from the UI. Saving is refused while a cycle runs. Saving starts no archive, deletion or eviction: startup and each save wait a full configured interval. **이동 가능한 데이터 모두 이동 / 복사 가능한 데이터 모두 복사** (Archive now) can run it manually. Migration never changes the token, storage identity or recordings.
 
