@@ -1307,6 +1307,8 @@ function placeReplayMenu(details){
  const below=Math.max(0,innerHeight-floor-box.bottom-gap),above=Math.max(0,box.top-gap-ceiling);
  const opensAbove=menu.offsetHeight>below&&above>below;
  if(opensAbove){menu.style.top='auto';menu.style.bottom='calc(100% + 6px)'}
+ // It grows out of the button's side (motion.css).
+ menu.style.transformOrigin=`${Math.round(box.width/2-left)}px ${opensAbove?'100%':'0'}`;
  menu.style.maxHeight=(opensAbove?above:below)+'px';
 }
 const placeReplayMenus=()=>replayMenus.forEach(placeReplayMenu);

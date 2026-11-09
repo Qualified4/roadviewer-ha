@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.30
+
+- The ⋯ button at the top right of the replay turns into ✕ while its menu is open: the three dots gather in the middle and the ✕'s four strokes draw out of them at full weight; closing reverses it. The ✕ is as wide as the ⋯.
+- The replay's ⋯, 보기 and 레이어 menus grow in from their button's side (150 ms) and fade out in 75 ms; with reduced motion they switch at once.
+- The 12 old archive options that moved to the web settings (`archive_enabled`, `archive_path`, `archive_mode`, …) are removed from the add-on configuration. The upload limit, device HTTPS certificate and Drive OAuth client options stay; settings already in the web settings are unaffected.
+
 ## 1.0.29
 
 - While ‘이동 가능한 데이터 모두 이동’ runs, the Storage tab shows the bytes processed (the file being uploaded included), the transfer speed over the last 30 seconds and the time left. The progress bar follows bytes rather than files, so it keeps moving while a large video uploads.

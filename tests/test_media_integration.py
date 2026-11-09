@@ -651,7 +651,7 @@ class MediaIntegrationTests(unittest.TestCase):
    with patch.object(archiver,'_cycle',return_value='below_threshold'):archiver.run_cycle()
    self.assertEqual(files(),4);self.assertEqual(len(scans),4)
 
- def test_config_yaml_has_share_map_and_archive_options(self):
+ def test_config_yaml_has_share_map_and_only_the_oauth_archive_options(self):
   import re
   text=(Path(__file__).resolve().parents[1]/'roadviewer/config.yaml').read_text(encoding='utf-8')
   self.assertRegex(text,r'(?m)^map:\n  - type: ssl\n    read_only: true\n  - type: share\n    read_only: false$')
@@ -664,8 +664,10 @@ class MediaIntegrationTests(unittest.TestCase):
    credential=key in ('archive_gdrive_client_id','archive_gdrive_client_secret')
    if credential:self.assertRegex(options,rf'(?m)^  {key}: {re.escape(default)}$',key)
    else:self.assertNotRegex(options,rf'(?m)^  {key}:',key)
-   self.assertRegex(schema,rf'(?m)^  {key}: {re.escape(rule)}'+('' if credential else r'\?')+'$',key)
-  self.assertEqual(len(re.findall(r'(?m)^  archive_',options)),2);self.assertEqual(len(re.findall(r'(?m)^  archive_',schema)),14)
+   # Archive preferences live in the web settings; only the OAuth client stays an add-on option.
+   if credential:self.assertRegex(schema,rf'(?m)^  {key}: {re.escape(rule)}$',key)
+   else:self.assertNotRegex(schema,rf'(?m)^  {key}:',key)
+  self.assertEqual(len(re.findall(r'(?m)^  archive_',options)),2);self.assertEqual(len(re.findall(r'(?m)^  archive_',schema)),2)
   # Existing options stay; the version is a release's, not this test's.
   for line in ('  max_upload_mb: 512','  max_upload_mb: int(16,2048)','hassio_api: true'):self.assertIn(line+'\n',text)
   self.assertRegex(text,r'(?m)^version: "\d+\.\d+\.\d+"$')
