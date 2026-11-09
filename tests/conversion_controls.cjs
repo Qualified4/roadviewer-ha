@@ -45,6 +45,9 @@ async function checkRemovalRefresh(browser){
     assert.equal(await page.locator('.replay').count(),0,'the older ready response cannot restore replay');
     assert.equal(listReads,3,'removal refresh runs without waiting for a periodic poll');
    }else{
+    // A single failed read retries quietly after a second; the repeated failure is shown.
+    await page.waitForFunction(()=>!document.getElementById('refresh').classList.contains('is-loading'));assert(await page.locator('#error').isHidden(),'one failed read is not shown yet');
+    await page.clock.runFor(1000);
     await page.waitForFunction(()=>document.getElementById('error').textContent.includes('로그 목록을 읽을 수 없습니다.'));
     assert.equal(await page.locator('.replay').count(),0,'a failed list read cannot retain the removed replay action');
    }

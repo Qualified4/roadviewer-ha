@@ -425,7 +425,8 @@ function createLogGroup(route){
  const tags=document.createElement('span');heading.className='route-heading';heading.append(time,meta,tags);
  bar.className='route-bar';bar.setAttribute('role','img');facts.className='route-facts';main.className='route-main';main.append(heading,bar,facts);
  chevron.className='log-route-chevron';chevron.type='button';chevron.setAttribute('aria-label','구간 펼치기');chevron.setAttribute('aria-expanded',String(element.open));chevron.innerHTML='<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>';
- chevron.onclick=event=>{event.preventDefault();event.stopPropagation();window.rvDisclosure.animate(element)};
+ // Rows shown by unfolding are not new: they skip the new-row entrance (motion.css) and only follow the fold.
+ chevron.onclick=event=>{event.preventDefault();event.stopPropagation();group.rows?.forEach(row=>row.classList.add('is-update'));window.rvDisclosure.animate(element)};
  element.addEventListener('toggle',()=>{chevron.setAttribute('aria-expanded',String(element.open));chevron.setAttribute('aria-label',element.open?'구간 접기':'구간 펼치기')});
  actions.className='log-route-actions';summary.append(thumb,main,actions,chevron);body.className='log-route-segments';element.append(summary,body);
  const group={element,body,count,actions,thumb,duration,time,name,tags,bar,facts};
@@ -490,13 +491,16 @@ function renderRow(m,cached){
  return {row,thumb,info,title,state,actions,selection:cached?.selection};
 }
 // Keep the row/title/state connected when metadata changes so CSS animations retain their live timeline.
+const listError='로그 목록을 읽을 수 없습니다.';let listFailures=0,listErrorShown=null;
 async function refresh({poll=false}={}){
  if(busy||networkRestarting||bulkSelection?.running||document.hidden||(poll&&refreshing))return;
  // A user action supersedes any list snapshot taken before that action completed.
  listRequest?.abort();const request=listRequest=new AbortController(),revision=++listRevision;
  refreshing=true;const settingsRevision=concurrencyRevision;$('refresh').classList.add('is-loading');
  try{
-  const r=await fetch('api/logs',{cache:'no-store',signal:request.signal});if(!r.ok)throw Error('로그 목록을 읽을 수 없습니다.');const data=await r.json();if(revision!==listRevision)return;
+  const r=await fetch('api/logs',{cache:'no-store',signal:request.signal});if(!r.ok)throw Error(listError);const data=await r.json();if(revision!==listRevision)return;
+  // A list that reads again clears its own earlier failure (other messages stay).
+  listFailures=0;if(listErrorShown!==null&&$('error').textContent===listErrorShown)error('');listErrorShown=null;
   if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=[1,2,3,4].includes(data.concurrency)?data.concurrency:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'));savedAutoConvert=data.auto_convert!==false;syncAutoConvert()}
   updateTagCatalog(data.logs);
   headerStorage.used=data.storage_used_bytes;headerStorage.logs=data.logs.length;syncHeaderStorage();
@@ -514,7 +518,11 @@ async function refresh({poll=false}={}){
   const motion=window.RoadViewerMotion,before=new Map([...logRows].filter(([,cached])=>cached.row.parentNode?.parentNode?.open).map(([id,cached])=>[id,motion.capture(cached.row)]));
   const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id);
   arrangeLogGroups(data.logs,rows);renderChips();applyFilters();if(motion.allowed())rows.forEach(row=>before.has(row.dataset.id)&&motion.play(row,before.get(row.dataset.id)));
- }catch(e){if(!request.signal.aborted)error(e.message)}finally{if(revision===listRevision){refreshing=false;$('refresh').classList.remove('is-loading')}}
+ }catch(e){
+  // Back from a long time in the background, the first request can fail before Home Assistant renews the ingress
+  // session or the connection wakes up: one failure retries in a second, only a repeated one is shown.
+  if(!request.signal.aborted){if(++listFailures>1){error(e.message);listErrorShown=e.message}else setTimeout(()=>refresh(),1000)}
+ }finally{if(revision===listRevision){refreshing=false;$('refresh').classList.remove('is-loading')}}
 }
 async function refreshProgress(){
  if(document.hidden||busy||networkRestarting||progressRefreshing||refreshing||![...logRows.values()].some(row=>row.status==='processing'||row.status==='queued'))return;

@@ -1,6 +1,8 @@
 // Animated <details> folding (Material 2 timing, see motion.css): the panel's height eases over 300 ms with the
-// standard curve, its content fades in after 75 ms on expand and fades out first (75 ms) on collapse. A closing
-// panel stays open until the motion ends, and a second tap reverses from the current height.
+// standard curve and clips its content, which moves with it in parallax: on expand it slides down into place from a
+// little above (a quarter of the height change, at most 40px) while the growing edge reveals it; on collapse it slides
+// back up as the edge closes over it. No fade. A closing panel stays open until the motion ends, and a second tap
+// reverses from the current height and offset.
 // Floating bodies (dropdown menus) do not change the layout: they fade in (120 ms) while growing from .8 (150 ms)
 // out of the corner nearest their summary, and fade out in 75 ms.
 (()=>{
@@ -19,6 +21,7 @@
   if(opening===(details._foldTarget??details.open))return;
   const bodies=bodiesOf(details),summary=details.querySelector(':scope>summary');
   const from=details.getBoundingClientRect().height,shown=bodies.map(node=>Number(getComputedStyle(node).opacity));
+  const offsets=bodies.map(node=>{const t=getComputedStyle(node).transform;return t&&t!=='none'?new DOMMatrixReadOnly(t).m42:0});
   details._foldAnimation?.cancel();
   details._foldTarget=opening;
   // Labels and chevrons follow the target right away; [open] itself only drops when the motion ends.
@@ -40,10 +43,14 @@
    });
   }else{
    details.style.overflow='hidden';
-   details.open=opening;const to=details.getBoundingClientRect().height;details.open=true;
+   details.open=false;const closed=details.getBoundingClientRect().height;details.open=true;const full=details.getBoundingClientRect().height,to=opening?full:closed;
    if(Math.abs(to-from)<1){finish();return}
+   // The full travel sets the parallax distance, so a reversed fold keeps the same path.
+   const lift=-Math.min(40,Math.max(0,full-closed)/4),start=i=>offsets[i]||(opening?lift:0);
    motions=[details.animate([{height:from+'px'},{height:to+'px'}],{duration:DURATION,easing:STANDARD}),
-    ...bodies.map((node,i)=>opening?node.animate([{opacity:0},{opacity:1}],{duration:150,delay:75,easing:'linear',fill:'both'}):node.animate([{opacity:shown[i]},{opacity:0}],{duration:75,easing:'linear',fill:'forwards'}))];
+    // The part moved above its resting place is clipped, so the content never slides over the summary.
+    ...bodies.map((node,i)=>{const frame=y=>({transform:`translateY(${y}px)`,clipPath:`inset(${-y}px 0 0 0)`});
+     return node.animate([frame(start(i)),frame(opening?0:lift)],{duration:DURATION,easing:STANDARD,fill:'forwards'})})];
   }
   animation={cancel(){motions.forEach(motion=>motion.cancel())},finished:Promise.all(motions.map(motion=>motion.finished))};
   details._foldAnimation=animation;
