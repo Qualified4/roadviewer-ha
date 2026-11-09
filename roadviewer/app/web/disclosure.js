@@ -17,7 +17,7 @@
  function settle(details){
   details._foldAnimation?.cancel();
   details.classList.remove('is-closing','is-folding');details.style.overflow='';
-  delete details._foldTarget;delete details._foldAnimation;
+  delete details._foldTarget;delete details._foldAnimation;delete details._foldSizes;
  }
 
  function animateDisclosure(details,opening=!(details._foldTarget??details.open)){
@@ -27,6 +27,7 @@
   const offsets=bodies.map(node=>{const t=getComputedStyle(node).transform;return t&&t!=='none'?new DOMMatrixReadOnly(t).m42:0});
   // Where an interrupted fold left the shade and the summary's lower corners, so a reversal continues from there.
   const cornerNow=summary?Number.parseFloat(getComputedStyle(summary).borderBottomLeftRadius)||0:0;
+  const dividerNow=summary?getComputedStyle(summary).getPropertyValue('--divider').trim():'';
   const midway=Boolean(details._foldAnimation),shadeNow=midway&&summary?Number(getComputedStyle(summary,'::before').opacity):opening?1:0;
   details._foldAnimation?.cancel();
   details._foldTarget=opening;
@@ -36,6 +37,7 @@
   const finish=()=>{details.open=opening;settle(details)};
   if(reduced()||!bodies.length){finish();return}
 
+  const wasOpen=details.open;
   details.open=true;
   let animation;
   let motions;
@@ -51,7 +53,15 @@
    // Panels that opt in (--fold-shadow: 1) draw the moving edge themselves (see below); others are clipped by the panel.
    const drawn=Boolean(summary)&&getComputedStyle(details).getPropertyValue('--fold-shadow').trim()==='1';
    details.classList.add('is-folding');if(!drawn)details.style.overflow='hidden';
-   details.open=false;const closed=details.getBoundingClientRect().height;details.open=true;const full=details.getBoundingClientRect().height,to=opening?full:closed;
+   // Both ends are measured with as little layout as possible (each forced layout of a long list cost 15-65 ms on a
+   // phone-speed CPU): at rest the current height is one end, the closed height is the summary plus the panel's own
+   // padding and border, and only an unfold lays the opened content out once. A reversal reuses the ends it started with.
+   const [closed,full]=details._foldSizes??(()=>{
+    const box=getComputedStyle(details),own=['paddingTop','paddingBottom','borderTopWidth','borderBottomWidth'].reduce((sum,key)=>sum+(Number.parseFloat(box[key])||0),0);
+    const head=summary?(()=>{const s=getComputedStyle(summary);return summary.getBoundingClientRect().height+(Number.parseFloat(s.marginTop)||0)+(Number.parseFloat(s.marginBottom)||0)})():0;
+    return wasOpen?[head+own,from]:[from,details.getBoundingClientRect().height];
+   })();
+   details._foldSizes=[closed,full];const to=opening?full:closed;
    if(Math.abs(to-from)<1){finish();return}
    // The list slides the same distance whatever its length: proportional offsets made long lists race by hundreds of
    // pixels as if they were scrolling.
@@ -75,19 +85,23 @@
     //   cut off, and last the whole motion: a fold darkens them to the end, an unfold clears them as it finishes;
     // - the summary's lower corners ease between the card's radius and square over the same 300 ms.
     const ease=bezier(.4,0,.2,1),steps=24,head=summary.offsetHeight,radius=Number.parseFloat(getComputedStyle(summary).borderTopLeftRadius)||0;
-    const css=getComputedStyle(details),tone=css.getPropertyValue('--fold-shade').trim()||'transparent',edge=css.getPropertyValue('--fold-edge').trim()||'transparent';
+    const css=getComputedStyle(details),tone=css.getPropertyValue('--fold-shade').trim()||'transparent',line=css.getPropertyValue('--line').trim()||'transparent',edge=css.getPropertyValue('--fold-edge').trim()||'transparent';
     const span=Array.from({length:steps+1},(_,k)=>k/steps),eased=span.map(ease);
     const lead=p=>8*(opening?(1-p)**2:p**2),bottom=span.map((p,k)=>from+(to-from)*eased[k]-lead(p)),strip=bottom.map(b=>Math.max(0,b-head));
     const size=strip.map(s=>Math.min(1,s/18)),shade=span.map(p=>opening?shadeNow*(1-p*p):shadeNow+(1-shadeNow)*(1-(1-p)**2));
     const corner=r=>({borderBottomLeftRadius:`${r}px`,borderBottomRightRadius:`${r}px`});
     for(const [i,node] of bodies.entries()){
-     const top=node.offsetTop,tall=node.offsetHeight,y0=start(i),y1=opening?0:lift,y=eased.map(e=>y0+(y1-y0)*e);
+     // On a fold the list rises at a steady pace: on the height's decelerating curve it covered its 48px early and
+     // looked finished while the edge was still closing over it.
+     const top=node.offsetTop,tall=node.offsetHeight,y0=start(i),y1=opening?0:lift,y=(opening?eased:span).map(e=>y0+(y1-y0)*e);
      motions.push(node.animate(y.map((yy,k)=>({transform:`translateY(${yy}px)`,clipPath:`inset(${-yy}px 0 ${Math.max(0,tall-(bottom[k]-top-yy))}px 0 round 0 0 ${radius}px ${radius}px)`})),{duration:DURATION,easing:'linear',fill:'forwards'}),
       node.animate(y.map((yy,k)=>({opacity:shade[k],top:`${-yy}px`,height:`${Math.max(0,bottom[k]-top)}px`,boxShadow:`inset 0 ${-10*size[k]}px ${16*size[k]}px ${-8*size[k]}px ${tone}`})),{duration:DURATION,easing:'linear',fill:'forwards',pseudoElement:'::after'}));
     }
     motions.push(summary.animate(bottom.map(b=>({height:`${Math.max(head,b)}px`})),{duration:DURATION,easing:'linear',fill:'forwards',pseudoElement:'::after'}),
      summary.animate(size.map((s,k)=>({opacity:shade[k],boxShadow:`0 ${s}px 0 ${edge},0 ${10*s}px ${16*s}px ${-8*s}px ${tone}`})),{duration:DURATION,easing:'linear',fill:'forwards',pseudoElement:'::before'}),
-     summary.animate([corner(cornerNow),corner(opening?0:radius)],{duration:DURATION,easing:STANDARD,fill:'forwards'}));
+     summary.animate([corner(cornerNow),corner(opening?0:radius)],{duration:DURATION,easing:STANDARD,fill:'forwards'}),
+     // The divider under the summary fades in over the first 90 ms of an unfold and out over the last 90 ms of a fold.
+     summary.animate(opening?[{'--divider':dividerNow||'transparent'},{'--divider':line,offset:.3},{'--divider':line}]:[{'--divider':dividerNow||line},{'--divider':dividerNow||line,offset:.7},{'--divider':'transparent'}],{duration:DURATION,easing:'linear',fill:'forwards'}));
    }
   }
   animation={cancel(){motions.forEach(motion=>motion.cancel())},finished:Promise.all(motions.map(motion=>motion.finished))};
