@@ -4,6 +4,13 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.27
+
+- Library cards off screen skip layout and paint, so folding a card in a long list stutters less (on a phone-speed CPU with 30 cards, about 35 to 60 fps).
+- Less hesitation after tapping a card's chevron: the fold measured its ends by laying the list out three times; it now does so once when unfolding and not at all when folding.
+- When a card folds, its list rises at a steady pace and keeps moving until the panel has closed.
+- The divider between a card's header and its list fades in as the card unfolds and out as it folds (about 90 ms).
+
 ## 1.0.26
 
 - In the dark theme the glass highlight along the top of a library card's header shows again. Since 1.0.24 the header's background had hidden it except while a card folded; it is now the same at rest and in motion.

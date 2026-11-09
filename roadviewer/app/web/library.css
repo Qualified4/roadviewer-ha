@@ -515,8 +515,15 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
    with an open menu is raised so the menu is not covered by the next card. */
 .log-route{--route-r:14px;--fold-shadow:1;position:relative;isolation:isolate}
 .log-route:has(.recording-more[open]){z-index:3}
-.log-route>summary{position:relative;z-index:1;background:var(--surface);box-shadow:var(--surface-highlight)}
-.log-route[open]>summary{border-bottom-left-radius:0;border-bottom-right-radius:0;box-shadow:var(--surface-highlight),inset 0 -1px 0 var(--line)}
+/* Cards off screen skip layout and paint (content-visibility), so a fold, which changes the list's height every frame,
+   only lays out what is visible: on a phone-speed CPU with 30 cards the fold went from about 35 to 60 fps. The folding
+   card and one with an open menu are left out, because this also clips whatever overflows the card (the fold's drawn
+   outline and shadows, the menu). The placeholder height is replaced by each card's real height once it has been seen. */
+.log-route:not(.is-folding):not(:has(.recording-more[open])){content-visibility:auto;contain-intrinsic-size:auto 160px}
+/* The divider is a colour property so a fold can fade it (disclosure.js) instead of it popping in and out with [open]. */
+@property --divider{syntax:'<color>';inherits:false;initial-value:transparent}
+.log-route>summary{position:relative;z-index:1;background:var(--surface);box-shadow:var(--surface-highlight),inset 0 -1px 0 var(--divider)}
+.log-route[open]>summary{--divider:var(--line);border-bottom-left-radius:0;border-bottom-right-radius:0}
 @property --fold-shadow{syntax:'*';inherits:false}
 .log-route.is-folding{background:none;box-shadow:none}
 .log-route.is-folding>summary::before,.log-route.is-folding>summary::after,.log-route.is-folding>.log-route-segments::after{content:'';position:absolute;left:0;right:0;pointer-events:none}
