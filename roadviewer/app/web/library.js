@@ -172,13 +172,24 @@ function moreMenu(label){
  more.append(toggle,menu);
  more.addEventListener('toggle',()=>{if(more.open)document.querySelectorAll('.recording-more[open]').forEach(other=>{if(other!==more)other.open=false})});
  // Opens downwards; upwards when it does not fit above the bottom tabs (or the window's edge) and there is more room
- // above, under the app bar.
+ // above, under the app bar. Inside a list that scrolls on its own (주행 지도's sheet), which clips it, the list's
+ // edges count too: the list scrolls the menu clear when it fits on neither side.
  const place=()=>{
-  more.classList.remove('opens-up');
-  const box=menu.getBoundingClientRect(),anchor=toggle.getBoundingClientRect(),tabs=document.querySelector('.lib-tabs'),bar=document.querySelector('.lib-appbar');
-  const tabsBox=tabs&&getComputedStyle(tabs).position==='fixed'?tabs.getBoundingClientRect():null,floor=(tabsBox?tabsBox.top:window.innerHeight)-8,ceiling=(bar?Math.max(0,bar.getBoundingClientRect().bottom):0)+8;
-  const below=floor-anchor.bottom-6,above=anchor.top-6-ceiling;
-  more.classList.toggle('opens-up',box.height>below&&above>below);
+  more.classList.remove('opens-up');menu.style.removeProperty('--menu-shift');
+  const box=menu.getBoundingClientRect(),anchor=toggle.getBoundingClientRect(),tabs=document.querySelector('.lib-tabs'),bar=document.querySelector('.lib-appbar'),list=more.closest('.drive-map-list');
+  const tabsBox=tabs&&getComputedStyle(tabs).position==='fixed'?tabs.getBoundingClientRect():null,listBox=list?.getBoundingClientRect();
+  const floor=Math.min((tabsBox?tabsBox.top:window.innerHeight)-8,listBox?listBox.bottom-6:Infinity),ceiling=Math.max((bar?Math.max(0,bar.getBoundingClientRect().bottom):0)+8,listBox?listBox.top+6:-Infinity);
+  const below=floor-anchor.bottom-6,above=anchor.top-6-ceiling,h=box.height;
+  let up=h>below&&above>below;
+  if(list&&h>below&&h>above){
+   // Fits on neither side: the side the list can scroll far enough for (down first), and scroll it there.
+   const downRoom=below+list.scrollHeight-list.clientHeight-list.scrollTop,upRoom=above+list.scrollTop;
+   up=h>downRoom&&upRoom>downRoom;
+   list.scrollBy({top:up?above-h:h-below,behavior:'auto'});
+  }
+  more.classList.toggle('opens-up',up);
+  // Still taller than the room (a low sheet): it slides inside the list, over its own button if need be.
+  if(list){const a=toggle.getBoundingClientRect(),top=up?a.top-6-h:a.bottom+6,shift=Math.max(ceiling-top,Math.min(0,floor-top-h));if(Math.abs(shift)>.5)menu.style.setProperty('--menu-shift',Math.round(shift)+'px')}
  };
  more.addEventListener('rv:place',place);more.addEventListener('toggle',()=>{if(more.open&&!more._foldAnimation)place()});
  menu.addEventListener('click',e=>{if(e.target.closest('button,a'))more.open=false});

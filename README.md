@@ -2,7 +2,7 @@
 
 한국어 · [English](README.en.md)
 
-현재 기능 안내: **1.2.1**
+현재 기능 안내: **1.2.2**
 
 openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **영상·주행 상황·차량 정보 그래프를 같은 시간축으로 확인하는 Home Assistant 앱**입니다.
 
@@ -153,7 +153,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-drive-map-mobile-dark.png"><img src="docs/images/roadviewer-drive-map-mobile.png" alt="휴대폰의 주행 지도: 위에는 지도, 아래에는 끌어서 높이를 바꾸는 구간 카드 시트" width="320"></picture>
 
-**재생 화면의 지도**: 분석 패널의 **지도** 탭은 지나온 길을 진하게, 남은 길을 흐리게 그리고 차 표시가 재생 위치를 따라갑니다. 경로를 누르면 그 시점으로 이동합니다. 겹쳐 보기 설정 › 지도에서 **영상 위 작은 지도**를 켜면 영상 오른쪽 위에 작은 지도가 나와 차를 늘 가운데에 두고 따라갑니다. 색상(자동·라이트·다크)과 **글자 숨기기**·**회색으로**(지도 표시 팝업과 같은 두 가지)를 고를 수 있고, 왼쪽 아래 모서리를 끌어 크기를 바꿀 수 있습니다.
+**재생 화면의 지도**: 분석 패널의 **지도** 탭은 지나온 길을 진하게, 남은 길을 흐리게 그리고 차 표시가 재생 위치를 따라갑니다. 경로를 누르면 그 시점으로 이동합니다. 겹쳐 보기 설정 › 지도에서 **영상 위 작은 지도**를 켜면 영상 오른쪽 위에 작은 지도가 나와 차를 늘 가운데 조금 아래에 두고 따라갑니다. 색상(자동·라이트·다크)과 **글자 숨기기**·**회색으로**(지도 표시 팝업과 같은 두 가지)를 고를 수 있고, 왼쪽 아래 모서리를 끌어 크기를 바꿀 수 있습니다.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-replay-map-dark.png"><img src="docs/images/roadviewer-replay-map.png" alt="재생 화면 오른쪽 분석 패널의 지도 탭에서 지나온 길과 현재 차 위치를 표시한 화면"></picture>
 

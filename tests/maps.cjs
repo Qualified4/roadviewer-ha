@@ -133,6 +133,14 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    assert.equal(await drive.locator('.leaflet-control-attribution').innerText(),'OpenFreeMap © OpenMapTiles Data from OpenStreetMap');
    assert.equal(await drive.locator('.leaflet-tile-pane canvas.maplibregl-canvas').count(),1,'MapLibre draws the basemap in the tile pane');
    {const l=await layout();assert(l.area.top>=l.bar-1&&l.area.h>=.28*844,JSON.stringify(l));assert(Math.abs(l.share-.54)<.02,JSON.stringify(l))}
+   // A row's ⋯ menu in the sheet opens to the side with room (the list scrolls it clear when neither has one) and lies
+   // over the rows after it, never cut by the sheet's edges (in a low sheet it slides over its own button).
+   const menuClear=async id=>{const row=drive.locator(`.log-row[data-id="${id}"]`);await row.locator('.recording-more>summary').tap();await page.waitForTimeout(450);
+    const g=await row.evaluate(r=>{const m=r.querySelector('.recording-menu'),menu=m.getBoundingClientRect(),list=r.closest('.drive-map-list').getBoundingClientRect();
+     return {inside:menu.top>=list.top-.5&&menu.bottom<=list.bottom+.5,over:[menu.top+10,(menu.top+menu.bottom)/2,menu.bottom-10].every(y=>m.contains(document.elementFromPoint(menu.left+30,y))),menu:[menu.top,menu.bottom].map(Math.round),list:[list.top,list.bottom].map(Math.round)}});
+    await row.evaluate(r=>{r.querySelector('.recording-more').open=false});await page.waitForTimeout(100);assert(g.inside&&g.over,'menu '+id[0]+' '+JSON.stringify(g))};
+   for(const k of [0,2,3])await menuClear(logs[k].id);
+   await drive.locator('.drive-map-list').evaluate(list=>{list.scrollTop=0});
    // A LOWER row with the sheet scrolled: its segment is marked and fitted on the map, which stays visible above.
    await drive.locator('.drive-map-list').evaluate(list=>{list.scrollTop=list.scrollHeight});
    const last=logs[A-1].id,before=page.url();
@@ -147,6 +155,8 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    // scrolls the sheet back to it.
    {const box=await drive.locator('.drive-map-area').boundingBox();await page.touchscreen.tap(box.x+14,box.y+40)}
    await page.waitForFunction(()=>!document.querySelector('#driveMap .log-row.is-map-marked'));await page.waitForTimeout(100);
+   // A narrow map shows its credit until the first touch, then folds it into an ⓘ.
+   assert(await drive.locator('.leaflet-control-attribution').isHidden()&&await drive.locator('.rv-credit-toggle').isVisible(),'the credit folds after a touch');
    await tapLine(driveLines.nth(1),.5);
    await page.waitForFunction(id=>document.querySelector(`#driveMap .log-row[data-id="${id}"]`)?.classList.contains('is-map-marked'),logs[1].id);
    await page.waitForTimeout(100);{const l=await layout();assert(l.rowVisible,JSON.stringify(l))}
@@ -303,8 +313,8 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     return {stage:{w:Math.round(stage.width),top:Math.round(stage.top),right:Math.round(stage.right)},map:{w:Math.round(map.width),h:Math.round(map.height),top:Math.round(map.top),right:Math.round(map.right)},
      hudOnMap:hud.left>=map.left-1&&hud.right<=map.right+1&&hud.top>=map.top-1&&hud.bottom<=map.bottom+1&&Number(getComputedStyle(document.querySelector('.video-hud')).zIndex)>Number(style.zIndex),
      titleClear,covers:['.video-tools','.video-fullscreen','.playback'].filter(s=>r(s).some(b=>hit(b))),
-     trackInside:(()=>{const car=el.querySelector('.map-car')?.getBoundingClientRect();if(!car||!car.width)return false;const top=Math.max(map.top,Math.min(hud.bottom,map.top+map.height*.6));
-      return Math.abs((car.left+car.right)/2-(map.left+map.right)/2)<=3&&Math.abs((car.top+car.bottom)/2-(top+map.bottom)/2)<=8})(),
+     trackInside:(()=>{const car=el.querySelector('.map-car')?.getBoundingClientRect();if(!car||!car.width)return false;
+      return Math.abs((car.left+car.right)/2-(map.left+map.right)/2)<=3&&Math.abs((car.top+car.bottom)/2-(map.top+map.height*.6))<=3})(),
      hud:[hud.left,hud.top,hud.right,hud.bottom].map(Math.round),hudZ:getComputedStyle(document.querySelector('.video-hud')).zIndex,cur:current&&[current.left,current.top,current.right,current.bottom].map(Math.round),n:track.length,rows:['.video-tools','.video-fullscreen','.video-title'].map(q=>{const b=document.querySelector(q).getBoundingClientRect();return [b.left,b.top,b.right,b.bottom].map(Math.round)}),stageH:Math.round(stage.height),large:el.classList.contains('is-large'),shown:!el.hidden,marked:document.getElementById('videoStage').classList.contains('has-video-map')};
    });
    const small=async label=>{
@@ -316,6 +326,10 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     assert(g.hudOnMap&&g.titleClear&&g.trackInside,label+' '+JSON.stringify(g));assert.deepEqual(g.covers,[],label+' '+JSON.stringify(g));
    };
    await small('portrait');
+   // The car (smaller here than on the big map) sits on the line's end: its body centred on the marker's anchor.
+   {const d=await mini.evaluate(m=>{const b=m.querySelector('.map-car-body').getBoundingClientRect(),c=[b.left+b.width/2,b.top+b.height/2];
+     return Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{const M=p.getScreenCTM();return [p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())].map(q=>Math.hypot(q.x*M.a+q.y*M.c+M.e-c[0],q.x*M.b+q.y*M.d+M.f-c[1]))}))});
+    assert(d<=1,'car on the line: '+d)}
    // ⑤ The bottom-left corner resizes it, here by touch (real touch events through CDP): wider, anchored at its top-right,
    // 4:3, not enlarged by the drag, kept in this browser; a double tap on the corner goes back to the default size.
    {const grip=mini.locator('.video-map-grip'),b0=await mini.boundingBox(),g=await grip.boundingBox(),cdp=await context.newCDPSession(page);
@@ -349,11 +363,18 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     assert(g.messagesGap>=-1&&g.messagesGap<=6,label+' messages at the bottom edge '+JSON.stringify(g));
    };
    await shot('replay');
-   await mini.tap();await page.waitForFunction(()=>document.getElementById('videoMap').classList.contains('is-large'));await settleLayout(page);await page.waitForTimeout(150);
+   // Pressed, it is not brightened like the controls (that washed a light map out to white); released, it enlarges.
+   {const b=await mini.boundingBox();await page.mouse.move(b.x+b.width/2,b.y+b.height*.7);await page.mouse.down();const f=await mini.evaluate(m=>[m.matches(':active'),getComputedStyle(m).filter]);await page.mouse.up();assert.deepEqual(f,[true,'none'],'no press brightening')}
+   await page.waitForFunction(()=>document.getElementById('videoMap').classList.contains('is-large'));await settleLayout(page);await page.waitForTimeout(150);
    await large('portrait large');
    await shot('replay-large');
    await mini.tap();await page.waitForFunction(()=>!document.getElementById('videoMap').classList.contains('is-large'));await page.waitForTimeout(100);
-   assert(await mini.locator('.leaflet-control-attribution').isVisible());assert.equal(await mini.locator('.leaflet-control-attribution').innerText(),'OpenFreeMap © OpenMapTiles © OSM');
+   // The small map folds its credit into an ⓘ: a tap shows it (without enlarging the map), another hides it.
+   {const credit=mini.locator('.leaflet-control-attribution'),toggle=mini.locator('.rv-credit-toggle');
+    assert(await credit.isHidden()&&await toggle.isVisible(),'the small map folds its credit');
+    await toggle.tap();await credit.waitFor();assert.equal(await credit.innerText(),'OpenFreeMap © OpenMapTiles © OSM');assert.equal(await toggle.getAttribute('aria-expanded'),'true');
+    await page.waitForTimeout(150);assert(!await page.evaluate(()=>document.getElementById('videoMap').classList.contains('is-large')),'ⓘ does not enlarge the map');
+    await toggle.tap();await credit.waitFor({state:'hidden'})}
    // Landscape phone, desktop and fullscreen: the same rules.
    await page.setViewportSize({width:844,height:390});await settleLayout(page);await page.waitForTimeout(150);await small('landscape');
    await page.setViewportSize({width:1280,height:800});await settleLayout(page);await page.waitForTimeout(150);await small('desktop');
@@ -456,7 +477,9 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await rows.nth(4).hover();await page.waitForTimeout(50);
    {const lit=await strong(),swatch=await rows.nth(4).locator('.map-list-pick').evaluate(b=>getComputedStyle(b,'::before').backgroundColor);assert.equal(lit.length,1,'the hovered drive');assert.equal(swatch,await page.evaluate(c=>{const e=document.createElement('i');e.style.color=c;document.body.append(e);const v=getComputedStyle(e).color;e.remove();return v},lit[0]),'the row\'s swatch is its line\'s colour')}
    // A tap selects: actions inline, no bottom card, the drive fitted beside the card.
-   await rows.nth(4).locator('.map-list-pick').click();await page.mouse.move(10,400);await page.waitForTimeout(150);
+   await rows.nth(4).locator('.map-list-pick').click();await page.waitForTimeout(250);
+   assert.equal(await rows.nth(4).locator('.map-list-pick').evaluate(b=>getComputedStyle(b).backgroundColor),'rgba(0, 0, 0, 0)','the selected card lights evenly: no hover tint on its title part alone');
+   await page.mouse.move(10,400);await page.waitForTimeout(150);
    assert(await rows.nth(4).evaluate(r=>r.classList.contains('is-selected')));
    assert.deepEqual(await rows.nth(4).locator('.map-card-actions>:is(a,button)').allInnerTexts(),['재생','주행 지도','목록에서 보기']);
    assert(await page.locator('#logMapCard').isHidden(),'no bottom card while the list shows');

@@ -75,8 +75,24 @@
    layer.addTo(map);
   }
   if(zoom){L.control.zoom({position:'topright',zoomInTitle:'확대',zoomOutTitle:'축소'}).addTo(map);simpleControl(L).addTo(map)}
-  new ResizeObserver(()=>{if(container.isConnected)map.invalidateSize({animate:false})}).observe(container);
+  compactCredit(L,map,container,!interactive);
+  new ResizeObserver(()=>{if(container.isConnected){map.invalidateSize({animate:false});map.rvCredit?.()}}).observe(container);
   return map;
+ }
+ // The map credit (OpenFreeMap, OpenMapTiles, OpenStreetMap) folds into an ⓘ button in the bottom-right corner on
+ // maps narrower than 640 px and always on the small map over the video, as MapLibre's compact attribution does: a
+ // narrow map shows it until its first touch, then folds it; the button shows or hides it.
+ function compactCredit(L,map,container,always){
+  const corner=map.attributionControl.getContainer().parentNode,toggle=L.DomUtil.create('button','rv-credit-toggle leaflet-control',corner);
+  toggle.type='button';toggle.setAttribute('aria-label','지도 출처');toggle.title='지도 출처';
+  toggle.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><path d="M12 7.5h.01" stroke-width="2.6"/></svg>';
+  L.DomEvent.disableClickPropagation(toggle);
+  let open=!always,touched=always;
+  const sync=()=>{const compact=always||container.clientWidth<640;container.classList.toggle('is-credit-compact',compact);container.classList.toggle('is-credit-open',compact&&open);toggle.setAttribute('aria-expanded',String(compact&&open))};
+  toggle.addEventListener('click',e=>{e.preventDefault();open=!(open&&container.classList.contains('is-credit-compact'));touched=true;sync()});
+  toggle.addEventListener('keydown',e=>e.stopPropagation());
+  container.addEventListener('pointerdown',e=>{if(touched||e.target.closest('.leaflet-control'))return;touched=true;open=false;sync()});
+  map.rvCredit=sync;sync();
  }
  function simpleControl(L){
   const control=L.control({position:'topright'});
@@ -239,7 +255,8 @@
     column.classList.toggle('fade-top',!atTop);column.classList.toggle('fade-bottom',!atEnd);
     const cards=[...column.children],boxes=cards.map(card=>card.getBoundingClientRect());
     cards.forEach((card,i)=>{
-     const y=boxes[i].top-origin,fadeTop=!atTop&&y<FADE,fadeBottom=!atEnd&&y+boxes[i].height>h-FADE;
+     // A card with its ⋯ menu open is not masked: the mask would cut off the menu where it leaves the card.
+     const y=boxes[i].top-origin,still=!card.querySelector('.recording-more[open]'),fadeTop=still&&!atTop&&y<FADE,fadeBottom=still&&!atEnd&&y+boxes[i].height>h-FADE;
      const mask=fadeTop||fadeBottom?`linear-gradient(to bottom,${fadeTop?`transparent ${(-y).toFixed(1)}px,#000 ${(FADE-y).toFixed(1)}px`:'#000 0'},${fadeBottom?`#000 ${(h-FADE-y).toFixed(1)}px,transparent ${(h-y).toFixed(1)}px`:'#000 100%'})`:'';
      if(card.style.maskImage!==mask){card.style.maskImage=mask;card.style.webkitMaskImage=mask}
     });
@@ -604,24 +621,22 @@
    if(small||!route)return;
    const L=await loadLeaflet().catch(()=>null);if(!L||small)return;
    const map=createMap(L,mini.querySelector('.video-map-canvas'),{zoom:false,interactive:false,tone:()=>miniTone==='auto'?null:miniTone,labels:()=>!miniPlain.checked,grey:()=>miniGrey.checked,attribution:SHORT_ATTRIBUTION});
-   small={map,lines:layers(L,map,false),pad:null};fitSmall();
+   small={map,lines:layers(L,map,false)};fitSmall();
    // Refit when the map or the speed and wheel over it change size (the speed appears once the replay has data).
    {const watch=new ResizeObserver(()=>{if(small&&!mini.hidden&&!resizing)fitSmall()});watch.observe(mini);watch.observe(hud)}
   }
-  // The small map always follows the car at a fixed street zoom: the car sits in the middle of the part below the speed
-  // and wheel drawn over its top (pad.top), so it is never under them.
+  // The small map always follows the car at a fixed street zoom, the car centred across and a little below the middle
+  // (60% down: clear of the speed over the top, more road ahead).
   function fitSmall(){
    if(!small||mini.hidden)return;
-   const box=mini.getBoundingClientRect(),speed=hud.getBoundingClientRect();let top=10;
-   if(speed.width&&speed.bottom>box.top&&speed.left<box.right&&speed.right>box.left)top=Math.max(top,Math.min(box.height*.6,speed.bottom-box.top+6));
-   small.pad={top,side:10};small.map.invalidateSize({animate:false});
+   small.map.invalidateSize({animate:false});
    const first=route[current].points[0];if(first)small.map.setView([first[1],first[2]],SMALL_ZOOM,{animate:false});
    lastKey='';update(true);
   }
-  const SMALL_ZOOM=16;
+  const SMALL_ZOOM=16,CAR_Y=.6;
   function centerCar(latlng){
-   const map=small.map,size=map.getSize(),point=map.latLngToContainerPoint(latlng),top=small.pad?.top??10;
-   const dx=point.x-size.x/2,dy=point.y-(top+size.y)/2;
+   const map=small.map,size=map.getSize(),point=map.latLngToContainerPoint(latlng);
+   const dx=point.x-size.x/2,dy=point.y-size.y*CAR_Y;
    if(Math.abs(dx)>.5||Math.abs(dy)>.5)map.panBy([dx,dy],{animate:false});
   }
   function setFollow(on){following=on;follow.setAttribute('aria-pressed',String(on));follow.classList.toggle('is-off',!on);if(on)update(true)}
@@ -711,7 +726,7 @@
   grip.addEventListener('click',e=>e.stopPropagation());
   grip.addEventListener('dblclick',e=>{e.stopPropagation();applySize(0);try{localStorage.removeItem(SIZE_KEY)}catch{}});
   const resize=()=>setLarge(!mini.classList.contains('is-large'));
-  mini.addEventListener('click',e=>{if(e.target.closest('a'))return;resize()});
+  mini.addEventListener('click',e=>{if(e.target.closest('a,.rv-credit-toggle'))return;resize()});
   mini.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();resize()}});
   redrawColours=()=>{for(const target of [big,small]){if(!target)continue;const done=css('--accent'),rest=css('--muted');target.lines.before.forEach(l=>l.setStyle({color:done}));target.lines.after.forEach(l=>l.setStyle({color:rest}));target.lines.behind.setStyle({color:done});target.lines.ahead.setStyle({color:rest})}};
  }
