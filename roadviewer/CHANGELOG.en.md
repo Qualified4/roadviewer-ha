@@ -11,6 +11,8 @@ These are the English release notes from 0.13.0 on. Earlier release entries rema
 - The ⋯ menu opens upwards when there is no room below, and on phones a tap outside it only closes it instead of also playing the segment underneath.
 - Folding or unfolding a route card no longer nudges its progress bar and buttons by a pixel.
 - The replay title drops the pin chip (the pin button shows the state); a single tag shows as its chip, several as their number, which opens the full list. Chips are no longer cut to "…".
+- The scene bookmark and tag editors open and close with the same motion as the other dialogs (a sheet that slides up on phones).
+- The layer button on the road view fills from the tap, and its icon spreads into three layers while the menu is open.
 
 ## 1.0.36
 

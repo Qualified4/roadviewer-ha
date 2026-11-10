@@ -353,6 +353,11 @@ details[open]:not(.is-closing)>summary>.icon-more .more-dot{opacity:0}details[op
 .replay-menu>summary,.recording-more>summary{position:relative;isolation:isolate}
 :is(.replay-menu,.recording-more)>summary::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;background:var(--hover);opacity:0;pointer-events:none}
 .view-menu>summary::before,.layer-menu>summary::before{background:var(--raised-hover)}
+/* Layers: the stack spreads while the menu is open; the middle layer, lighter and a little narrower, draws in between. */
+.icon-layers .layer-mid{opacity:0;transform:scaleX(.2);transform-origin:12px 14.5px;stroke:color-mix(in srgb,currentColor 42%,transparent)}
+.layer-menu[open]>summary .icon-layers .layer-top{transform:translateY(-1.5px)}
+.layer-menu[open]>summary .icon-layers .layer-low{transform:translateY(3.5px)}
+.layer-menu[open]>summary .icon-layers .layer-mid{opacity:1;transform:none}
 .replay-menu[open]>summary{color:var(--text)}:is(.replay-menu,.recording-more)[open]:not(.is-closing)>summary::before{opacity:1}
 /* Mouse hover (never on touch): the ⋯ gets half the open fill, so a click's ripple still shows over it; 보기 and
    레이어 keep their raised hover. */
@@ -698,7 +703,8 @@ select,.rv-choice-trigger{font-weight:500}
 .road-toolbar .road-ranges label{gap:4px;font-size:10px}
 .road-toolbar .rv-choice-trigger{padding:4px 7px;gap:6px;min-height:32px;font-size:11px;border-radius:9px}
 .road-toolbar .layer-menu{flex:none}
-.road-toolbar .layer-menu>summary{min-height:32px;padding:4px 6px;font-size:11px;background:transparent;box-shadow:none;border:0}.road-toolbar .layer-menu>summary::before{content:none}
+.road-toolbar .layer-menu>summary{min-height:32px;padding:4px 6px;font-size:11px;background:transparent;box-shadow:none;border:0}.road-toolbar .layer-menu>summary::before{background:var(--hover)}
+.road-toolbar .layer-menu>summary:hover{background:color-mix(in srgb,var(--hover) 50%,transparent)}
 .road-legend{margin:0 16px;padding:10px 0;border:0;color:var(--muted);font-size:11px}
 .road-legend>summary{cursor:pointer;min-height:32px;display:flex;align-items:center;gap:8px;width:fit-content}
 .road-legend>summary::after{content:'⌄';font-size:13px}.road-legend[open]>summary::after{transform:rotate(180deg)}
