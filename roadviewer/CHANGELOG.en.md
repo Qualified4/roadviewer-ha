@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.35
+
+- Unfolding a route card in the log list no longer turns the card's ⋯ button into ✕; it becomes ✕ only while its menu is open.
+
 ## 1.0.34
 
 - The open log list costs the server less: each 3 s check looks at fewer files per log, and an unchanged list is no longer sent again in full. What the page shows and does is unchanged.
