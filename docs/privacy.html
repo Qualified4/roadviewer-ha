@@ -43,7 +43,7 @@ footer a{color:var(--muted)}
 </header>
 <main>
  <h1>개인정보처리방침</h1>
- <p class="meta">시행일: 2026년 11월 4일 · 적용 대상: Road Viewer 0.13.0 이상의 Google Drive 아카이빙 기능 (Google OAuth 앱 이름 <strong>harv-gdrive</strong>)</p>
+ <p class="meta">시행일: 2026년 11월 11일 · 적용 대상: Road Viewer 0.13.0 이상의 Google Drive 아카이빙 기능 (Google OAuth 앱 이름 <strong>harv-gdrive</strong>)</p>
 
  <div class="summary">
   <ul>
@@ -63,12 +63,13 @@ footer a{color:var(--muted)}
   <tr><th>접근 범위</th><td>Road Viewer가 만든 폴더와 파일에만 접근할 수 있습니다. 같은 계정의 다른 Drive 파일은 보거나 읽거나 바꿀 수 없습니다.</td></tr>
   <tr><th>요청하지 않는 정보</th><td>이름, 이메일 주소, 프로필 사진 등 Google 계정 프로필 정보와 연락처, Gmail, 캘린더 등 다른 Google 서비스의 데이터는 요청하지 않습니다.</td></tr>
  </table>
- <p>이 권한은 오직 사용자가 설정한 주행 기록 보관(아카이빙) 기능을 제공하는 데 사용합니다. 구체적으로 앱이 Google Drive API로 하는 일은 다음과 같습니다.</p>
+ <p>이 권한은 오직 사용자가 설정한 주행 기록 보관(아카이빙) 기능과, 보관한 기록을 앱에서 재생하고 지도에 보여 주는 데 사용합니다. 구체적으로 앱이 Google Drive API로 하는 일은 다음과 같습니다.</p>
  <ul>
   <li>사용자의 Drive에 전용 폴더 하나를 만들거나 찾습니다. 폴더 이름은 앱 옵션 <code>archive_gdrive_folder_name</code>의 값이며 기본값은 <code>Road Viewer</code>입니다.</li>
   <li>그 폴더에 주행 로그와 영상 파일을 업로드합니다. 중단된 업로드는 이어서 올립니다.</li>
   <li>업로드한 파일의 크기와 Drive가 제공하는 SHA-256 또는 MD5 체크섬을 조회해 로컬 파일과 같은지 검증합니다. 체크섬을 받을 수 없으면 사본을 한 번 내려받아 확인합니다.</li>
   <li>사용자가 재생, 다운로드 또는 다시 변환을 요청했는데 로컬 파일이 없으면 Drive의 사본을 내려받아 사용합니다.</li>
+  <li>사용자가 저장공간 화면에서 <strong>Drive 로그 지도 채우기</strong>를 켜거나 <strong>한 번 실행</strong>을 누른 경우에만, 앱이 Drive에 올린 주행 로그(<code>rlog.zst</code>)를 하나씩 내려받아 지도에 그릴 주행 경로만 읽습니다. 내려받은 파일은 읽은 직후 사용자의 Home Assistant 기기에서 지우며, Drive의 파일은 옮기거나 바꾸거나 지우지 않습니다. 읽은 경로는 사용자의 Home Assistant 기기에만 저장합니다.</li>
   <li>아래 5항에서 설명하는 경우에 앱이 올린 파일을 삭제합니다.</li>
   <li>저장공간 관리 화면에 Drive 사용량과 여유 공간을 표시하기 위해 계정의 저장 용량 정보를 조회합니다.</li>
  </ul>
@@ -107,7 +108,7 @@ footer a{color:var(--muted)}
  </ul>
 
  <h2>7. 제3자 제공과 Google API 데이터의 제한적 사용</h2>
- <p>Road Viewer는 Google API로 받은 사용자 데이터를 판매하거나, 제3자에게 제공하거나, 광고·분석·신용 평가 등 아카이빙 기능 이외의 목적에 사용하지 않습니다. Road Viewer 개발자는 사용자의 Google 데이터를 받는 서버를 운영하지 않으므로 사람이 그 데이터를 열람하지 않으며, 인공지능·머신러닝 모델 학습에도 사용하지 않습니다. 앱에는 사용 통계나 원격 수집 기능이 없습니다.</p>
+ <p>Road Viewer는 Google API로 받은 사용자 데이터를 판매하거나, 제3자에게 제공하거나, 광고·분석·신용 평가 등 아카이빙과 보관한 기록을 앱에서 보여 주는 기능 이외의 목적에 사용하지 않습니다. Road Viewer 개발자는 사용자의 Google 데이터를 받는 서버를 운영하지 않으므로 사람이 그 데이터를 열람하지 않으며, 인공지능·머신러닝 모델 학습에도 사용하지 않습니다. 앱에는 사용 통계나 원격 수집 기능이 없습니다.</p>
  <p>Road Viewer가 Google API로부터 받은 정보를 사용하고 다른 앱으로 전송하는 행위는 제한적 사용(Limited Use) 요구사항을 포함한 <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API 서비스 사용자 데이터 정책</a>을 준수합니다.</p>
  <blockquote lang="en">Road Viewer's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</blockquote>
 

@@ -864,7 +864,7 @@ select,.rv-choice-trigger{font-weight:500}
 .view-switch>button:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 @media(pointer:coarse){.view-switch>button{min-height:38px;padding-inline:14px}}
 @media(prefers-reduced-motion:reduce){.view-switch::before{transition:none}}
-.rv-map.leaflet-container{background:var(--well);font:12px/1.4 "Pretendard Variable",system-ui,sans-serif;border-radius:inherit;outline:0}
+.rv-map.leaflet-container{isolation:isolate;background:var(--well);font:12px/1.4 "Pretendard Variable",system-ui,sans-serif;border-radius:inherit;outline:0}
 .rv-map[data-tiles=dark].leaflet-container{background:#1b1d22}.rv-map[data-tiles=light].leaflet-container{background:#e8eaed}
 .rv-map.leaflet-container .leaflet-control-attribution{padding:1px 6px;border-radius:6px 0 0 0;background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);color:var(--muted);font-size:10px;line-height:1.5}
 .rv-map.leaflet-container .leaflet-control-attribution a{color:var(--text-2);text-decoration:none}
@@ -878,6 +878,21 @@ select,.rv-choice-trigger{font-weight:500}
 @media(prefers-reduced-transparency:reduce){.rv-map.leaflet-container .leaflet-bar{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
 .rv-map.leaflet-container .leaflet-bar a{display:grid;place-items:center;width:32px;height:32px;line-height:30px;background:transparent;border-bottom-color:var(--map-glass-border);color:var(--text);font-weight:500}
 @media(hover:hover) and (pointer:fine){.rv-map.leaflet-container .leaflet-bar a:hover{background:var(--map-glass-hover)}}
+.rv-map.leaflet-container .rv-map-simple{position:relative}
+.rv-map.leaflet-container .rv-map-options-button.is-on{color:var(--accent-text);background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.rv-map.leaflet-container .rv-map-simple.is-open .rv-map-options-button{background:var(--map-glass-hover)}
+/* 지도 표시: the layers button's popover, glass like the road view's 레이어 menu, beside the button towards the map's middle. */
+.rv-map-options{position:absolute;top:0;left:calc(100% + 8px);z-index:1000;width:min(250px,calc(100vw - 96px));padding:6px;display:grid;gap:2px;border-radius:14px;border:1px solid var(--map-glass-border);
+ background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--map-glass-highlight),var(--map-glass-shadow);color:var(--text);font:13px/1.35 "Pretendard Variable",system-ui,sans-serif;animation:rv-map-options-in .16s var(--m2-decelerate,ease-out)}
+.rv-map-options.to-left{left:auto;right:calc(100% + 8px)}
+.rv-map-options[hidden]{display:none}
+.rv-map-options-title{margin:0;padding:6px 10px 4px;font-size:11.5px;font-weight:600;letter-spacing:.02em;color:var(--muted)}
+.rv-map-options label{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:8px 10px;border-radius:10px;cursor:pointer}
+.rv-map-options input{margin:2px 0 0;flex:none;width:16px;height:16px;accent-color:var(--accent)}
+.rv-map-options b{display:block;font-weight:600}.rv-map-options small{display:block;margin-top:2px;font-size:11.5px;color:var(--muted)}
+@media(hover:hover) and (pointer:fine){.rv-map-options label:hover{background:var(--map-glass-hover)}}
+@keyframes rv-map-options-in{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+@media(prefers-reduced-motion:reduce){.rv-map-options{animation:none}}
 .rv-map.leaflet-container .rv-map-simple a[aria-pressed=true]{color:var(--accent-text);background:color-mix(in srgb,var(--accent) 16%,transparent)}
 .rv-map.leaflet-container .leaflet-bar a:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 @media(pointer:coarse){.rv-map.leaflet-container .leaflet-bar a{width:40px;height:40px;line-height:38px}}
@@ -902,9 +917,17 @@ select,.rv-choice-trigger{font-weight:500}
    corner cut around the title (a mask with rounded corners, anchored to the right so it holds while the map grows). */
 .video-map{--vmap-w:clamp(max(104px,var(--vmap-min-w,0px)),calc(100cqw / 3),180px);position:absolute;top:12px;right:12px;z-index:3;width:var(--vmap-w);height:min(calc(var(--vmap-w) * .75),var(--vmap-room,1000px));padding:0;border:0;border-radius:14px;overflow:hidden;background:#1b1d22;box-shadow:0 0 0 1px rgba(255,255,255,.16),0 2px 10px rgba(0,0,0,.24);cursor:zoom-in;transition:width .26s var(--m2-standard,cubic-bezier(.4,0,.2,1)),height .26s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
 .video-map[hidden]{display:none}
+/* Resized by its bottom-left corner (maps.js): the width as a share of the picture (--vmap-f on the stage), still 4:3. */
+.video-wrap.vmap-sized .video-map{--vmap-w:clamp(max(104px,var(--vmap-min-w,0px)),calc(100cqw * var(--vmap-f)),calc(100cqw - 24px))}
+.video-map.is-sizing{transition:none}
+.video-map-grip{position:absolute;left:0;bottom:0;z-index:2;width:32px;height:32px;padding:6px;display:grid;place-items:end start;touch-action:none;cursor:nesw-resize}
+.video-map-grip::before{content:"";width:11px;height:11px;border-left:2px solid rgba(255,255,255,.92);border-bottom:2px solid rgba(255,255,255,.92);border-bottom-left-radius:7px;filter:drop-shadow(0 0 1px rgba(0,0,0,.75)) drop-shadow(0 0 2px rgba(0,0,0,.35));opacity:.85;transition:opacity .15s}
+@media(hover:hover) and (pointer:fine){.video-map-grip::before{opacity:0}.video-map:hover .video-map-grip::before,.video-map.is-sizing .video-map-grip::before{opacity:.9}}
+.video-map.is-large .video-map-grip{display:none}
 .video-map.is-large{width:var(--vmap-large-w,calc(100% - 24px));height:var(--vmap-large-h,60%);cursor:zoom-out}
 .video-map-canvas{position:absolute;inset:0;border-radius:inherit;overflow:hidden}
-.video-map .rv-map.leaflet-container .leaflet-control-attribution{padding:0 4px;border-radius:5px 0 0 0;font-size:7.5px;line-height:1.5}
+.video-map .rv-map.leaflet-container .leaflet-control-attribution{max-width:calc(var(--vmap-w,180px) - 30px);padding:0 4px;border-radius:5px 0 0 0;font-size:7.5px;line-height:1.5}
+.video-map.is-large .rv-map.leaflet-container .leaflet-control-attribution{max-width:none}  /* small: clear of the resize corner */
 .video-map .map-car-body{width:20px;height:20px}.video-map .map-car-body svg{width:15px;height:15px}
 .video-map:focus-visible{outline:2px solid var(--hud-focus,var(--focus));outline-offset:2px}
 @container(max-width:520px){.video-map{top:8px;right:8px;border-radius:12px}}

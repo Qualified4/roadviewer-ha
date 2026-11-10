@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [g1, g2, g3, g4, g5, g6]
+        group: [g1, g2, g3, g4, g5, g6, g7]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -127,7 +127,7 @@ jobs:
       - run: node tests/camera_info.cjs
         if: matrix.group == 'g5'
       - run: node tests/telemetry.cjs
-        if: matrix.group == 'g5'
+        if: matrix.group == 'g6'
       - run: node tests/replay_layout.cjs
         if: matrix.group == 'g5'
       - run: node tests/disclosure_animation.cjs
@@ -172,6 +172,9 @@ jobs:
         if: matrix.group == 'g3'
       - run: node tests/tag_filter_fold.cjs
         if: matrix.group == 'g4'
+      # Route maps: the longest browser file (both themes, phone and desktop), alone in its group.
+      - run: node tests/maps.cjs
+        if: matrix.group == 'g7'
   browser-tests:
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs: [browser-test-groups]
@@ -181,9 +184,13 @@ jobs:
         env:
           GROUP_RESULT: ${{ needs.browser-test-groups.result }}
         run: test "$GROUP_RESULT" = success
-  upload-tests:
+  python-test-groups:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [p1, p2]
     steps:
       - uses: actions/checkout@v7
       # pip downloads are cached per requirements file (PyPI downloads varied from 5 to 40 s); main refreshes it.
@@ -194,47 +201,96 @@ jobs:
           cache-dependency-path: roadviewer/requirements.txt
       - run: pip install -r roadviewer/requirements.txt
       - name: Validate AppArmor policy
+        if: matrix.group == 'p1'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends apparmor
           python tests/test_apparmor.py
       - run: python tests/test_duplicates.py
+        if: matrix.group == 'p1'
       - run: python tests/test_upload_recovery.py
+        if: matrix.group == 'p2'
       - run: python tests/test_device_api.py
+        if: matrix.group == 'p1'
       - run: python tests/test_device_port.py
+        if: matrix.group == 'p2'
       - run: python tests/test_device_network.py
+        if: matrix.group == 'p1'
       - run: python tests/test_requeue.py
+        if: matrix.group == 'p2'
       - run: python tests/test_storage.py
+        if: matrix.group == 'p1'
       - run: python tests/test_drive_capacity.py
+        if: matrix.group == 'p2'
       - run: python tests/test_tags.py
+        if: matrix.group == 'p1'
       - run: python tests/test_bookmarks.py
+        if: matrix.group == 'p2'
       - run: python tests/test_conversion_controls.py
+        if: matrix.group == 'p1'
       - run: python tests/test_timeline.py
+        if: matrix.group == 'p2'
       - run: python tests/test_progress.py
+        if: matrix.group == 'p1'
       - run: python tests/test_download_filenames.py
+        if: matrix.group == 'p2'
       - run: python tests/test_job_progress.py
+        if: matrix.group == 'p1'
       - run: python tests/test_processing_queue.py
+        if: matrix.group == 'p2'
       - run: python tests/test_media_store.py
+        if: matrix.group == 'p1'
       - run: python tests/test_media_integration.py
+        if: matrix.group == 'p2'
       - run: python tests/test_archive_backends.py
+        if: matrix.group == 'p2'
       - run: python tests/test_archiver.py
+        if: matrix.group == 'p1'
       - run: python tests/test_archiver_crash.py
+        if: matrix.group == 'p2'
       - run: python tests/test_archive_e2e.py
+        if: matrix.group == 'p1'
       - run: python tests/test_gdrive_archiver.py
+        if: matrix.group == 'p2'
       - run: python tests/test_manual_archive.py
+        if: matrix.group == 'p2'
       - run: python tests/test_playback_cache.py
+        if: matrix.group == 'p2'
       - run: python tests/test_gdrive_crash.py
+        if: matrix.group == 'p1'
       - run: python tests/test_gdrive_server.py
+        if: matrix.group == 'p1'
       - run: python tests/test_log_export.py
+        if: matrix.group == 'p1'
       - run: python tests/test_gdrive_settings.py
+        if: matrix.group == 'p2'
       - run: python tests/test_archive_settings.py
+        if: matrix.group == 'p2'
       - run: python tests/test_gdrive_e2e.py
+        if: matrix.group == 'p2'
       - run: python tests/test_overlay.py
+        if: matrix.group == 'p1'
       - run: python tests/test_telemetry.py
+        if: matrix.group == 'p2'
       - run: python tests/test_thumbnails.py
+        if: matrix.group == 'p1'
       - run: python tests/test_wall_clock.py
+        if: matrix.group == 'p2'
       - run: python tests/test_backfill.py
+        if: matrix.group == 'p1'
       - run: python tests/test_prepared_migration.py
+        if: matrix.group == 'p2'
+      - run: python tests/test_gps_track.py
+        if: matrix.group == 'p1'
+  upload-tests:
+    if: ${{ always() && github.event_name == 'pull_request' }}
+    needs: [python-test-groups]
+    runs-on: ubuntu-slim
+    steps:
+      - name: Require every Python group to pass
+        env:
+          GROUP_RESULT: ${{ needs.python-test-groups.result }}
+        run: test "$GROUP_RESULT" = success
   build:
     if: github.event_name == 'pull_request'
     # Release reuse requires the entire PR run, including dependency-audit, to succeed.

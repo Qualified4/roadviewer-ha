@@ -8,16 +8,20 @@
 // Leaflet (vendor/, BSD-2) draws the routes, markers and controls; the basemap under them is OpenFreeMap's vector
 // tiles (OpenStreetMap data, no API key) drawn by MapLibre GL JS (vendor/, BSD-3) through maplibre-gl-leaflet
 // (vendor/, ISC). All three and their stylesheets load only when a map is first shown. Style: Liberty (light) or
-// Dark with the app's theme, or with 단순 지도 Positron or Dark without the busy layers; the attribution stays visible.
+// Dark with the app's theme; 회색 지도 takes Positron or Dark without the busy layers and 글자 숨기기 hides the names and
+// symbols; the attribution stays visible.
 (()=>{
  const library=!!document.getElementById('panel-logs'),replay=!!document.getElementById('roadView');
  if(!library&&!replay)return;
  const STYLES={light:'https://tiles.openfreemap.org/styles/liberty',dark:'https://tiles.openfreemap.org/styles/dark'};
- // 단순 지도 (the button under the zoom buttons, kept on this browser, off by default): Positron (light) or Dark without
- // 3D buildings, points of interest, road shields, one-way arrows and house numbers, for every map on the page.
+ // Two buttons under the zoom buttons, each kept on this browser and off by default, for every map on the page but the
+ // small map over the video (its own two options): 회색 지도, Positron (light) or Dark without 3D buildings, points of
+ // interest, road shields, one-way arrows and house numbers; 글자 숨기기, the style's own colours (the yellow main roads
+ // stay) without its symbol layers (place and road names, icons, arrows). Both on: the calm style without any text.
  const SIMPLE_STYLES={light:'https://tiles.openfreemap.org/styles/positron',dark:'https://tiles.openfreemap.org/styles/dark'};
  const SIMPLE_KEY='roadviewer-map-simple',BUSY_LAYER=/poi|shield|housenumber|transit|airport|one_?way/i;
- let simple=false;try{simple=localStorage.getItem(SIMPLE_KEY)==='1'}catch{}
+ const BARE_KEY='roadviewer-map-nolabels';
+ let simple=false,bare=false;try{simple=localStorage.getItem(SIMPLE_KEY)==='1';bare=localStorage.getItem(BARE_KEY)==='1'}catch{}
  const simpleButtons=new Set();
  const link=(href,text)=>`<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
  const ATTRIBUTION=`${link('https://openfreemap.org','OpenFreeMap')} ${link('https://www.openmaptiles.org/','© OpenMapTiles')} Data from ${link('https://www.openstreetmap.org/copyright','OpenStreetMap')}`;
@@ -53,14 +57,15 @@
  let hasWebgl=null;
  const webgl=()=>hasWebgl??=(()=>{try{const canvas=document.createElement('canvas'),gl=canvas.getContext('webgl2')||canvas.getContext('webgl');gl?.getExtension('WEBGL_lose_context')?.loseContext();return !!gl}catch{return false}})();
  // tone: a function giving 'light' or 'dark' to override the app theme; labels: a function, false to hide the style's
- // place and road names (its symbol layers; both: the small map's own choices).
- function createMap(L,container,{zoom=true,interactive=true,attribution=ATTRIBUTION,tone=null,labels=null}={}){
+ // place and road names (its symbol layers); grey: a function, true for the grey style (tone, labels, grey: the small
+ // map's own choices; other maps follow the page's 회색 지도 and 글자 숨기기 buttons).
+ function createMap(L,container,{zoom=true,interactive=true,attribution=ATTRIBUTION,tone=null,labels=null,grey=null}={}){
   const map=L.map(container,{zoomControl:false,attributionControl:true,dragging:interactive,touchZoom:interactive,scrollWheelZoom:interactive,doubleClickZoom:interactive,boxZoom:interactive,keyboard:interactive,tap:interactive,zoomSnap:.25,maxZoom:19,fadeAnimation:!reduced(),zoomAnimation:!reduced(),markerZoomAnimation:!reduced()});
   map.attributionControl.setPrefix(false);
-  const tiles=()=>tone?.()||theme(),plain=()=>!!labels&&!labels(),tileKey=()=>tiles()+(plain()?'-nolabels':'');
-  container.classList.add('rv-map');container.dataset.tiles=tiles();container.dataset.tileKey=tileKey();map.rvTiles=tiles;map.rvTileKey=tileKey;map.rvPlain=plain;maps.add(map);
+  const tiles=()=>tone?.()||theme(),plain=()=>labels?!labels():bare,isGrey=()=>grey?grey():simple,tileKey=()=>tiles()+(isGrey()?'-grey':'')+(plain()?'-nolabels':'');
+  container.classList.add('rv-map');container.dataset.tiles=tiles();container.dataset.tileKey=tileKey();map.rvTiles=tiles;map.rvTileKey=tileKey;map.rvPlain=plain;map.rvGrey=isGrey;map.rvOwn=!!(labels||grey);maps.add(map);
   // The style is set after the map exists (not as an option) so that every load, the first and each theme change,
-  // goes through transformStyle: it hides the symbol layers right in the style while 글자 없이 보기 is on. Leaflet adds
+  // goes through transformStyle: it hides the symbol layers right in the style while 글자 숨기기 is on. Leaflet adds
   // the layer (and MapLibre's map) once the map has a view, so this waits for it. No WebGL (rare): the routes are
   // still drawn, on the plain background.
   map.rvGl=null;map.rvSymbols=[];
@@ -75,32 +80,50 @@
  }
  function simpleControl(L){
   const control=L.control({position:'topright'});
+  // One layers button under the zoom buttons opens 지도 표시, a small glass popover like the road view's 레이어 menu,
+  // with the two switches; it opens towards the middle of the map and closes on Escape or a tap elsewhere.
   control.onAdd=()=>{
-   const bar=L.DomUtil.create('div','leaflet-bar rv-map-simple'),button=L.DomUtil.create('a','',bar);
-   button.href='#';button.setAttribute('role','button');
-   button.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 8.5 4.5-8.5 4.5L3.5 8Z"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5" stroke-linecap="round"/></svg>';
-   L.DomEvent.disableClickPropagation(bar);L.DomEvent.on(button,'click',event=>{L.DomEvent.preventDefault(event);setSimple(!simple)});
-   simpleButtons.add(button);showSimple(button);return bar;
+   const wrap=L.DomUtil.create('div','rv-map-simple'),bar=L.DomUtil.create('div','leaflet-bar',wrap),button=L.DomUtil.create('a','rv-map-options-button',bar);
+   button.href='#';button.setAttribute('role','button');button.setAttribute('aria-haspopup','true');button.setAttribute('aria-expanded','false');button.title='지도 표시';button.setAttribute('aria-label','지도 표시');
+   button.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 8.5 4.5-8.5 4.5L3.5 8Z"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5" stroke-linecap="round"/><path d="m3.5 16.5 8.5 4.5 8.5-4.5" stroke-linecap="round" opacity=".55"/></svg>';
+   const pop=L.DomUtil.create('div','rv-map-options',wrap);pop.hidden=true;pop.setAttribute('role','group');pop.setAttribute('aria-label','지도 표시');
+   pop.innerHTML='<p class="rv-map-options-title">지도 표시</p>'+[['labels','글자 숨기기','지명·도로 이름·아이콘·화살표를 숨깁니다. 지도 색은 그대로입니다.'],['grey','회색 지도','차분한 회색 지도로 바꾸고 3D 건물·아이콘을 뺍니다.']]
+    .map(([kind,title,note])=>`<label><input type="checkbox" data-kind="${kind}"><span><b>${title}</b><small>${note}</small></span></label>`).join('');
+   L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(pop);
+   const outside=event=>{if(!wrap.contains(event.target))setOpen(false)},key=event=>{if(event.key==='Escape'){event.stopPropagation();event.preventDefault();setOpen(false);button.focus()}};  // only the popover, not the drive map under it
+   const setOpen=open=>{
+    if(open){const map=wrap.closest('.leaflet-container')?.getBoundingClientRect(),at=button.getBoundingClientRect();pop.classList.toggle('to-left',!!map&&at.left+at.width/2>map.left+map.width/2)}
+    pop.hidden=!open;wrap.classList.toggle('is-open',open);button.setAttribute('aria-expanded',String(open));
+    if(open){document.addEventListener('pointerdown',outside,true);document.addEventListener('keydown',key,true)}else{document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',key,true)}
+   };
+   L.DomEvent.on(button,'click',event=>{L.DomEvent.preventDefault(event);setOpen(pop.hidden)});
+   for(const box of pop.querySelectorAll('input'))box.addEventListener('change',()=>setSimple(box.dataset.kind,box.checked));
+   simpleButtons.add(wrap);showSimple(wrap);return wrap;
   };
   control.onRemove=()=>{for(const button of simpleButtons)if(!button.isConnected)simpleButtons.delete(button)};
   return control;
  }
- function showSimple(button){const label=simple?'단순 지도 끄기':'단순 지도 켜기';button.title=label;button.setAttribute('aria-label',label);button.setAttribute('aria-pressed',String(simple))}
+ function showSimple(wrap){
+  for(const box of wrap.querySelectorAll('input[data-kind]'))box.checked=box.dataset.kind==='grey'?simple:bare;
+  wrap.querySelector('.rv-map-options-button').classList.toggle('is-on',simple||bare);
+ }
  // Only the basemap's style changes: the view, the route lines and any selection stay as they are.
- function setSimple(on){
-  simple=on;try{localStorage.setItem(SIMPLE_KEY,on?'1':'0')}catch{}
+ function setSimple(kind,on){
+  if(kind==='grey')simple=on;else bare=on;try{localStorage.setItem(kind==='grey'?SIMPLE_KEY:BARE_KEY,on?'1':'0')}catch{}
   for(const button of simpleButtons){if(!button.isConnected){simpleButtons.delete(button);continue}showSimple(button)}
-  for(const map of maps){if(!map.getContainer().isConnected){maps.delete(map);continue}if(map.rvGl)setStyle(map)}
+  for(const map of maps){if(!map.getContainer().isConnected){maps.delete(map);continue}if(!map.rvOwn)applyTiles(map)}
  }
  function setStyle(map){
-  map.getContainer().dataset.simple=String(simple);
-  map.rvGl.setStyle((simple?SIMPLE_STYLES:STYLES)[map.rvTiles()],{diff:false,transformStyle:(previous,next)=>{
-   const busy=simple?next.layers.filter(layer=>layer.type==='fill-extrusion'||BUSY_LAYER.test(layer.id)).map(layer=>layer.id):[];
+  // 회색 지도: the calm style without the busy layers; 글자 숨기기: below, every symbol layer hidden.
+  const grey=map.rvGrey(),box=map.getContainer();box.dataset.simple=String(grey);box.dataset.grey=String(grey);
+  map.rvGl.setStyle((grey?SIMPLE_STYLES:STYLES)[map.rvTiles()],{diff:false,transformStyle:(previous,next)=>{
+   const busy=grey?next.layers.filter(layer=>layer.type==='fill-extrusion'||BUSY_LAYER.test(layer.id)).map(layer=>layer.id):[];
    map.getContainer().dataset.removed=busy.join(' ');
    if(busy.length)next={...next,layers:next.layers.filter(layer=>!busy.includes(layer.id))};
-   // The symbol layers the style itself shows: the ones 글자 없이 보기 hides and shows again.
+   // The symbol layers the style itself shows: the ones 글자 숨기기 hides and shows again.
    map.rvSymbols=next.layers.filter(layer=>layer.type==='symbol'&&layer.layout?.visibility!=='none').map(layer=>layer.id);
-   if(!map.rvPlain())return next;
+   const plain=map.rvPlain();box.dataset.labels=plain?'hidden':'shown';
+   if(!plain)return next;
    const hidden=new Set(map.rvSymbols);
    return {...next,layers:next.layers.map(layer=>hidden.has(layer.id)?{...layer,layout:{...layer.layout,visibility:'none'}}:layer)};
   }});
@@ -113,9 +136,9 @@
   if(layers.length)map.getContainer().dataset.labels=layers.some(layer=>layer.getLayoutProperty('visibility')!=='none')?'shown':'hidden';
  }
  window.addEventListener('rv:themechange',()=>{for(const map of maps){const box=map.getContainer();if(!box.isConnected){maps.delete(map);continue}applyTiles(map)}redrawColours()});
- // The theme (or the small map's tone) loads the other style; 글자 없이 보기 only switches the symbol layers.
+ // The theme (or the small map's tone) and 회색 지도 load another style; 글자 숨기기 only switches the symbol layers.
  function applyTiles(map){
-  const box=map.getContainer(),key=map.rvTileKey(),tiles=map.rvTiles(),styleChanged=box.dataset.tiles!==tiles;box.dataset.tiles=tiles;
+  const box=map.getContainer(),key=map.rvTileKey(),tiles=map.rvTiles(),styleChanged=box.dataset.tiles!==tiles||box.dataset.grey!==String(map.rvGrey());box.dataset.tiles=tiles;
   if(box.dataset.tileKey===key)return;box.dataset.tileKey=key;
   if(!map.rvGl)return;if(styleChanged)setStyle(map);else showLabels(map);
  }
@@ -295,8 +318,25 @@
    for(const [id,line] of driveLines){const on=!driveMarked||id===driveMarked;line.setStyle({opacity:on?.95:.3,weight:id===driveMarked?7:5});if(id===driveMarked)line.bringToFront()}
    for(const [id,cached] of driveRows)cached.row.classList.toggle('is-map-marked',id===driveMarked);
   }
+  // The marked segment's glass pill at the bottom of the drive map, shown while its card is out of sight: the list folded
+  // away (wide screens) or the sheet hidden (phones). 재생 opens that segment; ✕ clears the mark.
+  const segmentCard=document.createElement('div');segmentCard.className='log-map-card drive-map-card';segmentCard.setAttribute('role','status');segmentCard.hidden=true;
+  segmentCard.innerHTML='<div class="map-card-text"><b class="map-card-title"></b><span class="map-card-facts"></span></div><div class="map-card-actions"><button type="button" class="map-card-close icon-button" aria-label="선택 해제" title="선택 해제"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>';
+  driveBody.append(segmentCard);
+  segmentCard.querySelector('.map-card-close').onclick=()=>markDrive(null);
+  function syncSegmentCard(){
+   const log=driveMarked&&driveGroup?.logs.find(l=>l.id===driveMarked);
+   let folded=false;try{folded=driveFolded()}catch{}  // Not yet defined while the screen is being set up.
+   const out=wide.matches?folded:snap<0,show=!!log&&drive.open&&out;
+   segmentCard.hidden=!show;if(!show)return;
+   const n=logRoute(log).segment,date=logDate(log),end=date&&Number.isFinite(log.duration)?new Date(date.getTime()+log.duration*1000):null;
+   segmentCard.querySelector('.map-card-title').textContent=`구간 ${n??'—'}`+(date?` · ${shortClock(date)}${end?'–'+shortClock(end):''}`:'');
+   segmentCard.querySelector('.map-card-facts').textContent=[Number.isFinite(log.duration)?durationText(log.duration):null,log.status==='ready'?'재생 가능':null].filter(Boolean).join(' · ');
+   segmentCard.querySelector('.map-card-play')?.remove();
+   if(log.status==='ready'){const play=document.createElement('a');play.className='replay map-card-play';play.dataset.glow='';play.href=`view/${log.id}/`;play.innerHTML=PLAY_ICON;play.append('재생');segmentCard.querySelector('.map-card-actions').prepend(play)}
+  }
   function markDrive(id,{fit=false,scroll=false,animate=!reduced()}={}){
-   driveMarked=id;paintDrive();if(fit)fitDrive(animate);
+   driveMarked=id;paintDrive();if(fit)fitDrive(animate);syncSegmentCard();
    const row=id&&driveRows.get(id)?.row;
    if(scroll&&row){
     const box=row.getBoundingClientRect(),list=sheetList.getBoundingClientRect();
@@ -317,7 +357,7 @@
   function setSnap(i){
    snap=Math.max(-1,Math.min(SNAPS.length-1,i));const hidden=snap<0;
    driveBody.classList.toggle('is-sheet-hidden',hidden);driveBody.style.setProperty('--sheet-h',hidden?handleOnly():SNAPS[snap]*100+'%');
-   handle.setAttribute('aria-valuenow',String(hidden?0:Math.round(SNAPS[snap]*100)));handle.setAttribute('aria-valuetext',hidden?'숨김':Math.round(SNAPS[snap]*100)+'%');
+   handle.setAttribute('aria-valuenow',String(hidden?0:Math.round(SNAPS[snap]*100)));syncSegmentCard();handle.setAttribute('aria-valuetext',hidden?'숨김':Math.round(SNAPS[snap]*100)+'%');
    clearTimeout(refit);if(driveMap)refit=setTimeout(()=>{if(drive.open){driveMap.invalidateSize({animate:false});fitDrive(false)}},reduced()?0:300);
   }
   handle.addEventListener('pointerdown',event=>{
@@ -337,7 +377,7 @@
    handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',end);handle.addEventListener('pointercancel',end);
   });
   handle.addEventListener('click',e=>{if(e.detail===0&&!wide.matches)setSnap(snap<0||snap===SNAPS.length-1?0:snap+1)});
-  const driveFolded=foldable(driveBody.querySelector('.drive-map-fold'),driveBody,'roadviewer-drive-list-folded',()=>{if(drive.open&&driveMap)fitDrive()});
+  const driveFolded=foldable(driveBody.querySelector('.drive-map-fold'),driveBody,'roadviewer-drive-list-folded',()=>syncSegmentCard());  // Folding keeps the map where it is.
   handle.addEventListener('keydown',e=>{const step={ArrowUp:1,ArrowDown:-1}[e.key];if(step&&!wide.matches){e.preventDefault();setSnap(snap+step)}});
   // Closing goes through history, so the system back, the header's back button and Escape all end the same way.
   function closeDrive(){if(!drive.open)return;if(window.location.hash===DRIVE_HASH&&history.state?.rvDrive)history.back();else finishDrive()}
@@ -378,7 +418,7 @@
   const visibleGroups=()=>[...logGroups.values()].filter(group=>!group.element.hidden&&group.element.closest('.log-day')&&!group.element.closest('.log-day').hidden);
   let overviewFit=true,hovered=null,rowsKey='';
   const mapList=document.getElementById('logMapList'),mapRows=document.getElementById('logMapRows'),mapRow=new Map();  // route key -> row
-  const listFolded=foldable(panel.querySelector('.map-fold'),panel,'roadviewer-map-list-folded',()=>{select(selected);if(selected)fitOverview(selected)});
+  const listFolded=foldable(panel.querySelector('.map-fold'),panel,'roadviewer-map-list-folded',()=>{select(selected,{fit:false})});  // Folding keeps the map where it is.
   const listShown=()=>wide.matches&&!listFolded();
   // Fits beside the list card while it is shown.
   function overviewPadding(){
@@ -407,6 +447,7 @@
   mapRows.addEventListener('pointerover',event=>{if(event.pointerType!=='mouse')return;const group=event.target.closest('.map-list-row')?.rvGroup||null;if(group!==hovered){hovered=group;paintOverview()}});
   mapRows.addEventListener('pointerleave',()=>{if(hovered){hovered=null;paintOverview()}});
   wide.addEventListener('change',()=>{if(mode==='map')select(selected)});
+  wide.addEventListener('change',()=>syncSegmentCard());
   async function drawOverview(fit){
    if(fit)overviewFit=true;
    if(!tracks){empty.hidden=true;return}
@@ -470,7 +511,15 @@
   card.querySelector('.map-card-list').onclick=()=>showInList(selected);
   function showInList(group){
    setMode('list');if(!group)return;
-   requestAnimationFrame(()=>{group.element.scrollIntoView({block:'center',behavior:reduced()?'auto':'smooth'});group.element.classList.remove('is-located');void group.element.offsetWidth;group.element.classList.add('is-located')});
+   // Centred, or its top near the top of the screen when the card is taller than the screen (an open drive). The list is
+   // drawn again as it comes back and rows above can still change height (thumbnails, route shapes), so the drive is
+   // brought back twice more if its top ended up off screen, unless the user has scrolled since.
+   const target=group.element;let touched=false;const stop=()=>{touched=true};
+   for(const type of ['wheel','touchstart','keydown','pointerdown'])addEventListener(type,stop,{once:true,passive:true,capture:true});
+   const block=()=>target.getBoundingClientRect().height>innerHeight*.8?'start':'center';
+   const again=()=>{if(touched||!target.isConnected)return;const r=target.getBoundingClientRect();if(r.top<0||r.top>=innerHeight)target.scrollIntoView({block:block()})};
+   requestAnimationFrame(()=>{target.scrollIntoView({block:block(),behavior:reduced()?'auto':'smooth'});target.classList.remove('is-located');void target.offsetWidth;target.classList.add('is-located');
+    setTimeout(again,reduced()?150:450);setTimeout(()=>{again();for(const type of ['wheel','touchstart','keydown','pointerdown'])removeEventListener(type,stop,{capture:true})},reduced()?600:1000)});
   }
   card.querySelector('.map-card-close').onclick=()=>select(null);
   card.querySelector('.map-card-drive').onclick=event=>{if(selected)openDrive(selected,{opener:event.currentTarget})};
@@ -489,8 +538,8 @@
   toneSwitch.addEventListener('click',event=>{const b=event.target.closest('button[data-tone]');if(!b||b.dataset.tone===miniTone)return;miniTone=b.dataset.tone;showTone();try{localStorage.setItem(TONE_KEY,miniTone)}catch{}for(const map of maps)if(map.getContainer().closest('#videoMap'))applyTiles(map)});
   // 글자 없는 지도: the small map without place and road names (the style's symbol layers hidden); saved with the
   // other display preferences (app.js, .overlay-settings-body inputs).
-  const miniPlain=document.getElementById('videoMiniMapPlain');
-  miniPlain.addEventListener('change',()=>{for(const map of maps)if(map.getContainer().closest('#videoMap'))applyTiles(map)});
+  const miniPlain=document.getElementById('videoMiniMapPlain'),miniGrey=document.getElementById('videoMiniMapGrey');
+  for(const box of [miniPlain,miniGrey])box.addEventListener('change',()=>{for(const map of maps)if(map.getContainer().closest('#videoMap'))applyTiles(map)});
   let route=null,current=-1,big=null,small=null,lastKey='',following=true,mode='road';
   // A seek asked from another segment's map: applied once this segment's replay is ready.
   try{
@@ -554,27 +603,26 @@
   async function ensureSmall(){
    if(small||!route)return;
    const L=await loadLeaflet().catch(()=>null);if(!L||small)return;
-   const map=createMap(L,mini.querySelector('.video-map-canvas'),{zoom:false,interactive:false,tone:()=>miniTone==='auto'?null:miniTone,labels:()=>!miniPlain.checked,attribution:SHORT_ATTRIBUTION});
+   const map=createMap(L,mini.querySelector('.video-map-canvas'),{zoom:false,interactive:false,tone:()=>miniTone==='auto'?null:miniTone,labels:()=>!miniPlain.checked,grey:()=>miniGrey.checked,attribution:SHORT_ATTRIBUTION});
    small={map,lines:layers(L,map,false),pad:null};fitSmall();
    // Refit when the map or the speed and wheel over it change size (the speed appears once the replay has data).
    {const watch=new ResizeObserver(()=>{if(small&&!mini.hidden&&!resizing)fitSmall()});watch.observe(mini);watch.observe(hud)}
   }
-  // The small map fits the current segment's whole track; the speed and wheel are drawn over its top-right, so the
-  // fit keeps the route below them. Afterwards it pans only when the car gets near an edge.
+  // The small map always follows the car at a fixed street zoom: the car sits in the middle of the part below the speed
+  // and wheel drawn over its top (pad.top), so it is never under them.
   function fitSmall(){
    if(!small||mini.hidden)return;
    const box=mini.getBoundingClientRect(),speed=hud.getBoundingClientRect();let top=10;
    if(speed.width&&speed.bottom>box.top&&speed.left<box.right&&speed.right>box.left)top=Math.max(top,Math.min(box.height*.6,speed.bottom-box.top+6));
    small.pad={top,side:10};small.map.invalidateSize({animate:false});
-   const bounds=window.L.latLngBounds(latlngs(route[current].points));
-   if(bounds.isValid())small.map.fitBounds(bounds,{paddingTopLeft:[10,top],paddingBottomRight:[10,10],maxZoom:17,animate:false});
+   const first=route[current].points[0];if(first)small.map.setView([first[1],first[2]],SMALL_ZOOM,{animate:false});
    lastKey='';update(true);
   }
-  function keepInView(latlng){
-   const map=small.map,size=map.getSize(),point=map.latLngToContainerPoint(latlng),pad=small.pad||{top:10,side:10},edge=6;
-   const left=pad.side+edge,right=size.x-pad.side-edge,top=pad.top+edge,bottom=size.y-pad.side-edge;
-   const dx=point.x<left?point.x-left:point.x>right?point.x-right:0,dy=point.y<top?point.y-top:point.y>bottom?point.y-bottom:0;
-   if(dx||dy)map.panBy([dx,dy],{animate:false});
+  const SMALL_ZOOM=16;
+  function centerCar(latlng){
+   const map=small.map,size=map.getSize(),point=map.latLngToContainerPoint(latlng),top=small.pad?.top??10;
+   const dx=point.x-size.x/2,dy=point.y-(top+size.y)/2;
+   if(Math.abs(dx)>.5||Math.abs(dy)>.5)map.panBy([dx,dy],{animate:false});
   }
   function setFollow(on){following=on;follow.setAttribute('aria-pressed',String(on));follow.classList.toggle('is-off',!on);if(on)update(true)}
   follow.onclick=()=>setFollow(!following);
@@ -583,7 +631,7 @@
    lines.behind.setLatLngs([...latlngs(points.slice(0,pos.index+1)),now]);
    lines.ahead.setLatLngs([now,...latlngs(points.slice(pos.index+1))]);
    lines.car.setLatLng(now);const body=lines.car.getElement()?.querySelector('.map-car-body');if(body)body.style.transform=`rotate(${pos.bearing}deg)`;
-   if(moved&&target===small)keepInView(now);else if(moved&&following)map.panTo(now,{animate:false});
+   if(moved&&target===small)centerCar(now);else if(moved&&following)map.panTo(now,{animate:false});
   }
   function update(force=false){
    if(!route||current<0||typeof t==='undefined')return;
@@ -640,6 +688,28 @@
    clearTimeout(resizing);
    resizing=setTimeout(()=>{resizing=0;fitSmall()},instant||reduced()?0:280);
   }
+  // The bottom-left corner resizes the small map (mouse or touch), anchored at its top-right, 4:3: from its least
+  // width up to the picture's width or the room above the bottom row. Kept in this browser as a share of the picture's
+  // width; a double tap on the corner goes back to the default size. Dragging never toggles 크게 보기.
+  const SIZE_KEY='roadviewer-minimap-size',grip=document.createElement('span');grip.className='video-map-grip';grip.setAttribute('aria-hidden','true');mini.append(grip);
+  const applySize=f=>{if(f){stage.style.setProperty('--vmap-f',f.toFixed(4));stage.classList.add('vmap-sized')}else{stage.style.removeProperty('--vmap-f');stage.classList.remove('vmap-sized')}};
+  try{const f=Number(localStorage.getItem(SIZE_KEY));if(f>0&&f<1)applySize(f)}catch{}
+  let sizing=null;
+  grip.addEventListener('pointerdown',e=>{
+   if(mini.classList.contains('is-large')||e.button>0)return;e.preventDefault();e.stopPropagation();try{grip.setPointerCapture(e.pointerId)}catch{}
+   const r=mini.getBoundingClientRect(),box=stage.getBoundingClientRect(),room=parseFloat(mini.style.getPropertyValue('--vmap-room'))||box.height;
+   const min=Math.max(104,parseFloat(stage.style.getPropertyValue('--vmap-min-w'))||0),max=Math.max(min,Math.min(box.width-2*(box.right-r.right),room/.75));
+   sizing={id:e.pointerId,x:e.clientX,y:e.clientY,w:r.width,min,max,stageW:box.width,moved:false,f:null};mini.classList.add('is-sizing');
+  });
+  grip.addEventListener('pointermove',e=>{
+   if(!sizing||e.pointerId!==sizing.id)return;const dx=sizing.x-e.clientX,dy=(e.clientY-sizing.y)/.75;
+   if(!sizing.moved&&Math.hypot(dx,dy)<3)return;sizing.moved=true;e.preventDefault();
+   const w=Math.min(sizing.max,Math.max(sizing.min,sizing.w+(Math.abs(dx)>=Math.abs(dy)?dx:dy)));sizing.f=w/sizing.stageW;applySize(sizing.f);
+  });
+  const endSizing=e=>{if(!sizing||e.pointerId!==sizing.id)return;mini.classList.remove('is-sizing');if(sizing.moved&&sizing.f)try{localStorage.setItem(SIZE_KEY,String(sizing.f))}catch{}sizing=null};
+  grip.addEventListener('pointerup',endSizing);grip.addEventListener('pointercancel',endSizing);
+  grip.addEventListener('click',e=>e.stopPropagation());
+  grip.addEventListener('dblclick',e=>{e.stopPropagation();applySize(0);try{localStorage.removeItem(SIZE_KEY)}catch{}});
   const resize=()=>setLarge(!mini.classList.contains('is-large'));
   mini.addEventListener('click',e=>{if(e.target.closest('a'))return;resize()});
   mini.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();resize()}});

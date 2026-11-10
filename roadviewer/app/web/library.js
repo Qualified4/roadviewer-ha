@@ -348,8 +348,11 @@ const thumbnailUrl=m=>m&&(m.thumbnail||m.thumbnail_available)?`api/logs/${m.id}/
 // The camera placeholder stays underneath; a loaded image covers it and a failed one is removed.
 function setThumbnail(box,url){
  if(box.dataset.src===(url||''))return;box.dataset.src=url||'';
- box.querySelector('img')?.remove();if(!url)return;
- const img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.onerror=()=>img.remove();img.src=url;box.prepend(img);
+ box.querySelector('img')?.remove();box.classList.remove('has-thumb');if(!url)return;
+ // Once a picture shows, the placeholder goes: a fold re-paints the card and an async-decoded picture could leave a
+ // frame without it, flashing the camera icon (phones and tablets). Sync decoding keeps re-paints whole too.
+ const img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='sync';
+ img.onload=()=>{if(img.isConnected)box.classList.add('has-thumb')};img.onerror=()=>{img.remove();box.classList.remove('has-thumb')};img.src=url;box.prepend(img);
 }
 // The card shows the drive's first picture: the lowest-numbered ready segment that has (or will have) a thumbnail,
 // whatever order the server lists the segments in.

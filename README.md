@@ -2,7 +2,7 @@
 
 한국어 · [English](README.en.md)
 
-현재 기능 안내: **1.2.0**
+현재 기능 안내: **1.2.1**
 
 openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **영상·주행 상황·차량 정보 그래프를 같은 시간축으로 확인하는 Home Assistant 앱**입니다.
 
@@ -104,6 +104,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 | 주행 상황 | 차선·도로 경계·모델 경로·앞차·레이더 감지점을 표시하고 영상에 겹쳐 볼 수 있습니다. |
 | 차량 정보 | 그래프 24종 중 표시할 항목을 고르고 드래그해 순서를 바꿉니다. LATERAL 송신값과 보정 후 yRel도 각각 비교할 수 있습니다. |
 | 태그 | 구간별 이름·색상으로 분류하고 목록을 필터링합니다. 여러 구간에 한 번에 추가·제거할 수 있습니다. |
+| 지도 | GPS가 있는 구간은 분석 패널의 **지도** 탭에서 지나온 길과 현재 위치를 보고, 영상 오른쪽 위에 작은 지도를 띄울 수 있습니다. [주행 경로 지도](#주행-경로-지도)를 참고하세요. |
 | 장면 북마크 | 분석 패널의 **북마크** 탭에서 특정 로그 시점에 제목·메모를 저장하고, 탐색 바 마커나 목록에서 다시 이동합니다. |
 | 로그 이동·고정 | 앱 바의 제목(출발 시각 · 구간 k (i/N))을 눌러 같은 주행의 구간을 고르고, 이전·다음 버튼과 하단 구간 띠로 이동하며, 핀으로 구간을 고정합니다. |
 | 재생 바 | 하단에 떠 있는 재생 바에 구간 띠(긴 주행은 현재 구간을 가운데로 스크롤), 자동 제어·운전자 개입 트랙, 북마크 마커가 있는 탐색 바, 프레임 이동, 현재 시각/전체 길이 전환, 북마크, 속도가 있습니다. |
@@ -138,6 +139,28 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 ![같은 레이아웃의 좌우 거리 y[0] 모드](docs/images/roadviewer-boundaries-distance.png)
 
+## 주행 경로 지도
+
+로그를 변환할 때 주행 위치를 1초에 한 점씩 함께 저장해(1분에 약 1KB) 주행 경로를 지도에 그립니다. 위치는 기기 GPS가 잡혔으면 그것을, 아니면 차량이 CAN으로 보내는 차량 GPS(`carState.vehicleGps`)를, 둘 다 없으면 carrot의 추정 위치를 씁니다. 이전 버전에서 변환한 로그는 백그라운드에서 채우며, Google Drive에만 있는 로그는 저장공간 탭의 **Drive 로그 지도 채우기**를 켜거나 **한 번 실행**을 눌러 채웁니다.
+
+**전체 주행 지도**: 로그 탭 오른쪽 위 **목록 | 지도**에서 지도를 고르면 지금 검색·필터 조건에 걸린 주행을 파스텔 색 선으로 함께 보여 줍니다. 오른쪽 유리 카드 목록에서 주행을 고르면 그 주행으로 지도를 맞추고 **재생 · 주행 지도 · 목록에서 보기**가 카드 안에 펼쳐집니다. 목록은 오른쪽 위 버튼으로 접고 펼칠 수 있으며, 접고 펼쳐도 지도는 움직이지 않습니다.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-library-map-dark.png"><img src="docs/images/roadviewer-library-map.png" alt="로그 탭의 지도 보기에서 예시 주행 3개를 파스텔 색 선으로 그리고 오른쪽에 유리 카드 주행 목록을 띄운 화면"></picture>
+
+**주행 지도**: 주행 카드의 경로 그림(PC는 마우스를 올리면 정사각형 지도로 펼쳐짐, 휴대폰은 재생 옆 **지도** 버튼), 구간 ⋯ 메뉴의 **지도에서 보기**, 전체 지도 카드의 **주행 지도**로 엽니다. 구간 카드와 지도의 구간 선이 서로 강조되고, 목록을 접은 상태(휴대폰은 목록 시트를 내린 상태)에서는 고른 구간이 아래 알약 카드로 나와 바로 재생할 수 있습니다.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-drive-map-dark.png"><img src="docs/images/roadviewer-drive-map.png" alt="한 주행의 경로를 구간별로 그리고 오른쪽 유리 카드에 구간 0~3을 표시하며 구간 1을 강조한 주행 지도"></picture>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-drive-map-mobile-dark.png"><img src="docs/images/roadviewer-drive-map-mobile.png" alt="휴대폰의 주행 지도: 위에는 지도, 아래에는 끌어서 높이를 바꾸는 구간 카드 시트" width="320"></picture>
+
+**재생 화면의 지도**: 분석 패널의 **지도** 탭은 지나온 길을 진하게, 남은 길을 흐리게 그리고 차 표시가 재생 위치를 따라갑니다. 경로를 누르면 그 시점으로 이동합니다. 겹쳐 보기 설정 › 지도에서 **영상 위 작은 지도**를 켜면 영상 오른쪽 위에 작은 지도가 나와 차를 늘 가운데에 두고 따라갑니다. 색상(자동·라이트·다크)과 **글자 숨기기**·**회색으로**(지도 표시 팝업과 같은 두 가지)를 고를 수 있고, 왼쪽 아래 모서리를 끌어 크기를 바꿀 수 있습니다.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-replay-map-dark.png"><img src="docs/images/roadviewer-replay-map.png" alt="재생 화면 오른쪽 분석 패널의 지도 탭에서 지나온 길과 현재 차 위치를 표시한 화면"></picture>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-video-minimap-dark.png"><img src="docs/images/roadviewer-video-minimap.png" alt="주행 영상 오른쪽 위 속도·핸들 표시 아래에 겹쳐진 작은 지도"></picture>
+
+지도 바탕은 OpenStreetMap 데이터로 만든 [OpenFreeMap](https://openfreemap.org) 벡터 지도이며 API 키가 필요 없습니다. 확대·축소 버튼 아래 레이어 버튼을 누르면 **지도 표시** 팝업이 열리고, 두 가지를 따로 켜고 끕니다. **글자 숨기기**는 지도 색(라이트 모드의 노란 큰길 등)은 그대로 두고 지명·도로 이름·장소 아이콘·도로 번호·일방통행 화살표를 지웁니다. **회색 지도**는 차분한 회색 스타일로 바꾸고 3D 건물·장소 아이콘·도로 번호·화살표를 빼며 글자는 남깁니다. 둘 다 켜면 주행 선만 또렷하게 남습니다. 지도 조각은 보는 브라우저가 OpenFreeMap에서 직접 받으므로, 보는 지역의 지도 요청이 OpenFreeMap으로 갑니다. 위치 좌표는 앱 화면의 지도에만 쓰고 다운로드·내보내기·장치 API·아카이브에는 넣지 않습니다. 스크린샷의 경로는 공개 지명 사이 도로를 따라 만든 예시 경로입니다. 자세한 동작은 [사용 설명서](roadviewer/DOCS.md#주행-경로-지도)를 참고하세요.
+
 ## 태그로 구간 분류하기
 
 태그는 **구간 전체에 붙이는 분류**입니다. 예를 들어 `차선 변경`, `비 오는 날`, `검토 필요`처럼 주행 조건이나 확인할 내용을 표시해 두고, 로그 탭의 태그 필터 칩으로 원하는 구간만 모아 볼 수 있습니다. 태그 배지는 로그 이름·고정 표시 옆에 나타나며 재생 화면에서도 확인할 수 있습니다.
@@ -162,7 +185,9 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 2. 표시된 시각을 확인하고 **저장**합니다. 제목과 메모는 선택 사항이며, 제목 없이 저장하면 장면 시각으로 이름을 붙입니다. **현재 시각으로**를 누르면 편집 중인 시각을 현재 재생 위치로 맞춥니다.
 3. 북마크 탭 목록의 **시간·제목**이나 탐색 바의 **북마크 마커**를 누르면 영상·주행 상황·그래프가 함께 이동합니다. 기존 재생/일시정지 상태도 유지합니다.
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-bookmarks-editor-dark.png"><img src="docs/images/roadviewer-bookmarks-editor.png" alt="22초 시점의 제목과 메모를 입력하고 차선 변경·앞차 거리·감속 장면을 시간순으로 확인하는 북마크 탭 예시" width="556"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-bookmarks-editor-dark.png"><img src="docs/images/roadviewer-bookmarks-editor.png" alt="북마크 버튼으로 연 기록 팝업에서 장면 시각을 확인하고 제목과 메모를 입력하는 예시" width="460"></picture>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-bookmarks-list-dark.png"><img src="docs/images/roadviewer-bookmarks-list.png" alt="분석 패널 북마크 탭에 합류 차량·운전자 조향 개입·앞차 감속 장면이 시간순으로 저장된 목록 예시" width="460"></picture>
 
 저장된 북마크는 탐색 바 위 작은 마커로도 나타납니다. 각 마커에 마우스를 올리면 시간과 제목을 확인할 수 있습니다.
 
@@ -192,7 +217,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 **구간별 상태 확인과 파일 관리**
 
-**로그** 탭은 검색창과 필터 칩(전체·고정·미변환·처리 중·Drive·NAS, 태그별 칩)으로 구간을 좁히고, 같은 주행의 구간을 날짜별 **주행 카드**로 묶어 보여 줍니다. 카드에는 썸네일·전체 길이, 출발 시각(`HH:MM 출발`, 알 수 없으면 `업로드 HH:MM`), 구간 상태 막대, **자동 제어 N% · 개입 N회**가 표시되며, 기본으로 접혀 있고 직접 펼친 주행만 기억합니다. 각 구간의 처리 상태·영상 유무·보관 및 변환 데이터 용량을 확인할 수 있고, 구간 아래에는 로그와 카메라 영상(고화질·저용량·와이드)이 저장된 위치를 **로컬**·**Drive**·**NAS**로 표시합니다. 준비된 항목은 **재생**, 변환이 필요한 항목은 **변환**으로 이어집니다. 구간별 ⋯ 메뉴에는 제거·다운로드·태그 편집·로그 이름 복사·고정·완전 삭제가 있습니다.
+**로그** 탭은 오른쪽 위 **목록 | 지도** 전환([주행 경로 지도](#주행-경로-지도)), 검색창과 필터 칩(전체·고정·미변환·처리 중·Drive·NAS, 태그별 칩)으로 구간을 좁히고, 같은 주행의 구간을 날짜별 **주행 카드**로 묶어 보여 줍니다. 카드에는 썸네일·전체 길이, GPS가 있으면 경로 그림, 출발 시각(`HH:MM 출발`, 알 수 없으면 `업로드 HH:MM`), 구간 상태 막대, **자동 제어 N% · 개입 N회**가 표시되며, 기본으로 접혀 있고 직접 펼친 주행만 기억합니다. 각 구간의 처리 상태·영상 유무·보관 및 변환 데이터 용량을 확인할 수 있고, 구간 아래에는 로그와 카메라 영상(고화질·저용량·와이드)이 저장된 위치를 **로컬**·**Drive**·**NAS**로 표시합니다. 준비된 항목은 **재생**, 변환이 필요한 항목은 **변환**으로 이어집니다. 구간별 ⋯ 메뉴에는 제거·다운로드·태그 편집·로그 이름 복사·고정·완전 삭제가 있습니다.
 
 썸네일과 출발 시각은 변환할 때 만들고, 이전에 변환했거나 아카이빙한 로그는 백그라운드에서 채웁니다. 로컬·NAS 파일은 앞부분만 읽고 Drive 파일은 범위 요청으로 앞쪽 약 2 MB만 받으며, 업로드·변환·아카이빙 실행·Drive 재생 중에는 잠시 멈춥니다. 자동 제어 비율과 개입 횟수는 텔레메트리로 계산합니다.
 
@@ -242,7 +267,7 @@ NAS 대신 **Google Drive**를 아카이브 저장소로 쓸 수도 있습니다
 
 스크린샷은 2026-11-07에 1.0.11 버전 코드에 예시 데이터를 넣어 라이트·다크 모드로 촬영했으며, 보는 환경의 테마에 맞는 이미지를 보여 줍니다. 주행·와이드 소개 사진 3장은 기존 사진의 영상 영역을 새 UI에 합성했습니다. 페어링 코드·장치·저장공간 수치는 모두 예시이며 실제 연결에 쓸 수 없습니다. [스크린샷 안내](docs/images/README.md)를 참고하세요.
 
-- [설치 및 사용 설명](roadviewer/DOCS.md) · [English](roadviewer/DOCS.en.md): 업로드, 변환, 재생, 선택 모드(일괄 관리), 저장 정책, 백업과 문제 해결
+- [설치 및 사용 설명](roadviewer/DOCS.md) · [English](roadviewer/DOCS.en.md): 업로드, 변환, 재생, 주행 경로 지도, 선택 모드(일괄 관리), 저장 정책, 백업과 문제 해결
 - [AppArmor 보안 정책](docs/apparmor-security.md) · [English](docs/apparmor-security.en.md)
 - [Android 다중 파일 선택 분석 기록](docs/android-multiple-file-fix/README.md) · [English](docs/android-multiple-file-fix/README.en.md)
 - [변경 이력](roadviewer/CHANGELOG.md): 버전별 변경 내용
