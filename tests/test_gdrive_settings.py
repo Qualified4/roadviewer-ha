@@ -17,8 +17,9 @@ SMB_KEYS = {'enabled', 'state', 'reason', 'path_configured', 'used_bytes', 'free
             'manual', 'manual_active'}
 GDRIVE_KEYS = SMB_KEYS | {'backend', 'mode', 'effective_mode', 'local_delete_allowed', 'usage_reliable', 'remote_copies_files',
                           'remote_copies_bytes', 'archive_errors', 'gdrive',
-                          'usage_known', 'usage_measuring'}
+                          'usage_known', 'usage_measuring', 'track_fill'}
 GDRIVE_BLOCK_KEYS = {'configured', 'connected', 'folder_ok', 'pending', 'last_auth_error'}
+TRACK_FILL_KEYS = {'enabled', 'manual', 'running', 'stopping', 'waiting', 'total', 'done', 'failed', 'pending', 'last_error', 'retry_in'}
 
 class GdriveSettingsTests(unittest.TestCase):
     def setUp(self):
@@ -121,6 +122,7 @@ class GdriveSettingsTests(unittest.TestCase):
         self.assert_no_secrets(r.get_data(as_text=True))
         block = self.block()
         self.assertEqual(set(block), GDRIVE_KEYS); self.assertEqual(set(block['gdrive']), GDRIVE_BLOCK_KEYS)
+        self.assertEqual(set(block['track_fill']), TRACK_FILL_KEYS)  # Counts only: never a path, file id or position.
         self.assertEqual(set(block['gdrive']['pending']), {'user_code', 'verification_url', 'expires_at'})
         self.assert_no_secrets(json.dumps(block)); self.assert_no_secrets(json.dumps(self.archiver.status()))
         # Granted, folder created, a copy uploaded and a session left behind: still nothing secret.

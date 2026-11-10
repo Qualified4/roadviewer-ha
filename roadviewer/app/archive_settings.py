@@ -17,7 +17,7 @@ def values(s):
                 archive_local_threshold_mb=s.local_threshold_bytes // MB, archive_min_age_hours=s.min_age_seconds // 3600,
                 archive_interval_minutes=s.interval_seconds // 60, archive_batch=s.batch,
                 archive_nas_max_mb=s.nas_max_bytes // MB, archive_nas_margin_mb=s.nas_margin_bytes // MB,
-                archive_gdrive_folder_name=s.gdrive_folder_name)
+                archive_gdrive_folder_name=s.gdrive_folder_name, archive_gdrive_fill_tracks=s.gdrive_fill_tracks)
 
 
 KEYS = frozenset(values(ArchiveSettings.from_options({})))
@@ -33,7 +33,7 @@ def validate(body):
             lo, hi = RANGES[key]
             if type(value) is not int: errors[key] = 'expected_integer'
             elif value < lo or hi is not None and value > hi: errors[key] = 'out_of_range'
-        elif key in ('archive_enabled', 'archive_allow_local_delete'):
+        elif key in ('archive_enabled', 'archive_allow_local_delete', 'archive_gdrive_fill_tracks'):
             if type(value) is not bool: errors[key] = 'expected_boolean'
         elif not isinstance(value, str): errors[key] = 'expected_string'
         elif key == 'archive_backend' and value not in ('smb', 'gdrive'): errors[key] = 'invalid_enum'

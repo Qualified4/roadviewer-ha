@@ -83,6 +83,7 @@ class ArchiveSettings:
     gdrive_client_id: str = ''
     gdrive_client_secret: str = field(default='', repr=False)
     gdrive_folder_name: str = DEFAULT_FOLDER
+    gdrive_fill_tracks: bool = False  # Read Drive-only logs for their map route (gps_track.TrackBackfill); web setting only.
 
     @classmethod
     def from_options(cls, options):
@@ -105,7 +106,8 @@ class ArchiveSettings:
                    allow_local_delete=_bool(options.get('archive_allow_local_delete', False)),
                    gdrive_client_id=_text(options, 'archive_gdrive_client_id').strip(),
                    gdrive_client_secret=_text(options, 'archive_gdrive_client_secret').strip(),
-                   gdrive_folder_name=folder or DEFAULT_FOLDER)
+                   gdrive_folder_name=folder or DEFAULT_FOLDER,
+                   gdrive_fill_tracks=_bool(options.get('archive_gdrive_fill_tracks', False)))
 
     @property
     def effective_mode(self):

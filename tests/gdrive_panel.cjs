@@ -92,6 +92,34 @@ async function waitForStorageRefresh(page,action){
   assert.equal(await page.locator('#archiveAllSummary dt',{hasText:'예상 로컬 확보 용량'}).count(),0);
   await page.locator('#archiveAllCancel').click();await page.locator('#archiveAllDialog').waitFor({state:'hidden'});
   assert.equal(await page.locator('#archiveMode.archive-warning').count(),0);
+  // 'Drive 로그 지도 채우기': a switch saved with the form (off by default), the progress line and its run-once button.
+  assert(await page.locator('#trackFill').isVisible());assert.equal(await page.locator('#trackFillEnabled').isChecked(),false);
+  assert.match(await page.locator('#trackFillHelp').textContent(),/13 MB/);
+  assert.equal(await page.locator('#trackFillStatus').textContent(),'Drive 로그 지도 채우기: 0 / 0');
+  assert.equal(await page.locator('#trackFillRun').textContent(),'한 번 실행');assert(await page.locator('#trackFillRun').isDisabled(),'nothing to fill');
+  await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();Object.assign(body.archive.track_fill,{total:406,done:120,pending:286,failed:0,last_error:'auth_expired'});await route.fulfill({response,json:body})});
+  await openPanel(page);
+  assert.equal(await page.locator('#trackFillStatus').textContent(),'Drive 로그 지도 채우기: 120 / 406\nGoogle Drive 인증이 만료되어 멈췄습니다. 다시 연결하면 이어서 채웁니다.');
+  assert.equal(await page.locator('#trackFillStatus').getAttribute('data-state'),'error');
+  const fillShot=async name=>{const dir=process.env.RV_FILL_SHOTS;if(!dir)return;const box=page.locator('#trackFill');await box.scrollIntoViewIfNeeded();
+   for(const scheme of ['light','dark'])for(const [w,tag] of [[1280,'pc'],[390,'phone']]){await page.emulateMedia({colorScheme:scheme});await page.setViewportSize({width:w,height:900});await page.waitForTimeout(150);await box.scrollIntoViewIfNeeded();
+    const b=await box.boundingBox();await page.screenshot({path:path.join(dir,`${name}-${tag}-${scheme}.png`),clip:{x:0,y:Math.max(0,b.y-150),width:w,height:Math.min(b.height+300,900)}})}
+   await page.emulateMedia({colorScheme:'light'});await page.setViewportSize({width:1280,height:900})};
+  await fillShot('error');
+  assert(await page.locator('#trackFillRun').isEnabled());
+  await page.locator('#trackFillRun').click();
+  await page.waitForFunction(()=>document.getElementById('trackFillRun').textContent==='중지');
+  await fillShot('running');
+  assert(await page.locator('#trackFillRun').isEnabled(),'a running pass can be stopped');
+  await page.unroute('**/api/settings/storage');
+  await page.locator('#trackFillRun').click();
+  await page.waitForFunction(()=>document.getElementById('trackFillRun').textContent==='한 번 실행');
+  // The switch is saved like the other archive settings.
+  await page.locator('#trackFillEnabled').check({force:true});
+  await page.locator('#storageSave').click();
+  await page.waitForFunction(()=>document.getElementById('archiveSettingsStatus').textContent==='저장했습니다. 재시작 없이 적용되었습니다.');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(driveDir,'.archive-settings.json'),'utf8')).archive_gdrive_fill_tracks,true);
+  assert.equal((await (await page.request.get(drive.base+'api/settings/storage')).json()).archive.track_fill.enabled,true);
   assert.equal(await page.locator('#gdriveConnect').textContent(),'Google Drive 연결');assert(await page.locator('#gdriveConnect').isEnabled());
   assert(await page.locator('#gdriveDisconnect').isHidden());assert(await page.locator('#gdriveCode').isHidden());assert(await page.locator('#gdriveSetup').isHidden());
   // Connect failures are explained in Korean; nothing is waiting afterwards.
@@ -161,7 +189,7 @@ async function waitForStorageRefresh(page,action){
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(driveDir,ids[0],'meta.json'))).storage||{},{},'the error entry is gone');
   await openPanel(page);m=await metrics(page);assert.equal(m['검증 실패'],'0개');
   for(const [url,header] of posts)assert.equal(header,'1',url);
-  assert.deepEqual([...new Set(posts.map(([url])=>url))].sort(),['/api/logs/'+ids[0]+'/archive/retry','/api/settings/archive/gdrive/connect','/api/settings/archive/gdrive/disconnect']);
+  assert.deepEqual([...new Set(posts.map(([url])=>url))].sort(),['/api/logs/'+ids[0]+'/archive/retry','/api/settings/archive','/api/settings/archive/gdrive/connect','/api/settings/archive/gdrive/disconnect','/api/settings/archive/tracks/run','/api/settings/archive/tracks/stop']);
   // The move-mode warning and an unconfigured client, from a block the panel is handed.
   await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();Object.assign(body.archive,{mode:'move',effective_mode:'move',local_delete_allowed:true});Object.assign(body.archive.gdrive,{configured:false,connected:true,last_auth_error:'something_new'});await route.fulfill({response,json:body})});
   await openPanel(page);
@@ -248,6 +276,7 @@ async function waitForStorageRefresh(page,action){
   await openPanel(plain);await plain.locator('#archiveRun').waitFor();
   assert.deepEqual(await plain.locator('#storageUsage>div dt,#archiveUsage>div dt,#archiveSecondaryUsage>div dt').allTextContents(),['사용 중','설정 한도','디스크 여유','업로드 예약','NAS 상태','NAS 사용 중','NAS 여유','마지막 아카이브','최근 실행 결과']);
   for(const id of ['gdrivePanel','gdriveConnect','gdriveDisconnect','gdriveCode','archiveMode'])assert.equal(await plain.locator('#'+id).count(),0,id);
+  assert(await plain.locator('#trackFill').isHidden(),'the Drive maps switch is for Drive only');
   assert.equal(await plain.locator('.archive-retry').count(),0);
   assert.deepEqual(errors,[]);
   console.log('PASS: Drive panel (backend, mode, connect errors, device code, grant, disconnect), sign-in with archiving off, per-recording retry, NAS panel without Drive elements');

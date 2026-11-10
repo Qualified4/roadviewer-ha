@@ -135,11 +135,12 @@ class StoragePolicy:
         if not remote: return block
         # Drive only (the NAS block is unchanged): the mode, local copies that have a Drive copy, files whose copy
         # did not verify (retry: POST /api/logs/<id>/archive/retry) and the connection. Never a token or secret.
+        # track_fill: the Drive maps backfill (gps_track.TrackBackfill.status), counts kept by its worker, never read here.
         return dict(block, backend=settings.backend, mode=settings.mode, effective_mode=settings.effective_mode,
                     local_delete_allowed=settings.allow_local_delete, usage_reliable=bool(usage and usage.reliable),
                     usage_known=usage is not None, usage_measuring=bool(measuring),
                     remote_copies_files=copies, remote_copies_bytes=copied, archive_errors={'remote_mismatch': errors},
-                    gdrive=s.gdrive_status(reason))
+                    gdrive=s.gdrive_status(reason), track_fill=s.track_backfill.status())
 
     def archived_totals(self):
         # (files, bytes) on the archive according to every recording's index.

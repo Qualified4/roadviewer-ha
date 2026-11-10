@@ -850,7 +850,8 @@ select,.rv-choice-trigger{font-weight:500}
 /* Stacked: the bottom video controls stay above the transport bar where it covers the picture's bottom (app.js --video-cover). */
 .replay-page.compact-media .camera-panel:not(:fullscreen) :is(.video-tools,.video-fullscreen,.video-messages){translate:0 calc(-1 * var(--video-cover,0px))}
 /* Maps (maps.js): the 목록 | 지도 and 주행 상황 | 지도 switches, Leaflet in this app's look, the replay's route map, its car
-   marker and the small map in the video's top-right corner. Tiles follow the theme (CARTO voyager / dark_all). */
+   marker and the small map in the video's top-right corner. The basemap follows the theme (OpenFreeMap Liberty / Dark,
+   drawn by MapLibre in Leaflet's tile pane). */
 .view-switch{position:relative;isolation:isolate;display:inline-grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:2px;padding:3px;border-radius:12px;background:var(--track);box-shadow:var(--track-shadow);flex:none}
 .view-switch[hidden]{display:none}
 .view-switch::before{content:"";position:absolute;z-index:0;top:3px;bottom:3px;left:3px;width:calc((100% - 8px) / 2);border-radius:9px;background:var(--raised);box-shadow:var(--raised-shadow);transition:transform .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
@@ -867,9 +868,18 @@ select,.rv-choice-trigger{font-weight:500}
 .rv-map[data-tiles=dark].leaflet-container{background:#1b1d22}.rv-map[data-tiles=light].leaflet-container{background:#e8eaed}
 .rv-map.leaflet-container .leaflet-control-attribution{padding:1px 6px;border-radius:6px 0 0 0;background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);color:var(--muted);font-size:10px;line-height:1.5}
 .rv-map.leaflet-container .leaflet-control-attribution a{color:var(--text-2);text-decoration:none}
-.rv-map.leaflet-container .leaflet-bar{border:0;border-radius:10px;overflow:hidden;box-shadow:var(--raised-shadow)}
-.rv-map.leaflet-container .leaflet-bar a{width:32px;height:32px;line-height:30px;background:var(--pop);border-bottom-color:var(--line);color:var(--text);font-weight:500}
-@media(hover:hover) and (pointer:fine){.rv-map.leaflet-container .leaflet-bar a:hover{background:var(--raised-hover)}}
+/* Glass over the maps (the cards, sheets and buttons floating on the basemap): see-through enough for the streets to show
+   blurred under it, in both themes. */
+:root{--map-glass-rim:linear-gradient(180deg,rgba(255,255,255,.12),rgba(255,255,255,.05) 45%,rgba(255,255,255,.04));--map-glass:rgba(22,24,29,.12);--map-glass-filter:blur(18px) saturate(170%) brightness(1.35);--map-glass-border:rgba(255,255,255,.12);--map-glass-highlight:inset 0 1px 0 rgba(255,255,255,.09);--map-glass-shadow:0 6px 18px rgba(0,0,0,.28);--map-glass-hover:rgba(255,255,255,.07)}
+:root[data-theme=light]{--map-glass-rim:linear-gradient(180deg,rgba(255,255,255,.95) 0%,rgba(255,255,255,.55) 30%,rgba(16,24,40,.07) 60%,rgba(16,24,40,.06) 100%);--map-glass:rgba(255,255,255,.36);--map-glass-filter:blur(18px) saturate(180%);--map-glass-border:rgba(255,255,255,.72);--map-glass-highlight:inset 0 1px 0 rgba(255,255,255,.85),0 0 0 .5px rgba(16,24,40,.12);--map-glass-shadow:0 6px 18px rgba(16,24,40,.12);--map-glass-hover:rgba(16,24,40,.05)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--map-glass-rim:linear-gradient(180deg,rgba(255,255,255,.95) 0%,rgba(255,255,255,.55) 30%,rgba(16,24,40,.07) 60%,rgba(16,24,40,.06) 100%);--map-glass:rgba(255,255,255,.36);--map-glass-filter:blur(18px) saturate(180%);--map-glass-border:rgba(255,255,255,.72);--map-glass-highlight:inset 0 1px 0 rgba(255,255,255,.85),0 0 0 .5px rgba(16,24,40,.12);--map-glass-shadow:0 6px 18px rgba(16,24,40,.12);--map-glass-hover:rgba(16,24,40,.05)}}
+.rv-map.leaflet-container .leaflet-bar{border:1px solid var(--map-glass-border);border-radius:10px;overflow:hidden;background:var(--map-glass);-webkit-backdrop-filter:var(--map-glass-filter);backdrop-filter:var(--map-glass-filter);box-shadow:var(--map-glass-highlight),var(--map-glass-shadow)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.rv-map.leaflet-container .leaflet-bar{background:var(--glass-solid)}}
+@media(prefers-reduced-transparency:reduce){.rv-map.leaflet-container .leaflet-bar{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
+.rv-map.leaflet-container .leaflet-bar a{display:grid;place-items:center;width:32px;height:32px;line-height:30px;background:transparent;border-bottom-color:var(--map-glass-border);color:var(--text);font-weight:500}
+@media(hover:hover) and (pointer:fine){.rv-map.leaflet-container .leaflet-bar a:hover{background:var(--map-glass-hover)}}
+.rv-map.leaflet-container .rv-map-simple a[aria-pressed=true]{color:var(--accent-text);background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.rv-map.leaflet-container .leaflet-bar a:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 @media(pointer:coarse){.rv-map.leaflet-container .leaflet-bar a{width:40px;height:40px;line-height:38px}}
 .rv-map.leaflet-container .leaflet-tooltip{border:0;border-radius:8px;background:var(--pop);box-shadow:var(--pop-shadow);color:var(--text);font-size:12px;padding:3px 8px}
 .rv-map.leaflet-container .leaflet-tooltip-top::before{border-top-color:var(--pop)}

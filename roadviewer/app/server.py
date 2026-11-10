@@ -1748,12 +1748,14 @@ def archive_preferences_api():
     archiver.missing.clear();archiver.empty.clear()
     archiver.last_auth_error=None
    archiver.needs_activation |= rebuild or updated.enabled and not archive_settings.enabled
+   fill_tracks=updated.gdrive_fill_tracks and not archive_settings.gdrive_fill_tracks
    archive_settings=updated
    store.settings=archiver.settings=updated
    if archiver.remote:backend.settings=updated
    store.invalidate();store.forget_index()
    archive_settings_error=None
    archiver.settings_changed.set()  # Reset the deadline; saving never starts work.
+   if fill_tracks:track_backfill.wake.set()  # Drive maps turned on: the first pass starts now, not after the hour.
    return jsonify(archive_preferences())
  finally:archiver.cycle.release()
 
@@ -1770,6 +1772,20 @@ def run_archive():
  job=archiver.start_manual()
  if job is None:return jsonify(error='archive_running'),409
  return jsonify(started=True,manual=job),202
+@app.route('/api/settings/archive/tracks/run',methods=['GET','POST'])
+def run_track_fill():
+ # 'Drive 로그 지도 채우기' once (gps_track.TrackBackfill): GET is its status (also in the storage block's
+ # archive.track_fill); POST starts one pass over the Drive-only logs that still need a route, setting on or off.
+ # Drive is only read. Never two passes at once: a pass already under way (the setting's) becomes this one.
+ if request.method=='GET':return jsonify(track_fill=track_backfill.status())
+ if not remote_backend():return jsonify(error='gdrive_not_selected'),409
+ if not track_backfill.request_run():return jsonify(error='track_fill_running',track_fill=track_backfill.status()),409
+ return jsonify(started=True,track_fill=track_backfill.status()),202
+@app.route('/api/settings/archive/tracks/stop',methods=['POST'])
+def stop_track_fill():
+ # Stops after the log being read; the downloaded copy is removed as always.
+ track_backfill.request_stop()
+ return jsonify(track_fill=track_backfill.status())
 connection=None;connection_lock=threading.Lock()
 FOLDER_REASONS=('folder_missing','folder_trashed','storage_id_mismatch')
 def drive_connection():

@@ -1,13 +1,15 @@
 """GPS routes for the maps (gps_track.py): real fixes only, 1 Hz on the replay timeline, stored per conversion, filled in
-once for older logs (local or NAS only, never Drive) and served only by the two map endpoints, never by the list.
+once for older logs (local or NAS; Google Drive only when asked, read-only) and served only by the two map endpoints, never by the list.
 The fixture is synthetic: a made-up straight drive, never a real position."""
-import gzip,gzip,json,math,os,sys,tempfile,unittest
+import gzip,hashlib,json,math,os,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parent))
-from test_media_integration import make_log,make_nas,PEER  # Sets RV_DATA and imports the server module.
+from test_media_integration import make_log,make_nas,PEER,HEADERS  # Sets RV_DATA and imports the server module.
+from fake_drive import FakeDrive
 import zstandard
 import server,decoder,gps_track,media_store
+import archive_backends as ab
 
 BASE_LAT,BASE_LON=10.0,20.0  # Synthetic, in open ocean.
 def gps(mono,lat,lon,kind='gpsLocationExternal',fix=True,valid=True,accuracy=4.0,speed=12.5,bearing=0.0):
@@ -172,5 +174,163 @@ class ApiTests(Case):
   self.assertEqual(len(self.get('/api/tracks?ids='+a1.name).json['routes']),1)
   # Only through Ingress, as every other page API.
   self.assertEqual(self.client.get('/api/tracks',environ_overrides={'REMOTE_ADDR':'10.0.0.5'}).status_code,403)
+
+class Clock:
+ def __init__(self):self.now=1000.0
+ def __call__(self):return self.now
+
+class DriveFillTests(Case):
+ """Logs whose rlog is only on Google Drive (tests/fake_drive.py): read only when asked, read-only, the download
+ deleted at once; a sign-in problem marks nothing, a network error backs off, three failures skip the log."""
+ def setUp(self):
+  super().setUp()
+  self.drive=FakeDrive().start();self.addCleanup(self.drive.stop)
+  env=patch.dict(os.environ,self.drive.env());env.start();self.addCleanup(env.stop)
+  self.http=ab.Http(sleep=lambda seconds:None,rand=lambda:0.0)
+  auth=self.auth();auth.start_device_flow();self.assertEqual(auth.poll_once(),'granted')
+  settings=self.settings(False);auth=self.auth()
+  self.backend=ab.DriveBackend(settings,self.root,auth,ab.DriveClient(self.http,auth))
+  for name,value in (('backend',self.backend),('store',media_store.ArchiveStore(settings,self.root))):
+   patcher=patch.object(server,name,value);patcher.start();self.addCleanup(patcher.stop)
+  patcher=patch.object(server,'archiver',media_store.Archiver(server,server.store,settings,backend=self.backend));patcher.start();self.addCleanup(patcher.stop)
+  self.backend.activate();self.assertEqual(self.backend.probe(),('connected',None))
+  with self.drive.lock:self.writes_before=len(self.writes())
+  self.clock=Clock()
+ def auth(self):return ab.DriveAuth(self.root/'.gdrive-auth.json','client-id','secret',self.http)
+ def settings(self,fill):
+  # The add-on's archive settings with the switch on or off (the backend reads its own copy for enabled).
+  settings=media_store.ArchiveSettings(enabled=True,backend='gdrive',gdrive_client_id='client-id',gdrive_fill_tracks=fill)
+  patcher=patch.object(server,'archive_settings',settings);patcher.start();self.addCleanup(patcher.stop)
+  if hasattr(self,'backend'):self.backend.settings=settings
+  return settings
+ def fill_worker(self,busy=False):
+  class List:
+   def busy(self):return busy
+  return gps_track.TrackBackfill(server,List(),pause=0,clock=self.clock)
+ def writes(self):
+  # Every request that could change something on Drive (sign-in requests aside).
+  return [r for r in self.drive.requests if r['method']!='GET' and r['path'].split('?')[0] not in ('/token','/device/code','/revoke')]
+ def downloads(self):
+  with self.drive.lock:return [r for r in self.drive.requests if 'alt=media' in r['path']]
+ def drive_log(self,id,name,content=None):
+  """A converted log as 1.1.1 left it once its rlog was moved to Drive: version 2, has_track false, no track_read."""
+  p=converted(self.root,id,self.events(),name);expected=gps_track.read(p/'prepared');self.forget(p)
+  summary=p/'prepared/summary.json'
+  summary.write_text(json.dumps({**json.loads(summary.read_text()),'track_v':gps_track.TRACK_V,'has_track':False,'track_distance_m':None,'track_bbox':None}))
+  content=(p/'rlog.zst').read_bytes() if content is None else content
+  with self.drive.lock:
+   self.drive.file_count+=1;fid='f%d'%self.drive.file_count
+   self.drive.files[fid]={'name':p.name+'--rlog.zst','mimeType':'application/octet-stream','parents':[self.backend.auth.folder_id],
+                          'appProperties':{'rv_storage_id':self.backend.storage_id(),'rv_id':p.name,'rv_kind':'rlog.zst'},'content':content,'trashed':False,
+                          'md5':hashlib.md5(content).hexdigest(),'sha256':hashlib.sha256(content).hexdigest()}
+  m=server.read_meta(p);media_store.set_location(m,'rlog.zst',location='gdrive',file_id=fid,bytes=len(content),sha256=hashlib.sha256(content).hexdigest(),archived_at=1.0);server.save_meta(p,m)
+  (p/'rlog.zst').unlink()
+  return p,expected,fid
+ def summary(self,p):return json.loads((p/'prepared/summary.json').read_text())
+ def counts(self,worker):
+  s=worker.status();return {k:s[k] for k in ('total','done','failed','pending')}
+ def post(self,url,**kw):return self.client.post(url,environ_overrides=PEER,headers=HEADERS,**kw)
+ def test_off_never_downloads_on_fills_read_only_and_deletes_the_download(self):
+  p,expected,fid=self.drive_log('a'*32,'0000041b--c6f39793a8--1')
+  with self.drive.lock:before=json.dumps(self.drive.files[fid],default=repr)
+  meta_before=server.read_meta(p)['storage']
+  worker=self.fill_worker()
+  self.assertFalse(worker.run_once());self.assertEqual(self.downloads(),[])  # Off (the default): Drive is not read.
+  self.assertFalse(self.summary(p)['has_track']);self.assertEqual(self.counts(worker),{'total':1,'done':0,'failed':0,'pending':1})
+  self.settings(True);seen=[]
+  real=gps_track.TrackBackfill.read
+  def read(worker_self,q,rlog):
+   seen.append(Path(rlog));self.assertTrue(Path(rlog).is_file());self.assertTrue(Path(rlog).parent.name.startswith('.track-'))
+   self.assertEqual(Path(rlog).parent.parent,self.root);return real(worker_self,q,rlog)
+  with patch.object(gps_track.TrackBackfill,'read',read):self.assertFalse(worker.run_once())
+  self.assertEqual(gps_track.read(p/'prepared'),expected)  # The same route as a conversion would have kept.
+  s=self.summary(p);self.assertEqual((s['has_track'],s['track_read']),(True,True));self.assertNotIn(gps_track.FAILURES,s)
+  self.assertEqual(len(seen),1);self.assertFalse(seen[0].exists());self.assertEqual(list(self.root.glob('.track-*')),[])  # Deleted at once.
+  self.assertFalse((p/'rlog.zst').exists())
+  # Read-only: no request that writes, the Drive file and the archive index as they were.
+  with self.drive.lock:self.assertEqual(len(self.writes()),self.writes_before);self.assertEqual(json.dumps(self.drive.files[fid],default=repr),before)
+  self.assertEqual(server.read_meta(p)['storage'],meta_before)
+  self.assertEqual(self.counts(worker),{'total':1,'done':1,'failed':0,'pending':0})
+  self.assertFalse(worker.run_once());self.assertEqual(len(self.downloads()),1)  # Once.
+ def test_a_sign_in_problem_marks_nothing_and_is_tried_again(self):
+  p,expected,_=self.drive_log('b'*32,'0000041b--c6f39793a8--1');self.settings(True);before=self.summary(p)
+  worker=self.fill_worker()
+  with self.drive.lock:self.drive.scenario.fail_next('/drive/v3/files/'+self.backend.auth.folder_id,401,'authError',times=4)
+  self.backend.invalidate()
+  self.assertFalse(worker.run_once())  # Stopped until the next run: no back-off loop for something only the user can fix.
+  self.assertEqual(self.summary(p),before);self.assertEqual(self.downloads(),[])
+  self.assertEqual(worker.status()['last_error'],'auth_expired')
+  with self.drive.lock:self.drive.scenario.failures.clear()
+  self.backend.invalidate()
+  self.assertFalse(worker.run_once());self.assertEqual(gps_track.read(p/'prepared'),expected);self.assertIsNone(worker.status()['last_error'])
+ def test_network_errors_back_off(self):
+  p,expected,_=self.drive_log('c'*32,'0000041b--c6f39793a8--1');self.settings(True);before=self.summary(p)
+  worker=self.fill_worker()
+  with self.drive.lock:self.drive.scenario.fail_next('alt=media',503,'backendError',times=100)
+  self.assertTrue(worker.run_once())  # Tried again later.
+  self.assertEqual(self.summary(p),before);status=worker.status()
+  self.assertEqual(status['last_error'],'network');self.assertGreaterEqual(status['retry_in'],60);self.assertEqual(list(self.root.glob('.track-*')),[])
+  asked=len(self.downloads())
+  self.assertTrue(worker.run_once());self.assertEqual(len(self.downloads()),asked)  # Backing off: Drive is not asked.
+  with self.drive.lock:self.drive.scenario.failures.clear()
+  self.clock.now+=worker.BACKOFF_MAX+1
+  self.assertFalse(worker.run_once());self.assertEqual(gps_track.read(p/'prepared'),expected)
+ def test_three_failed_reads_skip_the_log_and_a_log_gone_from_drive_has_no_track(self):
+  bad,_,_=self.drive_log('d'*32,'0000041b--c6f39793a8--1',content=b'not a log')
+  gone,_,fid=self.drive_log('e'*32,'0000041b--c6f39793a8--2')
+  with self.drive.lock:del self.drive.files[fid]
+  self.settings(True);worker=self.fill_worker()
+  for n in range(1,4):
+   self.assertFalse(worker.run_once());self.assertEqual(self.summary(bad)[gps_track.FAILURES],n)
+   self.assertEqual(list(self.root.glob('.track-*')),[])
+  self.assertFalse(self.summary(bad)['has_track'])
+  s=self.summary(gone);self.assertEqual((s['has_track'],s['track_read']),(False,True))
+  asked=len(self.downloads());self.assertFalse(worker.run_once());self.assertEqual(len(self.downloads()),asked)  # Skipped now.
+  self.assertEqual(self.counts(worker),{'total':2,'done':1,'failed':1,'pending':0})
+ def test_waits_while_busy(self):
+  p,_,_=self.drive_log('f'*32,'0000041b--c6f39793a8--1');self.settings(True)
+  worker=self.fill_worker(busy=True)
+  self.assertTrue(worker.run_once());self.assertEqual(self.downloads(),[])
+  status=worker.status();self.assertEqual((status['running'],status['waiting']),(True,'busy'))
+  self.assertFalse(self.summary(p)['has_track'])
+ def test_run_once_with_the_switch_off_stop_and_no_second_pass(self):
+  a,expected,_=self.drive_log('1'*32,'0000041b--c6f39793a8--1');b,_,_=self.drive_log('2'*32,'0000041b--c6f39793a8--2')
+  worker=self.fill_worker()
+  with patch.object(server,'track_backfill',worker):
+   r=self.post('/api/settings/archive/tracks/run')
+   self.assertEqual(r.status_code,202);self.assertTrue(r.json['track_fill']['manual']);self.assertTrue(worker.wake.is_set())
+   r=self.post('/api/settings/archive/tracks/run')
+   self.assertEqual((r.status_code,r.json['error']),(409,'track_fill_running'))  # Never two passes.
+   # Stopped during the first log: the other one waits.
+   real=gps_track.TrackBackfill.process_drive
+   def process_drive(worker_self,p,m):
+    real(worker_self,p,m);self.assertTrue(self.post('/api/settings/archive/tracks/stop').json['track_fill']['stopping'])
+   with patch.object(gps_track.TrackBackfill,'process_drive',process_drive):self.assertFalse(worker.run_once())
+   self.assertEqual(sum(self.summary(q)['has_track'] for q in (a,b)),1);self.assertFalse(worker.status()['manual'])
+   self.assertFalse(worker.run_once());self.assertEqual(sum(self.summary(q)['has_track'] for q in (a,b)),1)  # Off: nothing more.
+   # Once more: the rest, then it stops (the switch is still off).
+   self.assertEqual(self.post('/api/settings/archive/tracks/run').status_code,202)
+   self.assertFalse(worker.run_once());self.assertTrue(all(self.summary(q)['has_track'] for q in (a,b)))
+   self.assertEqual(gps_track.read(a/'prepared'),expected)
+   status=self.client.get('/api/settings/archive/tracks/run',environ_overrides=PEER).json['track_fill']
+   self.assertEqual((status['manual'],status['running'],status['done'],status['total']),(False,False,2,2))
+ def test_the_setting_persists_and_the_storage_block_shows_progress(self):
+  p,_,_=self.drive_log('3'*32,'0000041b--c6f39793a8--1')
+  worker=self.fill_worker();worker.scan()
+  with patch.object(server,'track_backfill',worker):
+   r=self.client.get('/api/settings/archive',environ_overrides=PEER);self.assertIs(r.json['archive_gdrive_fill_tracks'],False)
+   r=self.post('/api/settings/archive',json={'archive_gdrive_fill_tracks':True})
+   self.assertEqual(r.status_code,200,r.json);self.assertIs(r.json['archive_gdrive_fill_tracks'],True)
+   self.assertTrue(worker.wake.is_set())  # Turned on: the first pass starts now.
+   self.assertIs(json.loads((self.root/'.archive-settings.json').read_text())['archive_gdrive_fill_tracks'],True)
+   import archive_settings as archive_config
+   self.assertTrue(archive_config.load(self.root,{})[0].gdrive_fill_tracks)  # As after a restart.
+   self.assertEqual(self.post('/api/settings/archive',json={'archive_gdrive_fill_tracks':'yes'}).status_code,400)
+   block=self.client.get('/api/settings/storage',environ_overrides=PEER).json['archive']['track_fill']
+   self.assertEqual((block['enabled'],block['total'],block['done'],block['pending']),(True,1,0,1))
+   self.assertFalse(worker.run_once())
+   block=self.client.get('/api/settings/storage',environ_overrides=PEER).json['archive']['track_fill']
+   self.assertEqual((block['done'],block['pending'],block['running']),(1,0,False))
+  self.assertNotIn(str(BASE_LON),self.client.get('/api/logs',environ_overrides=PEER).get_data(as_text=True))
 
 if __name__=='__main__':unittest.main()
