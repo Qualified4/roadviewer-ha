@@ -4,6 +4,15 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.32
+
+- The replay's back button ripples from the touch at once, and the list replaces the replay at least 200 ms after the press so it is seen (immediately with reduced motion).
+- Press ripples are crisp circles on buttons, tabs and menu items; only large card and panel headers keep the soft-edged wave.
+- The replay's play and frame-step buttons and the list's 재생 glow while pressed and fade out over 350 ms instead of rippling; Space and ←/→ light them too, and the card no longer ripples around the list's 재생.
+- The list's ⋯ buttons fill from the press and morph into ✕ like the replay's, and their menus grow out of the button; ⋯ buttons get a faint mouse hover (none on touch).
+- Pin buttons (replay and list) fill with the pin colour from the press when pinned and fade out when unpinned.
+- In the light theme the chosen bottom tab shows a bright mint icon and a lighter green label.
+
 ## 1.0.31
 
 - The replay's ⋯, 보기 and 레이어 menu buttons fill from where they were pressed when their menu opens (300 ms; from the middle when opened by keyboard) and the fill fades out in 200 ms on close. These buttons skip the separate press ripple.

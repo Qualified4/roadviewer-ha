@@ -82,7 +82,7 @@ async function checkRemovalRefresh(browser){
   const more=page.locator('.log-row .recording-more>summary');
   assert.equal(await page.getByRole('button',{name:'제거',exact:true}).isVisible(),false);
   assert.equal(await page.getByRole('link',{name:'영상 다운로드',exact:true}).isVisible(),false);
-  await more.click();assert(await page.getByRole('button',{name:'제거',exact:true}).isVisible());
+  await more.click();await page.getByRole('button',{name:'제거',exact:true}).waitFor({timeout:2000});
   assert((await page.getByRole('link',{name:'영상 다운로드',exact:true}).getAttribute('href')).endsWith('/download/video'));
   await page.evaluate(()=>refresh());assert(await page.locator('.log-row .recording-more').evaluate(e=>e.open),'polling keeps menu open');
   await page.keyboard.press('Escape');assert.equal(await page.locator('.log-row .recording-more').evaluate(e=>e.open),false);

@@ -160,13 +160,14 @@ function showUploadPill(percent){
 }
 
 const svgIcon=(d,size=18,fill=false)=>`<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="${fill?'currentColor':'none'}" stroke="${fill?'none':'currentColor'}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
-const MORE_ICON=svgIcon('<circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/>',18,true),PLAY_ICON=svgIcon('<path d="M7 4v16l13-8Z"/>',13,true);
+// ⋯ that morphs into ✕ while its menu is open (the replay's ⋯, style.css/motion.css).
+const MORE_ICON='<svg class="icon-more" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle class="more-dot more-dot-l" cx="5" cy="12" r="1.8"/><circle class="more-dot" cx="12" cy="12" r="1.8"/><circle class="more-dot more-dot-r" cx="19" cy="12" r="1.8"/><g class="more-x"><line x1="12" y1="12" x2="4.15" y2="4.15" pathLength="1"/><line x1="12" y1="12" x2="19.85" y2="19.85" pathLength="1"/><line x1="12" y1="12" x2="19.85" y2="4.15" pathLength="1"/><line x1="12" y1="12" x2="4.15" y2="19.85" pathLength="1"/></g></svg>',PLAY_ICON=svgIcon('<path d="M7 4v16l13-8Z"/>',13,true);
 const PIN_ICON='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="pin-head" d="M9 4h6l-1 6 4 4H6l4-4Z"/><path d="M12 14v7"/></svg>';
 const CAMERA_ICON=svgIcon('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',20);
 // A menu of further actions: only one is open at a time; Escape and outside clicks close it.
 function moreMenu(label){
  const more=document.createElement('details');more.className='recording-more';
- const toggle=document.createElement('summary');toggle.setAttribute('aria-label',label);toggle.title=label;toggle.innerHTML=MORE_ICON;
+ const toggle=document.createElement('summary');toggle.setAttribute('aria-label',label);toggle.title=label;toggle.dataset.noRipple='';toggle.dataset.fill='';toggle.innerHTML=MORE_ICON;
  const menu=document.createElement('div');menu.className='recording-menu';
  more.append(toggle,menu);
  more.addEventListener('toggle',()=>{if(more.open)document.querySelectorAll('.recording-more[open]').forEach(other=>{if(other!==more)other.open=false})});
@@ -180,7 +181,7 @@ function recordingActions(m){
  const actions=document.createElement('div');actions.className='actions';
  const {more,menu}=moreMenu('추가 작업');
  if(m.status==='ready'){
-  const replay=document.createElement('a');replay.className='replay';replay.href=`view/${m.id}/`;replay.innerHTML=PLAY_ICON;replay.append('재생');actions.append(replay);
+  const replay=document.createElement('a');replay.className='replay';replay.dataset.glow='';replay.href=`view/${m.id}/`;replay.innerHTML=PLAY_ICON;replay.append('재생');actions.append(replay);
  }
  const waiting=m.status==='processing',removing=m.status==='ready'||m.status==='queued';
  const conversion=document.createElement('button');conversion.type='button';
@@ -214,9 +215,9 @@ const firstReady=group=>group.logs.filter(log=>log.status==='ready').sort((a,b)=
 function routeActions(group){
  const actions=document.createElement('div');actions.className='actions';
  const ready=firstReady(group);
- if(ready){const replay=document.createElement('a');replay.className='replay';replay.href=`view/${ready.id}/`;replay.innerHTML=PLAY_ICON;replay.append('재생');actions.append(replay)}
+ if(ready){const replay=document.createElement('a');replay.className='replay';replay.dataset.glow='';replay.href=`view/${ready.id}/`;replay.innerHTML=PLAY_ICON;replay.append('재생');actions.append(replay)}
  else{const own=recordingActions(group.firstLog),primary=own.querySelector(':scope>button');if(primary)actions.append(primary)}
- const pin=document.createElement('button');pin.type='button';pin.className='pin-recording';
+ const pin=document.createElement('button');pin.type='button';pin.className='pin-recording';pin.dataset.noRipple='';pin.dataset.fill='';
  const allPinned=group.logs.every(log=>log.pinned),pinnedCount=group.logs.filter(log=>log.pinned).length,partial=!allPinned&&pinnedCount>0;
  pin.title=partial?`${pinnedCount}/${group.logs.length}개 구간 고정됨 · 전체 구간 고정`:allPinned?'전체 구간 고정 해제':'전체 구간 고정';pin.setAttribute('aria-label',pin.title);pin.setAttribute('aria-pressed',partial?'mixed':String(allPinned));pin.disabled=!!group.pinning;
  pin.innerHTML=PIN_ICON;pin.onclick=()=>pinLogGroup(group,!allPinned);actions.append(pin);

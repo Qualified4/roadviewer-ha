@@ -366,6 +366,8 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
  }
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
  data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;t=0;const source=setupVideoSources();if(source){selectVideo(source)}else{videoSource=null;setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
+// Transport presses glow and fade instead of rippling ([data-glow], ripple.js); the keys light their buttons too.
+const flash=button=>window.rvGlow?.(button);
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
 // Mouse and pen drag the native slider. Touch is driven from touch events on the whole seek bar: the browser's default
 // (page scroll, the native slider, and the pointercancel an Android WebView sends when it claims the gesture) is
@@ -401,7 +403,7 @@ v.addEventListener('canplay',()=>{last=performance.now()});
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error)startWholeVideo();if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();playLabel(true);syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration)pause()}};v.onerror=videoError;
 for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','ccncRoad','laneMarking','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Space and arrows keep their own meaning on focused controls, links and menus.
-document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();toggle()}if(e.code==='ArrowLeft'){e.preventDefault();step(-1)}if(e.code==='ArrowRight'){e.preventDefault();step(1)}};
+document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();flash($('play'));toggle()}if(e.code==='ArrowLeft'){e.preventDefault();flash($('prev'));step(-1)}if(e.code==='ArrowRight'){e.preventDefault();flash($('next'));step(1)}};
 // The road map is not on the video, so its colours follow the screen mode. Dark values equal the original palette;
 // literal colours shared with the video overlay are translated here only.
 const MAP_TONES={'#57d9b0':'lane','#ff5c5c':'edge','#c4a5ff':'path','#81b5ff':'lead','#c5daff':'lead-text','#eee7bc':'selected','#78e9fa':'raw','#4aaaff':'ccnc','#8deeff':'ccnc-ff','#d09aff':'center','#ffda76':'left','#ff91b5':'right','#eef3f8':'white','#8b97a6':'gray','#ff9f43':'orange','#4cd964':'green','#62ed9e':'band','#edf7ff':'band-white','#55b9ff':'blue','#ffa65a':'band-orange','#ff6175':'red','#7be5ff':'target'};
@@ -1312,13 +1314,6 @@ function placeReplayMenu(details){
  menu.style.maxHeight=(opensAbove?above:below)+'px';
 }
 const placeReplayMenus=()=>replayMenus.forEach(placeReplayMenu);
-// The open fill ripples out from where the button was pressed (motion.css); a keyboard press starts from the middle.
-for(const details of replayMenus){
- const summary=details.querySelector('summary');
- const origin=(x,y)=>{const b=summary.getBoundingClientRect();summary.style.setProperty('--fill-x',x+'px');summary.style.setProperty('--fill-y',y+'px');summary.style.setProperty('--fill-r',Math.ceil(Math.hypot(Math.max(x,b.width-x),Math.max(y,b.height-y)))+'px')};
- summary.addEventListener('pointerdown',e=>{if(details.open)return;const b=summary.getBoundingClientRect();origin(e.clientX-b.left,e.clientY-b.top)});
- summary.addEventListener('keydown',e=>{if(!details.open&&(e.key==='Enter'||e.key===' ')){const b=summary.getBoundingClientRect();origin(b.width/2,b.height/2)}});
-}
 for(const details of replayMenus)details.addEventListener('toggle',()=>{if(details.open)for(const other of replayMenus)if(other!==details)other.open=false;placeReplayMenu(details)});
 window.addEventListener('resize',placeReplayMenus);
 window.addEventListener('scroll',placeReplayMenus,{passive:true});

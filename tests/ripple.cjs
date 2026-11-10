@@ -22,7 +22,7 @@ const replay={route:'ripple',key:'ripple',duration:1,warnings:[],video:null,fram
    // Install the observer first (awaited), then press, then collect: avoids a race where the press beats the observer.
    const watch=async selector=>{await page.evaluate(sel=>{window.__rvWatch=new Promise(done=>{
     const el=document.querySelector(sel),seen={wave:null,dimmed:false,overflow:getComputedStyle(el).overflow};
-    const check=()=>{const layer=el.querySelector(':scope>.rv-ripple');if(layer&&!seen.wave){const w=layer.firstElementChild.getBoundingClientRect(),b=el.getBoundingClientRect(),l=getComputedStyle(layer);seen.wave={clip:l.overflow,radius:l.borderRadius===getComputedStyle(el).borderRadius,inside:(r=>r.left>=b.left&&r.right<=b.right&&r.top>=b.top&&r.bottom<=b.bottom&&r.width>=b.width-4)(layer.getBoundingClientRect()),animation:getComputedStyle(layer.firstElementChild).animationName,centre:[w.left+w.width/2-b.left,w.top+w.height/2-b.top]}}if(el.classList.contains('rv-pressed'))seen.dimmed=true};
+    const check=()=>{const layer=el.querySelector(':scope>.rv-ripple');if(layer&&!seen.wave){const w=layer.firstElementChild.getBoundingClientRect(),b=el.getBoundingClientRect(),l=getComputedStyle(layer);seen.wave={clip:l.overflow,radius:l.borderRadius===getComputedStyle(el).borderRadius,inside:(r=>r.left>=b.left&&r.right<=b.right&&r.top>=b.top&&r.bottom<=b.bottom&&r.width>=b.width-4)(layer.getBoundingClientRect()),animation:getComputedStyle(layer.firstElementChild).animationName,soft:getComputedStyle(layer.firstElementChild).backgroundImage!=='none',centre:[w.left+w.width/2-b.left,w.top+w.height/2-b.top]}}if(el.classList.contains('rv-pressed'))seen.dimmed=true};
     new MutationObserver(check).observe(el,{childList:true,attributes:true,attributeFilter:['class']});
     setTimeout(()=>{check();done({...seen,left:!!el.querySelector('.rv-ripple'),after:getComputedStyle(el).overflow})},1100);
    })},selector);return ()=>page.evaluate(()=>window.__rvWatch)};
@@ -36,20 +36,26 @@ const replay={route:'ripple',key:'ripple',duration:1,warnings:[],video:null,fram
     assert(seen.wave,'ripple appears inside the pressed button');
     assert.equal(seen.wave.clip,'hidden');assert(seen.wave.radius&&seen.wave.inside,'ripple layer is clipped to the button shape');
     assert.equal(seen.wave.animation,'rv-ripple');
+    assert.equal(seen.wave.soft,false,'buttons get a crisp circle');
     assert(Math.abs(seen.wave.centre[0]-10)<2,'ripple starts at the pointer: '+seen.wave.centre);
    }
    assert.equal(seen.left,false,'ripple is removed afterwards');assert.equal(seen.after,seen.overflow,'host overflow untouched');
    await page.locator('.bookmark-close').click();await page.locator('.bookmark-dialog').waitFor({state:'hidden'});
    await page.waitForFunction(()=>document.body.style.overflow!=='hidden');
    // Keyboard: ripple from the centre.
-   await page.locator('#prev').focus();pending=await watch('#prev');await page.keyboard.press('Enter');seen=await (await pending)();
-   if(!reduced){const b=await page.locator('#prev').boundingBox();assert(Math.abs(seen.wave.centre[0]-b.width/2)<1.5&&Math.abs(seen.wave.centre[1]-b.height/2)<1.5,'keyboard ripple starts at the centre')}
+   await page.locator('#roadTab').focus();pending=await watch('#roadTab');await page.keyboard.press('Enter');seen=await (await pending)();
+   if(!reduced){const b=await page.locator('#roadTab').boundingBox();assert(Math.abs(seen.wave.centre[0]-b.width/2)<1.5&&Math.abs(seen.wave.centre[1]-b.height/2)<1.5,'keyboard ripple starts at the centre')}
    assert.equal(seen.left,false);
-   // Mint primary: white wave.
-   if(!reduced){
-    pending=page.evaluate(()=>new Promise(done=>{const el=document.getElementById('play');new MutationObserver((_,o)=>{const w=el.querySelector('.rv-ripple>span');if(w){o.disconnect();done(getComputedStyle(w).color)}}).observe(el,{childList:true})}));
-    await page.locator('#play').click();assert.equal(await pending,'rgb(255, 255, 255)','white ripple on the mint play button');await page.locator('#play').click();
+   // Transport buttons glow instead of rippling: lit at once while pressed, fading out after release; keys light them too.
+   const glow=sel=>page.evaluate(sel=>new Promise(done=>{const el=document.querySelector(sel),seen={lit:false,filter:'none',wave:false};
+    const o=new MutationObserver(()=>{if(el.classList.contains('is-lit')&&!seen.lit){seen.lit=true;requestAnimationFrame(()=>requestAnimationFrame(()=>seen.filter=getComputedStyle(el).filter))}seen.wave||=!!el.querySelector('.rv-ripple')});
+    o.observe(el,{attributes:true,attributeFilter:['class'],childList:true});setTimeout(()=>{o.disconnect();done({...seen,after:el.classList.contains('is-lit')})},700)}),sel);
+   for(const [sel,act] of [['#play',()=>page.locator('#play').click()],['#next',()=>page.locator('#next').click()],['#prev',async()=>{await page.evaluate(()=>document.activeElement.blur());await page.keyboard.press('ArrowLeft')}]]){
+    const pending=glow(sel);await act();const seen=await pending;
+    assert(seen.lit&&!seen.wave&&!seen.after,sel+' glows (no ripple) and fades: '+JSON.stringify(seen));
+    if(!reduced)assert.match(seen.filter,sel==='#play'?/brightness.*drop-shadow/:/drop-shadow/,sel+' glow');
    }
+   if(await page.evaluate(()=>playing))await page.locator('#play').click();
    // None on the time toggle or a disabled button.
    const none=await page.evaluate(()=>{const fire=el=>{const r=el.getBoundingClientRect();el.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:r.left+2,clientY:r.top+2,button:0}));return !!el.querySelector('.rv-ripple')};
     const off=document.createElement('button');off.disabled=true;off.textContent='x';document.body.append(off);const result=[fire(document.getElementById('time')),fire(off)];off.remove();return result});
@@ -58,6 +64,9 @@ const replay={route:'ripple',key:'ripple',duration:1,warnings:[],video:null,fram
    await page.addScriptTag({url:'https://rv.test/assets/ripple.js'});
    const count=await page.evaluate(()=>{const b=document.getElementById('bookmarkOpen'),r=b.getBoundingClientRect();b.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:r.left+2,clientY:r.top+2,button:0}));return b.querySelectorAll('.rv-ripple').length});
    assert.equal(count,reduced?0:1,'a single ripple per press');
+   // Card headers keep the soft-edged wave.
+   if(!reduced)assert.equal(await page.evaluate(()=>{const d=document.createElement('details');d.className='log-route';d.innerHTML='<summary>카드</summary>';document.body.append(d);const s=d.firstChild,r=s.getBoundingClientRect();
+    s.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,clientX:r.left+5,clientY:r.top+5,button:0}));const w=s.querySelector('.rv-ripple>span');const soft=!!w&&getComputedStyle(w).backgroundImage.includes('radial-gradient');d.remove();return soft}),true,'card headers keep a soft wave');
    // Library page loads it too.
    await page.goto('https://rv.test/');await page.waitForFunction(()=>window.rvRipple===true);
    assert.deepEqual(errors,[]);await context.close();

@@ -110,7 +110,15 @@ http.serve_forever()
    await page.goBack();await page.waitForURL(base+'view/'+ids[0]+'/');await page.waitForFunction(()=>document.getElementById('route').textContent==='first');
    assert.deepEqual(await page.evaluate(()=>liveMorphs),[],'replay-to-replay navigation does not morph even with motion enabled');
    await page.waitForFunction(leftAt=>Math.abs(scrollY-leftAt)<1,leftAt);
-   await page.locator('.back').click();await page.waitForURL(base);await page.locator('.log-row .replay').first().waitFor();
+   // The back link shows its press at once (no touch delay) and the list replaces the replay only after PRESS_HOLD,
+   // although the library is already prefetched, so the wave is seen.
+   await page.evaluate(()=>{window.backTap={};const b=document.querySelector('.app-bar .back');
+    b.addEventListener('pointerdown',()=>setTimeout(()=>backTap.wave=!!b.querySelector('.rv-ripple'),0),{once:true});b.addEventListener('click',()=>backTap.at=performance.now(),{once:true});
+    const push=history.pushState;history.pushState=function(...a){backTap.swap=performance.now()-backTap.at;history.pushState=push;return push.apply(history,a)}});
+   if(width<1200)await page.locator('.app-bar .back').tap();else await page.locator('.app-bar .back').click();
+   await page.waitForURL(base);await page.locator('.log-row .replay').first().waitFor();
+   const backTap=await page.evaluate(()=>backTap);
+   assert(backTap.wave,'the back link ripples as soon as it is touched');assert(backTap.swap>=190,'the list replaces the replay after the press shows: '+backTap.swap);
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
    assert.deepEqual(await page.evaluate(()=>liveMorphs),[],'returning to the library does not morph');
    await page.waitForFunction(()=>pendingFrames.size===0);assert.equal(await page.evaluate(()=>pendingFrames.size),0,'departed replay RAF loop is cancelled');
