@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.36
+
+- The play buttons glow less: the green haze under the button at rest is gone, and the light on press is about half as strong, in the log list and on the replay screen alike.
+- The device upload API and AppArmor security documents open with a table of contents.
+
 ## 1.0.35
 
 - Unfolding a route card in the log list no longer turns the card's ⋯ button into ✕; it becomes ✕ only while its menu is open.

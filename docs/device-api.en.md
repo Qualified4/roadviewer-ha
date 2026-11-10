@@ -1,8 +1,27 @@
 # Road Viewer device upload API v1
 
+<!-- toc -->
+**Contents**
+
+- [Deployment and HTTPS](#deployment-and-https)
+- [Pairing](#pairing)
+- [HMAC request authentication](#hmac-request-authentication)
+- [Batch/session creation](#batchsession-creation)
+- [Chunks and resume](#chunks-and-resume)
+- [Completion and cancellation](#completion-and-cancellation)
+- [Optional extension: streaming SHA-256](#optional-extension-streaming-sha-256)
+- [Revoke and authentication state](#revoke-and-authentication-state)
+- [Storage limits, reservations and Pin](#storage-limits-reservations-and-pin)
+- [Error handling](#error-handling)
+- [Tests](#tests)
+- [Testing without openpilot (PC / WSL)](#testing-without-openpilot-pc--wsl)
+- [HTML browser test page](#html-browser-test-page)
+- [Related documentation](#related-documentation)
+<!-- /toc -->
+
 [한국어](device-api.md) · English
 
-Implementation reference: **Road Viewer 1.0.35**.
+Implementation reference: **Road Viewer 1.0.36**.
 
 This repository provides the Road Viewer server and web UI. Compatible device uploaders are maintained separately. Existing browser uploads and Home Assistant Ingress remain supported. One Gunicorn worker with multiple threads is required; do not add workers/replicas sharing this data directory.
 
@@ -280,8 +299,8 @@ An OK result verifies the tested API/storage paths, not real video or log-decodi
 For the real TLS/Nginx/Gunicorn boundary, use Docker:
 
 ```bash
-docker build -t roadviewer:1.0.35 ./roadviewer
-docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:1.0.35 /tests/test_device_tls.py
+docker build -t roadviewer:1.0.36 ./roadviewer
+docker run --rm -v "$PWD/tests:/tests:ro" --entrypoint python roadviewer:1.0.36 /tests/test_device_tls.py
 ```
 
 The client trusts a temporary test certificate. Server and client communicate inside the container, so host port publication and router changes are unnecessary. Building needs network access; this does not validate your real DNS/NAT setup.

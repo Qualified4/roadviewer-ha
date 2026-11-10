@@ -1,5 +1,14 @@
 # AppArmor security policy
 
+<!-- toc -->
+**Contents**
+
+- [Docker baseline and additional restrictions](#docker-baseline-and-additional-restrictions)
+- [Validation](#validation)
+- [Offline checks and safe enforcement probes](#offline-checks-and-safe-enforcement-probes)
+- [Deployment and rollback](#deployment-and-rollback)
+<!-- /toc -->
+
 [한국어](apparmor-security.md) · English
 
 Road Viewer uses a dedicated `roadviewer/apparmor.txt`. Supervisor replaces the
