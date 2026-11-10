@@ -492,6 +492,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .route-thumb{flex:0 0 176px;width:176px;height:99px;border-radius:10px}
 .route-thumb img,.log-thumb img{position:absolute;inset:0;z-index:1;width:100%;height:100%;object-fit:cover}
 .thumb-placeholder{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);background:var(--raised)}
+.has-thumb>.thumb-placeholder{visibility:hidden}
 .route-duration{position:absolute;right:6px;bottom:6px;z-index:2;padding:1px 6px;border-radius:5px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-variant-numeric:tabular-nums}
 .route-duration[hidden]{display:none}
 .route-main{display:flex;flex-direction:column;gap:8px;flex:1 1 340px;min-width:0}
@@ -808,7 +809,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 @media(min-width:1024px),(min-width:600px) and (orientation:landscape){
  .log-map{--list-w:clamp(300px,30vw,380px);--map-right:calc(var(--list-w) + 28px)}
  .log-map.is-folded{--map-right:0px}
- .log-map .leaflet-top.leaflet-right{left:0;right:auto}.log-map .leaflet-bottom.leaflet-right{right:var(--map-right)}
+ .log-map .leaflet-top.leaflet-right{left:0;right:auto}.log-map .leaflet-bottom.leaflet-right{right:0}
  .log-map>.map-fold{display:inline-grid}
  .log-map-list{position:absolute;z-index:550;top:calc(24px + var(--fold-size));right:16px;display:flex;flex-direction:column;width:var(--list-w);max-height:calc(100% - 40px - var(--fold-size));border:1px solid var(--glass-border);border-radius:16px;overflow:hidden;background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);text-shadow:none;animation:rv-fold-in .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1))}
  .log-map.is-folded .log-map-list{display:none}
@@ -879,7 +880,9 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .drive-map-body{--sheet-h:54%;--map-right:0px;--map-bottom:var(--sheet-h);position:relative;flex:1;min-height:0}
 .drive-map-area{position:absolute;inset:0;isolation:isolate}
 .drive-map-canvas{position:absolute;inset:0}
-.drive-map-area .leaflet-right{right:var(--map-right)}.drive-map-area .leaflet-bottom{bottom:var(--map-bottom);transition:bottom .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+/* The attribution stays in the map's bottom-right corner whatever the sheet or the card column does (it used to ride on
+   top of the phone sheet and sit beside the column on wide screens). */
+.drive-map-area .leaflet-top.leaflet-right{right:var(--map-right)}.drive-map-area .leaflet-bottom{bottom:0}.drive-map-area .leaflet-bottom.leaflet-right{right:0}
 .drive-map-body.is-dragging .leaflet-bottom{transition:none}
 .drive-map-sheet{position:absolute;z-index:1;left:0;right:0;bottom:0;display:flex;flex-direction:column;height:var(--sheet-h);border:1px solid var(--glass-border);border-bottom:0;border-radius:16px 16px 0 0;background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);text-shadow:none;transition:height .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.drive-map-sheet{background:var(--glass-solid)}}
@@ -959,10 +962,10 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .drive-map-sheet{top:16px;max-height:calc(100% - 32px - env(safe-area-inset-bottom));animation:none;visibility:visible;transition:visibility 0s}
  .log-map-list-head,.drive-map-handle{box-sizing:border-box;height:30px;min-height:0;margin-top:calc((var(--fold-size) - 30px) / 2);display:inline-flex;align-items:center}
  .log-map.is-folded .log-map-list,.drive-map-body.is-folded .drive-map-sheet{display:flex;visibility:hidden;pointer-events:none;transition:visibility 0s .42s}
- .log-map-list-head,.drive-map-handle{transition:opacity .22s var(--m2-standard,ease)}
+ .log-map-list-head,.drive-map-handle{transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1))}
  .log-map.is-folded .log-map-list-head,.drive-map-body.is-folded .drive-map-handle{opacity:0}
- .log-map .log-map-rows>.map-list-row,.drive-map-body .drive-map-list>.log-row{--k:10;transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s}
- .log-map-rows>:nth-child(1),.drive-map-list>:nth-child(1){--k:0}.log-map-rows>:nth-child(2),.drive-map-list>:nth-child(2){--k:1}.log-map-rows>:nth-child(3),.drive-map-list>:nth-child(3){--k:2}.log-map-rows>:nth-child(4),.drive-map-list>:nth-child(4){--k:3}.log-map-rows>:nth-child(5),.drive-map-list>:nth-child(5){--k:4}.log-map-rows>:nth-child(6),.drive-map-list>:nth-child(6){--k:5}.log-map-rows>:nth-child(7),.drive-map-list>:nth-child(7){--k:6}.log-map-rows>:nth-child(8),.drive-map-list>:nth-child(8){--k:7}.log-map-rows>:nth-child(9),.drive-map-list>:nth-child(9){--k:8}.log-map-rows>:nth-child(10),.drive-map-list>:nth-child(10){--k:9}
+ .log-map .log-map-rows>.map-list-row,.drive-map-body .drive-map-list>.log-row{--k:0;transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s}
+ 
  .log-map.is-folded .log-map-rows>.map-list-row,.drive-map-body.is-folded .drive-map-list>.log-row{opacity:0;translate:28px 0;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
 }
 @media(prefers-reduced-motion:reduce){.log-map .log-map-rows>.map-list-row,.drive-map-body .drive-map-list>.log-row,.log-map-list-head,.drive-map-handle{transition:none}.log-map.is-folded .log-map-list,.drive-map-body.is-folded .drive-map-sheet{transition:none}}
@@ -971,7 +974,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 :is(.map-list-row,.log-map-card)[data-color=mint]{--tag-color:#65dfb9}:is(.map-list-row,.log-map-card)[data-color=blue]{--tag-color:#8cbcff}:is(.map-list-row,.log-map-card)[data-color=amber]{--tag-color:#f2c16f}:is(.map-list-row,.log-map-card)[data-color=violet]{--tag-color:#c2a1ff}:is(.map-list-row,.log-map-card)[data-color=rose]{--tag-color:#f2a4bd}:is(.map-list-row,.log-map-card)[data-color=cyan]{--tag-color:#75d9ef}:is(.map-list-row,.log-map-card)[data-color=lime]{--tag-color:#b9df78}:is(.map-list-row,.log-map-card)[data-color=coral]{--tag-color:#ffad92}:is(.map-list-row,.log-map-card)[data-color=indigo]{--tag-color:#9faaff}:is(.map-list-row,.log-map-card)[data-color=yellow]{--tag-color:#f5df7a}:is(.map-list-row,.log-map-card)[data-color=red]{--tag-color:#ff8c91}:is(.map-list-row,.log-map-card)[data-color=slate]{--tag-color:#acbbcc}
 /* Phones: the drive map's sheet dragged below its lowest height hides its cards (they slide down and fade, the reverse
    when they come back); only the handle stays over a full map. */
-.drive-map-body .drive-map-list>.log-row{--k:10}
+.drive-map-body .drive-map-list>.log-row{--k:0}
 @media not ((min-width:1024px) or ((min-width:600px) and (orientation:landscape))){
  .drive-map-body .drive-map-list>.log-row{transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s}
  .drive-map-body.is-sheet-hidden .drive-map-list{overflow:hidden;pointer-events:none}
@@ -998,12 +1001,9 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
    turns accent-coloured and a soft accent glow rises from the bottom edge, like a lit glass tab. */
 .log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child{
  border-color:var(--mark-border,var(--map-glass-border));
- border-top-color:transparent;border-bottom-color:transparent;
- background:linear-gradient(90deg,var(--mark-edge-base) 0%,color-mix(in srgb,var(--accent) var(--mark-rim),var(--mark-edge-base)) 50%,var(--mark-edge-base) 100%) top/100% 1px no-repeat border-box,
-  linear-gradient(90deg,var(--mark-edge-base) 0%,color-mix(in srgb,var(--accent) var(--mark-rim-bottom),var(--mark-edge-base)) 50%,var(--mark-edge-base) 100%) bottom/100% 1px no-repeat border-box,
-  radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) var(--mark-top),transparent),transparent 70%),
+ border-color:transparent;position:relative;
+ background:  radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) var(--mark-top),transparent),transparent 70%),
   radial-gradient(90% 55% at 50% 118%,color-mix(in srgb,var(--accent) var(--mark-glow),transparent) 0%,color-mix(in srgb,var(--accent) var(--mark-haze),transparent) 55%,transparent 75%),var(--map-glass);
- background-origin:border-box,border-box,padding-box,padding-box;background-clip:border-box,border-box,padding-box,padding-box;
  box-shadow:var(--mark-highlight,var(--map-glass-highlight)),var(--map-glass-shadow)}
 /* The marked card's light: dark glass needs little; light glass (white over a light map) needs more to show. */
 :root{--mark-edge-base:var(--map-glass-border);--mark-rim-bottom:35%;--mark-rim:50%;--mark-top:9%;--mark-glow:24%;--mark-haze:7%}
@@ -1011,3 +1011,32 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 @media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:48%;--mark-rim:55%;--mark-top:15%;--mark-glow:54%;--mark-haze:18%}}
 /* The secondary buttons inside the glass cards (주행 지도, 목록에서 보기, ✕): a soft tint only, no outline. */
 .log-map .map-card-actions>button,.log-map-card .map-card-actions>button{border-color:transparent;box-shadow:none}
+/* Phones: the last segment card scrolls clear of the attribution in the corner. */
+@media not ((min-width:1024px) or ((min-width:600px) and (orientation:landscape))){.drive-map-list{padding-bottom:calc(max(12px,env(safe-area-inset-bottom)) + 18px)}}
+/* The marked card's rim follows its rounded corners: one 1px ring (a masked pseudo-element, like the over-video glass)
+   whose top and bottom edges turn accent towards the middle and keep the glass border colour at the sides. */
+.log-map .map-list-row.is-selected::after,.drive-map-body .drive-map-list>.log-row.is-map-marked::after{content:"";position:absolute;inset:-1px;padding:1px;border-radius:14px;pointer-events:none;z-index:1;
+ background:linear-gradient(90deg,var(--mark-edge-base) 0%,color-mix(in srgb,var(--accent) var(--mark-rim),var(--mark-edge-base)) 50%,var(--mark-edge-base) 100%) top/100% 50% no-repeat,
+  linear-gradient(90deg,var(--mark-edge-base) 0%,color-mix(in srgb,var(--accent) var(--mark-rim-bottom),var(--mark-edge-base)) 50%,var(--mark-edge-base) 100%) bottom/100% 50% no-repeat;
+ -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);mask-composite:exclude}
+.log-map .map-list-row.is-selected::after{inset:0;border-radius:13px}  /* the row clips its overflow: keep the ring inside */
+/* Wide screens move the zoom/simple-map stack from the right corner to the left: give it the left inset (and the top
+   inset of the fold button on the other side) instead of Leaflet's right margin. */
+@media(min-width:1024px),(min-width:600px) and (orientation:landscape){
+ :is(.log-map,.drive-map-area) .leaflet-top.leaflet-right .leaflet-control{margin:16px 0 0 max(16px,env(safe-area-inset-left))}
+ :is(.log-map,.drive-map-area) .leaflet-top.leaflet-right .leaflet-control+.leaflet-control{margin-top:8px}
+}
+/* The drive map's segment pill: above the phone sheet's handle, at the bottom on wide screens (left of nothing: the
+   list is folded when it shows). */
+.drive-map-body>.drive-map-card{z-index:3;bottom:calc(var(--sheet-h,0px) + 10px)}
+@media(min-width:1024px),(min-width:600px) and (orientation:landscape){.drive-map-body>.drive-map-card{bottom:20px}}
+/* Phones: the segment pill has only 재생 and ✕, so it stays a one-line pill. */
+@media(max-width:599px){
+ .drive-map-body>.drive-map-card{flex-wrap:nowrap;width:max-content;max-width:calc(100% - 24px);padding:8px 8px 8px 18px;border-radius:999px}
+ .drive-map-body>.drive-map-card .map-card-text{flex:0 1 auto;min-width:0}
+ .drive-map-body>.drive-map-card .map-card-actions{flex:0 0 auto;margin-left:8px}
+ .drive-map-body>.drive-map-card .map-card-actions>.map-card-close{margin-left:0}
+}
+
+/* 목록에서 보기 brings a tall drive card to the top of the screen: a little room above it. */
+#list .log-route{scroll-margin-top:calc(var(--lib-appbar-h,64px) + 12px)}

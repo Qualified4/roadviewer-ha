@@ -4,6 +4,16 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.1
+
+- The layers button under the map's zoom buttons opens a "map display" popover: "hide labels" removes place and road names, icons and arrows while keeping the map's colours (such as the yellow main roads in light mode), and "grey map" switches to a calm grey map. They are independent; both on give a grey map without text.
+- The small map over the video always keeps the car in the middle (of the part below the speed). Drag its bottom-left corner with a mouse or finger to resize it, kept 4:3 and remembered in this browser; a double tap on the corner restores the default size. Overlay settings have their own "hide labels" and "grey" options for it.
+- The replay Map tab no longer draws over the playback bar and other parts of the screen.
+- Folding or unfolding a map list no longer moves the map, and the count and cards appear together. The map credit always sits in the map's bottom-right corner, and on wide screens the zoom buttons keep a left margin.
+- On the drive map, picking a segment with the list folded (on phones, with the sheet pulled down) shows a "segment N · time" pill at the bottom, ready to play.
+- Fixed broken corners on the selected card and the camera icon flickering in empty thumbnails while folding lists on phones and tablets. "Show in list" now brings a tall open drive card into view from its top.
+- The guides describe the route maps and every screenshot was retaken. The privacy policy now explains how filling maps from Drive logs reads Drive files.
+
 ## 1.2.0
 
 - Maps now use OpenFreeMap vector tiles: CARTO started requiring an API key, so the maps showed only "API KEY REQUIRED"; no key or account is needed (OpenStreetMap data). A button at the map's top-left turns on a simpler map without 3D buildings and POI icons.

@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **1.2.0**
+Feature reference: **1.2.1**
 
 Replay and analyze openpilot logs with front/wide camera video inside Home Assistant.
 
@@ -23,6 +23,7 @@ Select the segment's `rlog.zst` with whichever videos you need (`qcamera.ts`, hi
 - Automatic/manual conversion, up to four concurrent jobs and lossless MP4 retention
 - Later camera attachment, original-format export and log/video downloads
 - Segment tags and scene bookmarks on the bookmark tab
+- GPS route maps: all drives via the Logs tab's **목록 | 지도** (List | Map) switch, a map per drive, the replay **지도** (Map) tab and a small map over the video (OpenFreeMap, no API key); routes of logs kept only on Drive can be filled on request
 - Search, filter chips and route cards grouped by date (thumbnail, start time, segment status bar, automatic-control ratio and takeover count, folded by default) with per-segment storage location chips (local, Drive, NAS); thumbnails and start times of older or archived logs are backfilled in the background
 - Per-segment pins, in-list selection mode for bulk tags/download/conversion/removal/deletion, a remove/download/completely-delete ⋯ menu on the replay screen, storage budgets and cleanup
 - Experimental archiving that copies or moves older recordings to Google Drive or a NAS, with Drive connect/disconnect

@@ -5,7 +5,7 @@
 const fs=require('fs'),os=require('os'),path=require('path'),zlib=require('zlib'),assert=require('node:assert/strict'),{spawn}=require('child_process'),{chromium}=require('playwright');
 const {settleLayout}=require('./browser-helpers.cjs');
 // OpenFreeMap stubs: a style per theme (a background, a GeoJSON street grid around the routes and a symbol layer of
-// street names, so 글자 없이 보기 has layers to hide), its TileJSON, empty vector tiles and empty glyph ranges.
+// street names, so 글자 숨기기 has layers to hide), its TileJSON, empty vector tiles and empty glyph ranges.
 // RV_MAP_REAL_TILES=1 lets the browser fetch the real OpenFreeMap styles and tiles instead (with RV_MAP_SHOTS, to look).
 const REAL=process.env.RV_MAP_REAL_TILES==='1';
 // Synthetic routes: in the stubbed run on empty ground (the fixture streets lie around it); with real tiles, in a city
@@ -178,7 +178,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await page.setViewportSize({width:1280,height:800});await cardA.locator('.route-map-button').tap();await driveOpen();
    {const g=await page.evaluate(()=>{const r=s=>document.querySelector('#driveMap '+s).getBoundingClientRect(),area=r('.drive-map-area'),sheet=r('.drive-map-sheet'),bar=r('.drive-map-bar'),zoom=r('.leaflet-control-zoom'),credit=r('.leaflet-control-attribution');
      return {full:area.left<=1&&area.right>=innerWidth-1&&area.top>=bar.bottom-1&&area.bottom>=innerHeight-1,inset:[innerWidth-sheet.right,sheet.top-bar.bottom,innerHeight-sheet.bottom].map(Math.round),w:Math.round(sheet.width),
-      clear:zoom.right<=sheet.left-8&&credit.right<=sheet.left-8,glass:getComputedStyle(document.querySelector('#driveMap .drive-map-list>.log-row')).backdropFilter!=='none'&&getComputedStyle(document.querySelector('#driveMap .drive-map-sheet')).backgroundColor==='rgba(0, 0, 0, 0)',scrolls:getComputedStyle(document.querySelector('#driveMap .drive-map-list')).overflowY}});
+      clear:zoom.right<=sheet.left-8&&Math.abs(credit.right-area.right)<=1&&Math.abs(credit.bottom-area.bottom)<=1,glass:getComputedStyle(document.querySelector('#driveMap .drive-map-list>.log-row')).backdropFilter!=='none'&&getComputedStyle(document.querySelector('#driveMap .drive-map-sheet')).backgroundColor==='rgba(0, 0, 0, 0)',scrolls:getComputedStyle(document.querySelector('#driveMap .drive-map-list')).overflowY}});
     assert(g.full&&g.inset[0]===16&&g.inset[1]===16&&g.inset[2]>=16&&g.w>=320&&g.w<=400&&g.clear&&g.glass&&g.scrolls==='auto',JSON.stringify(g))}
    await drive.locator(`.log-row[data-id="${logs[3].id}"] .log-meta`).click();await page.waitForTimeout(150);
    {const g=await page.evaluate(()=>{const d=document.getElementById('driveMap'),sheet=d.querySelector('.drive-map-sheet').getBoundingClientRect(),line=[...d.querySelectorAll('.leaflet-overlay-pane path.leaflet-interactive')].find(p=>Number(p.getAttribute('stroke-width'))===7)?.getBoundingClientRect();return {left:!!line&&line.right<=sheet.left+1,line:line&&[line.left,line.right].map(Math.round),sheet:Math.round(sheet.left)}});
@@ -224,6 +224,11 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    assert.equal(await page.locator('#roadMode').count(),0,'no 주행 상황 | 지도 switch any more');
    await mapTab.tap();await page.locator('#mapView').waitFor();await page.locator('#routeMapView .map-car').waitFor();await shot('map-tab');
    await page.locator('#routeMapView .map-car').waitFor();
+   // Leaflet's panes and controls (z-index 400–1000) stay inside the map: the floating playback bar is drawn over it.
+   assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('#routeMapView .rv-map')).isolation),'isolate');
+   {const covered=await page.evaluate(()=>{const map=document.querySelector('#routeMapView .rv-map').getBoundingClientRect(),bar=document.querySelector('.playback').getBoundingClientRect();
+     const top=Math.max(map.top,bar.top),bottom=Math.min(map.bottom,bar.bottom);if(bottom<=top)return null;const e=document.elementFromPoint(bar.left+bar.width/2,(top+bottom)/2);return !!e?.closest('.playback')});
+    assert(covered!==false,'the playback bar stays above the map')}
    assert(await page.locator('#road').isHidden());assert.equal(await page.locator('#mapFollow').getAttribute('aria-pressed'),'true');
    const carAt=()=>page.locator('#routeMapView .map-car').evaluate(e=>e.style.transform||e.getAttribute('style'));
    const seek=value=>page.locator('#seek').evaluate((e,value)=>{e.value=String(value);e.dispatchEvent(new Event('input'))},value);
@@ -246,20 +251,23 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    const tilesOf=sel=>page.locator(sel).evaluate(e=>e.dataset.tiles),other=scheme==='dark'?'light':'dark';
    const labelsOf=sel=>page.waitForFunction(sel=>document.querySelector(sel)?.dataset.labels,sel).then(h=>h.jsonValue());
    const styleAsked=tone=>REAL?Promise.resolve():page.waitForRequest(r=>r.url()===STYLE_OF[tone],{timeout:5000});
+   const simpleAsked=tone=>REAL?Promise.resolve():page.waitForRequest(r=>r.url()===(tone==='light'?SIMPLE_LIGHT:STYLE_OF.dark),{timeout:5000});
    {assert.equal(await tilesOf('#videoMap .rv-map'),scheme);
     const pick=async label=>{await page.locator('#overlayHeightSettings').tap();await dialog.waitFor();await dialog.locator('#videoMiniMapTone button',{hasText:label}).tap();if(label!=='자동'){await dialog.locator('#videoMiniMapTone').scrollIntoViewIfNeeded();await shot('minimap-tone')}await page.locator('#overlayHeightClose').tap();await dialog.waitFor({state:'hidden'})};
     {const asked=styleAsked(other);await pick(other==='light'?'라이트':'다크');await asked}assert.equal(await tilesOf('#videoMap .rv-map'),other);
     assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-minimap-tone')),other);
     assert.equal(await page.locator('#videoMiniMapTone button[aria-pressed=true]').textContent(),other==='light'?'라이트':'다크');
     {const asked=styleAsked(scheme);await pick('자동');await asked}assert.equal(await tilesOf('#videoMap .rv-map'),scheme);await settleLayout(page)}
-   // 작은 지도 글자 없이 보기: off by default; on, the small map alone hides the style's symbol layers (names), with no
-   // other style asked, and keeps them hidden through a tone change; kept with the display preferences.
+   // 작은 지도 글자 숨기기: off by default; on, the small map alone hides the style's symbol layers (names, icons, arrows)
+   // with no other style asked, and keeps them hidden through a tone change; kept with the display preferences.
+   // 작은 지도 회색으로 (checked further down) takes the grey style.
    {const keyOf=()=>page.locator('#videoMap .rv-map').evaluate(e=>e.dataset.tileKey),labels=want=>page.waitForFunction(want=>document.querySelector('#videoMap .rv-map').dataset.labels===want,want,{timeout:5000});
     assert.equal(await keyOf(),scheme);assert.equal(await labelsOf('#videoMap .rv-map'),'shown');
-    await page.locator('#overlayHeightSettings').tap();await dialog.waitFor();const box=dialog.getByLabel('작은 지도 글자 없이 보기');assert.equal(await box.isChecked(),false);
+    await page.locator('#overlayHeightSettings').tap();await dialog.waitFor();const box=dialog.getByLabel('작은 지도 글자 숨기기');assert.equal(await box.isChecked(),false);
     const styles=tiles.filter(url=>url.startsWith(OFM+'styles/')).length;
     await box.check();await labels('hidden');
     assert.equal(tiles.filter(url=>url.startsWith(OFM+'styles/')).length,styles,'no other style for the labels');
+    assert.equal(await page.locator('#videoMap .rv-map').evaluate(e=>e.dataset.simple),'false','the colours stay');
     await shot('minimap-plain');
     await page.locator('#overlayHeightClose').tap();await dialog.waitFor({state:'hidden'});
     assert.equal(await keyOf(),scheme+'-nolabels');assert.equal(await page.locator('#routeMapView .rv-map').evaluate(e=>e.dataset.tileKey),scheme,'the panel map keeps its labels');
@@ -270,11 +278,19 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     await page.waitForFunction(other=>document.querySelector('#videoMap .rv-map').dataset.tiles===other,other);await page.waitForTimeout(REAL?1500:300);await labels('hidden');
     assert.equal(await keyOf(),other+'-nolabels');
     {const asked=styleAsked(scheme);await dialog.locator('#videoMiniMapTone button',{hasText:'자동'}).tap();await asked}
-    await box.uncheck();await labels('shown');await page.locator('#overlayHeightClose').tap();await dialog.waitFor({state:'hidden'});
+    await box.uncheck();await labels('shown');
+    // 작은 지도 회색으로: the grey style without the busy layers, names kept; the panel map keeps its colours.
+    {const grey=dialog.getByLabel('작은 지도 회색으로');assert.equal(await grey.isChecked(),false);
+     {const asked=simpleAsked(scheme);await grey.check();await asked}
+     await page.waitForFunction(()=>document.querySelector('#videoMap .rv-map').dataset.simple==='true',null,{timeout:5000});
+     if(!REAL)await page.waitForFunction(()=>(document.querySelector('#videoMap .rv-map').dataset.removed||'').includes('poi_r1'),null,{timeout:5000});
+     await labels('shown');assert.equal(await page.locator('#routeMapView .rv-map').evaluate(e=>e.dataset.simple),'false');
+     assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('roadviewer-display-preferences')).checks.videoMiniMapGrey),true);
+     {const asked=styleAsked(scheme);await grey.uncheck();await asked}}await labels('shown');await page.locator('#overlayHeightClose').tap();await dialog.waitFor({state:'hidden'});
     assert.equal(await keyOf(),scheme)}
    // Where it sits: the stage's top-right corner, a third of its width (104–180px, 4:3), under the speed and wheel
    // (drawn on top; never narrower than they are); clear of the title, the bottom row, the fullscreen button and the transport; the segment's
-   // whole track inside it and below the speed.
+   // car always in the middle of the part below the speed (it follows the car like 따라가기).
    const geometry=()=>page.evaluate(()=>{
     const stage=document.getElementById('videoStage').getBoundingClientRect(),el=document.getElementById('videoMap'),map=el.getBoundingClientRect(),hud=document.querySelector('.video-hud').getBoundingClientRect();
     const r=s=>[...document.querySelectorAll(s)].filter(e=>e.offsetParent||getComputedStyle(e).position==='fixed').map(e=>e.getBoundingClientRect()).filter(b=>b.width&&b.height);
@@ -287,7 +303,8 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     return {stage:{w:Math.round(stage.width),top:Math.round(stage.top),right:Math.round(stage.right)},map:{w:Math.round(map.width),h:Math.round(map.height),top:Math.round(map.top),right:Math.round(map.right)},
      hudOnMap:hud.left>=map.left-1&&hud.right<=map.right+1&&hud.top>=map.top-1&&hud.bottom<=map.bottom+1&&Number(getComputedStyle(document.querySelector('.video-hud')).zIndex)>Number(style.zIndex),
      titleClear,covers:['.video-tools','.video-fullscreen','.playback'].filter(s=>r(s).some(b=>hit(b))),
-     trackInside:!!current&&current.left>=map.left-1&&current.right<=map.right+1&&current.top>=hud.bottom-2&&current.bottom<=map.bottom+1,
+     trackInside:(()=>{const car=el.querySelector('.map-car')?.getBoundingClientRect();if(!car||!car.width)return false;const top=Math.max(map.top,Math.min(hud.bottom,map.top+map.height*.6));
+      return Math.abs((car.left+car.right)/2-(map.left+map.right)/2)<=3&&Math.abs((car.top+car.bottom)/2-(top+map.bottom)/2)<=8})(),
      hud:[hud.left,hud.top,hud.right,hud.bottom].map(Math.round),hudZ:getComputedStyle(document.querySelector('.video-hud')).zIndex,cur:current&&[current.left,current.top,current.right,current.bottom].map(Math.round),n:track.length,rows:['.video-tools','.video-fullscreen','.video-title'].map(q=>{const b=document.querySelector(q).getBoundingClientRect();return [b.left,b.top,b.right,b.bottom].map(Math.round)}),stageH:Math.round(stage.height),large:el.classList.contains('is-large'),shown:!el.hidden,marked:document.getElementById('videoStage').classList.contains('has-video-map')};
    });
    const small=async label=>{
@@ -299,6 +316,19 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     assert(g.hudOnMap&&g.titleClear&&g.trackInside,label+' '+JSON.stringify(g));assert.deepEqual(g.covers,[],label+' '+JSON.stringify(g));
    };
    await small('portrait');
+   // ⑤ The bottom-left corner resizes it, here by touch (real touch events through CDP): wider, anchored at its top-right,
+   // 4:3, not enlarged by the drag, kept in this browser; a double tap on the corner goes back to the default size.
+   {const grip=mini.locator('.video-map-grip'),b0=await mini.boundingBox(),g=await grip.boundingBox(),cdp=await context.newCDPSession(page);
+    const x=g.x+g.width/2,y=g.y+g.height/2,touch=(type,px,py)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:type==='touchEnd'?[]:[{x:px,y:py}]});
+    await touch('touchStart',x,y);for(let k=1;k<=8;k++)await touch('touchMove',x-6*k,y+4.5*k);await touch('touchEnd');await page.waitForTimeout(200);
+    const b1=await mini.boundingBox(),kept=Number(await page.evaluate(()=>localStorage.getItem('roadviewer-minimap-size')));
+    assert(b1.width>b0.width+30,'touch: wider '+JSON.stringify([b0,b1]));
+    assert(Math.abs(b1.x+b1.width-(b0.x+b0.width))<=1.5&&Math.abs(b1.y-b0.y)<=1.5,'touch: anchored at its top-right '+JSON.stringify([b0,b1]));
+    assert(Math.abs(b1.height-b1.width*.75)<=1.5,'touch: 4:3 '+JSON.stringify(b1));
+    assert(!await mini.evaluate(e=>e.classList.contains('is-large')),'the drag does not enlarge');assert(kept>0&&kept<1,'kept '+kept);
+    await shot('minimap-resized');
+    await grip.dblclick();await page.waitForTimeout(200);const b2=await mini.boundingBox();
+    assert(Math.abs(b2.width-b0.width)<=1,'double tap: default size '+JSON.stringify([b0,b2]));assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-minimap-size')),null)}
    // Enlarged: a plain rectangle filling the picture (12px or 8px margins); the title, speed and wheel and fullscreen
    // button float over it and still take taps; the quality and overlay controls are hidden; the messages sit at the
    // bottom edge, over the map.
@@ -351,6 +381,25 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    assert(await page.locator('#mapTab').isHidden());assert(await page.locator('#videoMap').isHidden());
    assert.deepEqual(errors,[]);
    await context.close();
+   // The same corner with a mouse on a desktop (no touch): shown on hover, larger then smaller within its limits, the
+   // size back after a reload.
+   if(scheme==='dark'){const desk=await browser.newContext({viewport:{width:1280,height:800},colorScheme:scheme,reducedMotion:'reduce'}),dp=await desk.newPage(),derrors=[];
+    dp.on('pageerror',error=>derrors.push(error.message));await desk.route(`**/api/logs/${withVideo}/video**`,route=>route.fulfill({body:video,contentType:'video/mp4'}));
+    await dp.goto(base+`view/${withVideo}/`);await dp.waitForFunction(()=>!document.getElementById('play').disabled);
+    await dp.locator('#overlayHeightSettings').click();await dp.locator('#overlayHeightDialog').waitFor();await dp.getByLabel('영상 위 작은 지도').check();await dp.locator('#overlayHeightClose').click();
+    const dm=dp.locator('#videoMap');await dm.locator('.map-car').waitFor();await settleLayout(dp);await dp.waitForTimeout(150);
+    const b0=await dm.boundingBox();await dm.hover();await dp.waitForTimeout(300);const g=await dm.locator('.video-map-grip').boundingBox();
+    assert(Number(await dm.locator('.video-map-grip').evaluate(e=>getComputedStyle(e,'::before').opacity))>.5,'the corner shows on hover');
+    await dp.mouse.move(g.x+g.width/2,g.y+g.height/2);await dp.mouse.down();await dp.mouse.move(g.x-80,g.y+60,{steps:8});await dp.mouse.up();await dp.waitForTimeout(150);
+    const b1=await dm.boundingBox();assert(b1.width>b0.width+60,'mouse: wider '+JSON.stringify([b0,b1]));
+    assert(Math.abs(b1.x+b1.width-(b0.x+b0.width))<=1.5&&Math.abs(b1.y-b0.y)<=1.5&&Math.abs(b1.height-b1.width*.75)<=1.5,'mouse: anchored, 4:3 '+JSON.stringify(b1));
+    assert(!await dm.evaluate(e=>e.classList.contains('is-large')),'the drag does not enlarge');
+    if(shots){await dp.waitForTimeout(REAL?3000:150);await dp.screenshot({path:path.join(shots,'minimap-resized-desktop-dark.png')})}
+    {const g1=await dm.locator('.video-map-grip').boundingBox();await dp.mouse.move(g1.x+g1.width/2,g1.y+g1.height/2);await dp.mouse.down();await dp.mouse.move(g1.x+600,g1.y-400,{steps:8});await dp.mouse.up();await dp.waitForTimeout(150)}
+    const b2=await dm.boundingBox();assert(b2.width>=103.5&&b2.width<b1.width,'mouse: smaller, not below the least size '+JSON.stringify(b2));
+    await dp.reload();await dp.waitForFunction(()=>!document.getElementById('play').disabled);await dm.locator('.map-car').waitFor();await settleLayout(dp);await dp.waitForTimeout(150);
+    {const b3=await dm.boundingBox(),info=await dp.evaluate(()=>({f:localStorage.getItem('roadviewer-minimap-size'),v:document.getElementById('videoStage').style.getPropertyValue('--vmap-f'),min:document.getElementById('videoStage').style.getPropertyValue('--vmap-min-w'),sized:document.getElementById('videoStage').classList.contains('vmap-sized'),w:document.getElementById('videoStage').getBoundingClientRect().width}));assert(Math.abs(b3.width-Math.max(b2.width,parseFloat(info.min)))<=1.5&&info.sized,'kept after a reload (never narrower than the speed) '+JSON.stringify([b1,b2,b3,info]))}
+    assert.deepEqual(derrors,[]);await desk.close()}
   }
   // Many drives (60 of one segment and one of 40) on wide screens: the all-drives map lists them in a glass card on
   // the right (its own scroll, a row per drive in its line's colour; hover highlights, a tap selects with the actions
@@ -396,7 +445,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await page.waitForFunction(n=>document.querySelectorAll('#logMapRows .map-list-row').length===n&&document.querySelectorAll('#logMap .leaflet-overlay-pane path.leaflet-interactive').length===n,drives,{timeout:20000});
    const card=()=>page.evaluate(()=>{const r=s=>document.querySelector(s).getBoundingClientRect(),map=r('#logMap'),list=r('#logMapList'),button=r('#logMap>.map-fold'),rows=document.getElementById('logMapRows'),zoom=r('#logMap .leaflet-control-zoom'),credit=r('#logMap .leaflet-control-attribution');
     return {right:Math.round(map.right-list.right),below:Math.abs(list.top-button.top)<=1,bottom:list.bottom<=map.bottom-15,w:Math.round(list.width),scrolls:rows.scrollHeight>rows.clientHeight+40,button:[map.right-button.right,button.top-map.top].map(Math.round),size:Math.round(button.width),
-     clear:zoom.right<list.left&&credit.right<=list.left-8,glass:getComputedStyle(document.querySelector('#logMapRows>.map-list-row')).backdropFilter!=='none'&&getComputedStyle(document.getElementById('logMapList')).backgroundColor==='rgba(0, 0, 0, 0)',shown:!!list.width}});
+     clear:zoom.right<list.left&&Math.abs(credit.right-map.right)<=1&&Math.abs(credit.bottom-map.bottom)<=1,glass:getComputedStyle(document.querySelector('#logMapRows>.map-list-row')).backdropFilter!=='none'&&getComputedStyle(document.getElementById('logMapList')).backgroundColor==='rgba(0, 0, 0, 0)',shown:!!list.width}});
    {const g=await card();assert(g.shown&&g.right===16&&g.below&&g.bottom&&g.w>=300&&g.w<=380&&g.scrolls&&g.clear&&g.glass&&g.button[0]===16&&g.button[1]===16&&g.size===40,JSON.stringify(g))}
    assert.equal(await fold.getAttribute('aria-expanded'),'true');assert.equal(await fold.getAttribute('aria-label'),'주행 목록 접기');
    assert.equal(await page.locator('#logMapList .log-map-list-count').innerText(),`${drives}개`);
@@ -423,33 +472,58 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     await page.evaluate(()=>{const c=document.getElementById('logMapRows');c.scrollTop=c.scrollHeight});await page.waitForTimeout(100);
     {const f=await fades();assert(f.top&&!f.bottom,JSON.stringify(f))}
     await rows.nth(4).scrollIntoViewIfNeeded()}
-   // 단순 지도: the button under the zoom buttons switches every map to the calm style (Positron light / Dark) without 3D
-   // buildings and points of interest, keeps the view, and is kept on this browser (off by default).
-   {const simple=page.locator('#logMap .rv-map-simple a'),gl=()=>page.evaluate(()=>{const box=document.querySelector('#logMap .rv-map');return {simple:box.dataset.simple}});
-    assert.equal(await simple.getAttribute('aria-pressed'),'false');assert.equal(await simple.getAttribute('aria-label'),'단순 지도 켜기');
-    {const z=await page.locator('#logMap .leaflet-control-zoom').boundingBox(),b=await simple.boundingBox();assert(Math.abs(b.x-z.x)<2&&b.y>=z.y+z.height-1&&b.y<z.y+z.height+16&&Math.abs(b.width-z.width)<3,JSON.stringify({z,b}))}
+   // 지도 표시: one layers button under the zoom buttons opens a popover (towards the map's middle; Escape or a tap
+   // elsewhere closes it) with two switches. 글자 숨기기 hides every name and symbol in the style's own colours (no other
+   // style); 회색 지도 switches to the calm style (Positron light / Dark) without 3D buildings and points of interest,
+   // names kept. Both keep the view and are kept on this browser (off by default).
+   {const button=page.locator('#logMap .rv-map-options-button'),pop=page.locator('#logMap .rv-map-options');
+    const box=kind=>pop.locator(`input[data-kind=${kind}]`),open=async()=>{if(await pop.isHidden()){await button.click();await pop.waitFor()}};
+    {const z=await page.locator('#logMap .leaflet-control-zoom').boundingBox(),b=await button.boundingBox();assert(Math.abs(b.x-z.x)<2&&b.y>=z.y+z.height-1&&b.y<z.y+z.height+16&&Math.abs(b.width-z.width)<3,JSON.stringify({z,b}))}
+    assert(await pop.isHidden());assert.equal(await button.getAttribute('aria-expanded'),'false');
+    await open();assert.equal(await button.getAttribute('aria-expanded'),'true');
+    {const [b,p,m]=await Promise.all([button.boundingBox(),pop.boundingBox(),page.locator('#logMap .rv-map').boundingBox()]);
+     assert(p.x>=m.x-1&&p.x+p.width<=m.x+m.width+1&&p.y>=m.y-1,'inside the map '+JSON.stringify({b,p,m}));assert(p.x>=b.x+b.width||p.x+p.width<=b.x,'beside the button '+JSON.stringify({b,p}))}
+    assert.deepEqual(await pop.locator('b').allInnerTexts(),['글자 숨기기','회색 지도']);assert.equal(await box('labels').isChecked(),false);assert.equal(await box('grey').isChecked(),false);
+    if(scheme==='light')await shot('list-wide-options');
+    await page.keyboard.press('Escape');await pop.waitFor({state:'hidden'});
+    const askedStyles=[];page.on('request',r=>{if(r.url().startsWith(OFM+'styles/'))askedStyles.push(r.url())});
+    await open();await box('labels').check();
+    await page.waitForFunction(()=>document.querySelector('#logMap .rv-map').dataset.labels==='hidden',null,{timeout:5000});
+    assert.deepEqual(askedStyles,[],'글자 숨기기 asks no other style');
+    assert.equal(await page.evaluate(()=>document.querySelector('#logMap .rv-map').dataset.simple),'false','the colours stay');
+    assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-nolabels')),'1');assert(await button.evaluate(b=>b.classList.contains('is-on')),'the button shows a choice is on');
+    if(scheme==='light')await shot('list-wide-nolabels');
+    await box('labels').uncheck();await page.waitForFunction(()=>document.querySelector('#logMap .rv-map').dataset.labels==='shown',null,{timeout:5000});
+    assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-nolabels')),'0');
+    await page.mouse.click(5,400);await pop.waitFor({state:'hidden'});
     const styleUrls=[];page.on('request',r=>{if(r.url().startsWith(OFM+'styles/'))styleUrls.push(r.url())});
-    const view=()=>page.evaluate(()=>document.querySelector('#logMap .leaflet-map-pane').style.transform);const before=await view();
-    await simple.click();assert.equal(await simple.getAttribute('aria-pressed'),'true');assert.equal(await simple.getAttribute('aria-label'),'단순 지도 끄기');
+    const view=()=>page.evaluate(()=>document.querySelector('#logMap .leaflet-map-pane').style.transform);
+    const before=await view();
+    await open();await box('grey').check();
     await page.waitForFunction(()=>document.querySelector('#logMap .rv-map').dataset.simple==='true');
     await page.waitForFunction(()=>(document.querySelector('#logMap .rv-map').dataset.removed||'')!=='',null,{timeout:20000});await page.waitForTimeout(REAL?2500:200);
-    assert(styleUrls.includes(scheme==='light'?SIMPLE_LIGHT:STYLE_OF.dark),'simple style '+styleUrls);
+    assert(styleUrls.includes(scheme==='light'?SIMPLE_LIGHT:STYLE_OF.dark),'grey style '+styleUrls);
+    assert.equal(await page.evaluate(()=>document.querySelector('#logMap .rv-map').dataset.labels),'shown','회색 지도 keeps the names');
     {const removed=(await page.evaluate(()=>document.querySelector('#logMap .rv-map').dataset.removed)).split(' ');
      assert(!REAL?removed.includes('building-3d')&&removed.includes('poi_r1')&&!removed.includes('street-name'):removed.every(id=>!/name|label/.test(id)||/poi/.test(id)),removed.join(' '))}
     assert.equal(await view(),before,'the view stays');assert(await rows.nth(4).evaluate(r=>r.classList.contains('is-selected')),'the selection stays');
     assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-simple')),'1');
+    await page.keyboard.press('Escape');await pop.waitFor({state:'hidden'});
     if(scheme==='light')await shot('list-wide-simple');
-    await page.reload();await page.locator('#logView').waitFor();await page.waitForFunction(()=>document.querySelector('#logMap .rv-map-simple a'),null,{timeout:20000});
-    assert.equal(await simple.getAttribute('aria-pressed'),'true','kept on');
-    await simple.click();assert.equal(await simple.getAttribute('aria-pressed'),'false');assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-simple')),'0');
-    await page.waitForFunction(()=>document.querySelector('#logMap .rv-map').dataset.simple==='false');
+    await page.reload();await page.locator('#logView').waitFor();await page.waitForFunction(()=>document.querySelector('#logMap .rv-map-options-button'),null,{timeout:20000});
+    await open();assert.equal(await box('grey').isChecked(),true,'kept on');
+    await box('grey').uncheck();assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-simple')),'0');
+    await page.waitForFunction(()=>document.querySelector('#logMap .rv-map').dataset.simple==='false');await page.keyboard.press('Escape');
     await page.waitForFunction(n=>document.querySelectorAll('#logMap .leaflet-overlay-pane path.leaflet-interactive').length===n,drives,{timeout:20000});
     await rows.nth(4).locator('.map-list-pick').click();await page.mouse.move(10,400);await page.waitForTimeout(150)}
    // A line tapped on the map selects its row and scrolls the list to it.
    {const last=page.locator('#logMap .leaflet-overlay-pane path.leaflet-interactive').last();await last.evaluate(p=>{const L=window.L;p.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:0,clientY:0}))});
     await page.waitForFunction(()=>{const r=document.querySelector('#logMapRows .map-list-row.is-selected');if(!r)return false;const b=r.getBoundingClientRect(),l=document.getElementById('logMapRows').getBoundingClientRect();return b.top>=l.top-1&&b.bottom<=l.bottom+1})}
    // Folded: only the button (same place, chevron turned), the bottom card for a selection, no right padding.
+   const pane=()=>page.evaluate(()=>getComputedStyle(document.querySelector('#logMap .leaflet-map-pane')).transform+'|'+document.querySelector('#logMap .leaflet-proxy')?.style.transform);
+   const view=await pane();
    const before=await fold.boundingBox();await fold.click();
+   await page.waitForTimeout(400);assert.equal(await pane(),view,'folding keeps the map where it is');
    assert.equal(await fold.getAttribute('aria-expanded'),'false');assert.equal(await fold.getAttribute('aria-label'),'주행 목록 펼치기');
    assert(await page.locator('#logMapList').isHidden());assert.deepEqual(await fold.boundingBox(),before,'the button stays put');
    assert(await page.locator('#logMapCard').isVisible(),'folded: the selection shows the bottom card');
@@ -458,15 +532,25 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await page.reload();await page.locator('#logView').waitFor();await page.waitForFunction(()=>document.querySelectorAll('#logMap .leaflet-overlay-pane path.leaflet-interactive').length>0,null,{timeout:20000});
    assert.equal(await fold.getAttribute('aria-expanded'),'false','kept folded');assert(await page.locator('#logMapList').isHidden());
    await fold.click();await page.locator('#logMapList').waitFor();
+   await page.waitForTimeout(400);assert.equal(await pane(),view,'unfolding keeps the map where it is');
    // The 40-segment drive's map: its segment card scrolls on its own and folds like the list.
    const longRow=rows.filter({hasText:'40개 구간'});await longRow.locator('.map-list-pick').click();await longRow.getByRole('button',{name:'주행 지도'}).click();
    await page.waitForFunction(()=>{const d=document.getElementById('driveMap');return d.open&&d.querySelectorAll('.drive-map-list>.log-row').length===40&&d.querySelectorAll('.leaflet-overlay-pane path.leaflet-interactive').length===40},null,{timeout:20000});
    await settleLayout(page,'#driveMap');
+   // Its 지도 표시 popover: Escape closes the popover only, the drive map stays open.
+   {const pop=page.locator('#driveMap .rv-map-options');await page.locator('#driveMap .rv-map-options-button').click();await pop.waitFor();
+    await page.keyboard.press('Escape');await pop.waitFor({state:'hidden'});await page.waitForTimeout(200);assert(await page.evaluate(()=>document.getElementById('driveMap').open),'the drive map stays open')}
    {const g=await page.evaluate(()=>{const d=document.getElementById('driveMap'),r=s=>d.querySelector(s).getBoundingClientRect(),sheet=r('.drive-map-sheet'),button=r('.drive-map-fold'),list=d.querySelector('.drive-map-list');return {scrolls:list.scrollHeight>list.clientHeight+40,bottom:Math.round(innerHeight-sheet.bottom),below:Math.abs(sheet.top-button.top)<=1,button:[innerWidth-button.right].map(Math.round)}});
     assert(g.scrolls&&g.bottom>=16&&g.below&&g.button[0]===16,JSON.stringify(g))}
    await shot('drive-wide-40');
    {const button=page.locator('#driveMap .drive-map-fold'),at=await button.boundingBox();await button.click();
     assert.equal(await button.getAttribute('aria-expanded'),'false');assert(await page.locator('#driveMap .drive-map-sheet').isHidden());assert.deepEqual(await button.boundingBox(),at);
+    // Folded with a segment marked: its glass pill shows at the bottom with 재생; ✕ clears the mark and the pill.
+    {const pill=page.locator('#driveMap .drive-map-card');assert(await pill.isHidden(),'no pill without a marked segment');
+     await button.click();await page.locator('#driveMap .drive-map-list>.log-row .log-meta').first().click();await button.click();await pill.waitFor();assert.match(await pill.locator('.map-card-title').innerText(),/^구간 \d+/);
+     assert(await pill.locator('a.map-card-play').count()===1,'재생 in the pill');await shot('drive-wide-folded-pill');
+     assert.equal(await pill.locator('.map-card-actions>*').count(),2,'재생 and ✕ only');
+     await pill.locator('.map-card-close').click();await pill.waitFor({state:'hidden'});assert.equal(await page.locator('#driveMap .drive-map-list>.log-row.is-map-marked').count(),0)}
     await shot('drive-wide-folded');await button.click();assert(await page.locator('#driveMap .drive-map-sheet').isVisible())}
    assert.deepEqual(errors,[]);
    await context.close();

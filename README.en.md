@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **1.2.0**
+Feature reference: **1.2.1**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -102,6 +102,7 @@ Pairing supports code copy, remaining time and reissue. Codes last five minutes 
 | Road view | Lanes, road edges, model paths, leads and radar detections |
 | Vehicle information | 24 selectable, reorderable graphs, including separate LATERAL command and restored yRel values |
 | Tags | Name and color segments, filter the library, and add/remove tags in bulk |
+| Map | Segments with GPS get a **지도** (Map) analysis tab showing the travelled route and the current position, plus an optional small map over the video. See [Drive route maps](#drive-route-maps). |
 | Scene bookmarks | Save a log timestamp with a title/note on the **북마크** analysis tab and jump back from seek-bar markers or the list |
 | Navigation and pins | The app-bar title (start time · 구간 k (i/N)) opens the segment chooser; previous/next buttons, the segment strip and per-segment pins |
 | Playback bar | Floating bar with a segment strip (centred on the current segment on long drives), automatic-control/takeover track, seek bar with bookmark markers, frame step, current/total time toggle, bookmark and speed |
@@ -135,6 +136,28 @@ Lane probability and lateral y[0] distance share the same layout alongside road-
 
 ![Lateral y[0] values in the same layout](docs/images/roadviewer-boundaries-distance.png)
 
+## Drive route maps
+
+Converting a log also stores its position once per second (about 1 KB per minute), so routes can be drawn on a map. The device GPS is used when it has a fix, else the car's own GPS sent over CAN (`carState.vehicleGps`), else carrot's estimated position. Logs converted by earlier versions are filled in the background; logs that exist only on Google Drive are filled when you turn on **Drive 로그 지도 채우기** (fill maps from Drive logs) on the storage tab or press **한 번 실행** (run once).
+
+**All drives**: the **목록 | 지도** (List | Map) switch at the top right of the Logs tab draws every drive the current search and filters show, one pastel line each. Picking a drive in the glass card list on the right fits the map to it and opens **재생 · 주행 지도 · 목록에서 보기** (Play, Drive map, Show in list) inside the card. The button at the top right folds and unfolds the list without moving the map.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-library-map-dark.png"><img src="docs/images/roadviewer-library-map.png" alt="Map view of the Logs tab: three example drives as pastel lines with a glass card list of drives on the right"></picture>
+
+**Drive map**: open it from the route shape on a drive card (on a PC it unfolds into a square map on hover; on phones use the **지도** button next to Play), the segment ⋯ menu's **지도에서 보기** (Show on map), or **주행 지도** on the all-drives card. Segment cards and their part of the route highlight each other. With the list folded (on phones, with the sheet pulled down) the chosen segment appears as a pill at the bottom, ready to play.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-drive-map-dark.png"><img src="docs/images/roadviewer-drive-map.png" alt="Drive map: one drive drawn per segment, glass cards for segments 0–3 on the right, segment 1 highlighted"></picture>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-drive-map-mobile-dark.png"><img src="docs/images/roadviewer-drive-map-mobile.png" alt="Drive map on a phone: the map on top and a resizable sheet of segment cards below" width="320"></picture>
+
+**Maps while replaying**: the **지도** (Map) analysis tab draws the travelled part solid and the rest faded, with a car marker that follows playback; tapping the route seeks there. Overlay settings › Map › **영상 위 작은 지도** (small map over the video) puts a small map in the video's top-right corner that always keeps the car in the middle, in automatic, light or dark colours; its own **글자 숨기기** (hide labels) and **회색으로** (grey) options work like the two switches of the map display popover, and dragging its bottom-left corner resizes it.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-replay-map-dark.png"><img src="docs/images/roadviewer-replay-map.png" alt="Replay screen with the Map tab showing the travelled route and the car's current position"></picture>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-video-minimap-dark.png"><img src="docs/images/roadviewer-video-minimap.png" alt="Small map over the driving video, under the speed and steering wheel readouts"></picture>
+
+The basemap is [OpenFreeMap](https://openfreemap.org)'s vector map built from OpenStreetMap data; no API key is needed. The layers button under the zoom buttons opens a **지도 표시** (map display) popover with two independent switches: **글자 숨기기** (hide labels) removes place and road names, place icons, road shields and one-way arrows while keeping the map's colours (such as the yellow main roads in light mode); **회색 지도** (grey map) switches to a calm grey style without 3D buildings, place icons, shields and arrows, keeping the names. With both on, only the drive lines stand out. The viewing browser fetches map tiles directly from OpenFreeMap, so requests for the area you look at go there. Positions are used only for the maps in the app and are never added to downloads, exports, the device API or archives. The routes in the screenshots are example routes along roads between public landmarks. See the [user guide](roadviewer/DOCS.en.md#drive-route-maps) for details.
+
 ## Organize segments with tags
 
 Tags **classify a whole segment**. Use labels such as “Lane change”, “Rain” or “Needs review” to describe driving conditions and follow-up work, then choose a tag filter chip on the Logs tab to narrow the library. Colored badges appear next to the recording name/pin and are also visible during playback.
@@ -159,7 +182,9 @@ A bookmark stores **a specific log timestamp within one segment**. Mark a lane c
 2. Check the captured timestamp and choose **저장** (Save). The title and note are optional; an empty title defaults to the scene time. **현재 시각으로** (Use current time) updates the editor’s timestamp to the current playback position.
 3. Click a saved **time/title** in the bookmark tab or a **seek-bar marker** to move the video, road view and graphs together, preserving the playing/paused state.
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-bookmarks-editor-dark.png"><img src="docs/images/roadviewer-bookmarks-editor.png" alt="Bookmark tab capturing the 22-second moment with a title/note and a chronological list of saved lane-change, lead-distance and deceleration scenes" width="556"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-bookmarks-editor-dark.png"><img src="docs/images/roadviewer-bookmarks-editor.png" alt="Recording popup opened with the Bookmark button: the captured time with a title and note being entered" width="460"></picture>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-bookmarks-list-dark.png"><img src="docs/images/roadviewer-bookmarks-list.png" alt="Bookmark analysis tab listing saved merge, driver-steering and lead-braking scenes in time order" width="460"></picture>
 
 Saved bookmarks also appear as small timeline markers. Hover over a marker to see its time and title.
 
@@ -189,7 +214,7 @@ The bar stays visible from preparation until the large compressed files have bee
 
 **Segment status and file management**
 
-The **로그** tab narrows segments with search and filter chips (All, Pinned, Unconverted, Processing, Drive, NAS and one per tag) and groups each route's segments into a **route card** under date headings. A card shows a thumbnail and total length, the start time (`HH:MM 출발`, or `업로드 HH:MM` when unknown), a segment status bar and **자동 제어 N% · 개입 N회** (automatic control ratio and takeover count). Cards start folded; only routes opened by hand are remembered as open. Each segment row shows processing status, video availability and retained/prepared file sizes, and chips under each segment show where the log and each camera video (high-quality, low-resolution, wide) are kept: **로컬** (local), **Drive** or **NAS**. Ready entries offer **Play**, while entries needing preparation offer **Convert**. Each segment's ⋯ menu offers remove, download, edit tags, copy log name, pin and complete deletion.
+The **로그** tab has a **목록 | 지도** (List | Map) switch at the top right ([Drive route maps](#drive-route-maps)) and narrows segments with search and filter chips (All, Pinned, Unconverted, Processing, Drive, NAS and one per tag) and groups each route's segments into a **route card** under date headings. A card shows a thumbnail and total length, the route shape when it has GPS, the start time (`HH:MM 출발`, or `업로드 HH:MM` when unknown), a segment status bar and **자동 제어 N% · 개입 N회** (automatic control ratio and takeover count). Cards start folded; only routes opened by hand are remembered as open. Each segment row shows processing status, video availability and retained/prepared file sizes, and chips under each segment show where the log and each camera video (high-quality, low-resolution, wide) are kept: **로컬** (local), **Drive** or **NAS**. Ready entries offer **Play**, while entries needing preparation offer **Convert**. Each segment's ⋯ menu offers remove, download, edit tags, copy log name, pin and complete deletion.
 
 Thumbnails and start times are generated during conversion and backfilled in the background for older and archived logs: local/NAS files are read in place, Drive files only through ranged requests for the first ~2 MB, and backfill pauses during uploads, conversions, archive runs and Drive playback. The control ratio and takeover count are computed from telemetry.
 
@@ -239,7 +264,7 @@ The experimental **NAS archiving** option, enabled on the **저장공간** (Stor
 
 Screenshots were captured on 2026-11-07 from version 1.0.11 using example data, in light and dark mode; the one matching your theme is shown. The three driving/wide introduction photos composite the earlier footage's video area into the new UI. Device, capacity, and pairing values are synthetic; the displayed code cannot connect a device. See the [screenshot guide](docs/images/README.en.md).
 
-- [User guide](roadviewer/DOCS.en.md) · [한국어](roadviewer/DOCS.md): installation, playback, conversion, storage, backups and troubleshooting
+- [User guide](roadviewer/DOCS.en.md) · [한국어](roadviewer/DOCS.md): installation, playback, route maps, conversion, storage, backups and troubleshooting
 - [roadviewer-mcp](https://github.com/Qualified4/roadviewer-mcp): MCP server for AI agents, using only the existing Ingress login and API
 - [Device API v1](docs/device-api.en.md) · [한국어](docs/device-api.md): HTTPS, pairing/signing, upload recovery and tests without openpilot
 - [AppArmor security](docs/apparmor-security.en.md) · [한국어](docs/apparmor-security.md)

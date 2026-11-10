@@ -87,6 +87,9 @@ const {showTab}=require('./browser-helpers.cjs');
   await page.waitForFunction(()=>document.querySelector('.log-route .route-thumb img')?.complete);
   assert.equal(await card.locator('.route-thumb img').getAttribute('src'),'api/logs/041b0/thumbnail?v=3');
   assert.equal(await card.locator('.route-thumb img').getAttribute('loading'),'lazy');
+  // A shown picture hides the camera placeholder for good, so a fold's re-paint cannot flash it.
+  await page.waitForFunction(()=>document.querySelector('.log-route .route-thumb')?.classList.contains('has-thumb'));
+  assert.equal(await card.locator('.route-thumb .thumb-placeholder').evaluate(e=>getComputedStyle(e).visibility),'hidden');
   // The server lists newer segments first: the card still shows the first segment's picture.
   logs.reverse();await page.locator('#refresh').click();await page.waitForTimeout(400);
   assert.equal(await card.locator('.route-thumb img').getAttribute('src'),'api/logs/041b0/thumbnail?v=3','card thumbnail comes from the lowest segment, not the first listed');
