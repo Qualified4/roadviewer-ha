@@ -422,7 +422,8 @@ function syncGroupActions(group){
  if(group.pinning)return;
  const ready=firstReady(group),primary=ready||group.firstLog;
  const signature=JSON.stringify([primary.id,primary.name,primary.status,!!ready,group.logs.map(log=>[log.id,!!log.pinned])]);if(group.actionSignature===signature)return;
- group.actions.replaceChildren(routeActions(group));group.actionSignature=signature;
+ // maps.js's 지도 button (a drive with GPS) stays first in the row.
+ group.actions.replaceChildren(...group.actions.querySelectorAll(':scope>.route-map-button'),routeActions(group));group.actionSignature=signature;
 }
 async function pinLogGroup(group,pinned){
  if(group.pinning)return;

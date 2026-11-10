@@ -379,6 +379,22 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 }
 
 @media(min-width:601px) and (max-width:1000px){.storage-basic-fields>.storage-field:last-child{grid-column:1/-1}}
+/* Drive 로그 지도 채우기: the title and its switch on one line (like 아카이빙 사용), the help below, then the progress
+   meter with its count and the run/stop button. */
+.track-fill{display:flex;flex-direction:column;gap:6px;padding:18px 0 6px}
+.track-fill-head{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.track-fill-head h3{margin:0;font-size:14px;font-weight:700;color:var(--text)}.track-fill-head h3 label{margin:0;font:inherit;color:inherit;letter-spacing:inherit;cursor:pointer}.track-fill-head .auto-convert-control{flex:none}
+.track-fill-help{margin:0;font-size:12px;color:var(--muted);max-width:72ch}
+.track-fill-progress{display:flex;align-items:center;gap:12px;margin-top:6px}
+.track-fill-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
+.track-fill-meter{height:6px;border-radius:3px;background:var(--track);box-shadow:var(--track-shadow);overflow:hidden}
+.track-fill-meter>span{display:block;height:100%;width:var(--fill,0%);border-radius:inherit;background:var(--accent);transition:width .4s var(--ease,ease)}
+.track-fill-meter[data-state="error"]>span{background:var(--warn)}
+.track-fill-status{margin:0;font-size:12.5px;color:var(--text-2);font-variant-numeric:tabular-nums;white-space:pre-line}
+.track-fill-status[data-state="error"]{color:var(--warn-text)}
+#trackFillRun{flex:none;margin:0}
+@media(max-width:600px){.track-fill-progress{align-items:flex-end}}
+@media(prefers-reduced-motion:reduce){.track-fill-meter>span{transition:none}}
 .archive-job{display:grid;gap:6px;margin-top:8px}.archive-job progress{width:100%;height:8px;accent-color:var(--accent)}.archive-job p{margin:0;font-size:12px;color:var(--muted);overflow-wrap:anywhere;white-space:pre-line;font-variant-numeric:tabular-nums}.archive-job[data-state="failed"] p,.archive-job[data-state="interrupted"] p,.archive-job[data-state="partial"] p{color:var(--warn-text)}
 .archive-all-summary{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0;padding:4px 22px 10px;font-size:13px}.archive-all-summary dt{color:var(--muted)}.archive-all-summary dd{margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .archive-all-dialog .archive-mode{margin:0 22px 8px}.archive-all-excluded{margin:0 22px 8px;padding-left:18px;font-size:12px;color:var(--muted)}.archive-all-excluded:empty{display:none}
@@ -756,31 +772,92 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .log-map-canvas{position:absolute;inset:0}
 .log-map-empty{position:absolute;left:50%;top:50%;z-index:500;transform:translate(-50%,-50%);margin:0;padding:10px 16px;border-radius:12px;background:var(--pop);box-shadow:var(--pop-shadow);color:var(--muted);text-align:center}
 .log-map-empty[hidden]{display:none}
-.log-map-card{position:absolute;left:12px;right:12px;bottom:12px;z-index:600;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;max-width:560px;margin-inline:auto;padding:12px 12px 12px 16px;border-radius:14px;background:var(--pop);box-shadow:var(--pop-shadow),inset 4px 0 0 var(--tag-color,var(--accent));animation:rv-map-card-in .22s var(--m2-decelerate,cubic-bezier(0,0,.2,1))}
+/* The all-drives map's card floats over the tiles in the app's glass (as the controls over the video); the drive's
+   colour is a dot before its date. Besides 재생 its buttons are ghost buttons on the glass. */
+.log-map-card{position:absolute;left:12px;right:12px;bottom:12px;z-index:600;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;max-width:560px;margin-inline:auto;padding:12px 12px 12px 16px;border-radius:14px;border:1px solid var(--glass-border);background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);text-shadow:none;animation:rv-map-card-in .22s var(--m2-decelerate,cubic-bezier(0,0,.2,1))}
 .log-map-card[hidden]{display:none}
 .map-card-text{display:flex;flex-direction:column;gap:2px;flex:1 1 180px;min-width:0}
 .map-card-title{font-size:15px;font-weight:600}
 .map-card-facts{color:var(--muted);font-size:13px}
 .map-card-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.log-map-card{background:var(--glass-solid)}}
+@media(prefers-reduced-transparency:reduce){.log-map-card{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
+.map-card-title::before{content:"";display:inline-block;width:10px;height:10px;margin-right:8px;border-radius:50%;background:var(--tag-color,var(--accent));box-shadow:0 0 0 2px color-mix(in srgb,var(--tag-color,var(--accent)) 28%,transparent);vertical-align:1px}
 .map-card-actions>button,.map-card-actions>a{min-height:40px}
-.map-card-actions>.map-card-close{width:40px;padding:0;background:transparent;box-shadow:none;color:var(--muted)}
+.map-card-actions>button{border:1px solid color-mix(in srgb,var(--text) 16%,transparent);background:color-mix(in srgb,var(--text) 7%,transparent);box-shadow:none;color:var(--text);text-shadow:none}
+@media(hover:hover) and (pointer:fine){.map-card-actions>button:hover{background:color-mix(in srgb,var(--text) 14%,transparent)}}
+.map-card-actions>button:active{background:color-mix(in srgb,var(--text) 18%,transparent)}
+.map-card-actions>.map-card-close{width:40px;padding:0;border-radius:50%;color:var(--text-2)}
+@media(pointer:coarse){.map-card-actions>button,.map-card-actions>a{min-height:44px}.map-card-actions>.map-card-close{width:44px}}
+/* Wide screens: the drives on the map in a glass card on the right (always there, foldable). A row highlights its
+   line on hover, a tap selects it (its actions inline, no bottom card) and fits the map beside the card. */
+.log-map-list{display:none}
+.log-map-rows{flex:0 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid color-mix(in srgb,var(--text) 10%,transparent)}
+.log-map-list-head{flex:none;display:flex;align-items:baseline;gap:8px;padding:12px 16px;font-size:13px;font-weight:600}
+.log-map-list-count{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
+.map-list-row{border-top:1px solid color-mix(in srgb,var(--text) 8%,transparent);content-visibility:auto;contain-intrinsic-size:auto 60px}
+.map-list-row:first-child{border-top:0}
+.map-list-pick{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:2px 10px;width:100%;min-height:44px;margin:0;padding:10px 16px;border:0;border-radius:0;background:transparent;box-shadow:none;color:var(--text);font:inherit;text-align:left;text-shadow:none}
+.map-list-pick::before{content:"";grid-row:1;width:10px;height:10px;border-radius:50%;background:var(--tag-color,var(--accent));box-shadow:0 0 0 2px color-mix(in srgb,var(--tag-color,var(--accent)) 28%,transparent)}
+.map-list-pick b{overflow:hidden;font-size:14px;font-weight:600;white-space:nowrap;text-overflow:ellipsis}
+.map-list-pick span{grid-column:2;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+@media(hover:hover) and (pointer:fine){.map-list-pick:hover{background:color-mix(in srgb,var(--text) 6%,transparent)}}
+.map-list-pick:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.map-list-row.is-selected{background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.map-list-row .map-card-actions{flex-wrap:wrap;margin:0;padding:0 16px 12px 36px}
+@media(min-width:1024px),(min-width:600px) and (orientation:landscape){
+ .log-map{--list-w:clamp(300px,30vw,380px);--map-right:calc(var(--list-w) + 28px)}
+ .log-map.is-folded{--map-right:0px}
+ .log-map .leaflet-top.leaflet-right{left:0;right:auto}.log-map .leaflet-bottom.leaflet-right{right:var(--map-right)}
+ .log-map>.map-fold{display:inline-grid}
+ .log-map-list{position:absolute;z-index:550;top:calc(24px + var(--fold-size));right:16px;display:flex;flex-direction:column;width:var(--list-w);max-height:calc(100% - 40px - var(--fold-size));border:1px solid var(--glass-border);border-radius:16px;overflow:hidden;background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);text-shadow:none;animation:rv-fold-in .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1))}
+ .log-map.is-folded .log-map-list{display:none}
+}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.log-map-list{background:var(--glass-solid)}}
+@media(prefers-reduced-transparency:reduce){.log-map-list,.map-fold{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
 @keyframes rv-map-card-in{from{opacity:0;transform:translateY(8px)}}
 @media(prefers-reduced-motion:reduce){.log-map-card{animation:none}}
-.route-shape{flex:0 0 64px;width:64px;height:48px;min-height:0;padding:0;border:0;border-radius:9px;background:var(--well);box-shadow:0 0 0 1px var(--line);color:var(--accent-text);display:grid;place-items:center;cursor:pointer;align-self:center}
-.route-shape svg{display:block}.route-shape .shape-start{fill:var(--surface);stroke:currentColor;stroke-width:1.5}.route-shape .shape-end{fill:currentColor}
-@media(hover:hover) and (pointer:fine){.route-shape:hover{background:var(--hover);box-shadow:0 0 0 1px var(--accent-line)}}
-.route-shape:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+/* The route on a card with GPS (maps.js shapeSvg): theme tokens for its map ground, grid and line. */
+:root{--route-bg:#14181B;--route-grid:rgba(255,255,255,.06);--route-start:#4F8C76;--route-end:#5BE3AE;--route-halo:rgba(91,227,174,.28)}
+:root[data-theme=light]{--route-bg:#EDF1EE;--route-grid:rgba(16,24,40,.07);--route-start:#7FA394;--route-end:#1FA874;--route-halo:rgba(31,168,116,.22)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--route-bg:#EDF1EE;--route-grid:rgba(16,24,40,.07);--route-start:#7FA394;--route-end:#1FA874;--route-halo:rgba(31,168,116,.22)}}
+.route-svg{display:block}.route-svg .shape-grid{stroke:var(--route-grid);stroke-width:1}
+.route-svg .shape-from{stop-color:var(--route-start)}.route-svg .shape-to{stop-color:var(--route-end)}
+.route-svg .shape-halo,.route-svg .shape-line{fill:none;stroke-linecap:round;stroke-linejoin:round}.route-svg .shape-halo{stroke:var(--route-halo)}
+.route-svg .shape-start{fill:var(--route-bg);stroke:var(--route-start)}.route-svg .shape-end-halo{fill:var(--route-halo)}.route-svg .shape-end{fill:var(--route-end)}
+/* Phones and touch screens: a 지도 button left of 재생 with a small picture of the route. */
+.route-inset,.route-strip{display:none}
+.log-route-actions{gap:8px}
+.route-map-button{flex:none;display:inline-flex;align-items:center;gap:8px;height:40px;min-height:0;padding:0 12px 0 4px;border-radius:10px;font-size:13.5px;font-weight:700}
+.route-glyph{display:block;width:34px;height:32px;border-radius:8px;background:var(--route-bg);overflow:hidden}
+.route-map-button:focus-visible,.route-strip:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+@media(pointer:coarse){.route-map-button{height:44px}}
+/* Mouse screens: a glass inset in the thumbnail's top-right corner (only a picture: clicks reach the thumbnail). Hovering
+   the thumbnail, or focus on the card or the strip, swaps it for a map strip that grows out of the thumbnail's right edge
+   as one rounded block and pushes the rest of the row aside; the strip opens 주행 지도. */
+@media(min-width:720px) and (hover:hover) and (pointer:fine){
+ .route-map-button{display:none}
+ .route-inset{position:absolute;top:6px;right:6px;z-index:2;display:block;width:46px;height:46px;border-radius:10px;overflow:hidden;background:var(--glass-bg);box-shadow:var(--glass-highlight),0 0 0 1px var(--glass-border),0 4px 12px rgba(0,0,0,.25);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);pointer-events:none;transform-origin:top right;transition:opacity .16s var(--m2-standard),transform .2s var(--m2-standard)}
+ .route-strip{position:relative;display:block;flex:none;align-self:center;width:0;height:99px;min-height:0;margin-left:-18px;padding:0;border:0;border-radius:0 10px 10px 0;overflow:hidden;background:var(--route-bg);box-shadow:0 0 0 1px var(--line);opacity:0;cursor:pointer;transition:width .3s var(--m2-standard),opacity .2s var(--m2-standard)}
+ .route-strip:focus-visible{outline-offset:-2px}
+ .route-strip svg{position:absolute;top:0;left:0}
+ .route-thumb{transition:border-radius .3s var(--m2-standard)}
+ .log-route>summary:is(:has(>.route-thumb:hover),:has(>.route-strip:hover),:has(>.route-strip:focus-visible),:focus-visible)>.route-strip{width:99px;opacity:1}
+ .log-route>summary:is(:has(>.route-thumb:hover),:has(>.route-strip:hover),:has(>.route-strip:focus-visible),:focus-visible):has(>.route-strip)>.route-thumb{border-radius:10px 0 0 10px}
+ .log-route>summary:is(:has(>.route-thumb:hover),:has(>.route-strip:hover),:has(>.route-strip:focus-visible),:focus-visible)>.route-thumb>.route-inset{opacity:0;transform:scale(.85)}
+}
+@media(prefers-reduced-motion:reduce){.route-inset,.route-strip,.route-thumb{transition:none}}
+.selection-mode :is(.route-inset,.route-strip,.route-map-button){display:none}
 .log-row.is-map-marked{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
 .log-route.is-located>summary{animation:rv-located 1.2s ease-out}
 @keyframes rv-located{0%,30%{box-shadow:var(--surface-highlight),inset 0 0 0 2px var(--accent-line)}}
 @media(prefers-reduced-motion:reduce){.log-route.is-located>summary{animation:none}}
-.selection-mode .route-shape{display:none}
 @media(max-width:719px){
  .lib-panel-head .lib-subtitle{grid-column:1}
  .lib-panel-head>#logView{grid-column:2;grid-row:2;justify-self:end;margin:4px 0 0}
- .log-route>summary>.route-shape{grid-column:1;grid-row:2;justify-self:start}
- /* The actions row spans under the shape: its empty part lets taps through (to the shape, or to the summary that folds). */
- .log-route>summary:has(>.route-shape)>.log-route-actions{pointer-events:none}.log-route>summary:has(>.route-shape)>.log-route-actions>*{pointer-events:auto}
+ /* 지도 sits right beside 재생; the empty left of the row folds the card like the rest of the header. */
+ .log-route-actions:has(>.route-map-button){justify-content:flex-end}
+ .route-map-button{height:44px}
  .log-map{height:calc(100dvh - 300px);min-height:320px}
 }
 /* 주행 지도: a full-screen dialog over the library (its motion is the dialogs' in motion.css). Phones: the map on top,
@@ -796,22 +873,141 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .drive-map-heading{min-width:0}
 .drive-map-heading h2{margin:0;overflow:hidden;font-size:16px;font-weight:700;line-height:1.3;white-space:nowrap;text-overflow:ellipsis}
 .drive-map-heading p{margin:1px 0 0;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
-.drive-map-body{--sheet-h:54%;position:relative;flex:1;min-height:0;display:flex;flex-direction:column}
-.drive-map-area{position:relative;isolation:isolate;flex:1 1 auto;min-height:0}
+/* The map fills the body; the segments float over it in the app's glass: a bottom sheet on phones (dragged between
+   snap heights), a card on the right on wide screens. Leaflet's right-hand controls (zoom, attribution) and the fit
+   (maps.js fitDrive) keep clear of whichever covers the map. */
+.drive-map-body{--sheet-h:54%;--map-right:0px;--map-bottom:var(--sheet-h);position:relative;flex:1;min-height:0}
+.drive-map-area{position:absolute;inset:0;isolation:isolate}
 .drive-map-canvas{position:absolute;inset:0}
-.drive-map-sheet{position:relative;z-index:1;flex:none;display:flex;flex-direction:column;height:var(--sheet-h);margin-top:-14px;border-radius:16px 16px 0 0;background:var(--panel);box-shadow:0 -1px 0 var(--line),0 -6px 20px rgba(0,0,0,.16);transition:height .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+.drive-map-area .leaflet-right{right:var(--map-right)}.drive-map-area .leaflet-bottom{bottom:var(--map-bottom);transition:bottom .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+.drive-map-body.is-dragging .leaflet-bottom{transition:none}
+.drive-map-sheet{position:absolute;z-index:1;left:0;right:0;bottom:0;display:flex;flex-direction:column;height:var(--sheet-h);border:1px solid var(--glass-border);border-bottom:0;border-radius:16px 16px 0 0;background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);text-shadow:none;transition:height .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.drive-map-sheet{background:var(--glass-solid)}}
+@media(prefers-reduced-transparency:reduce){.drive-map-sheet{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
 .drive-map-body.is-dragging .drive-map-sheet{transition:none}
 .drive-map-handle{flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;width:100%;min-height:44px;margin:0;padding:8px 16px 8px;border:0;border-radius:16px 16px 0 0;background:transparent;box-shadow:none;color:var(--muted);font-size:12px;font-weight:600;cursor:grab;touch-action:none}
 .drive-map-body.is-dragging .drive-map-handle{cursor:grabbing}
 .drive-map-grip{width:36px;height:4px;border-radius:2px;background:var(--line-strong)}
 .drive-map-handle:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
-.drive-map-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom);border-top:1px solid var(--line)}
+.drive-map-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-bottom:env(safe-area-inset-bottom);border-top:1px solid color-mix(in srgb,var(--text) 10%,transparent)}
 .drive-map-list>.log-row:first-child{border-top:0}
-.drive-map-list>.log-row{cursor:pointer;transition:background-color .2s var(--m2-standard,ease),box-shadow .2s var(--m2-standard,ease)}
+.drive-map-list>.log-row{border-top-color:color-mix(in srgb,var(--text) 8%,transparent);background:transparent;cursor:pointer;transition:background-color .2s var(--m2-standard,ease),box-shadow .2s var(--m2-standard,ease)}
+.drive-map-list>.log-row.is-map-marked{background:color-mix(in srgb,var(--accent) 16%,transparent)}
 @media(min-width:1024px),(min-width:600px) and (orientation:landscape){
- .drive-map-body{flex-direction:row}
- .drive-map-sheet{width:clamp(320px,36%,460px);height:auto;margin:0;border-radius:0;box-shadow:-1px 0 0 var(--line)}
+ .drive-map-body{--sheet-w:clamp(320px,34vw,400px);--map-right:calc(var(--sheet-w) + 28px);--map-bottom:0px}
+ .drive-map-body.is-folded{--map-right:0px}.drive-map-body.is-folded .drive-map-sheet{display:none}
+ .drive-map-area .leaflet-top.leaflet-right{left:0;right:auto}
+ .drive-map-sheet{left:auto;top:calc(24px + var(--fold-size));right:max(16px,env(safe-area-inset-right));bottom:auto;width:var(--sheet-w);height:auto;max-height:calc(100% - 40px - var(--fold-size) - env(safe-area-inset-bottom));animation:rv-fold-in .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1));border-bottom:1px solid var(--glass-border);border-radius:16px;overflow:hidden}
+ .drive-map-list{flex:0 1 auto}
  .drive-map-handle{align-items:flex-start;min-height:0;padding:12px 16px;border-radius:0;cursor:default}
  .drive-map-grip{display:none}
+ .drive-map-body>.drive-map-fold{display:inline-grid}
 }
+/* The fold button of the list cards over the maps (wide screens): an icon button in the map's top-right corner, the
+   card just below it; it stays put while the card folds away and comes back (the chevron turns). */
+:root{--fold-size:40px}@media(pointer:coarse){:root{--fold-size:44px}}
+.map-fold{position:absolute;z-index:560;top:16px;right:max(16px,env(safe-area-inset-right));display:none;place-items:center;width:var(--fold-size);height:var(--fold-size);min-height:0;margin:0;padding:0;border:1px solid var(--glass-border);border-radius:10px;background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);color:var(--text)}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.map-fold{background:var(--glass-solid)}}
+@media(hover:hover) and (pointer:fine){.map-fold:hover{background-image:linear-gradient(var(--hover),var(--hover))}}
+.map-fold:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.map-fold-chevron{transform-box:fill-box;transform-origin:center;transition:transform .24s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+.map-fold[aria-expanded=false] .map-fold-chevron{transform:rotate(180deg)}
+@keyframes rv-fold-in{from{opacity:0;transform:translateX(12px)}}
+@media(prefers-reduced-motion:reduce){.map-fold-chevron{transition:none}.drive-map-sheet,.log-map-list{animation:none!important}}
 @media(prefers-reduced-motion:reduce){.drive-map-sheet,.drive-map-list>.log-row{transition:none}}
+/* The lists over the maps are columns of separate glass cards (one per drive, one per segment) with the map showing in
+   the gaps; the column has no panel of its own. Its count is a small glass label above it, and maps.js fades the cards
+   out at an edge with more beyond it (each card is masked itself: a mask on the column would cut off their blur). */
+.log-map-card,.log-map-list-head,.map-list-row,.drive-map-list>.log-row,.drive-map-handle,.map-fold{border:1px solid var(--map-glass-border);background:var(--map-glass);-webkit-backdrop-filter:var(--map-glass-filter);backdrop-filter:var(--map-glass-filter);box-shadow:var(--map-glass-highlight),var(--map-glass-shadow);text-shadow:none}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.log-map-card,.log-map-list-head,.map-list-row,.drive-map-list>.log-row,.drive-map-handle,.map-fold{background:var(--glass-solid)}}
+@media(prefers-reduced-transparency:reduce){.log-map-card,.log-map-list-head,.map-list-row,.drive-map-list>.log-row,.drive-map-handle,.map-fold{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
+@media(hover:hover) and (pointer:fine){.map-fold:hover{background-image:linear-gradient(var(--map-glass-hover),var(--map-glass-hover))}}
+.log-map-list-head{align-self:flex-start;gap:6px;padding:5px 12px;border-radius:999px;font-size:12.5px}
+.log-map-rows,.drive-map-list{display:flex;flex-direction:column;gap:8px;border-top:0;scrollbar-width:thin}
+.map-list-row{flex:none;border-radius:14px;overflow:hidden;contain-intrinsic-size:auto 58px}
+.map-list-row:first-child{border-top:1px solid var(--map-glass-border)}
+.map-list-pick{min-height:44px;padding:9px 14px;border-radius:0}
+.map-list-pick b{font-size:13.5px}
+@media(hover:hover) and (pointer:fine){.map-list-pick:hover{background:var(--map-glass-hover)}}
+.map-list-row.is-selected,.drive-map-list>.log-row.is-map-marked{background:color-mix(in srgb,var(--accent) 15%,var(--map-glass));border-color:var(--accent-line);box-shadow:var(--map-glass-highlight),inset 0 0 0 .5px var(--accent-line),var(--map-glass-shadow)}
+.map-list-row .map-card-actions{gap:6px;padding:0 12px 12px 34px}
+.map-card-actions>button{border:1px solid var(--map-glass-border);background:var(--map-glass-hover);box-shadow:var(--map-glass-highlight);color:var(--text)}
+@media(hover:hover) and (pointer:fine){.map-card-actions>button:hover{background:color-mix(in srgb,var(--text) 12%,transparent)}}
+.drive-map-list>.log-row{flex:none;border-radius:14px}
+.drive-map-list>.log-row{gap:4px 10px;padding:10px 10px 10px 14px}.drive-map-list .log-thumb{display:none}
+.drive-map-list>.log-row:first-child{border-top:1px solid var(--map-glass-border)}
+.drive-map-list>.log-row.is-map-marked:first-child{border-top-color:var(--accent-line)}
+/* Phones: the sheet itself is clear; its handle is a small glass grip and the segment cards stack under it. */
+.drive-map-sheet{border:0;background:none;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none}
+.drive-map-handle{align-self:center;width:auto;min-width:120px;min-height:44px;margin:0 0 6px;padding:7px 18px 8px;border-radius:999px;gap:5px;color:var(--text-2)}
+.drive-map-list{padding:2px 12px max(12px,env(safe-area-inset-bottom))}
+@media(min-width:1024px),(min-width:600px) and (orientation:landscape){
+ .log-map-list{gap:8px;border:0;border-radius:0;overflow:visible;background:none;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none}
+ .log-map-rows{margin:0 -6px;padding:2px 6px 10px}
+ .drive-map-sheet{border:0;overflow:visible}
+ .drive-map-handle{align-self:flex-start;min-width:0;min-height:0;margin:0 0 8px;padding:5px 12px;border-radius:999px;font-size:12.5px}
+ .drive-map-list{margin:0 -6px;padding:2px 6px 10px}
+}
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.log-map-list,.drive-map-sheet{background:none}}
+@media(prefers-reduced-transparency:reduce){.log-map-list,.drive-map-sheet{background:none}}
+
+/* Wide screens: the count label sits on the fold button's line; folding slides the cards out to the side with a fade
+   (staggered), unfolding slides them back in; the label stays put and only fades. The column keeps its place while
+   folded (hidden after the motion) so both directions animate. */
+@media(min-width:1024px),(min-width:600px) and (orientation:landscape){
+ .log-map-list{top:16px;max-height:calc(100% - 32px);animation:none;visibility:visible;transition:visibility 0s}
+ .drive-map-sheet{top:16px;max-height:calc(100% - 32px - env(safe-area-inset-bottom));animation:none;visibility:visible;transition:visibility 0s}
+ .log-map-list-head,.drive-map-handle{box-sizing:border-box;height:30px;min-height:0;margin-top:calc((var(--fold-size) - 30px) / 2);display:inline-flex;align-items:center}
+ .log-map.is-folded .log-map-list,.drive-map-body.is-folded .drive-map-sheet{display:flex;visibility:hidden;pointer-events:none;transition:visibility 0s .42s}
+ .log-map-list-head,.drive-map-handle{transition:opacity .22s var(--m2-standard,ease)}
+ .log-map.is-folded .log-map-list-head,.drive-map-body.is-folded .drive-map-handle{opacity:0}
+ .log-map .log-map-rows>.map-list-row,.drive-map-body .drive-map-list>.log-row{--k:10;transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s}
+ .log-map-rows>:nth-child(1),.drive-map-list>:nth-child(1){--k:0}.log-map-rows>:nth-child(2),.drive-map-list>:nth-child(2){--k:1}.log-map-rows>:nth-child(3),.drive-map-list>:nth-child(3){--k:2}.log-map-rows>:nth-child(4),.drive-map-list>:nth-child(4){--k:3}.log-map-rows>:nth-child(5),.drive-map-list>:nth-child(5){--k:4}.log-map-rows>:nth-child(6),.drive-map-list>:nth-child(6){--k:5}.log-map-rows>:nth-child(7),.drive-map-list>:nth-child(7){--k:6}.log-map-rows>:nth-child(8),.drive-map-list>:nth-child(8){--k:7}.log-map-rows>:nth-child(9),.drive-map-list>:nth-child(9){--k:8}.log-map-rows>:nth-child(10),.drive-map-list>:nth-child(10){--k:9}
+ .log-map.is-folded .log-map-rows>.map-list-row,.drive-map-body.is-folded .drive-map-list>.log-row{opacity:0;translate:28px 0;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
+}
+@media(prefers-reduced-motion:reduce){.log-map .log-map-rows>.map-list-row,.drive-map-body .drive-map-list>.log-row,.log-map-list-head,.drive-map-handle{transition:none}.log-map.is-folded .log-map-list,.drive-map-body.is-folded .drive-map-sheet{transition:none}}
+
+/* The all-drives map's swatches match its pastel lines (maps.js PASTEL) in both themes. */
+:is(.map-list-row,.log-map-card)[data-color=mint]{--tag-color:#65dfb9}:is(.map-list-row,.log-map-card)[data-color=blue]{--tag-color:#8cbcff}:is(.map-list-row,.log-map-card)[data-color=amber]{--tag-color:#f2c16f}:is(.map-list-row,.log-map-card)[data-color=violet]{--tag-color:#c2a1ff}:is(.map-list-row,.log-map-card)[data-color=rose]{--tag-color:#f2a4bd}:is(.map-list-row,.log-map-card)[data-color=cyan]{--tag-color:#75d9ef}:is(.map-list-row,.log-map-card)[data-color=lime]{--tag-color:#b9df78}:is(.map-list-row,.log-map-card)[data-color=coral]{--tag-color:#ffad92}:is(.map-list-row,.log-map-card)[data-color=indigo]{--tag-color:#9faaff}:is(.map-list-row,.log-map-card)[data-color=yellow]{--tag-color:#f5df7a}:is(.map-list-row,.log-map-card)[data-color=red]{--tag-color:#ff8c91}:is(.map-list-row,.log-map-card)[data-color=slate]{--tag-color:#acbbcc}
+/* Phones: the drive map's sheet dragged below its lowest height hides its cards (they slide down and fade, the reverse
+   when they come back); only the handle stays over a full map. */
+.drive-map-body .drive-map-list>.log-row{--k:10}
+@media not ((min-width:1024px) or ((min-width:600px) and (orientation:landscape))){
+ .drive-map-body .drive-map-list>.log-row{transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s}
+ .drive-map-body.is-sheet-hidden .drive-map-list{overflow:hidden;pointer-events:none}
+ .drive-map-body.is-sheet-hidden .drive-map-list>.log-row{opacity:0;translate:0 32px;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
+}
+@media(prefers-reduced-motion:reduce){.drive-map-body .drive-map-list>.log-row{transition:none}}
+/* The all-drives map's info card: a pill of the over-video glass (gradient rim, pill buttons). Phones, where the
+   buttons wrap under the date, keep the same glass with rounder ends than a card. */
+.log-map-card{flex-wrap:nowrap;gap:14px;width:max-content;max-width:calc(100% - 24px);padding:10px 10px 10px 24px;border-radius:999px;border-color:transparent;isolation:isolate}
+.log-map-card::after{content:"";position:absolute;inset:-1px;padding:1px;border-radius:inherit;pointer-events:none;background:var(--map-glass-rim);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);mask-composite:exclude}
+.log-map-card .map-card-text{flex:0 1 auto;gap:0}
+.log-map-card .map-card-title{font-size:14px;white-space:nowrap}
+.log-map-card .map-card-facts{font-size:12px;white-space:nowrap}
+.log-map-card .map-card-actions{gap:6px;margin-left:8px}
+.log-map-card .map-card-actions>:is(a,button){border-radius:999px;padding-inline:14px}
+.log-map-card .map-card-actions>.map-card-close{padding:0;border-radius:50%}
+@media(max-width:599px){
+ .log-map-card{flex-wrap:wrap;width:auto;padding:14px 14px 14px 20px;border-radius:30px}
+ .log-map-card .map-card-text{flex:1 1 100%}
+ .log-map-card .map-card-actions{margin-left:0;flex:1 1 100%}
+ .log-map-card .map-card-actions>.map-card-close{margin-left:auto}
+}
+/* The marked card over the maps (a selected drive, a marked segment): no accent outline; the glass's top reflection
+   turns accent-coloured and a soft accent glow rises from the bottom edge, like a lit glass tab. */
+.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child{
+ border-color:var(--mark-border,var(--map-glass-border));
+ border-top-color:transparent;border-bottom-color:transparent;
+ background:linear-gradient(90deg,var(--mark-edge-base) 0%,color-mix(in srgb,var(--accent) var(--mark-rim),var(--mark-edge-base)) 50%,var(--mark-edge-base) 100%) top/100% 1px no-repeat border-box,
+  linear-gradient(90deg,var(--mark-edge-base) 0%,color-mix(in srgb,var(--accent) var(--mark-rim-bottom),var(--mark-edge-base)) 50%,var(--mark-edge-base) 100%) bottom/100% 1px no-repeat border-box,
+  radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) var(--mark-top),transparent),transparent 70%),
+  radial-gradient(90% 55% at 50% 118%,color-mix(in srgb,var(--accent) var(--mark-glow),transparent) 0%,color-mix(in srgb,var(--accent) var(--mark-haze),transparent) 55%,transparent 75%),var(--map-glass);
+ background-origin:border-box,border-box,padding-box,padding-box;background-clip:border-box,border-box,padding-box,padding-box;
+ box-shadow:var(--mark-highlight,var(--map-glass-highlight)),var(--map-glass-shadow)}
+/* The marked card's light: dark glass needs little; light glass (white over a light map) needs more to show. */
+:root{--mark-edge-base:var(--map-glass-border);--mark-rim-bottom:35%;--mark-rim:50%;--mark-top:9%;--mark-glow:24%;--mark-haze:7%}
+:root[data-theme=light]{--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:48%;--mark-rim:55%;--mark-top:15%;--mark-glow:54%;--mark-haze:18%}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:48%;--mark-rim:55%;--mark-top:15%;--mark-glow:54%;--mark-haze:18%}}
+/* The secondary buttons inside the glass cards (주행 지도, 목록에서 보기, ✕): a soft tint only, no outline. */
+.log-map .map-card-actions>button,.log-map-card .map-card-actions>button{border-color:transparent;box-shadow:none}

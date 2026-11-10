@@ -4,6 +4,15 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.0
+
+- Maps now use OpenFreeMap vector tiles: CARTO started requiring an API key, so the maps showed only "API KEY REQUIRED"; no key or account is needed (OpenStreetMap data). A button at the map's top-left turns on a simpler map without 3D buildings and POI icons.
+- Lists over the maps are separate glass cards per drive or segment. On wide screens the all-drives map shows a drive list on the right that folds away and back with the top-right button (cards slide out and in), long lists fade at the edges while scrolling, and the selected card glows softly inside.
+- Drive lines on the all-drives map use the pastel tag colours, and the card under a tapped line is a glass pill.
+- On phones, dragging the drive map's segment sheet all the way down hides it; tapping the handle brings it back.
+- Route cards show their route as a small inset in the thumbnail's top-right on desktop, unfolding into a square map on hover, and as a "지도" button beside 재생 on phones.
+- The Storage tab gains "Fill maps from Google Drive logs" (off by default) and a run-once button: each Drive-only log's original is downloaded once to read its route and deleted right after (Drive files are not changed), with a progress bar and count.
+
 ## 1.1.1
 
 - Fixed the route maps staying empty: 1.1.0 read only the device GPS, which saw no satellites in this car's logs. When the device GPS has no fix, the car's own GPS sent over CAN (carState.vehicleGps) is used, and failing that carrot's estimated position (carrotMan).

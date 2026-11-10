@@ -51,7 +51,7 @@ function showArchive(a){
  if(a?.settings_error)$('archiveSettingsStatus').textContent='아카이빙 설정을 읽지 못해 꺼졌습니다. 설정을 확인하고 저장하세요. ('+a.settings_error+')';
  // Local usage and archive metrics have separate sections. Never show the share's path.
  for(const row of document.querySelectorAll('#archiveUsage>.archive-metric,#archiveSecondaryUsage>.archive-metric'))row.remove();
- archiveCheckPoll(a);
+ archiveCheckPoll(a);showTrackFill(a);
  $('archiveRun')?.remove();$('archiveSummary').hidden=!a?.enabled;if(!a?.enabled){$('archiveJob').hidden=true;archiveJobPoll(false)}
  // A block without a backend is the NAS and shows as before; nothing of Drive is created for it.
  // Drive's sign-in does not need archiving on: with it off, only the connection panel is shown.
@@ -193,6 +193,49 @@ async function gdriveRequest(action){
  catch(e){message=message||e.message}
  finally{gdriveBusy=false;if($('gdrivePanel')){gdriveButtons();$('gdriveStatus').textContent=message}}
 }
+// 'Drive 로그 지도 채우기' (archive.track_fill, Drive only): the switch is saved with the form like the other settings;
+// one pass can be started here with it on or off, and stopped (after the log being read).
+const TRACK_FILL_ERRORS={auth_expired:'Google Drive 인증이 만료되어 멈췄습니다. 다시 연결하면 이어서 채웁니다.',not_connected:'Google Drive에 연결되어 있지 않아 멈췄습니다.',archive_disabled:'아카이빙이 꺼져 있어 Drive의 로그를 읽을 수 없습니다.',gdrive_not_selected:GDRIVE_NOT_SELECTED,folder_missing:'Drive 보관 폴더를 찾을 수 없어 멈췄습니다.',folder_trashed:'Drive 보관 폴더가 휴지통에 있어 멈췄습니다.',storage_id_mismatch:'Drive 보관 폴더를 확인할 수 없어 멈췄습니다.',network:'Google Drive에 연결할 수 없어 잠시 후 다시 시도합니다.',rate_limited:'Google Drive 요청 한도를 넘어 잠시 후 다시 시도합니다.',checking:'Google Drive 연결을 확인하는 중입니다.'};
+const TRACK_FILL_REQUEST_ERRORS={track_fill_running:'Drive 로그 지도 채우기가 이미 실행 중입니다.',gdrive_not_selected:GDRIVE_NOT_SELECTED};
+let trackFillBusy=false,trackFillTimer=null;
+function trackFillText(t){
+ if(t.total===null||t.total===undefined)return 'Drive 로그 지도 채우기: 확인 중';
+ let text=`Drive 로그 지도 채우기: ${t.done} / ${t.total}`;
+ if(t.failed)text+=` · ${t.failed}개 건너뜀`;
+ if(t.stopping)text+=' · 지금 로그를 마치고 중지';
+ else if(t.waiting==='busy')text+=' · 업로드·변환·재생·아카이빙이 끝나기를 기다리는 중';
+ else if(t.running)text+=' · 진행 중';
+ else if(t.manual)text+=' · 곧 시작';
+ const error=t.last_error?TRACK_FILL_ERRORS[t.last_error]||`오류 (${t.last_error})`:'';
+ return error?text+'\n'+error:text;
+}
+function showTrackFill(a){
+ const t=a?.backend==='gdrive'?a.track_fill:null,status=$('trackFillStatus'),run=$('trackFillRun');
+ const meter=$('trackFillMeter');status.hidden=!t;
+ meter.hidden=!t||!(t.total>0);
+ if(t&&t.total>0){meter.style.setProperty('--fill',Math.min(100,100*t.done/t.total).toFixed(1)+'%');meter.dataset.state=t.last_error?'error':'ok';meter.setAttribute('role','progressbar');meter.setAttribute('aria-valuemin','0');meter.setAttribute('aria-valuemax',String(t.total));meter.setAttribute('aria-valuenow',String(t.done));meter.setAttribute('aria-label','Drive 로그 지도 채우기 진행')}
+ if(!t){run.textContent='한 번 실행';run.dataset.action='run';run.disabled=true;trackFillPoll(false);return}
+ status.textContent=trackFillText(t);status.dataset.state=t.last_error?'error':t.running||t.manual?'running':'idle';
+ run.dataset.action=t.manual?'stop':'run';run.textContent=t.manual?'중지':'한 번 실행';
+ run.disabled=trackFillBusy||!t.manual&&t.pending===0;
+ trackFillPoll(!!(t.manual||t.running)&&!storageDetails.hidden&&!document.hidden);
+}
+async function trackFillRequest(){
+ if(trackFillBusy)return;
+ const stop=$('trackFillRun').dataset.action==='stop',a=storageSnapshotState?.archive;
+ trackFillBusy=true;$('trackFillRun').disabled=true;
+ try{const result=await settingsRequest('api/settings/archive/tracks/'+(stop?'stop':'run'));if(a&&result?.track_fill)a.track_fill=result.track_fill;$('storageStatus').textContent=''}
+ catch(e){$('storageStatus').textContent=TRACK_FILL_REQUEST_ERRORS[e.code]||e.message}
+ finally{trackFillBusy=false;showTrackFill(storageSnapshotState?.archive)}
+}
+$('trackFillRun').onclick=()=>void trackFillRequest();
+function trackFillPoll(on){
+ // Every 3 s while a pass runs, the panel open and the page visible.
+ if(!on){clearInterval(trackFillTimer);trackFillTimer=null;return}
+ if(!trackFillTimer)trackFillTimer=setInterval(()=>void archiveJobRefresh(),3000);
+}
+storageDetails.addEventListener('toggle',()=>{if(storageDetails.hidden)trackFillPoll(false)});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)trackFillPoll(false);else if(!storageDetails.hidden){const t=storageSnapshotState?.archive?.track_fill;if(t&&(t.manual||t.running))void archiveJobRefresh()}});
 // 'Archive everything eligible': the server's plan is confirmed first; the run is followed in archive.manual.
 const archiveMoves=a=>a?.backend!=='gdrive'||a?.effective_mode==='move';
 const archiveAllLabel=a=>archiveMoves(a)?'이동 가능한 데이터 모두 이동':'복사 가능한 데이터 모두 복사';
