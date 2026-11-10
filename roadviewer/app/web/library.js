@@ -207,6 +207,7 @@ function recordingActions(m){
  (removing?menu:actions).append(conversion);
  if(m.download_options)menuButton(menu,'다운로드',()=>openRecordingDownload([m]));
  menuButton(menu,'태그 편집',()=>editRecordingTags([m],()=>refresh()),'tag-edit');
+ if(m.has_track)menuButton(menu,'지도에서 보기',()=>window.rvMaps?.showSegment(m.id),'map-segment');
  menuButton(menu,'로그 이름 복사',()=>logRows.get(m.id)?.row.querySelector('.log-name .copy-recording')?.click(),'copy-name');
  const pin=menuButton(menu,m.pinned?'구간 고정 해제':'구간 고정',()=>pinRecording(m,pin),'pin-recording');pin.setAttribute('aria-pressed',String(!!m.pinned));
  if(!m.download_options)for(const item of recordingDownloads(m,''))menu.append(downloadLink(item));
@@ -540,7 +541,7 @@ async function refresh({poll=false}={}){
   // Only rows in an open card can move on screen; rows of folded cards (most of a long list) are not measured.
   const motion=window.RoadViewerMotion,before=new Map([...logRows].filter(([,cached])=>cached.row.parentNode?.parentNode?.open).map(([id,cached])=>[id,motion.capture(cached.row)]));
   const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id);
-  arrangeLogGroups(data.logs,rows);renderChips();applyFilters();if(motion.allowed())rows.forEach(row=>before.has(row.dataset.id)&&motion.play(row,before.get(row.dataset.id)));
+  arrangeLogGroups(data.logs,rows);renderChips();applyFilters();window.rvMaps?.listed(data.logs);if(motion.allowed())rows.forEach(row=>before.has(row.dataset.id)&&motion.play(row,before.get(row.dataset.id)));
  }catch(e){
   // Back from a long time in the background, the first request can fail before Home Assistant renews the ingress
   // session or the connection wakes up: one failure retries in a second, only a repeated one is shown.
@@ -637,7 +638,7 @@ function applyFilters(){
  for(const group of logGroups.values()){const visible=group.rows.filter(row=>!row.hidden).length;group.element.hidden=!visible;group.count.textContent=active?`${visible} / ${group.rows.length}개 구간`:`${group.rows.length}개 구간`}
  for(const day of listDays.values())day.element.hidden=![...day.list.children].some(route=>!route.hidden);
  $('tagFilterStatus').hidden=!active;$('tagFilterStatus').textContent=shown?`${shown}개 로그 표시 중`:tagFilter&&logFilter==='all'&&!query?'선택한 태그에 해당하는 로그가 없습니다.':'조건에 맞는 로그가 없습니다.';
- bulkSelection?.sync();
+ bulkSelection?.sync();window.rvMaps?.filtered();
 }
 // Refresh-style buttons turn their arrow once per press (restarted when pressed again mid-turn).
 const spinOnce=button=>{button.classList.remove('spin-once');void button.offsetWidth;button.classList.add('spin-once')};

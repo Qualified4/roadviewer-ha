@@ -849,3 +849,61 @@ select,.rv-choice-trigger{font-weight:500}
 @media(prefers-reduced-motion:reduce){.segment-peek{transition:none}}
 /* Stacked: the bottom video controls stay above the transport bar where it covers the picture's bottom (app.js --video-cover). */
 .replay-page.compact-media .camera-panel:not(:fullscreen) :is(.video-tools,.video-fullscreen,.video-messages){translate:0 calc(-1 * var(--video-cover,0px))}
+/* Maps (maps.js): the 목록 | 지도 and 주행 상황 | 지도 switches, Leaflet in this app's look, the replay's route map, its car
+   marker and the small map in the video's top-right corner. Tiles follow the theme (CARTO voyager / dark_all). */
+.view-switch{position:relative;isolation:isolate;display:inline-grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:2px;padding:3px;border-radius:12px;background:var(--track);box-shadow:var(--track-shadow);flex:none}
+.view-switch[hidden]{display:none}
+.view-switch::before{content:"";position:absolute;z-index:0;top:3px;bottom:3px;left:3px;width:calc((100% - 8px) / 2);border-radius:9px;background:var(--raised);box-shadow:var(--raised-shadow);transition:transform .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+.view-switch:has(>button:nth-of-type(2)[aria-pressed=true])::before{transform:translateX(calc(100% + 2px))}
+.view-switch-3::before{width:calc((100% - 10px) / 3)}.view-switch-3:has(>button:nth-of-type(3)[aria-pressed=true])::before{transform:translateX(calc(200% + 4px))}
+.minimap-tone{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--text-2)}
+.view-switch>button{position:relative;z-index:1;min-width:0;min-height:30px;margin:0;padding:4px 12px;border:0;border-radius:9px;background:transparent;box-shadow:none;color:var(--muted);font-size:12px;font-weight:600}
+.view-switch>button[aria-pressed=true]{color:var(--text)}
+@media(hover:hover) and (pointer:fine){.view-switch>button:where(:enabled):not([aria-pressed=true]):hover{background:var(--hover);color:var(--text)}}
+.view-switch>button:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+@media(pointer:coarse){.view-switch>button{min-height:38px;padding-inline:14px}}
+@media(prefers-reduced-motion:reduce){.view-switch::before{transition:none}}
+.rv-map.leaflet-container{background:var(--well);font:12px/1.4 "Pretendard Variable",system-ui,sans-serif;border-radius:inherit;outline:0}
+.rv-map[data-tiles=dark].leaflet-container{background:#1b1d22}.rv-map[data-tiles=light].leaflet-container{background:#e8eaed}
+.rv-map.leaflet-container .leaflet-control-attribution{padding:1px 6px;border-radius:6px 0 0 0;background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);color:var(--muted);font-size:10px;line-height:1.5}
+.rv-map.leaflet-container .leaflet-control-attribution a{color:var(--text-2);text-decoration:none}
+.rv-map.leaflet-container .leaflet-bar{border:0;border-radius:10px;overflow:hidden;box-shadow:var(--raised-shadow)}
+.rv-map.leaflet-container .leaflet-bar a{width:32px;height:32px;line-height:30px;background:var(--pop);border-bottom-color:var(--line);color:var(--text);font-weight:500}
+@media(hover:hover) and (pointer:fine){.rv-map.leaflet-container .leaflet-bar a:hover{background:var(--raised-hover)}}
+@media(pointer:coarse){.rv-map.leaflet-container .leaflet-bar a{width:40px;height:40px;line-height:38px}}
+.rv-map.leaflet-container .leaflet-tooltip{border:0;border-radius:8px;background:var(--pop);box-shadow:var(--pop-shadow);color:var(--text);font-size:12px;padding:3px 8px}
+.rv-map.leaflet-container .leaflet-tooltip-top::before{border-top-color:var(--pop)}
+.rv-map.leaflet-container .leaflet-interactive:focus{outline:0}
+.map-view{padding:12px 16px}
+.route-map-view{position:relative;height:clamp(300px,58vh,620px);border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px var(--line)}
+.route-map-view[hidden]{display:none}
+.route-map-canvas{position:absolute;inset:0}
+.map-follow{position:absolute;left:10px;top:10px;z-index:500;display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border:0;border-radius:999px;background:var(--pop);box-shadow:var(--raised-shadow);color:var(--muted);font-size:12px;font-weight:600}
+.map-follow[aria-pressed=true]{background:linear-gradient(var(--accent-soft),var(--accent-soft)),var(--pop);color:var(--accent-text);box-shadow:var(--raised-shadow),inset 0 0 0 1px var(--accent-line)}
+.map-follow:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+@media(pointer:coarse){.map-follow{min-height:40px}}
+.map-car{background:none;border:0}
+.map-car-body{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;box-shadow:0 0 0 2.5px #fff,0 2px 8px rgba(0,0,0,.4);transition:transform .2s linear}
+.map-car-body svg path{fill:currentColor}
+/* The small map sits in the video's top-right corner, a third of the picture's width (104-180px, never narrower than
+   the speed and wheel; 4:3), under the speed and the wheel: they keep their look and are drawn on top of it (maps.js
+   fits the route below them). The segment title leaves it room; on a short picture it stops above the bottom row
+   (maps.js --vmap-room) or, with no room left below the speed, it is not shown. Enlarged (maps.js measures): the picture between the top and the bottom control rows, its top-left
+   corner cut around the title (a mask with rounded corners, anchored to the right so it holds while the map grows). */
+.video-map{--vmap-w:clamp(max(104px,var(--vmap-min-w,0px)),calc(100cqw / 3),180px);position:absolute;top:12px;right:12px;z-index:3;width:var(--vmap-w);height:min(calc(var(--vmap-w) * .75),var(--vmap-room,1000px));padding:0;border:0;border-radius:14px;overflow:hidden;background:#1b1d22;box-shadow:0 0 0 1px rgba(255,255,255,.16),0 2px 10px rgba(0,0,0,.24);cursor:zoom-in;transition:width .26s var(--m2-standard,cubic-bezier(.4,0,.2,1)),height .26s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+.video-map[hidden]{display:none}
+.video-map.is-large{width:var(--vmap-large-w,calc(100% - 24px));height:var(--vmap-large-h,60%);cursor:zoom-out}
+.video-map-canvas{position:absolute;inset:0;border-radius:inherit;overflow:hidden}
+.video-map .rv-map.leaflet-container .leaflet-control-attribution{padding:0 4px;border-radius:5px 0 0 0;font-size:7.5px;line-height:1.5}
+.video-map .map-car-body{width:20px;height:20px}.video-map .map-car-body svg{width:15px;height:15px}
+.video-map:focus-visible{outline:2px solid var(--hud-focus,var(--focus));outline-offset:2px}
+@container(max-width:520px){.video-map{top:8px;right:8px;border-radius:12px}}
+.video-wrap.has-video-map .video-hud{z-index:4;pointer-events:none}
+.video-wrap.has-video-map .video-messages{z-index:4}
+.video-wrap.has-video-map .video-title{z-index:4;max-width:calc(100% - clamp(max(104px,var(--vmap-min-w,0px)),calc(100cqw / 3),180px) - 32px)}
+.video-map.no-room{display:none}
+.video-wrap.video-map-large .video-tools{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .18s,visibility 0s .18s}
+.video-wrap.video-map-large .video-messages{bottom:12px}
+@container(max-width:520px){.video-wrap.video-map-large .video-messages{bottom:8px}}
+.camera-panel:fullscreen .video-wrap.video-map-large .video-messages{bottom:calc(var(--transport-height,130px) + 20px)}
+@media(prefers-reduced-motion:reduce){.video-map,.map-car-body,.video-wrap.video-map-large .video-tools{transition:none}}

@@ -36,7 +36,7 @@
  const defaultGraphs=[...graphs];
  const key='roadviewer-vehicle-graphs',tabKey='roadviewer-analysis-tab',orderKey='roadviewer-graph-order';
  let selected=new Set(['speed','acceleration','pedals','angle','intervention','control']),tab='road';
- try{const saved=JSON.parse(localStorage.getItem(key));if(Array.isArray(saved))selected=new Set(saved.filter(id=>graphs.some(g=>g.id===id)));const savedTab=localStorage.getItem(tabKey);if(['road','lanes','telemetry','bookmarks'].includes(savedTab))tab=savedTab}catch{}
+ try{const saved=JSON.parse(localStorage.getItem(key));if(Array.isArray(saved))selected=new Set(saved.filter(id=>graphs.some(g=>g.id===id)));const savedTab=localStorage.getItem(tabKey);if(['road','map','lanes','telemetry','bookmarks'].includes(savedTab))tab=savedTab}catch{}
  try{const saved=JSON.parse(localStorage.getItem(orderKey));if(Array.isArray(saved)){const order=[...new Set(saved.filter(id=>graphs.some(g=>g.id===id))),...graphs.map(g=>g.id).filter(id=>!saved.includes(id))];graphs.sort((a,b)=>order.indexOf(a.id)-order.indexOf(b.id))}}catch{}
  const roadTab=$('roadTab'),telemetryTab=$('telemetryTab'),view=$('telemetryView'),scroll=$('telemetryGraphs'),status=$('telemetryStatus');
  let payload=null,loadedKey=null,loadingKey=null,failedKey=null,requestId=0,span=null,start=0,gesture=null;
@@ -99,21 +99,22 @@
   finally{clearTimeout(timeout);if(ticket===requestId){loadingKey=null;update()}}
  }
  // Only the selected-tab highlight moves; panel contents switch immediately.
- const panes={road:[roadTab,$('roadView')],lanes:[$('laneTab'),$('laneView')],telemetry:[telemetryTab,view],bookmarks:[$('bookmarkTab'),$('bookmarkView')]},order=Object.keys(panes);
+ const panes={road:[roadTab,$('roadView')],map:[$('mapTab'),$('mapView')],lanes:[$('laneTab'),$('laneView')],telemetry:[telemetryTab,view],bookmarks:[$('bookmarkTab'),$('bookmarkView')]},order=Object.keys(panes);
  const tabs=roadTab.parentElement,indicator=document.createElement('span');indicator.className='tab-indicator';indicator.setAttribute('aria-hidden','true');
  tabs.prepend(indicator);tabs.classList.add('has-indicator');
  function placeIndicator(){const selected=panes[tab][0];tabs.style.setProperty('--tab-x',selected.offsetLeft+'px');tabs.style.setProperty('--tab-width',selected.offsetWidth+'px');indicator.style.height=selected.offsetHeight+'px';indicator.style.top=selected.offsetTop+'px'}
- new ResizeObserver(placeIndicator).observe(tabs);
+ {const watch=new ResizeObserver(placeIndicator);watch.observe(tabs);for(const [button] of Object.values(panes))watch.observe(button)} // the 지도 tab appears later and narrows the others
  function selectTab(next,save=true){
-  stopZoom();tab=panes[next]?next:'road';
+  stopZoom();tab=panes[next]&&!panes[next][0].hidden?next:'road';
   for(const [name,[button,pane]] of Object.entries(panes)){const show=name===tab;pane.hidden=!show;button.setAttribute('aria-selected',String(show));button.tabIndex=show?0:-1}
   if(save)try{localStorage.setItem(tabKey,tab)}catch{}
   placeIndicator();void load();render();
+  window.dispatchEvent(new CustomEvent('rv:analysistab',{detail:tab}));
  }
  window.selectAnalysisTab=selectTab;
  for(const [name,[button]] of Object.entries(panes)){
   button.onclick=()=>selectTab(name);
-  button.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const i=order.indexOf(tab),next=e.key==='Home'?order[0]:e.key==='End'?order.at(-1):order[(i+(e.key==='ArrowRight'?1:order.length-1))%order.length];selectTab(next);panes[next][0].focus()};
+  button.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const shown=order.filter(name=>!panes[name][0].hidden),i=shown.indexOf(tab),next=e.key==='Home'?shown[0]:e.key==='End'?shown.at(-1):shown[(i+(e.key==='ArrowRight'?1:shown.length-1))%shown.length];selectTab(next);panes[next][0].focus()};
  }
  // Event track under the video: green while the system is on, orange where the driver took over (steering, or
  // gas/brake while on) or where the system switched off. Computed from the loaded vehicle data of this segment.

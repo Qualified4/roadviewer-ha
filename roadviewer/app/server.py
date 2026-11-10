@@ -13,7 +13,7 @@ from device_api import DeviceAPI
 from log_transfer import LogTransfer
 from device_network import DeviceNetwork
 from telemetry import drive_summary
-import wall_clock,backfill
+import wall_clock,backfill,gps_track
 from video_sources import SOURCES,ORIGINALS,DERIVED,VIDEO_KINDS,CAMERA_KINDS,UPLOAD_KINDS,STORED_KINDS,validate_hevc,validate_mp4
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
@@ -481,8 +481,8 @@ def not_found(e):
  if request.path.startswith('/api/device/'):return jsonify(error='session_not_found' if '/uploads/' in request.path else 'not_found'),404
  return jsonify(error='로그 또는 파일을 찾을 수 없습니다.'),404
 PAGE_SCRIPTS={
- 'library':['disclosure','recording-name','download-dialog','tags','library','choices','bulk','storage-devices','log-transfer'],
- 'replay':['recording-name','download-dialog','tags','app','choices','video-overlay','camera-info','telemetry','bookmarks'],
+ 'library':['disclosure','recording-name','download-dialog','tags','library','choices','bulk','storage-devices','log-transfer','maps'],
+ 'replay':['recording-name','download-dialog','tags','app','choices','video-overlay','camera-info','telemetry','bookmarks','maps'],
 }
 
 def page_response(kind):
@@ -543,7 +543,8 @@ def recording_order(m):
  return (0,m.get('uploaded',0),'',0,m['id'])
 
 SKIPPED_EVENTS_WARNING='지원하지 않는 새 로그 이벤트'
-LIST_FIELDS=('drive_summary','started_at','start_source','first_mono','gps_offset','clock_offset')  # Of prepared/summary.json, for the list.
+# has_track only says a map can be drawn: the list (also read by tools such as roadviewer-mcp) never carries coordinates.
+LIST_FIELDS=('drive_summary','started_at','start_source','first_mono','gps_offset','clock_offset','has_track')  # Of prepared/summary.json, for the list.
 ROUTE_START_FIELDS=('first_mono','gps_offset','clock_offset')  # Used by route_starts only, not sent.
 def recording_summary(p,m):
  # Read only: conversion writes these fields, and the backfill (backfill.py) fills them in for older logs.
@@ -1489,6 +1490,77 @@ def telemetry(id):
  response=send_prepared(p,'telemetry.json')
  return (jsonify(error='차량 정보가 없는 변환 데이터입니다. 로그 목록에서 제거 후 변환해 주세요.'),404) if response is None else response
 
+# GPS routes for the maps (gps_track.py). Served only here, to this app's own pages through Ingress: the list, replay data,
+# telemetry, downloads, exports and the device API never carry coordinates.
+ROUTE_POINTS=300;SEGMENT_POINTS=150
+track_cache={}  # id -> (signature, simplified [lat, lon] pairs, distance m)
+def track_signature(p):
+ out=[]
+ for name in ('summary.json',gps_track.FILE):
+  try:st=os.stat(p/'prepared'/name);out.append((st.st_mtime_ns,st.st_size))
+  except OSError:out.append(None)
+ return tuple(out)
+def track_summary(p,m):
+ if m.get('status')!='ready':return None
+ try:summary=json.loads((p/'prepared/summary.json').read_text())
+ except (OSError,ValueError):return None
+ return summary if summary.get('has_track') else None
+def route_segments(p,m):
+ # The ready segments of this log's drive, in segment order (a log with a custom name stands alone).
+ order=recording_order(m)
+ if order[0]!=1:return [(p,m)]
+ rows=[]
+ for q in recording_paths():
+  try:n=read_meta(q)
+  except (OSError,ValueError):continue
+  o=recording_order(n)
+  if o[0]==1 and o[1:3]==order[1:3]:rows.append((o[3],q.name,q,n))
+ return [(q,n) for _,_,q,n in sorted(rows)]
+def track_response(value):
+ response=jsonify(value);response.set_etag(hashlib.sha256(response.get_data()).hexdigest()[:32])
+ response=response.make_conditional(request);response.headers['Cache-Control']='private, no-cache'
+ return response
+@app.route('/api/logs/<id>/track')
+def log_track(id):
+ # Every segment of this log's drive with its full 1 Hz points (gps_track.py); segments without GPS are left out.
+ p=folder(id);m=read_meta(p);segments=[]
+ for q,n in route_segments(p,m):
+  summary=track_summary(q,n)
+  if not summary:continue
+  points=gps_track.read(q/'prepared')
+  if points:segments.append({'id':q.name,'segment':recording_order(n)[3] if recording_order(n)[0]==1 else None,'duration':summary.get('duration'),'distance_m':summary.get('track_distance_m'),'points':points})
+ return track_response({'id':id,'segments':segments})
+def simplified_track(p,m):
+ signature=track_signature(p);cached=track_cache.get(p.name)
+ if cached and cached[0]==signature:return cached[1],cached[2]
+ summary=track_summary(p,m);points=gps_track.read(p/'prepared') if summary else []
+ coords=gps_track.simplify([[pt[1],pt[2]] for pt in points],SEGMENT_POINTS) if points else []
+ value=(coords,(summary or {}).get('track_distance_m') or 0)
+ track_cache[p.name]=(signature,*value);return value
+@app.route('/api/tracks')
+def tracks():
+ # Every drive with GPS, simplified to at most ROUTE_POINTS points, for the list's map and its route thumbnails. The page
+ # filters them as it filters the list; ?ids=a,b limits the answer to the drives of those logs.
+ wanted=set(filter(ID.fullmatch,request.args.get('ids','').split(','))) if request.args.get('ids') else None
+ routes={};seen=set()
+ for p in recording_paths():
+  try:m=read_meta(p)
+  except (OSError,ValueError):continue
+  seen.add(p.name)
+  order=recording_order(m);key='%x--%s'%order[1:3] if order[0]==1 else p.name
+  coords,distance=simplified_track(p,m)
+  route=routes.setdefault(key,{'key':key,'ids':[],'rows':[],'distance_m':0})
+  route['ids'].append(p.name)
+  if coords:route['rows'].append((order[3],p.name,coords));route['distance_m']+=distance
+ for id in set(track_cache)-seen:track_cache.pop(id,None)
+ out=[]
+ for route in routes.values():
+  if not route['rows'] or wanted is not None and not wanted.intersection(route['ids']):continue
+  rows=sorted(route.pop('rows'));coords=[c for _,_,segment in rows for c in segment]
+  out.append(dict(route,segments=[id for _,id,_ in rows],points=gps_track.simplify(coords,ROUTE_POINTS)))
+ out.sort(key=lambda route:route['key'])
+ return track_response({'routes':out})
+
 thumbnail_lock=threading.Lock()  # At most one on-demand thumbnail decode at a time, for all logs.
 THUMBNAIL_FAILED=backfill.THUMBNAIL_FAILED  # In prepared/: removed with it, so "cannot be made" holds per conversion.
 def thumbnail_sources(p,m):
@@ -1636,6 +1708,7 @@ backend=archive_backends.make_backend(archive_settings,ROOT,store=store)
 if archive_settings_error:app.logger.warning('Video archive is disabled: %s',archive_settings_error)
 archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings,backend=backend)
 list_backfill=backfill.Backfill(sys.modules[__name__])  # Thumbnails and start times of older and archived logs.
+track_backfill=gps_track.TrackBackfill(sys.modules[__name__],list_backfill)  # GPS routes of logs converted before maps.
 def archive_preferences():
  result=dict(archive_config.values(archive_settings),effective_mode=archive_settings.effective_mode,
              client_configured=bool(archive_settings.gdrive_client_id))
@@ -1773,4 +1846,5 @@ if os.environ.get('RV_MIGRATE_PREPARED')=='1':
  threading.Thread(target=warm_list,name='list-warmup',daemon=True).start()
  archiver.start()  # Wait a full interval before activation/recovery; disabled archives only wait for settings changes.
  list_backfill.start()
+ track_backfill.start()
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)
