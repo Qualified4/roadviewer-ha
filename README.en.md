@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **1.2.1**
+Feature reference: **1.2.2**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -150,7 +150,7 @@ Converting a log also stores its position once per second (about 1 KB per minute
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-drive-map-mobile-dark.png"><img src="docs/images/roadviewer-drive-map-mobile.png" alt="Drive map on a phone: the map on top and a resizable sheet of segment cards below" width="320"></picture>
 
-**Maps while replaying**: the **지도** (Map) analysis tab draws the travelled part solid and the rest faded, with a car marker that follows playback; tapping the route seeks there. Overlay settings › Map › **영상 위 작은 지도** (small map over the video) puts a small map in the video's top-right corner that always keeps the car in the middle, in automatic, light or dark colours; its own **글자 숨기기** (hide labels) and **회색으로** (grey) options work like the two switches of the map display popover, and dragging its bottom-left corner resizes it.
+**Maps while replaying**: the **지도** (Map) analysis tab draws the travelled part solid and the rest faded, with a car marker that follows playback; tapping the route seeks there. Overlay settings › Map › **영상 위 작은 지도** (small map over the video) puts a small map in the video's top-right corner that always keeps the car a little below the middle, in automatic, light or dark colours; its own **글자 숨기기** (hide labels) and **회색으로** (grey) options work like the two switches of the map display popover, and dragging its bottom-left corner resizes it.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-replay-map-dark.png"><img src="docs/images/roadviewer-replay-map.png" alt="Replay screen with the Map tab showing the travelled route and the car's current position"></picture>
 

@@ -931,12 +931,14 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .map-list-row:first-child{border-top:1px solid var(--map-glass-border)}
 .map-list-pick{min-height:44px;padding:9px 14px;border-radius:0}
 .map-list-pick b{font-size:13.5px}
-@media(hover:hover) and (pointer:fine){.map-list-pick:hover{background:var(--map-glass-hover)}}
+@media(hover:hover) and (pointer:fine){.map-list-pick:hover{background:var(--map-glass-hover)}.map-list-row.is-selected .map-list-pick:hover{background:transparent}}  /* selected: its title part alone would light up, half the card */
 .map-list-row.is-selected,.drive-map-list>.log-row.is-map-marked{background:color-mix(in srgb,var(--accent) 15%,var(--map-glass));border-color:var(--accent-line);box-shadow:var(--map-glass-highlight),inset 0 0 0 .5px var(--accent-line),var(--map-glass-shadow)}
 .map-list-row .map-card-actions{gap:6px;padding:0 12px 12px 34px}
 .map-card-actions>button{border:1px solid var(--map-glass-border);background:var(--map-glass-hover);box-shadow:var(--map-glass-highlight);color:var(--text)}
 @media(hover:hover) and (pointer:fine){.map-card-actions>button:hover{background:color-mix(in srgb,var(--text) 12%,transparent)}}
 .drive-map-list>.log-row{flex:none;border-radius:14px}
+.drive-map-list>.log-row:has(.recording-more[open]){position:relative;z-index:2}  /* its menu over the rows after it */
+.drive-map-list .recording-menu{translate:0 var(--menu-shift,0px)}
 .drive-map-list>.log-row{gap:4px 10px;padding:10px 10px 10px 14px}.drive-map-list .log-thumb{display:none}
 .drive-map-list>.log-row:first-child{border-top:1px solid var(--map-glass-border)}
 .drive-map-list>.log-row.is-map-marked:first-child{border-top-color:var(--accent-line)}

@@ -4,6 +4,13 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.2
+
+- The small map over the video keeps the car centred across and a little below the middle (60% down), showing more road ahead. Fixed the car marker drawn a few pixels off the route line on the small map, and the small map turning white while pressed in light mode.
+- The map credit folds into an ⓘ button in the bottom-right corner on the small map and on narrow maps (phones): folded from the start on the small map, after the first touch on narrow maps; the ⓘ shows it.
+- On the drive map, a segment card's ⋯ menu is no longer cut off by the list's edges or covered by the cards below; the list scrolls when needed so the whole menu shows.
+- Fixed only the top half of the selected card lighting up on the drive overview map while the pointer rests on it.
+
 ## 1.2.1
 
 - The layers button under the map's zoom buttons opens a "map display" popover: "hide labels" removes place and road names, icons and arrows while keeping the map's colours (such as the yellow main roads in light mode), and "grey map" switches to a calm grey map. They are independent; both on give a grey map without text.
