@@ -46,6 +46,18 @@ class TagTests(unittest.TestCase):
   self.assertEqual(server.read_meta(self.path)['tags'],tags)
   with patch.object(server,'cleanup_uploads'):
    self.assertEqual(c.get('/api/logs',environ_overrides=peer).json['logs'][0]['tags'],tags)
+ def test_unchanged_list_is_answered_304(self):
+  client=server.app.test_client();get=lambda tag=None:client.get('/api/logs',headers={'If-None-Match':tag} if tag else {},environ_overrides={'REMOTE_ADDR':'172.30.32.2'})
+  first=get();tag=first.headers['ETag'];self.assertEqual(first.status_code,200);self.assertEqual(first.headers['Cache-Control'],'no-store')
+  same=get(tag);self.assertEqual((same.status_code,same.data,same.headers['ETag'],same.headers['Cache-Control']),(304,b'',tag,'no-store'))
+  self.assertEqual(get('"other"').json,first.json)
+  self.post({'tags':[{'name':'야간','color':'blue'}]})
+  changed=get(tag);self.assertEqual(changed.status_code,200);self.assertNotEqual(changed.headers['ETag'],tag);self.assertEqual(changed.json['logs'][0]['tags'],[{'name':'야간','color':'blue'}])
+ def test_list_skips_what_is_not_a_log(self):
+  # A file named like a log, a folder without meta.json and one whose meta.json is a folder are not listed.
+  (self.root/('b'*32)).write_bytes(b'x');(self.root/('c'*32)).mkdir();(self.root/('d'*32)/'meta.json').mkdir(parents=True)
+  r=server.app.test_client().get('/api/logs',environ_overrides={'REMOTE_ADDR':'172.30.32.2'})
+  self.assertEqual([m['id'] for m in r.json['logs']],[self.id]);self.assertEqual([p.name for p in server.recording_paths()],[self.id])
  def test_all_colors_and_full_length_korean_tags(self):
   colors=sorted(server.TAG_COLORS);self.assertEqual(len(colors),12)
   tags=[{'name':str(i).zfill(2)+'가'*30,'color':colors[i%12]} for i in range(100)]

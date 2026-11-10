@@ -1,6 +1,6 @@
 from pathlib import Path,PurePosixPath
 import gzip,hashlib,unicodedata,math,zipfile
-import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit
+import os,json,uuid,time,shutil,threading,subprocess,sys,re,tempfile,atexit,stat
 import playback_cache,compact
 from collections import Counter
 from progress import ProgressChannel
@@ -560,12 +560,16 @@ def recording_summary(p,m):
 # are never kept. pinned and progress are not part of the row: they are read per request.
 LIST_RACY_SECONDS=2.0
 list_rows={}  # id -> (signature, row, archive state the row was built with or None, (folder bytes, prepared bytes))
-def list_signature(p):
+LIST_PARTS=('','/meta.json','/prepared','/prepared/summary.json')
+def list_stats(path):
+ # The four stats of a row's signature, from plain strings: the list asks them of every log on each poll, and
+ # building a Path for each cost more than the stats themselves.
  out=[]
- for f in (p,p/'meta.json',p/'prepared',p/'prepared/summary.json'):
-  try:st=os.stat(f);out.append((st.st_mtime_ns,st.st_size,st.st_ino))
-  except FileNotFoundError:out.append(None)
- return tuple(out)
+ for part in LIST_PARTS:
+  try:out.append(os.stat(path+part))
+  except (FileNotFoundError,NotADirectoryError):out.append(None)
+ return out
+def list_signature(stats):return tuple(st and (st.st_mtime_ns,st.st_size,st.st_ino) for st in stats)
 def log_folder_bytes(p):
  # (the whole folder, prepared/ alone), as storage_used_bytes counts them.
  prepared=storage_used_bytes(p/'prepared');total=prepared
@@ -611,14 +615,14 @@ def build_list_row(p,m,share_state):
  # remote_copies and archive_error instead, and the two were over half of the response.
  row.pop('storage',None);row.pop('content_hashes',None)
  return row,share,sizes
-def list_row(p,share_state):
+def list_row(name,stats,share_state):
  """(row without pinned/progress, (folder bytes, prepared bytes)), from the cache when the log is unchanged."""
- signature=list_signature(p);cached=list_rows.get(p.name)
+ signature=list_signature(stats);cached=list_rows.get(name)
  if cached and cached[0]==signature and (cached[2] is None or cached[2]==share_state()):return cached[1],cached[3]
- m=read_meta(p);row,share,sizes=build_list_row(p,m,share_state)
+ p=ROOT/name;m=read_meta(p);row,share,sizes=build_list_row(p,m,share_state)
  newest=max((part[0] for part in signature if part),default=0)
- if m['status'] not in ('queued','processing') and newest<time.time_ns()-LIST_RACY_SECONDS*1e9:list_rows[p.name]=(signature,row,share,sizes)
- else:list_rows.pop(p.name,None)
+ if m['status'] not in ('queued','processing') and newest<time.time_ns()-LIST_RACY_SECONDS*1e9:list_rows[name]=(signature,row,share,sizes)
+ else:list_rows.pop(name,None)
  return row,sizes
 
 def list_snapshot():
@@ -630,11 +634,17 @@ def list_snapshot():
   if not share:share.append(list_archive_state())
   return share[0]
  items=[];used=0;ids=set()
- for p in recording_paths():
-  try:row,sizes=list_row(p,share_state)
+ # The logs recording_paths names. The signature's own stats of the folder and of meta.json say whether it is one,
+ # so a log costs four stats on a poll, not six.
+ root=str(ROOT)+os.sep
+ with os.scandir(ROOT) as entries:names=[entry.name for entry in entries if ID.fullmatch(entry.name)]
+ for name in names:
+  stats=list_stats(root+name)
+  if not (stats[0] and stat.S_ISDIR(stats[0].st_mode) and stats[1] and stat.S_ISREG(stats[1].st_mode)):continue
+  try:row,sizes=list_row(name,stats,share_state)
   except FileNotFoundError:continue # A recording may be deleted while the snapshot is read.
-  with lock:pinned=storage_policy.pinned(row);progress=job_progress.get(p.name)
-  items.append(dict(row,pinned=pinned,progress=progress));used+=sizes[0];ids.add(p.name)
+  with lock:pinned=storage_policy.pinned(row);progress=job_progress.get(name)
+  items.append(dict(row,pinned=pinned,progress=progress));used+=sizes[0];ids.add(name)
  for id in set(list_rows)-ids:list_rows.pop(id,None)
  return items,used+storage_used_outside(ids)
 
@@ -690,7 +700,11 @@ def logs():
  cleanup_uploads()
  items,used=list_snapshot()
  route_starts(items)
- return jsonify(logs=sorted(items,key=recording_order,reverse=True),uploads=upload_progress(),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=used,concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
+ response=jsonify(logs=sorted(items,key=recording_order,reverse=True),uploads=upload_progress(),max_upload_mb=app.config['MAX_CONTENT_LENGTH']//1024//1024,storage_used_bytes=used,concurrency=pool.limit,auto_convert=auto_convert,keep_original_video=keep_original_video)
+ # The open list asks every 3 s and nearly always gets the same answer: a page that names the one it holds
+ # (If-None-Match) is told so with an empty 304 instead of the whole list again.
+ response.set_etag(hashlib.sha256(response.get_data()).hexdigest()[:32])
+ return response.make_conditional(request)
 @app.route('/api/upload',methods=['POST'])
 def upload():
  # Legacy multipart uploads use the same admission reservation. Browsers use chunks.
