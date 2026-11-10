@@ -130,7 +130,10 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    }
    await page.locator('#pairDialog').waitFor({state:'hidden'});
    // The tapped log name is handed to the replay page for the page transition.
+   // The list's 재생 glows when pressed instead of rippling (this page loads in full, so it is recorded across the load).
+   await page.evaluate(()=>{const link=document.querySelector('.log-row a.replay');link.addEventListener('pointerdown',()=>sessionStorage.listPress=JSON.stringify({lit:link.classList.contains('is-lit'),wave:!!link.closest('.log-row,.log-route')?.querySelector('.rv-ripple')}),{once:true})});
    await page.locator('.log-row a.replay').click();await page.waitForURL(/view\/two\//);
+   assert.deepEqual(await page.evaluate(()=>JSON.parse(sessionStorage.listPress||'{}')),{lit:true,wave:false},'the list play button lights up when pressed');
    await page.waitForFunction(()=>typeof data!=='undefined'&&data);
    logs=[{...logs[0],id:'newer',name:'00000395--0d0eda17c5 / 구간 9'},logs[0],{...logs[0],id:'older',name:'00000396--0d0eda17c5 / 구간 0'}];
    await page.evaluate(()=>loadLogNavigation());

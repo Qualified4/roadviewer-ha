@@ -19,7 +19,9 @@ function busy(on){clearTimeout(busyTimer);if(on)busyTimer=setTimeout(()=>documen
 const samePage=url=>!!current&&url.origin===current.url.origin&&url.pathname===current.url.pathname&&url.search===current.url.search;
 const route=url=>url.origin===base.origin&&(url.pathname===base.pathname?'library':new RegExp('^'+base.pathname.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'view/[^/]+/$').test(url.pathname)?'replay':null);
 function saveScroll(){history.replaceState({...history.state,rvScroll:scrollY},'',location.href)}
-async function navigate(to,{replace=false,pop=false}={}){
+// A tap on a link that shows its press ([data-ripple-now], [data-glow]: back and the list's 재생) keeps the page this long, so the wave is seen before the swap.
+const PRESS_HOLD=200;
+async function navigate(to,{replace=false,pop=false,pressed=0}={}){
  const url=new URL(to,location.href),kind=route(url);if(!kind)return;
  if(current&&!current.api.canLeave()){
   notice.textContent='업로드 또는 정리 작업이 끝난 뒤 이동해 주세요.';
@@ -45,6 +47,8 @@ async function navigate(to,{replace=false,pop=false}={}){
    if(previous){let timer;try{await Promise.race([api.ready,new Promise(resolve=>timer=setTimeout(resolve,400))])}finally{clearTimeout(timer)}}
    if(ticket!==revision){scope.dispose();root.remove();return}
   }catch(error){scope.dispose();root.remove();throw error}
+  const hold=pressed&&!matchMedia('(prefers-reduced-motion: reduce)').matches?PRESS_HOLD-(performance.now()-pressed):0;
+  if(hold>0){await new Promise(resolve=>setTimeout(resolve,hold));if(ticket!==revision){scope.dispose();root.remove();return}}
   const brand=previous&&host.querySelector('.app-brand');
   if(!pop){saveScroll();history[replace?'replaceState':'pushState']({},'',url)}
   if(brand)root.querySelector('.app-brand')?.replaceWith(brand);
@@ -66,7 +70,7 @@ async function navigate(to,{replace=false,pop=false}={}){
 }
 document.addEventListener('click',event=>{
  const link=event.target.closest('a[href]');if(!link||event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||link.target||link.hasAttribute('download'))return;
- const url=new URL(link.href);if(!route(url)||(url.hash&&samePage(url)))return;event.preventDefault();void navigate(url);
+ const url=new URL(link.href);if(!route(url)||(url.hash&&samePage(url)))return;event.preventDefault();void navigate(url,{pressed:link.matches('[data-ripple-now],[data-glow]')?performance.now():0});
 });
 addEventListener('popstate',()=>{if(location.hash&&samePage(new URL(location.href)))return;void navigate(location.href,{pop:true})});
 history.scrollRestoration='manual';

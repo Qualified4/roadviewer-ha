@@ -539,19 +539,20 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .actions{display:flex;align-items:center;gap:4px;flex:none}
 .replay{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;padding:0 18px;border-radius:10px;background:var(--primary-bg);box-shadow:var(--primary-shadow);color:var(--primary-text);font-size:14px;font-weight:700;text-decoration:none;white-space:nowrap}
 @media(hover:hover) and (pointer:fine){.replay:hover{filter:brightness(1.05)}}
+/* Pressed: the same mint glow as the replay's play button (ripple.js [data-glow]; motion.css fades it out). */
+.replay.is-lit{filter:brightness(1.12) drop-shadow(0 0 10px rgba(102,232,181,.75))}
 .replay:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .actions>button:not(.pin-recording){min-height:40px;padding:0 16px;border-radius:10px;white-space:nowrap}
 .actions>button.recording-pending:disabled{opacity:1;border-color:transparent;background:var(--well);box-shadow:none;color:var(--muted)}
 .actions>.pin-recording,.recording-more>summary{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;min-height:0;padding:0;border:0;border-radius:10px;background:transparent;box-shadow:none;color:var(--muted)}
-@media(hover:hover) and (pointer:fine){.actions>.pin-recording:hover:enabled,.recording-more>summary:hover{background:var(--hover);color:var(--text)}}
+@media(hover:hover) and (pointer:fine){.actions>.pin-recording:hover:enabled{background:var(--hover);color:var(--text)}.recording-more>summary:hover{color:var(--text)}.recording-more:not([open])>summary:hover{background:color-mix(in srgb,var(--hover) 50%,transparent)}}
 .actions>.pin-recording[aria-pressed=true],.actions>.pin-recording[aria-pressed=mixed]{color:var(--pin)}
-.actions>.pin-recording[aria-pressed=true]{background:var(--pin-soft)}
 .pin-recording[aria-pressed=true] .pin-head{fill:currentColor;fill-opacity:.35}
 .pin-recording:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 .recording-more{position:relative}
 .recording-more>summary{list-style:none;cursor:pointer}
 .recording-more>summary::-webkit-details-marker{display:none}
-.recording-more[open]>summary{background:var(--hover);color:var(--text)}
+.recording-more[open]>summary{color:var(--text)}
 .recording-more>summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 
 /* Segment rows inside an expanded route. */
@@ -599,7 +600,10 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  @media(prefers-reduced-transparency:reduce){.lib-tabs{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
  @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.lib-tabs{background:var(--glass-solid)}}
  .lib-tab{flex:1 1 0;flex-direction:column;justify-content:center;gap:3px;height:60px;min-width:0;padding:0;border-bottom:0;font-size:11px}
- .lib-tab svg{display:block}.lib-tab[aria-selected=true]{color:var(--accent-text)}
+ .lib-tab svg{display:block}
+ /* The chosen tab (--tab-on*, style.css): in light the icon is the bright mint and the label a lighter green than the
+    body accent; dark keeps its mint glyph and label. */
+ .lib-tab[aria-selected=true]{color:var(--tab-on)}.lib-tab[aria-selected=true] svg{color:var(--tab-on-icon)}
  .lib-tab:focus-visible{outline-offset:-4px}
  .lib-status{gap:6px;margin-left:auto}
  .lib-meter{gap:6px;padding:0 4px;min-height:44px}.lib-meter-label{display:none}.lib-meter-bar{width:40px}

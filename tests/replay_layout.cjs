@@ -354,9 +354,11 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    for(const expected of [true,false]){
     await touch.locator('#pinLog').tap();
     await touch.waitForFunction(expected=>{const b=document.getElementById('pinLog');return !b.disabled&&b.getAttribute('aria-pressed')===String(expected)},expected);
-    const appearance=await touch.locator('#pinLog').evaluate(e=>({color:getComputedStyle(e).color,background:getComputedStyle(e).backgroundColor,tap:getComputedStyle(e).webkitTapHighlightColor}));
+    await touch.waitForFunction(expected=>getComputedStyle(document.getElementById('pinLog'),'::before').opacity===(expected?'1':'0'),expected,{timeout:2000});
+    const appearance=await touch.locator('#pinLog').evaluate(e=>{const fill=getComputedStyle(e,'::before');return {color:getComputedStyle(e).color,background:getComputedStyle(e).backgroundColor,fill:+fill.opacity?fill.backgroundColor:'none',tap:getComputedStyle(e).webkitTapHighlightColor}});
     assert.equal(appearance.color,expected?'rgb(245, 196, 81)':'rgb(154, 160, 169)','touch release reflects saved pin state');
-    assert.equal(appearance.background,expected?'rgba(245, 196, 81, 0.12)':'rgba(0, 0, 0, 0)','touch must not retain hover background');
+    // The pinned fill is a layer that ripples in from the press (style.css/motion.css); the button keeps no hover background.
+    assert.deepEqual([appearance.background,appearance.fill],['rgba(0, 0, 0, 0)',expected?'rgba(245, 196, 81, 0.12)':'none'],'touch must not retain hover background');
     assert.equal(appearance.tap,'rgba(0, 0, 0, 0)');
     assert.equal(await touch.locator('#routePin').isVisible(),expected);
     if(expected){

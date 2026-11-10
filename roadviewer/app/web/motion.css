@@ -17,7 +17,7 @@
 
 .app-brand h1:focus,.video-title h1:focus{outline:none}
 
-/* Press ripple (ripple.js): a soft-edged wave of the control's own colour (white on mint) in a clipping layer. It grows from
+/* Press ripple (ripple.js): a wave of the control's own colour (white on mint) in a clipping layer. It grows from
    a fifth of its size with a long decelerating curve, stays faint (10%, 22% on mint) and fades out on release.
    Reduced motion only dims. */
 .rv-ripple-host{position:relative}
@@ -25,8 +25,16 @@
 :where(button,summary,[role=tab],[role=menuitem],[role=option]){touch-action:manipulation}
 .rv-ripple{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none;transition:opacity .32s var(--m2-standard)}
 .rv-ripple.is-out{opacity:0}
-.rv-ripple>span{position:absolute;border-radius:50%;background:radial-gradient(circle closest-side,currentColor 0,currentColor 72%,transparent 100%);opacity:.10;transform:scale(.2);animation:rv-ripple .5s cubic-bezier(.2,0,0,1) forwards}
+.rv-ripple>span{position:absolute;border-radius:50%;background:currentColor;opacity:.10;transform:scale(.2);animation:rv-ripple .5s cubic-bezier(.2,0,0,1) forwards}
 :is(button.primary,.play-button)>.rv-ripple>span{color:#fff;opacity:.22}
+/* Buttons, tabs and menu items get a crisp circle; the large card and panel headers keep a soft-edged wave, whose edge
+   would otherwise sweep across a wide surface as a hard line. */
+:is(.log-route,.managed-settings,.archive-advanced,.archive-health)>summary>.rv-ripple>span{background:radial-gradient(circle closest-side,currentColor 0,currentColor 72%,transparent 100%)}
+/* Transport glow: on at once (60 ms), fading out over 350 ms after release. */
+#play,.playrow :is(#prev,#next),a.replay{transition:filter .35s var(--m2-standard),background-color .35s var(--m2-standard)}
+#play.is-lit,.playrow :is(#prev,#next).is-lit,a.replay.is-lit{transition-duration:60ms}
+/* The back link is bare on phones and leaves the page: a stronger wave so the press reads before the list replaces it. */
+.app-bar .back>.rv-ripple>span{opacity:.18}
 @keyframes rv-ripple{from{transform:scale(.2)}to{transform:scale(1)}}
 .rv-pressed{opacity:.7}
 /* Page change in progress (navigation.js, after 120ms): a slim mint line sweeping along the top edge. */
@@ -54,19 +62,24 @@ html.rv-navigating::after{content:"";position:fixed;z-index:10000;top:0;left:0;r
 .replay-menu::details-content{transition:content-visibility 75ms allow-discrete}
 .replay-menu>.replay-download-menu{transition:opacity .12s linear,transform .15s var(--m2-decelerate)}
 .replay-menu:not([open])>.replay-download-menu{opacity:0;transform:scale(.8);transition:opacity 75ms linear,transform 0s 75ms}
+/* The list's ⋯ menus open the same way, out of their button (right-aligned below it). */
+.recording-more::details-content{transition:content-visibility 75ms allow-discrete}
+.recording-more>.recording-menu{transform-origin:calc(100% - 20px) 0;transition:opacity .12s linear,transform .15s var(--m2-decelerate)}
+.recording-more:not([open])>.recording-menu{opacity:0;transform:scale(.8);transition:opacity 75ms linear,transform 0s 75ms}
+@starting-style{.recording-more[open]>.recording-menu{opacity:0;transform:scale(.8)}}
 @starting-style{.replay-menu[open]>.replay-download-menu{opacity:0;transform:scale(.8)}}
 /* Their buttons' open fill ripples out from the tap (to the farthest corner, 300 ms; app.js sets the centre and radius,
    keyboard opens from the middle) and fades out on close (200 ms), the circle reset only after the fade. Instead of
    the press wave (data-no-ripple), which would double it. */
-.replay-menu>summary::before{clip-path:circle(0 at var(--fill-x,50%) var(--fill-y,50%));transition:opacity .2s linear,clip-path 0s .2s}
-.replay-menu[open]>summary::before{clip-path:circle(var(--fill-r,75%) at var(--fill-x,50%) var(--fill-y,50%));transition:clip-path .3s var(--m2-decelerate),opacity 0s}
+:is(#pinLog,.actions>.pin-recording)::before,.replay-menu>summary::before,.recording-more>summary::before{clip-path:circle(0 at var(--fill-x,50%) var(--fill-y,50%));transition:opacity .2s linear,clip-path 0s .2s}
+:is(#pinLog,.actions>.pin-recording)[aria-pressed=true]::before,.replay-menu[open]>summary::before,.recording-more[open]>summary::before{clip-path:circle(var(--fill-r,75%) at var(--fill-x,50%) var(--fill-y,50%));transition:clip-path .3s var(--m2-decelerate),opacity 0s}
 /* ⋯ ↔ ✕: opening, the dots gather in the middle (140 ms) and the ✕'s strokes draw out of them (180 ms, decelerating);
    closing, the strokes draw back into the middle (120 ms) and the dots spread back out (180 ms). */
 .icon-more .more-dot{transition:transform .18s var(--m2-decelerate) .12s,opacity 0s .12s}
 .icon-more .more-x{transition:opacity 0s .12s}.icon-more .more-x line{transition:stroke-dashoffset .12s var(--m2-accelerate)}
-.replay-download[open] .icon-more .more-dot{transition:transform .14s var(--m2-accelerate),opacity 0s .14s}
-.replay-download[open] .icon-more .more-dot-l{transform:translateX(7px)}.replay-download[open] .icon-more .more-dot-r{transform:translateX(-7px)}
-.replay-download[open] .icon-more .more-x{transition:opacity 0s .14s}.replay-download[open] .icon-more .more-x line{transition:stroke-dashoffset .18s var(--m2-decelerate) .14s}
+details[open]>summary .icon-more .more-dot{transition:transform .14s var(--m2-accelerate),opacity 0s .14s}
+details[open]>summary .icon-more .more-dot-l{transform:translateX(7px)}details[open]>summary .icon-more .more-dot-r{transform:translateX(-7px)}
+details[open]>summary .icon-more .more-x{transition:opacity 0s .14s}details[open]>summary .icon-more .more-x line{transition:stroke-dashoffset .18s var(--m2-decelerate) .14s}
 /* Scrims fade with their dialog. */
 dialog::backdrop{transition:opacity .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
 dialog[open]::backdrop{transition:opacity .25s linear,overlay .4s allow-discrete,display .4s allow-discrete}
