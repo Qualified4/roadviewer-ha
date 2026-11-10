@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.1.1
+
+- Fixed the route maps staying empty: 1.1.0 read only the device GPS, which saw no satellites in this car's logs. When the device GPS has no fix, the car's own GPS sent over CAN (carState.vehicleGps) is used, and failing that carrot's estimated position (carrotMan).
+- Logs that 1.1.0 recorded without a route are read again, when the original is on Home Assistant or the NAS; logs only on Google Drive are still not downloaded.
+
 ## 1.1.0
 
 - Drive route maps. Converting a log now also keeps its GPS track at one point per second (about 1 KB per minute); logs converted earlier get theirs in the background from three minutes after start, when the original is on Home Assistant or the NAS, waiting while uploads, conversions, playback or archiving run.
