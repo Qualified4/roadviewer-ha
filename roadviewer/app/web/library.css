@@ -545,7 +545,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .actions>button:not(.pin-recording){min-height:40px;padding:0 16px;border-radius:10px;white-space:nowrap}
 .actions>button.recording-pending:disabled{opacity:1;border-color:transparent;background:var(--well);box-shadow:none;color:var(--muted)}
 .actions>.pin-recording,.recording-more>summary{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;min-height:0;padding:0;border:0;border-radius:10px;background:transparent;box-shadow:none;color:var(--muted)}
-@media(hover:hover) and (pointer:fine){.actions>.pin-recording:hover:enabled{background:var(--hover);color:var(--text)}.recording-more>summary:hover{color:var(--text)}.recording-more:not([open])>summary:hover{background:color-mix(in srgb,var(--hover) 50%,transparent)}}
+@media(hover:hover) and (pointer:fine){.actions>.pin-recording:hover:enabled{background:var(--hover);color:var(--text)}.recording-more>summary:hover{color:var(--text)}.recording-more:not([open])>summary:hover,.recording-more.is-closing>summary:hover{background:color-mix(in srgb,var(--hover) 50%,transparent)}}
 .actions>.pin-recording[aria-pressed=true],.actions>.pin-recording[aria-pressed=mixed]{color:var(--pin)}
 .pin-recording[aria-pressed=true] .pin-head{fill:currentColor;fill-opacity:.35}
 .pin-recording:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}

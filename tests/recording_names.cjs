@@ -83,14 +83,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await headerActions.locator('.pin-partial').count(),0,'all pin states are icon-only');
   assert.equal(await headerActions.locator('.pin-recording').getAttribute('title'),'1/2개 구간 고정됨 · 전체 구간 고정');
   const partialColor=await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).color);
-  const partialBackground=await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).backgroundColor);
+  // The pinned fill is a layer under the glyph that ripples in and fades out (style.css ::before): read it once settled.
+  const pinFill=async button=>{await page.waitForFunction(()=>!document.getAnimations().some(a=>a.transitionProperty),null,{timeout:2000});return button.evaluate(e=>{const f=getComputedStyle(e,'::before');return +f.opacity?f.backgroundColor:getComputedStyle(e).backgroundColor})};
+  const partialBackground=await pinFill(headerActions.locator('.pin-recording'));
   assert.equal(await headerActions.locator('.pin-head').evaluate(e=>getComputedStyle(e).fill),'none','partial state is not a filled pin');
   await headerActions.locator('.pin-recording').tap();
   await page.waitForFunction(()=>document.querySelector('.log-route-actions .pin-recording')?.getAttribute('aria-pressed')==='true');
   assert.deepEqual(mutations,[['two','pin']],'partial pin adds protection only to the remaining segment');
   assert.equal(await headerActions.locator('.pin-partial').count(),0);
   assert.equal(await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).color),partialColor,'partial and full both use the yellow pin');
-  assert.notEqual(await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).backgroundColor),partialBackground,'only all-pinned has the yellow background');
+  assert.notEqual(await pinFill(headerActions.locator('.pin-recording')),partialBackground,'only all-pinned has the yellow background');
   assert(logs[0].pinned&&logs[1].pinned&&!logs[2].pinned,'a different route with the same displayed number is untouched');
   assert.equal(await group.getAttribute('open'),null,'pin does not unfold the route');
   // Partial failures retain acknowledged pin changes and never claim all segments were updated.
@@ -104,7 +106,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.waitForFunction(()=>document.querySelector('.log-route-actions .pin-recording')?.getAttribute('aria-pressed')==='false');
   assert(logs.every(log=>!log.pinned),'a fully pinned route toggles to fully unpinned');
   assert.notEqual(await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).color),partialColor,'unpinned uses a neutral pin');
-  assert.equal(await headerActions.locator('.pin-recording').evaluate(e=>getComputedStyle(e).backgroundColor),partialBackground,'unpinned and partial have the same neutral background');
+  assert.equal(await pinFill(headerActions.locator('.pin-recording')),partialBackground,'unpinned and partial have the same neutral background');
   assert.equal(await headerActions.locator('.pin-partial').count(),0,'unpinned state has no partial label');
   assert(mutations.every(([id,action])=>id!=='other'&&action==='pin'));
   assert.equal(await headerActions.locator('.recording-more').count(),1,'the route keeps its download in its own ⋯ menu');

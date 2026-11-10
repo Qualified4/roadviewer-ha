@@ -336,14 +336,14 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 .icon-more .more-dot{fill:currentColor}/* The ✕ is four strokes drawn out from the middle (dash offset), so its lines keep their weight at every size; with its
    round caps it is as wide as the ⋯ (3.2–20.8). */
 .icon-more .more-x{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;opacity:0}.icon-more .more-x line{stroke-dasharray:1 1;stroke-dashoffset:1}
-details[open]>summary .icon-more .more-dot{opacity:0}details[open]>summary .icon-more .more-x{opacity:1}details[open]>summary .icon-more .more-x line{stroke-dashoffset:0}
+details[open]:not(.is-closing)>summary .icon-more .more-dot{opacity:0}details[open]:not(.is-closing)>summary .icon-more .more-x{opacity:1}details[open]:not(.is-closing)>summary .icon-more .more-x line{stroke-dashoffset:0}
 .view-menu>summary,.layer-menu>summary{background:var(--raised);box-shadow:var(--raised-shadow);color:var(--text)}
 .replay-download>summary{width:40px;padding:0}
 /* The open state's fill is a layer under the label (motion.css lets it ripple in from the tap and fade out on close). */
 .replay-menu>summary,.recording-more>summary{position:relative;isolation:isolate}
 :is(.replay-menu,.recording-more)>summary::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;background:var(--hover);opacity:0;pointer-events:none}
 .view-menu>summary::before,.layer-menu>summary::before{background:var(--raised-hover)}
-.replay-menu[open]>summary{color:var(--text)}:is(.replay-menu,.recording-more)[open]>summary::before{opacity:1}
+.replay-menu[open]>summary{color:var(--text)}:is(.replay-menu,.recording-more)[open]:not(.is-closing)>summary::before{opacity:1}
 /* Mouse hover (never on touch): the ⋯ gets half the open fill, so a click's ripple still shows over it; 보기 and
    레이어 keep their raised hover. */
 @media(hover:hover) and (pointer:fine){.replay-menu>summary:hover{color:var(--text)}.replay-download:not([open])>summary:hover{background:color-mix(in srgb,var(--hover) 50%,transparent)}.view-menu>summary:hover,.layer-menu>summary:hover{background:var(--raised-hover)}}
