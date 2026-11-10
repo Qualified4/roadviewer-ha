@@ -47,6 +47,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   // Full route IDs group segments without merging equal shortened counters with different hashes.
   const group=page.locator('.log-route[data-route="00000395--0d0eda17c5"]'),summary=group.locator(':scope>summary');
   assert.equal(await page.locator('.log-route').count(),2);
+  // A fold (and an open menu) lifts the card's content-visibility. Nothing in the header may be redrawn a pixel off
+  // while it does: the same picture with and without it.
+  {await page.evaluate(()=>document.fonts.ready);await page.mouse.move(0,0);
+   const parts=['.route-bar','.route-facts','.log-route-actions .replay'],draw=()=>Promise.all(parts.map(part=>summary.locator(part).screenshot({animations:'disabled',caret:'hide'})));
+   assert.equal(await group.evaluate(g=>getComputedStyle(g).contentVisibility),'auto');const frames=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));await frames();const rest=await draw();await group.evaluate(g=>{g.style.contentVisibility='visible'});await frames();
+   const lifted=await draw();await group.evaluate(g=>{g.style.contentVisibility=''});// Compared as pixels: one rounding step in a colour channel is not a move, a shifted edge is.
+   const moved=await page.evaluate(async pairs=>{const pixels=async data=>{const image=await createImageBitmap(await (await fetch('data:image/png;base64,'+data)).blob()),canvas=new OffscreenCanvas(image.width,image.height),ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);return ctx.getImageData(0,0,image.width,image.height).data};
+    const out=[];for(const [a,b] of pairs){const x=await pixels(a),y=await pixels(b);let n=x.length===y.length?0:-1;if(n===0)for(let i=0;i<x.length;i++)if(Math.abs(x[i]-y[i])>8)n++;out.push(n)}return out},rest.map((image,i)=>[image.toString('base64'),lifted[i].toString('base64')]));
+   assert.deepEqual(moved,parts.map(()=>0),'the header is drawn the same during a fold: '+parts.join(', '))}
   // An open card is not an open menu: its own ⋯ stays three dots (the ✕ belongs to the menu being open).
   {const icon=()=>summary.locator('.recording-more>summary>.icon-more').evaluate(svg=>({dot:getComputedStyle(svg.querySelector('.more-dot')).opacity,x:getComputedStyle(svg.querySelector('.more-x')).opacity}));
    assert.deepEqual(await icon(),{dot:'1',x:'0'});

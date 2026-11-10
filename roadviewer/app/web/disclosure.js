@@ -34,11 +34,13 @@
   // Labels and chevrons follow the target right away; [open] itself only drops when the motion ends.
   details.classList.toggle('is-closing',!opening);
   if(!opening&&bodies.some(node=>node.contains(document.activeElement)))summary?.focus({preventScroll:true});
+  // rv:place: the body is laid out and not yet shown, so a menu can choose its side before its motion is measured.
+  const place=()=>{if(opening)details.dispatchEvent(new CustomEvent('rv:place'))};
   const finish=()=>{details.open=opening;settle(details)};
-  if(reduced()||!bodies.length){finish();return}
+  if(reduced()||!bodies.length){finish();place();return}
 
   const wasOpen=details.open;
-  details.open=true;
+  details.open=true;place();
   let animation;
   let motions;
   if(floating(bodies)){

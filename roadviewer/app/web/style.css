@@ -209,6 +209,11 @@ i.model-path{background:var(--map-path)}
 /* Segment tags share one editor across the library, replay and bulk manager. */
 [data-color=mint]{--tag-color:var(--tag-mint)}[data-color=blue]{--tag-color:var(--tag-blue)}[data-color=violet]{--tag-color:var(--tag-violet)}[data-color=amber]{--tag-color:var(--tag-amber)}[data-color=rose]{--tag-color:var(--tag-rose)}[data-color=slate]{--tag-color:var(--tag-slate)}[data-color=red]{--tag-color:var(--tag-red)}[data-color=coral]{--tag-color:var(--tag-coral)}[data-color=lime]{--tag-color:var(--tag-lime)}[data-color=yellow]{--tag-color:var(--tag-yellow)}[data-color=cyan]{--tag-color:var(--tag-cyan)}[data-color=indigo]{--tag-color:var(--tag-indigo)}
 .recording-tags{display:inline-flex;align-items:center;gap:5px;min-width:0;overflow:hidden}.recording-tags .recording-tag{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}.recording-tags .tag-overflow{flex-shrink:0}.recording-tag,.tag-draft-chip{color:var(--tag-color,var(--lane));background:color-mix(in srgb,var(--tag-color,var(--lane)) 11%,transparent);border:1px solid color-mix(in srgb,var(--tag-color,var(--lane)) 30%,transparent);border-radius:999px;font-weight:600;font-size:11px;line-height:1.5;max-width:100%;padding:3px 8px;overflow-wrap:anywhere}.tag-overflow{font-size:11px;color:var(--muted);padding:3px 5px}
+button.tag-overflow{min-width:0;min-height:0;height:auto;margin:0;padding:5px 8px;border:0;border-radius:999px;background:transparent;box-shadow:none;font-weight:600;line-height:1.3;cursor:pointer}
+button.tag-overflow:hover,button.tag-overflow[aria-expanded=true]{background:var(--hover);color:var(--text)}
+button.tag-overflow:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.tag-popover{position:fixed;z-index:70;display:flex;flex-wrap:wrap;gap:6px;box-sizing:border-box;width:max-content;max-width:min(300px,calc(100vw - 16px));padding:10px;border-radius:14px;background:var(--pop);box-shadow:var(--pop-shadow)}
+.tag-popover .recording-tag{max-width:100%;overflow-wrap:anywhere}
 button.tag-edit{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:30px;height:30px;padding:4px;border-color:transparent;background:transparent;box-shadow:none;color:var(--muted);border-radius:7px;-webkit-tap-highlight-color:transparent}button.tag-edit:active{color:var(--accent-text);background:var(--accent-soft)}@media(hover:hover) and (pointer:fine){button.tag-edit:hover{color:var(--accent-text);background:var(--accent-soft)}}
 #replayTags{margin:0}.library-tools{flex-wrap:wrap}.tag-filter-label{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted)}.tag-filter-label select{max-width:180px}.tag-filter-status{color:var(--muted);font-size:12px;margin:0 0 12px}
 .editor-dialog{width:520px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);padding:0;border:1px solid transparent;border-radius:16px;background:var(--pop);color:var(--text);box-shadow:var(--pop-shadow);overflow:hidden}.editor-dialog[open]{display:flex;flex-direction:column}.editor-dialog::backdrop{background:var(--backdrop)}.tag-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 22px 8px;flex-shrink:0}.tag-eyebrow{font-size:10px;color:var(--lane);letter-spacing:.14em}.tag-dialog-head h2{font-size:18px;margin:3px 0}.tag-dialog-description{margin:0;padding:0 22px 14px;color:var(--muted);font-size:12px;overflow-wrap:anywhere;flex-shrink:0}
@@ -314,9 +319,11 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
 #titleDate{flex-shrink:0;white-space:nowrap}#titleDate:empty{display:none}#titleDate::after{content:"·";margin-left:6px}
 .app-subtitle .replay-recording{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0;overflow:hidden}
 .app-subtitle .recording-tags{flex:0 1 auto;flex-wrap:nowrap}
+/* One tag: the log name (copyable, and in the segment picker) shrinks first, down to a few characters. */
+.app-subtitle .replay-recording:has(>.recording-tags.single:not([hidden])) #routeName{flex:0 1 auto;min-width:2em}
+.app-subtitle .recording-tags.single{flex:0 0 auto;max-width:60%}
 .app-subtitle #routeName{flex:0 0 auto;max-width:60%;min-width:0;color:var(--text-2)}
 .app-subtitle .copy-recording,.app-subtitle button.tag-edit{width:26px;height:26px}
-.app-subtitle .pin-badge{flex-shrink:0;font-size:10px;padding:1px 7px}
 .app-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;margin:0}
 .icon-button{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:40px;height:40px;padding:0;border:0;border-radius:10px;background:transparent;box-shadow:none;color:var(--muted)}
 @media(hover:hover) and (pointer:fine){.icon-button:enabled:hover{background:var(--hover);color:var(--text)}}

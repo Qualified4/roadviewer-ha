@@ -49,6 +49,46 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   if(process.env.RV_TAG_SCREENSHOT)await page.screenshot({path:process.env.RV_TAG_SCREENSHOT});
   await save();assert.deepEqual(read(ids[0]).tags.map(t=>t.name),['야간 주행','검토 필요','<img src=x onerror=alert(1)>']);assert.equal(read(ids[0]).tags[0].color,'blue');
   await row(ids[0]).locator('.recording-tags').waitFor();await page.reload();await row(ids[0]).locator('.recording-tags').waitFor();
+  // The title line reads name, time, state and then 고정; the tags always take the line below it, however few.
+  {const pin=await page.request.post(base+'api/logs/'+ids[0]+'/pin',{headers:{'X-RoadViewer-Request':'1'},data:{pinned:true}});
+   assert(pin.ok());await row(ids[0]).locator('.pin-badge').waitFor();
+   const line=await row(ids[0]).locator('.log-name').evaluate(title=>{const box=s=>title.querySelector(s)?.getBoundingClientRect(),name=box('.recording-name'),state=box('.state'),pin=box('.pin-badge'),tags=box('.recording-tags');
+    return {order:[...title.children].map(e=>e.className.split(' ')[0]),stateOnTitleLine:state.top<name.bottom,pinAfterState:pin.left>=state.right&&pin.top<name.bottom,tagsBelow:tags.top>=Math.max(name.bottom,state.bottom)-1,tagsAtStart:Math.abs(tags.left-name.left)<1}});
+   assert.deepEqual(line.order.filter(c=>c!=='log-time'&&c!=='pin-badge'),['recording-name','state','recording-tags']);assert.deepEqual([line.stateOnTitleLine,line.pinAfterState,line.tagsBelow,line.tagsAtStart],[true,true,true,true],JSON.stringify(line));
+   await page.request.post(base+'api/logs/'+ids[0]+'/pin',{headers:{'X-RoadViewer-Request':'1'},data:{pinned:false}})}
+  // The card header does the same: its tags sit under the title line even when there is only one and it would fit beside.
+  {const head=await page.locator('.log-route .route-heading').first().evaluate(heading=>{const tags=heading.querySelector('.route-tags'),first=tags.firstElementChild.getBoundingClientRect(),title=heading.querySelector('.route-time').getBoundingClientRect(),box=heading.getBoundingClientRect();
+    return {shown:!tags.hidden,below:first.top>=title.bottom-1,atStart:Math.abs(first.left-box.left)<1}});
+   assert.deepEqual(head,{shown:true,below:true,atStart:true})}
+  // The ⋯ menu opens downwards while it fits above the bottom tabs and upwards when it does not; a touch outside it only
+  // closes it (the row under the finger is not opened as well).
+  {const more=row(ids[1]).locator('.recording-more'),menu=more.locator('.recording-menu');
+   const measure=()=>more.evaluate(d=>{const m=d.querySelector('.recording-menu').getBoundingClientRect(),a=d.querySelector('summary').getBoundingClientRect(),tabs=document.querySelector('.lib-tabs').getBoundingClientRect();
+    return {up:d.classList.contains('opens-up'),menuTop:m.top,menuBottom:m.bottom,anchorTop:a.top,anchorBottom:a.bottom,tabsTop:tabs.top,tabsHeight:tabs.height}});
+   const openMenu=async()=>{await more.locator('summary').tap();await menu.waitFor();await settleLayout(page,'.log-row[data-id="'+ids[1]+'"] .recording-more')};
+   const closeMenu=async()=>{await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.querySelector('.recording-more[open]'))};
+   await page.setViewportSize({width:390,height:1200});await page.evaluate(()=>scrollTo(0,0));await openMenu();const down=await measure();
+   assert(!down.up&&down.menuTop>=down.anchorBottom&&down.menuBottom<=down.tabsTop,'fits below: '+JSON.stringify(down));await closeMenu();
+   await page.setViewportSize({width:390,height:Math.ceil(down.anchorBottom+down.tabsHeight+60)});await page.evaluate(()=>scrollTo(0,0));await openMenu();const up=await measure();
+   assert(up.up&&up.menuBottom<=up.anchorTop&&up.menuBottom<=up.tabsTop,'no room below, so it opens upwards: '+JSON.stringify(up));
+   const before=page.url();await row(ids[0]).locator('.log-meta').tap();await page.waitForFunction(()=>!document.querySelector('.recording-more[open]'));
+   await page.waitForTimeout(300);assert.equal(page.url(),before,'the outside touch closed the menu without opening the row');
+   await page.setViewportSize({width:390,height:844})}
+  // +N shows every tag in a popup: the card neither folds nor plays, the popup stays on screen, and an outside touch or
+  // Escape closes it without activating what is underneath.
+  {const five=['하나','둘','셋','넷','다섯'].map(name=>({name,color:'cyan'})),set=tags=>page.request.post(base+'api/logs/'+ids[1]+'/tags',{headers:{'X-RoadViewer-Request':'1'},data:{tags}});
+   assert((await set(five)).ok());const rowMore=row(ids[1]).locator('.tag-overflow'),headMore=page.locator('.log-route .route-heading .tag-overflow').first(),pop=page.locator('.tag-popover');
+   await rowMore.waitFor();assert.equal(await rowMore.textContent(),'+1');await headMore.waitFor();
+   const union=await page.evaluate(async()=>{const logs=(await (await fetch('api/logs')).json()).logs;return new Set(logs.flatMap(log=>(log.tags||[]).map(tag=>tag.name.toLowerCase()))).size});
+   const group=page.locator('.log-route').first(),url=page.url();assert(await group.evaluate(g=>g.open));
+   await headMore.tap();await pop.waitFor();await settleLayout(page,'.tag-popover');
+   assert.equal(await pop.locator('.recording-tag').count(),union);assert.equal(await headMore.getAttribute('aria-expanded'),'true');assert(await group.evaluate(g=>g.open),'the card stays unfolded');assert.equal(page.url(),url);
+   const fit=await pop.evaluate(p=>{const b=p.getBoundingClientRect(),tabs=document.querySelector('.lib-tabs').getBoundingClientRect(),bar=document.querySelector('.lib-appbar').getBoundingClientRect();return b.left>=8&&b.right<=innerWidth-8&&b.top>=bar.bottom&&b.bottom<=tabs.top});assert(fit,'the popup is clear of the screen edges, the app bar and the bottom tabs');
+   await row(ids[0]).locator('.log-meta').tap();await pop.waitFor({state:'detached'});await page.waitForTimeout(300);assert.equal(page.url(),url,'an outside touch only closes the popup');
+   await rowMore.tap();await pop.waitFor();assert.deepEqual(await pop.locator('.recording-tag').allTextContents(),five.map(tag=>tag.name));assert.equal(page.url(),url,'the row is not played');
+   await page.keyboard.press('Escape');await pop.waitFor({state:'detached'});
+   await rowMore.tap();await pop.waitFor();await rowMore.tap();await pop.waitFor({state:'detached'});
+   assert((await set([])).ok());await rowMore.waitFor({state:'detached'})}
   // Web-owned filter works in the Ingress shell and remains applied during polling.
   const chip=name=>page.locator('#logChips .filter-chip').filter({hasText:name});
   await chip('야간 주행').click();assert.equal(await chip('야간 주행').getAttribute('aria-pressed'),'true');assert(await row(ids[0]).isVisible());assert(await row(ids[1]).isHidden());
@@ -61,7 +101,16 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   await row(ids[0]).locator('.replay').click();await page.locator('#editReplayTags:enabled').waitFor();await page.locator('#editReplayTags').click();
   await dialog.getByRole('button',{name:'검토 필요 선택 해제',exact:true}).click();await add('급제동','주황');await save();
   assert(read(ids[0]).tags.some(t=>t.name==='급제동'));assert(!read(ids[0]).tags.some(t=>t.name==='검토 필요'));
-  await page.locator('#replayTags').getByText('급제동',{exact:true}).waitFor();await page.locator('.back').click();await row(ids[0]).waitFor();
+  // The replay title is one line: only tags that fit in full are shown there (none on a phone), never a chip cut to "…";
+  // the number beside them opens every tag, and the line has no 고정 chip (the pin button shows it).
+  {const tags=page.locator('#replayTags'),more=tags.locator('.tag-overflow'),pop=page.locator('.tag-popover');await more.waitFor();
+   await page.waitForFunction(()=>document.querySelector('.tag-popover')===null&&/^\+?\d+$/.test(document.querySelector('#replayTags .tag-overflow').textContent));
+   const line=await tags.evaluate(box=>({cut:[...box.querySelectorAll('.recording-tag')].filter(chip=>chip.scrollWidth>chip.clientWidth).length,shown:box.querySelectorAll('.recording-tag').length,label:box.querySelector('.tag-overflow').textContent,inside:box.getBoundingClientRect().right<=document.querySelector('.app-subtitle').getBoundingClientRect().right+1,pin:document.querySelectorAll('.app-subtitle .pin-badge').length}));
+   const total=read(ids[0]).tags.length;assert.deepEqual([line.cut,line.inside,line.pin],[0,true,0],JSON.stringify(line));assert.equal(line.label,(line.shown?'+':'')+(total-line.shown));
+   const url=page.url();await more.tap();await pop.waitFor();assert.equal(await pop.locator('.recording-tag').count(),total);await pop.getByText('급제동',{exact:true}).waitFor();
+   assert(await pop.evaluate(p=>{const b=p.getBoundingClientRect();return b.left>=8&&b.right<=innerWidth-8&&b.top>=0}));
+   await page.keyboard.press('Escape');await pop.waitFor({state:'detached'});assert.equal(page.url(),url)}
+  await page.locator('.back').click();await row(ids[0]).waitFor();
   await page.locator('#bulkOpen').click();await page.locator('.segment-select').first().waitFor();await page.locator('#bulkAll').check();await page.locator('#bulkTags').click();
   await add('인식 오류','보라');
   let failSecond=true;await page.route('**/api/logs/'+ids[1]+'/tags',route=>failSecond?route.fulfill({status:503,json:{error:'test retry'}}):route.continue());

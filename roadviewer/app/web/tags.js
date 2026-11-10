@@ -12,9 +12,43 @@ function recordingTagBadges(tags=[],limit=4){
  for(const tag of tags.slice(0,limit)){
   const badge=document.createElement('span');badge.className='recording-tag';badge.dataset.color=Object.hasOwn(TAG_PALETTE,tag.color)?tag.color:'mint';badge.textContent=tag.name;badge.title=tag.name;group.append(badge);
  }
- if(tags.length>limit){const more=document.createElement('span');more.className='tag-overflow';more.textContent='+'+(tags.length-limit);more.title=tags.slice(limit).map(tag=>tag.name).join(', ');group.append(more)}
+ if(tags.length>limit){
+  const more=document.createElement('button');more.type='button';more.className='tag-overflow';more.dataset.noRipple='';more.textContent=(limit?'+':'')+(tags.length-limit);more.title=tags.slice(limit).map(tag=>tag.name).join(', ');
+  more.setAttribute('aria-label',`태그 ${tags.length}개 모두 보기`);more.setAttribute('aria-haspopup','dialog');more.setAttribute('aria-expanded','false');
+  // Inside a card header or a row: the press shows the tags and does nothing else (no fold, no playback).
+  more.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();toggleTagPopover(more,tags)});group.append(more);
+ }
  return group;
 }
+// +N: every tag of the log (or route) in a small popup beside the button. It opens downwards, or upwards when it does
+// not fit above the bottom tabs; a press outside, Escape, scrolling or resizing closes it. The list replaces its tag
+// chips on every poll, so the popup stands on its own once shown.
+let tagPopover=null,tagTouch=false;
+function closeTagPopover(focus=false){
+ if(!tagPopover)return;const {pop,button}=tagPopover;tagPopover=null;pop.remove();
+ if(button.isConnected){button.setAttribute('aria-expanded','false');if(focus)button.focus({preventScroll:true})}
+}
+function toggleTagPopover(button,tags){
+ const same=tagPopover?.button===button;closeTagPopover();if(same)return;
+ const pop=document.createElement('div');pop.className='tag-popover';pop.setAttribute('role','dialog');pop.setAttribute('aria-label','모든 태그');
+ for(const tag of tags){const badge=document.createElement('span');badge.className='recording-tag';badge.dataset.color=Object.hasOwn(TAG_PALETTE,tag.color)?tag.color:'mint';badge.textContent=tag.name;pop.append(badge)}
+ (button.closest('.lib-panel')||document.body).append(pop);
+ const anchor=button.getBoundingClientRect(),width=pop.offsetWidth,height=pop.offsetHeight,margin=8,view=document.documentElement.clientWidth;
+ const tabs=document.querySelector('.lib-tabs'),bar=document.querySelector('.lib-appbar,.app-bar');
+ const floor=(tabs&&getComputedStyle(tabs).position==='fixed'?tabs.getBoundingClientRect().top:window.innerHeight)-margin,ceiling=(bar?Math.max(0,bar.getBoundingClientRect().bottom):0)+margin;
+ const below=floor-anchor.bottom-6,above=anchor.top-6-ceiling,up=height>below&&above>below;
+ const left=Math.max(margin,Math.min(anchor.left+anchor.width/2-width/2,view-margin-width)),top=up?anchor.top-6-height:anchor.bottom+6;
+ pop.style.left=left+'px';pop.style.top=top+'px';pop.style.transformOrigin=`${Math.round(anchor.left+anchor.width/2-left)}px ${up?'100%':'0'}`;pop.dataset.side=up?'up':'down';
+ button.setAttribute('aria-expanded','true');tagPopover={pop,button};
+}
+document.addEventListener('pointerdown',event=>{tagTouch=event.pointerType==='touch'},true);
+document.addEventListener('click',event=>{
+ if(!tagPopover||tagPopover.pop.contains(event.target)||event.target.closest?.('.tag-overflow'))return;
+ // A touch outside only closes the popup; with a mouse the click also does what it landed on.
+ if(tagTouch){event.preventDefault();event.stopPropagation()}closeTagPopover();
+},true);
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&tagPopover){event.stopPropagation();closeTagPopover(true)}},true);
+window.addEventListener('scroll',()=>closeTagPopover(),{capture:true,passive:true});window.addEventListener('resize',()=>closeTagPopover());
 function recordingTagButton(log,onSaved){
  const button=document.createElement('button');button.type='button';button.className='tag-edit';button.innerHTML=RECORDING_TAG_ICON;button.title='태그 편집';button.setAttribute('aria-label','태그 편집');
  button.onclick=()=>editRecordingTags([log],onSaved);return button;

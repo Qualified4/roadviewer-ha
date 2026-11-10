@@ -7,6 +7,7 @@
 .storage-part-gdrive{color:var(--drive-text);border-color:color-mix(in srgb,var(--drive) 35%,transparent)}
 .storage-part-nas{color:var(--nas-text);border-color:color-mix(in srgb,var(--nas) 35%,transparent)}
 .storage-part-removed{opacity:.6}
+.recording-more.opens-up>.recording-menu{top:auto;bottom:calc(100% + 6px)}
 .recording-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:10;display:grid;gap:3px;width:190px;padding:6px;border:1px solid transparent;border-radius:14px;background:var(--pop);box-shadow:var(--pop-shadow)}
 .recording-menu>button,.recording-menu>a{display:block;width:100%;min-height:42px;margin:0;padding:11px 12px;border:0;border-radius:8px;background:transparent;box-shadow:none;text-align:left;font-size:13px;text-decoration:none;color:var(--text)}
 @media(hover:hover) and (pointer:fine){.recording-menu>button:hover:enabled,.recording-menu>a:hover{background:var(--hover)}}
@@ -482,6 +483,8 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .route-time{margin:0;font-size:18px;font-weight:700;letter-spacing:-.3px;overflow-wrap:anywhere}
 .route-meta{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
 .route-tags.recording-tags{margin:0}
+/* As in the segment rows: the tags take their own line under the title, however few. */
+.route-heading>.route-tags{flex:0 0 100%}
 .route-bar{display:flex;gap:3px;height:6px}
 .route-seg{position:relative;flex:1;min-width:3px;height:6px;overflow:hidden;border-radius:3px;background:var(--unconverted)}
 .route-seg[data-status=ready]{background:var(--ready);box-shadow:none}
@@ -513,7 +516,11 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
    is exactly what remains), the header casts a soft shadow with a fine edge onto the panel (::before), the panel's edge
    carries the same shade inside it (list::after), and the header's lower corners ease between round and square. A card
    with an open menu is raised so the menu is not covered by the next card. */
-.log-route{--route-r:14px;--fold-shadow:1;position:relative;isolation:isolate}
+/* contain: content-visibility below gives a card at rest layout and style containment (and paint), and Chromium then
+   snaps what is inside to the pixel grid from the card's own corner. Dropping it for a fold or an open menu moved
+   everything at a half pixel (the bar, the facts, the buttons) by a device pixel and back: the header twitched.
+   Keeping these two keeps the snapping; paint containment, the one that clips, still comes and goes. */
+.log-route{--route-r:14px;--fold-shadow:1;position:relative;isolation:isolate;contain:layout style}
 .log-route:has(.recording-more[open]){z-index:3}
 /* Cards off screen skip layout and paint (content-visibility), so a fold, which changes the list's height every frame,
    only lays out what is visible: on a phone-speed CPU with 30 cards the fold went from about 35 to 60 fps. The folding
@@ -563,6 +570,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .log-info{flex:1 1 300px;min-width:0}
 .log-name{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-weight:600;overflow-wrap:anywhere}
 .log-name .recording-name{display:inline-flex;align-items:center;gap:2px;min-width:0}
+.log-name>.recording-tags{flex:0 0 100%;flex-wrap:wrap}
 .log-name .copy-recording{width:28px;height:28px}
 .log-time{color:var(--muted);font-size:13px;font-weight:400;font-variant-numeric:tabular-nums}
 .log-name .pin-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 7px 1px 5px;font-size:11px}
@@ -641,6 +649,13 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .log-row[data-status=ready]{cursor:pointer}
  .log-thumb{display:none}
  .log-info{flex-basis:180px}
+ /* The title line runs the full width, over the play and ⋯ buttons, so 재생 가능 and 고정 fit beside the time; the
+    lines below it share the row with the buttons. */
+ .lib-panel:not(.selection-mode) .log-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 10px}
+ .lib-panel:not(.selection-mode) .log-info{display:contents}
+ .lib-panel:not(.selection-mode) .log-name{grid-column:1/-1}
+ .lib-panel:not(.selection-mode) .log-info>:not(.log-name){grid-column:1}
+ .lib-panel:not(.selection-mode) .log-row>.actions{grid-column:2;grid-row:2/span 8;align-self:center}
  .lib-card,.storage-panel .storage-settings-body,.device-panel .device-settings-body{padding:16px;border-radius:14px}
  .lib-card.upload-cleanup{padding:16px}
 }
