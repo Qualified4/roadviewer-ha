@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.33
+
+- In the light theme the tag colour picker shows the palette's own colours again, as in the dark theme; light theme tag chips keep their deeper, readable text shades.
+- The six CI browser test groups are rebalanced by measured run time, so the slowest group finishes sooner.
+
 ## 1.0.32
 
 - The replay's back button ripples from the touch at once, and the list replaces the replay at least 200 ms after the press so it is seen (immediately with reduced motion).
