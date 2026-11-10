@@ -106,19 +106,14 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   const pin=page.locator('#pinLog');await pin.waitFor();
   await page.waitForFunction(()=>!document.getElementById('pinLog').disabled);
   assert.equal(await pin.getAttribute('aria-pressed'),'false');
-  assert(await page.locator('#routePin').isHidden());
   await pin.click();await page.waitForFunction(()=>document.getElementById('pinLog').getAttribute('aria-pressed')==='true');
   assert.equal(await pin.getAttribute('aria-label'),'구간 고정 해제');
-  assert(await page.locator('#routePin').isVisible());
   await page.reload();await page.waitForFunction(()=>!document.getElementById('pinLog').disabled);
   assert.equal(await pin.getAttribute('aria-pressed'),'true','pin persists after reload');
-  assert(await page.locator('#routePin').isVisible(),'pin badge survives name rendering and reload');
   pinFailure=true;await pin.click();await page.locator('#error').waitFor();
   assert.equal(await pin.getAttribute('aria-pressed'),'true','failed save preserves pin');
-  assert(await page.locator('#routePin').isVisible(),'failed save preserves badge');
   await page.waitForFunction(()=>!document.getElementById('pinLog').disabled);
   pinFailure=false;await pin.click();await page.waitForFunction(()=>document.getElementById('pinLog').getAttribute('aria-pressed')==='false');
-  assert(await page.locator('#routePin').isHidden());
   assert.equal(pinRequests,3);await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
 
   // The ⋯ (or, on wider screens, 보기) menu opens a view setting; the layout-width dialog sits behind both.
@@ -360,11 +355,8 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
     // The pinned fill is a layer that ripples in from the press (style.css/motion.css); the button keeps no hover background.
     assert.deepEqual([appearance.background,appearance.fill],['rgba(0, 0, 0, 0)',expected?'rgba(245, 196, 81, 0.12)':'none'],'touch must not retain hover background');
     assert.equal(appearance.tap,'rgba(0, 0, 0, 0)');
-    assert.equal(await touch.locator('#routePin').isVisible(),expected);
-    if(expected){
-     const name=await touch.locator('#routeName').boundingBox(),badge=await touch.locator('#routePin').boundingBox();
-     assert(badge.x>=name.x+name.width-1&&badge.x+badge.width<=width,'pin badge stays beside the name');
-    }
+    // The pin button itself shows the state; the title line carries no 고정 chip (it took the tags' room).
+    assert.equal(await touch.locator('.app-subtitle .pin-badge').count(),0);
    }
    // Touch targets: at least 44px on coarse pointers.
    for(const selector of ['.back','#pinLog','#replayDownload>summary','#play','#prev','#next','#bookmarkOpen','#speedChoice','#videoOverlayToggle','#overlayHeightSettings','#roadTab','#telemetryTab','#bookmarkTab','#layerMenu>summary',...(width>=720?['#previousLog','#nextLog','#viewMenu>summary']:['#previousLog','#nextLog'])]){

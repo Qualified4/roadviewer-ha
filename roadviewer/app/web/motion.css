@@ -46,10 +46,10 @@ html.rv-navigating::after{content:"";position:fixed;z-index:10000;top:0;left:0;r
 
 /* ---------- Dialogs and sheets (M3 emphasized) ---------- */
 /* Enter 400 ms: fade 150 ms, rise 16px and grow from .96. Exit 200 ms: fade with a slight drop. */
-.camera-info-dialog,.pair-dialog{transition:opacity .2s var(--m3-emph-accelerate),transform .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
-.camera-info-dialog[open],.pair-dialog[open]{transition:opacity .15s linear,transform .4s var(--m3-emph-decelerate),overlay .4s allow-discrete,display .4s allow-discrete}
-.camera-info-dialog:not([open]),.pair-dialog:not([open]){opacity:0;transform:translateY(8px)}
-@starting-style{.camera-info-dialog[open],.pair-dialog[open]{opacity:0;transform:translateY(16px) scale(.96)}}
+.editor-dialog,.camera-info-dialog,.pair-dialog{transition:opacity .2s var(--m3-emph-accelerate),transform .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
+.editor-dialog[open],.camera-info-dialog[open],.pair-dialog[open]{transition:opacity .15s linear,transform .4s var(--m3-emph-decelerate),overlay .4s allow-discrete,display .4s allow-discrete}
+.editor-dialog:not([open]),.camera-info-dialog:not([open]),.pair-dialog:not([open]){opacity:0;transform:translateY(8px)}
+@starting-style{.editor-dialog[open],.camera-info-dialog[open],.pair-dialog[open]{opacity:0;transform:translateY(16px) scale(.96)}}
 /* Anchored choices behave like menus (M2): fade 120 ms + grow from .8 over 150 ms out of the trigger-side corner
    (choices.js sets transform-origin after measuring); exit is a 75 ms fade. offsetHeight measuring ignores the scale. */
 .rv-choice-dialog{transition:opacity 75ms linear,overlay 75ms allow-discrete,display 75ms allow-discrete}
@@ -84,10 +84,10 @@ dialog:not([open])::backdrop{opacity:0}
 @media(max-width:600px){
  /* Phones: the same dialogs are bottom sheets that slide from the edge: 400 ms emphasized in, 200 ms emphasized out.
     (No spring here: an overshoot of a full-height slide would lift the sheet off the screen edge.) */
- .camera-info-dialog,.rv-choice-dialog{transition:transform .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
- .camera-info-dialog[open],.rv-choice-dialog[open]{transition:transform .4s var(--m3-emph-decelerate),overlay .4s allow-discrete,display .4s allow-discrete}
- .camera-info-dialog:not([open]),.rv-choice-dialog:not([open]){opacity:1;transform:translateY(calc(100% + 16px))}
- @starting-style{.camera-info-dialog[open],.rv-choice-dialog[open]{opacity:1;transform:translateY(calc(100% + 16px))}}
+ .editor-dialog,.camera-info-dialog,.rv-choice-dialog{transition:transform .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
+ .editor-dialog[open],.camera-info-dialog[open],.rv-choice-dialog[open]{transition:transform .4s var(--m3-emph-decelerate),overlay .4s allow-discrete,display .4s allow-discrete}
+ .editor-dialog:not([open]),.camera-info-dialog:not([open]),.rv-choice-dialog:not([open]){opacity:1;transform:translateY(calc(100% + 16px))}
+ @starting-style{.editor-dialog[open],.camera-info-dialog[open],.rv-choice-dialog[open]{opacity:1;transform:translateY(calc(100% + 16px))}}
 }
 
 /* ---------- Tabs ---------- */
@@ -154,3 +154,14 @@ progress::-webkit-progress-value{transition:width .4s var(--ease)}
 .replay-loading .road-panel canvas,.replay-loading .video-wrap,.replay-loading .telemetry-summary{
  background:linear-gradient(100deg,transparent 30%,var(--hover) 50%,transparent 70%) var(--well);background-size:220% 100%;background-repeat:no-repeat;animation:rv-sweep 1.4s linear infinite}
 }
+/* The +N tag popup: fades in while growing out of its button, like the menus. */
+.tag-popover{transition:opacity .12s linear,transform .15s var(--m2-decelerate)}
+@starting-style{.tag-popover{opacity:0;transform:scale(.8)}}
+@media(prefers-reduced-motion:reduce){.tag-popover{transition:none}}
+/* The layer icon spreads in 200 ms (decelerate) and the middle layer draws out from its centre just behind it; closing
+   folds it back faster. */
+.icon-layers :is(.layer-top,.layer-low){transition:transform .15s var(--m2-accelerate)}
+.icon-layers .layer-mid{transition:opacity .1s linear,transform .12s var(--m2-accelerate)}
+.layer-menu[open]>summary .icon-layers :is(.layer-top,.layer-low){transition:transform .2s var(--m2-decelerate)}
+.layer-menu[open]>summary .icon-layers .layer-mid{transition:opacity .12s linear .06s,transform .22s var(--m2-decelerate) .06s}
+@media(prefers-reduced-motion:reduce){.icon-layers path{transition:none}}

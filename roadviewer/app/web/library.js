@@ -171,6 +171,16 @@ function moreMenu(label){
  const menu=document.createElement('div');menu.className='recording-menu';
  more.append(toggle,menu);
  more.addEventListener('toggle',()=>{if(more.open)document.querySelectorAll('.recording-more[open]').forEach(other=>{if(other!==more)other.open=false})});
+ // Opens downwards; upwards when it does not fit above the bottom tabs (or the window's edge) and there is more room
+ // above, under the app bar.
+ const place=()=>{
+  more.classList.remove('opens-up');
+  const box=menu.getBoundingClientRect(),anchor=toggle.getBoundingClientRect(),tabs=document.querySelector('.lib-tabs'),bar=document.querySelector('.lib-appbar');
+  const tabsBox=tabs&&getComputedStyle(tabs).position==='fixed'?tabs.getBoundingClientRect():null,floor=(tabsBox?tabsBox.top:window.innerHeight)-8,ceiling=(bar?Math.max(0,bar.getBoundingClientRect().bottom):0)+8;
+  const below=floor-anchor.bottom-6,above=anchor.top-6-ceiling;
+  more.classList.toggle('opens-up',box.height>below&&above>below);
+ };
+ more.addEventListener('rv:place',place);more.addEventListener('toggle',()=>{if(more.open&&!more._foldAnimation)place()});
  menu.addEventListener('click',e=>{if(e.target.closest('button,a'))more.open=false});
  return {more,menu};
 }
@@ -236,6 +246,13 @@ function recordingChanged(m){
  for(const group of logGroups.values()){const index=group.logs.findIndex(log=>log.id===m.id);if(index<0)continue;group.logs[index]={...group.logs[index],...m};if(group.firstLog.id===m.id)group.firstLog=group.logs[index];syncGroupActions(group)}
 }
 document.addEventListener('click',e=>document.querySelectorAll('.recording-more[open]').forEach(more=>{if(!more.contains(e.target))more.open=false}));
+// A touch outside an open menu only closes it: the row, button or card under the finger is not activated as well.
+let touchPress=false;document.addEventListener('pointerdown',e=>{touchPress=e.pointerType==='touch'},true);
+document.addEventListener('click',e=>{
+ if(!touchPress||e.target.closest?.('.recording-more'))return;
+ const open=[...document.querySelectorAll('.recording-more[open]')];if(!open.length)return;
+ e.preventDefault();e.stopPropagation();open.forEach(more=>{more.open=false});
+},true);
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.recording-more[open]').forEach(more=>{more.open=false;more.querySelector('summary').focus()})});
 
 // Hand off the selected name so the replay title is available immediately.
@@ -474,9 +491,10 @@ function renderRow(m,cached){
  const route=logRoute(m),date=startDate(m),name=document.createElement('span'),before=state.parentNode===title?state:null;
  renderRecordingName(name,m.name,m.files,route.segment===null?null:'구간 '+route.segment);title.insertBefore(name,before);
  if(date){const time=document.createElement('span');time.className='log-time';const end=Number.isFinite(m.duration)?new Date(date.getTime()+m.duration*1000):null;time.textContent=shortClock(date)+(end?'–'+shortClock(end):'');title.insertBefore(time,before)}
- if(m.pinned){const badge=document.createElement('span');badge.className='pin-badge';badge.innerHTML=PIN_ICON;badge.append('고정');badge.title='이 구간을 자동 삭제에서 보호합니다.';title.insertBefore(badge,before)}
- title.insertBefore(recordingTagBadges(m.tags),before);
  state.className=(m.status==='processing'?'state state-processing':'state')+(cached?' is-update':'');state.dataset.status=m.status;showState(state,m);if(!before)title.append(state);
+ // After the name and time: the state, then 고정; the tags take the line below (library.css) however few they are.
+ if(m.pinned){const badge=document.createElement('span');badge.className='pin-badge';badge.innerHTML=PIN_ICON;badge.append('고정');badge.title='이 구간을 자동 삭제에서 보호합니다.';title.append(badge)}
+ title.append(recordingTagBadges(m.tags));
  setThumbnail(thumb,m.status==='ready'?thumbnailUrl(m):null);
  const meta=document.createElement('div');meta.className='log-meta';
  const cameras=(m.video_downloads||[]).length,videoText=m.video?(cameras>1?`영상 ${cameras}종`:'영상 있음'):'영상 없음';

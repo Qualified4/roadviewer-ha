@@ -175,6 +175,27 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    if(!reduced)assert(closing.shown&&closing.menuRuns==='opacity,transform'&&closing.xRuns==='opacity|stroke-dashoffset'&&closing.dotRuns==='opacity,transform'&&closing.fillRuns.includes('opacity')&&closing.fill>0,'closing: the fill fades out, the menu fades out while still shown, the ✕ shrinks and the dots spread: '+JSON.stringify(closing));
    await settled();
    assert.deepEqual(await more(),{fill:0,clip:(await more()).clip,fillRuns:'',open:false,shown:false,menu:reduced?1:0,x:0,dot:1,menuRuns:'',xRuns:'|',dotRuns:''},'closed: ⋯ again');
+   // Layers: the road toolbar's button fills from the tap like the other menus, and its icon spreads into three layers
+   // while the menu is open (the middle one drawn in, lighter); closing folds it back.
+   {const layer=()=>page.evaluate(()=>{const d=document.getElementById('layerMenu'),s=d.querySelector('summary'),q=c=>s.querySelector('.icon-layers .'+c),y=e=>new DOMMatrixReadOnly(getComputedStyle(e).transform).m42;
+     return {open:d.open,fill:getComputedStyle(s,'::before').content!=='none'&&+getComputedStyle(s,'::before').opacity,top:y(q('layer-top')),low:y(q('layer-low')),mid:+getComputedStyle(q('layer-mid')).opacity,runs:[...s.querySelectorAll('.icon-layers path')].map(e=>e.getAnimations().map(a=>a.transitionProperty).sort().join()).join('|')}});
+    await page.locator('#roadTab').click();const summary=page.locator('#layerMenu>summary');await summary.scrollIntoViewIfNeeded();
+    assert.deepEqual(await layer(),{open:false,fill:0,top:0,low:0,mid:0,runs:'||'},'closed: two layers');
+    await summary.click();await frames();const spreading=await layer();
+    if(!reduced)assert.equal(spreading.runs,'transform|opacity,transform|transform','opening: the layers part and the middle one draws in: '+JSON.stringify(spreading));
+    await page.waitForFunction(()=>!document.querySelector('#layerMenu>summary').getAnimations({subtree:true}).some(a=>a.transitionProperty),null,{timeout:2000});
+    assert.deepEqual(await layer(),{open:true,fill:1,top:-1.5,low:3.5,mid:1,runs:'||'},'open: filled button, three layers');
+    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.getElementById('layerMenu').open&&!document.querySelector('#layerMenu>summary').getAnimations({subtree:true}).some(a=>a.transitionProperty),null,{timeout:2000});
+    assert.deepEqual(await layer(),{open:false,fill:0,top:0,low:0,mid:0,runs:'||'},'closed again');
+   }
+   // The scene-bookmark editor (and the tag editor, same class) enters and leaves like the other dialogs.
+   {const editor=page.locator('.bookmark-dialog');await editor.evaluate(d=>d.showModal());
+    const runs=await editor.evaluate(d=>d.getAnimations().map(a=>a.transitionProperty).filter(Boolean).sort().join());
+    const sheet=await page.evaluate(()=>innerWidth<=600);assert.equal(runs,reduced?'':sheet?'transform':'opacity,transform','bookmark editor animates in (a sheet slides on phones): '+runs);
+    await page.waitForFunction(()=>document.querySelector('.bookmark-dialog').getAnimations().length===0,null,{timeout:2000});
+    const out=await editor.evaluate(d=>{d.close();return [!d.open&&getComputedStyle(d).display!=='none',d.getAnimations().length>0]});
+    assert.deepEqual(out,reduced?[false,false]:[true,true],'bookmark editor animates out');
+    await page.waitForFunction(()=>getComputedStyle(document.querySelector('.bookmark-dialog')).display==='none',null,{timeout:2000})}
    // The wheel turns via a CSS transform that glides between 20 Hz samples.
    await page.evaluate(()=>setTime(.5));
    assert.match(await page.locator('#wheelRotate').evaluate(e=>e.style.transform),/rotate\(-100deg\)/);
