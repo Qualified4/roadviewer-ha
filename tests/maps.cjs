@@ -44,8 +44,8 @@ const TILES={light:mapTile({ground:[240,238,234],park:[216,234,208],water:[200,2
   fs.writeFileSync(path.join(folder,'rlog.zst'),'fixture');
   fs.writeFileSync(path.join(folder,'meta.json'),JSON.stringify({id:log.id,status:'ready',name:log.name,uploaded:log.uploaded,files:{},video:false,tags:log.tags||[],decoder_version:'v28-runtime-geometry',duration:60}));
   fs.writeFileSync(path.join(folder,'prepared/data.json'),JSON.stringify({route:log.name,key:'map-'+log.id[0],duration:60,warnings:[],video:log.video?{start:0,duration:60}:null,frames:Array.from({length:61},(_,i)=>({t:i,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[]}))}));
-  const summary={duration:60,warnings:[],model_frames:61,video:null,videos:{},started_at:1762400000+log.uploaded*60,start_v:3,track_v:1,has_track:!!log.points};
-  if(log.points){summary.track_distance_m=900;fs.writeFileSync(path.join(folder,'prepared/track.json.gz'),zlib.gzipSync(JSON.stringify({v:1,source:'gpsLocationExternal',points:log.points})))}
+  const summary={duration:60,warnings:[],model_frames:61,video:null,videos:{},started_at:1762400000+log.uploaded*60,start_v:3,track_v:2,has_track:!!log.points};
+  if(log.points){summary.track_distance_m=900;fs.writeFileSync(path.join(folder,'prepared/track.json.gz'),zlib.gzipSync(JSON.stringify({v:2,source:'gpsLocationExternal',points:log.points})))}
   fs.writeFileSync(path.join(folder,'prepared/summary.json'),JSON.stringify(summary));
  }
  const python=spawn(process.env.RV_PYTHON||'python',['-u','-c',`import sys

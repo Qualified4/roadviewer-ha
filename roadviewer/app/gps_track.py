@@ -3,23 +3,34 @@
 Conversion (decoder.prepare) collects the fixes while it reads the log; logs converted before this existed get theirs
 once from the background backfill below (TrackBackfill), only from a log that is local or on the NAS: never from
 Google Drive. Stored per conversion in prepared/track.json.gz:
-  {"v": TRACK_V, "source": "gpsLocationExternal" | "gpsLocation", "points": [[t, lat, lon, speed_mps, bearing_deg], ...]}
+  {"v": TRACK_V, "source": "gpsLocationExternal" | "gpsLocation" | "vehicleGps" | "carrotMan", "points": [[t, lat, lon, speed_mps, bearing_deg], ...]}
 t is on the replay timeline (data.json.gz frame t, telemetry time: logMonoTime/1e9 - origin), one point per second,
 lat/lon rounded to six decimals (about 0.1 m). speed or bearing is null when the receiver did not report it.
 summary.json gets track_v, has_track, track_distance_m and track_bbox ([south, west, north, east]) so the list knows
 without opening the file. Only has_track reaches the list (/api/logs); coordinates are served only by the two map
 endpoints of server.py (never in the list, replay data, telemetry, downloads, exports or the device API).
 
-Real fixes only: the event is valid, the receiver reports hasFix, the position is finite and not (0, 0), and the
-horizontal accuracy is known and at most MAX_ACCURACY_M. A point that implies an absurd jump from the previous kept
-point (faster than MAX_SPEED_MPS) is dropped as a glitch."""
+Sources, best first: the device's receivers (gpsLocationExternal, gpsLocation) when they have a fix; else the car's
+own GPS as the vehicle port decodes it from CAN (carState.vehicleGps). On cars where the device's receiver sees no
+satellites (measured: every log of this car so far), the vehicle GPS is the only position. Last, carrotMan's
+xPosLat/xPosLon: carrot_serv's 20 Hz position, chosen from one of the above or the CarrotNavi app and carried forward
+by speed and heading between samples (an estimate, so only for a car with neither).
+Real fixes only: for a receiver, the event is valid, it reports hasFix, the position is finite and not (0, 0), and
+the horizontal accuracy is known and at most MAX_ACCURACY_M; for the vehicle GPS, available and valid, finite and
+not (0, 0), one point per new sample (sampleMonoTime; carState repeats it at 100 Hz), speed from vEgo and heading
+when headingValid. A point that implies an absurd jump from the previous kept point (faster than MAX_SPEED_MPS) is
+dropped as a glitch. TRACK_V 2 added the vehicle GPS: logs that version 1 found without a fix are read again."""
 import gzip,json,logging,math,os,subprocess,sys,threading,time
 from pathlib import Path
 
 log=logging.getLogger(__name__)
-TRACK_V=1
+TRACK_V=2
 FILE='track.json.gz'
 TOPICS=('gpsLocationExternal','gpsLocation')  # Preferred first: the external receiver, then the device's own.
+VEHICLE='vehicleGps'  # carState.vehicleGps: the car's GPS, used when no receiver has a fix.
+CARROT='carrotMan'  # carrotMan.xPosLat/xPosLon: an estimated position, the last resort.
+SOURCES=TOPICS+(VEHICLE,CARROT)
+READ_KINDS=TOPICS+('carState',CARROT)  # Event kinds add() reads.
 MAX_ACCURACY_M=100.0
 MAX_SPEED_MPS=90.0
 SUMMARY_FIELDS=('track_v','has_track','track_distance_m','track_bbox')
@@ -27,9 +38,11 @@ EARTH_M=6371008.8
 
 class Collector:
  """Fixes seen while a log is read; add() is called for every event and returns at once for any other kind."""
- def __init__(self):self.fixes={topic:[] for topic in TOPICS}
+ def __init__(self):self.fixes={topic:[] for topic in SOURCES};self.vehicle_sample=None
  def add(self,e,kind):
-  if kind not in self.fixes or not e.valid:return
+  if kind=='carState':return self.add_vehicle(e)
+  if kind==CARROT:return self.add_carrot(e)
+  if kind not in TOPICS or not e.valid:return
   fix=getattr(e,kind)
   if not fix.hasFix:return
   lat,lon,accuracy=float(fix.latitude),float(fix.longitude),float(fix.horizontalAccuracy)
@@ -38,7 +51,24 @@ class Collector:
   if not (math.isfinite(accuracy) and 0<=accuracy<=MAX_ACCURACY_M):return
   speed,bearing=float(fix.speed),float(fix.bearingDeg)
   self.fixes[kind].append((e.logMonoTime,lat,lon,speed if math.isfinite(speed) and speed>=0 else None,bearing%360 if math.isfinite(bearing) else None))
- def source(self):return next((topic for topic in TOPICS if self.fixes[topic]),None)
+ def add_vehicle(self,e):
+  try:gps=e.carState.vehicleGps
+  except Exception:return  # A log written before the field existed.
+  if not (gps.available and gps.valid):return
+  sample=int(gps.sampleMonoTime) or None
+  if sample is not None and sample==self.vehicle_sample:return  # The same sample, repeated by every carState.
+  lat,lon=float(gps.latitude),float(gps.longitude)
+  if not (math.isfinite(lat) and math.isfinite(lon) and -90<=lat<=90 and -180<=lon<=180):return
+  if abs(lat)<1e-7 and abs(lon)<1e-7:return
+  self.vehicle_sample=sample
+  speed=float(e.carState.vEgo);heading=float(gps.headingDeg)
+  self.fixes[VEHICLE].append((sample or e.logMonoTime,lat,lon,speed if math.isfinite(speed) and speed>=0 else None,heading%360 if gps.headingValid and math.isfinite(heading) else None))
+ def add_carrot(self,e):
+  c=e.carrotMan;lat,lon=float(c.xPosLat),float(c.xPosLon)
+  if not (math.isfinite(lat) and math.isfinite(lon) and -90<=lat<=90 and -180<=lon<=180) or abs(lat)<1e-7 and abs(lon)<1e-7:return
+  angle=float(c.xPosAngle)
+  self.fixes[CARROT].append((e.logMonoTime,lat,lon,None,angle%360 if math.isfinite(angle) else None))
+ def source(self):return next((topic for topic in SOURCES if self.fixes[topic]),None)
  def points(self,origin):
   """1 Hz points on the replay timeline (t = logMonoTime/1e9 - origin)."""
   topic=self.source()
@@ -126,7 +156,7 @@ def extract(rlog,prepared,name=FILE+'.migrating'):
  for e in schema.Event.read_multiple_bytes(raw):
   try:kind=e.which()
   except capnp.KjException:continue
-  if kind in TOPICS:collector.add(e,kind)
+  if kind in READ_KINDS:collector.add(e,kind)
   elif anchor and kind=='modelV2' and model is None and e.modelV2.frameId==anchor[0]:model=(e.logMonoTime,e.modelV2.timestampEof)
   elif anchor and kind=='qRoadEncodeIdx' and camera is None and e.qRoadEncodeIdx.frameId==anchor[0]:camera=e.qRoadEncodeIdx.timestampEof
  if not collector.source() or model is None:return write(prepared,[],None,name)

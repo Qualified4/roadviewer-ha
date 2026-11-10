@@ -1,7 +1,7 @@
 """GPS routes for the maps (gps_track.py): real fixes only, 1 Hz on the replay timeline, stored per conversion, filled in
 once for older logs (local or NAS only, never Drive) and served only by the two map endpoints, never by the list.
 The fixture is synthetic: a made-up straight drive, never a real position."""
-import gzip,json,math,os,sys,tempfile,unittest
+import gzip,gzip,json,math,os,sys,tempfile,unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parent))
@@ -14,6 +14,17 @@ def gps(mono,lat,lon,kind='gpsLocationExternal',fix=True,valid=True,accuracy=4.0
  e=decoder.log.Event.new_message();e.logMonoTime=mono;e.valid=valid;e.init(kind);g=getattr(e,kind)
  g.hasFix=fix;g.latitude=lat;g.longitude=lon;g.horizontalAccuracy=accuracy;g.speed=speed;g.bearingDeg=bearing
  return e
+def car(mono,lat,lon,sample=None,available=True,valid=True,heading=90.0,heading_valid=True,v=11.0):
+ # carState at 100 Hz repeats the vehicle GPS sample until the next one (sampleMonoTime).
+ e=decoder.log.Event.new_message();e.logMonoTime=mono;e.valid=True;e.init('carState');c=e.carState;c.vEgo=v;g=c.vehicleGps
+ g.available=available;g.valid=valid;g.latitude=lat;g.longitude=lon;g.sampleMonoTime=mono if sample is None else sample;g.headingDeg=heading;g.headingValid=heading_valid
+ return e
+def vehicle_drive(seconds=5,start=10.0,lat=BASE_LAT):
+ # A 1 Hz vehicle GPS seen through 10 Hz carState here (100 Hz on the car): each sample repeated ten times.
+ out=[]
+ for i in range(seconds*10):
+  sample=round((start+(i//10))*1e9);out.append(car(round((start+i*.1)*1e9),lat+(i//10)*1e-5,BASE_LON,sample=sample))
+ return out
 def model(i,start=10.0,lag=.03):
  # 20 Hz frames whose camera time (timestampEof) is a little before logMonoTime, as on a device.
  e=decoder.log.Event.new_message();stamp=round((start+i*.05)*1e9);e.logMonoTime=stamp;e.valid=True;e.init('modelV2')
@@ -41,6 +52,25 @@ class CollectorTests(unittest.TestCase):
   both=self.collect(drive(seconds=2,start=1.0)+drive(seconds=3,start=1.0,kind='gpsLocation',lat=BASE_LAT+1))
   self.assertEqual(both.source(),'gpsLocationExternal');self.assertEqual(len(both.points(0)),2)
   self.assertEqual(self.collect(drive(seconds=3,start=1.0,kind='gpsLocation')).source(),'gpsLocation')
+ def test_vehicle_gps_when_no_receiver_has_a_fix(self):
+  # The device's receiver sees no satellites (as on the real car): its unfixed reports are ignored and the car's own
+  # GPS from carState is used, one point per new sample, with vEgo as speed and the heading when valid.
+  events=[gps(round((1+i*.1)*1e9),0.0,0.0,fix=False) for i in range(30)]+vehicle_drive(seconds=3,start=1.0)
+  c=self.collect(sorted(events,key=lambda e:e.logMonoTime))
+  self.assertEqual(c.source(),'vehicleGps');points=c.points(0)
+  self.assertEqual([p[0] for p in points],[1.0,2.0,3.0]);self.assertEqual(points[0][1:],[BASE_LAT,BASE_LON,11.0,90])
+  self.assertEqual(points[1][1],round(BASE_LAT+1e-5,6))
+  bad=[car(1_000_000_000,BASE_LAT,BASE_LON,available=False),car(1_100_000_000,BASE_LAT,BASE_LON,valid=False),car(1_200_000_000,0.0,0.0),car(1_300_000_000,math.nan,BASE_LON)]
+  self.assertIsNone(self.collect(bad).source())
+  self.assertIsNone(self.collect([car(1_000_000_000,BASE_LAT,BASE_LON,heading_valid=False)]).points(0)[0][4])
+  # carrotMan's estimated position only when neither a receiver nor the car has one.
+  def carrot(mono,lat,lon):
+   e=decoder.log.Event.new_message();e.logMonoTime=mono;e.valid=True;e.init('carrotMan');e.carrotMan.xPosLat=lat;e.carrotMan.xPosLon=lon;e.carrotMan.xPosAngle=45;return e
+  carrots=[carrot(round((1+i*.05)*1e9),BASE_LAT,BASE_LON) for i in range(60)]+[carrot(round(4.5e9),0.0,0.0)]
+  only=self.collect(carrots);self.assertEqual(only.source(),'carrotMan');self.assertEqual([p[0] for p in only.points(0)],[1.0,2.0,3.0])
+  self.assertEqual(self.collect(carrots+vehicle_drive(seconds=2,start=1.0)).source(),'vehicleGps')
+  # A receiver with a fix still wins.
+  self.assertEqual(self.collect(drive(seconds=2,start=1.0)+vehicle_drive(seconds=3,start=1.0)).source(),'gpsLocationExternal')
  def test_a_jump_is_dropped(self):
   events=drive(seconds=3,start=1.0);events[15]=gps(events[15].logMonoTime,BASE_LAT+1,BASE_LON)  # 110 km away for one fix.
   points=self.collect(events).points(0)
@@ -97,6 +127,17 @@ class ConversionAndBackfillTests(Case):
   self.assertFalse(json.loads((drive_only/'prepared/summary.json').read_text())['has_track'])
   self.assertFalse(any(p.glob('prepared/*.migrating')))
   with patch.object(gps_track.TrackBackfill,'process',side_effect=AssertionError('read again')):self.assertFalse(worker.run_once())
+ def test_vehicle_gps_converted_and_version_1_logs_read_again(self):
+  # Conversion keeps the vehicle GPS; a log that version 1 (receivers only) marked without a track is read again.
+  events=[model(i) for i in range(120)]+vehicle_drive(seconds=5,start=10.5)
+  p=converted(self.root,'e'*32,events,'0000042d--bfa94dc544--11')
+  stored=lambda:json.loads(gzip.decompress((p/'prepared'/gps_track.FILE).read_bytes()))
+  self.assertEqual(stored()['source'],'vehicleGps');self.assertEqual(len(gps_track.read(p/'prepared')),5)
+  summary=p/'prepared/summary.json';s=json.loads(summary.read_text())
+  self.assertEqual(s['track_v'],gps_track.TRACK_V);self.assertTrue(s['has_track'])
+  (p/'prepared'/gps_track.FILE).unlink();summary.write_text(json.dumps({**s,'track_v':1,'has_track':False,'track_distance_m':None,'track_bbox':None}))
+  self.assertFalse(self.worker().run_once())
+  self.assertTrue(json.loads(summary.read_text())['has_track']);self.assertEqual(stored()['source'],'vehicleGps')
  def test_nas_log_read_in_place_and_an_unreachable_nas_retried(self):
   nas,store=make_nas(self.root)
   p=converted(self.root,'e'*32,self.events(),'0000041b--c6f39793a8--1');expected=gps_track.read(p/'prepared');self.forget(p)

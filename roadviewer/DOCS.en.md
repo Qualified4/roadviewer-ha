@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.1.0**.
+This guide describes **1.1.1**.
 
 [한국어](DOCS.md) · English
 
@@ -307,7 +307,7 @@ Driver pedal values differ from automatic requests and final commands. Some vehi
 
 ## Drive route maps
 
-Converting a log also keeps its GPS track (`gpsLocationExternal`, else `gpsLocation`) at one point per second, dropping points without a fix, with an accuracy worse than 100 m, or jumping faster than 90 m/s from the previous one. That is about 1 KB per minute of driving. Logs converted by earlier versions are filled in the background, newest first, from three minutes after start: only when the original rlog is on Home Assistant or the NAS (logs only on Google Drive are not downloaded and show no map), waiting while uploads, conversions, playback or archiving run.
+Converting a log also keeps its route at one point per second: the device GPS (`gpsLocationExternal`, `gpsLocation`) when it has a fix, else the car's own GPS that the vehicle sends over CAN (`carState.vehicleGps`), else carrot's estimated position (`carrotMan.xPosLat/xPosLon`). Points that are zero or invalid, device fixes worse than 100 m, and jumps faster than 90 m/s are dropped. That is about 1 KB per minute of driving. Logs converted by earlier versions are filled in the background, newest first, from three minutes after start: only when the original rlog is on Home Assistant or the NAS (logs only on Google Drive are not downloaded and show no map), waiting while uploads, conversions, playback or archiving run.
 
 - **All drives**: the Logs screen's List | Map switch draws every drive the current search, tags and filters show, one colour each. Tapping a line opens a card with Play, Drive map and Show in list. The switch is hidden while no drive has GPS.
 - **Drive map**: opened from the route shape in a card header, the segment ⋯ menu's "Show on map", or the all-drives card. On phones the map stays on top while the segment list scrolls below; drag the handle to resize it. Wide screens place them side by side. Segments and their part of the route highlight each other. Back or Escape closes it.
