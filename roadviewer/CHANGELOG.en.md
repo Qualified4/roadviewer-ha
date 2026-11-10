@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.0.34
+
+- The open log list costs the server less: each 3 s check looks at fewer files per log, and an unchanged list is no longer sent again in full. What the page shows and does is unchanged.
+
 ## 1.0.33
 
 - In the light theme the tag colour picker shows the palette's own colours again, as in the dark theme; light theme tag chips keep their deeper, readable text shades.

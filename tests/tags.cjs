@@ -28,6 +28,12 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   assert(await page.evaluate(()=>[...document.fonts].some(face=>face.family==='Pretendard Variable'&&face.status==='loaded')),'bundled Korean font loads through Ingress');
   assert((await page.locator('body').evaluate(e=>getComputedStyle(e).fontFamily)).includes('Pretendard Variable'));
   const row=id=>page.locator(`.log-row[data-id="${id}"]`),dialog=page.locator('.tag-dialog');
+  // An unchanged list is answered 304 on the poll and stays as it was; a change made elsewhere arrives on the next poll.
+  {const unchanged=await page.waitForResponse(r=>r.url().endsWith('/api/logs')&&r.status()===304);assert(unchanged.request().headers()['if-none-match'],'the poll names the list it holds');
+   assert.equal(await page.locator('.log-row').count(),2);assert.equal(await page.locator('#error').textContent(),'');
+   const tag=tags=>page.request.post(base+'api/logs/'+ids[1]+'/tags',{headers:{'X-RoadViewer-Request':'1'},data:{tags}});
+   assert((await tag([{name:'다른 기기',color:'cyan'}])).ok());await row(ids[1]).getByText('다른 기기',{exact:true}).waitFor();
+   assert((await tag([])).ok());await row(ids[1]).getByText('다른 기기',{exact:true}).waitFor({state:'detached'})}
   // 태그 편집 lives in each segment's ⋯ menu.
   const open=async id=>{await row(id).locator('.recording-more>summary').click();await row(id).getByRole('button',{name:'태그 편집',exact:true}).click();await dialog.waitFor();assert(await dialog.locator('#tagNameInput').evaluate(e=>e!==document.activeElement),'opening the picker does not raise the keyboard')};
   const add=async(name,color)=>{await dialog.locator('#tagNameInput').fill(name);if(color)await dialog.getByRole('button',{name:color,exact:true}).click();await dialog.locator('.tag-add').click()};

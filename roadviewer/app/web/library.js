@@ -492,14 +492,18 @@ function renderRow(m,cached){
  return {row,thumb,info,title,state,actions,selection:cached?.selection};
 }
 // Keep the row/title/state connected when metadata changes so CSS animations retain their live timeline.
-const listError='로그 목록을 읽을 수 없습니다.';let listFailures=0,listErrorShown=null;
+const listError='로그 목록을 읽을 수 없습니다.';let listFailures=0,listErrorShown=null,listBody=null;
 async function refresh({poll=false}={}){
  if(busy||networkRestarting||bulkSelection?.running||document.hidden||(poll&&refreshing))return;
  // A user action supersedes any list snapshot taken before that action completed.
  listRequest?.abort();const request=listRequest=new AbortController(),revision=++listRevision;
  refreshing=true;const settingsRevision=concurrencyRevision;$('refresh').classList.add('is-loading');
  try{
-  const r=await fetch('api/logs',{cache:'no-store',signal:request.signal});if(!r.ok)throw Error(listError);const data=await r.json();if(revision!==listRevision)return;
+  // The server answers 304 when the list is the one this page already holds: the kept text is read again, so an
+  // unchanged list is handled exactly as a received one, without sending it.
+  const r=await fetch('api/logs',{cache:'no-store',signal:request.signal,headers:listBody?{'If-None-Match':listBody.tag}:{}});
+  let text;if(r.status===304&&listBody)text=listBody.text;else{if(!r.ok)throw Error(listError);text=await r.text();const tag=r.headers.get('ETag');listBody=tag?{tag,text}:null}
+  const data=JSON.parse(text);if(revision!==listRevision)return;
   // A list that reads again clears its own earlier failure (other messages stay).
   listFailures=0;if(listErrorShown!==null&&$('error').textContent===listErrorShown)error('');listErrorShown=null;
   if(!concurrencySaving&&settingsRevision===concurrencyRevision){savedConcurrency=[1,2,3,4].includes(data.concurrency)?data.concurrency:1;const select=$('concurrency');select.value=String(savedConcurrency);select.disabled=false;select.dispatchEvent(new Event('rv:sync'));savedAutoConvert=data.auto_convert!==false;syncAutoConvert()}
