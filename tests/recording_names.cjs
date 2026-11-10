@@ -47,6 +47,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   // Full route IDs group segments without merging equal shortened counters with different hashes.
   const group=page.locator('.log-route[data-route="00000395--0d0eda17c5"]'),summary=group.locator(':scope>summary');
   assert.equal(await page.locator('.log-route').count(),2);
+  // An open card is not an open menu: its own ⋯ stays three dots (the ✕ belongs to the menu being open).
+  {const icon=()=>summary.locator('.recording-more>summary>.icon-more').evaluate(svg=>({dot:getComputedStyle(svg.querySelector('.more-dot')).opacity,x:getComputedStyle(svg.querySelector('.more-x')).opacity}));
+   assert.deepEqual(await icon(),{dot:'1',x:'0'});
+   await summary.locator('.recording-more>summary').click();await page.waitForFunction(()=>getComputedStyle(document.querySelector('.log-route>summary .recording-more .more-x')).opacity==='1');
+   await summary.locator('.recording-more>summary').click();await page.waitForFunction(()=>{const menu=document.querySelector('.log-route>summary .recording-more');return !menu.open&&getComputedStyle(menu.querySelector('.more-x')).opacity==='0'&&getComputedStyle(menu.querySelector('.more-dot')).opacity==='1'})}
   assert.equal(await group.locator('.log-row').count(),2);
   assert.equal(await group.locator('.log-route-count').textContent(),'2개 구간');
   const firstDate=await page.evaluate(time=>new Date(time*1000).toLocaleString(),logs[0].uploaded);

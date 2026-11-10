@@ -72,9 +72,9 @@ html.rv-navigating::after{content:"";position:fixed;z-index:10000;top:0;left:0;r
    closing, the strokes draw back into the middle (120 ms) and the dots spread back out (180 ms). */
 .icon-more .more-dot{transition:transform .18s var(--m2-decelerate) .12s,opacity 0s .12s}
 .icon-more .more-x{transition:opacity 0s .12s}.icon-more .more-x line{transition:stroke-dashoffset .12s var(--m2-accelerate)}
-details[open]:not(.is-closing)>summary .icon-more .more-dot{transition:transform .14s var(--m2-accelerate),opacity 0s .14s}
-details[open]:not(.is-closing)>summary .icon-more .more-dot-l{transform:translateX(7px)}details[open]:not(.is-closing)>summary .icon-more .more-dot-r{transform:translateX(-7px)}
-details[open]:not(.is-closing)>summary .icon-more .more-x{transition:opacity 0s .14s}details[open]:not(.is-closing)>summary .icon-more .more-x line{transition:stroke-dashoffset .18s var(--m2-decelerate) .14s}
+details[open]:not(.is-closing)>summary>.icon-more .more-dot{transition:transform .14s var(--m2-accelerate),opacity 0s .14s}
+details[open]:not(.is-closing)>summary>.icon-more .more-dot-l{transform:translateX(7px)}details[open]:not(.is-closing)>summary>.icon-more .more-dot-r{transform:translateX(-7px)}
+details[open]:not(.is-closing)>summary>.icon-more .more-x{transition:opacity 0s .14s}details[open]:not(.is-closing)>summary>.icon-more .more-x line{transition:stroke-dashoffset .18s var(--m2-decelerate) .14s}
 /* Scrims fade with their dialog. */
 dialog::backdrop{transition:opacity .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
 dialog[open]::backdrop{transition:opacity .25s linear,overlay .4s allow-discrete,display .4s allow-discrete}
