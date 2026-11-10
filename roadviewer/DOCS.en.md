@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.0.37**.
+This guide describes **1.1.0**.
 
 [한국어](DOCS.md) · English
 
@@ -304,6 +304,17 @@ There are **24 graphs**:
 Initially selected: speed, acceleration, driver pedal input, angle, intervention and automatic control. Zoom with +/− or return to the whole segment. Click/drag to seek; zoomed playback follows the current time near the center except at the ends. Dragging temporarily holds the viewport; release resumes following.
 
 Driver pedal values differ from automatic requests and final commands. Some vehicles report brake pressed but no brake amount. Torque is a sensor/command value, not proof of driver intervention; `steeringPressed` provides that state. Target steering angle and RPM availability depend on the vehicle. Zero-only valid fields cannot distinguish true zeros from unpopulated defaults; missing fields are not fabricated. The LATERAL graph shows LF_LATERAL/FF_LATERAL/RF_LATERAL cluster commands before path/lane restoration; FF uses the signed −6.4–6.3m range. The separate yRel graph shows the restored box positions, positive left and negative right. Both can differ from raw radar coordinates. Existing replay data supplies the pre-restoration values without reanalysis; missing values remain unavailable.
+
+## Drive route maps
+
+Converting a log also keeps its GPS track (`gpsLocationExternal`, else `gpsLocation`) at one point per second, dropping points without a fix, with an accuracy worse than 100 m, or jumping faster than 90 m/s from the previous one. That is about 1 KB per minute of driving. Logs converted by earlier versions are filled in the background, newest first, from three minutes after start: only when the original rlog is on Home Assistant or the NAS (logs only on Google Drive are not downloaded and show no map), waiting while uploads, conversions, playback or archiving run.
+
+- **All drives**: the Logs screen's List | Map switch draws every drive the current search, tags and filters show, one colour each. Tapping a line opens a card with Play, Drive map and Show in list. The switch is hidden while no drive has GPS.
+- **Drive map**: opened from the route shape in a card header, the segment ⋯ menu's "Show on map", or the all-drives card. On phones the map stays on top while the segment list scrolls below; drag the handle to resize it. Wide screens place them side by side. Segments and their part of the route highlight each other. Back or Escape closes it.
+- **Replay Map tab**: segments with GPS get a Map tab among the analysis tabs. The travelled part is solid, the rest faded, and a car marker follows playback; Follow turns off when you move the map. Tapping the route seeks there, opening another segment if needed.
+- **Small map over the video**: Overlay settings › Map (off by default). It shows the current segment's route in the video's top-right corner, under the unchanged speed and wheel. Colours: automatic (screen theme), light or dark, plus an option without place names. Tapping it fills the picture and hides the quality and overlay controls meanwhile. It does not show for segments without video or GPS, nor while the Map tab is shown.
+
+Tiles are CARTO's, as in Home Assistant's map (Voyager light, Dark Matter dark), fetched by the browser without an API key; an internet connection is needed and tile requests for the viewed area go to CARTO. Coordinates are served only by the map APIs behind Ingress, never in the log list, download archives, exports, the device API or archives (original rlogs always contained GPS).
 
 ## Camera information and steering icon
 

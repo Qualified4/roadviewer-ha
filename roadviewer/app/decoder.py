@@ -12,6 +12,7 @@ from telemetry import extract_telemetry,drive_summary,FIELDS
 from thumbnail import save_thumbnail
 from compact import compact_data,write_gzip_json
 from wall_clock import Starts
+import gps_track
 BASE=Path(__file__).resolve().parent
 log=capnp.load(str(BASE.parent/'schema/cereal/log.capnp'))
 
@@ -152,8 +153,8 @@ def prepare(value,route=None):
   return data
  key=hashlib.sha256((str(src)+str(src.stat().st_mtime_ns)+(str(video.stat().st_mtime_ns) if video.exists() else '')+''.join(str(media(src,name).stat().st_mtime_ns) for name in ('fcamera.hevc','ecamera.hevc','fcamera.mp4','ecamera.mp4') if media(src,name).is_file())+'v28-runtime-geometry-rear1').encode()).hexdigest()[:20]
  dest=prepared_dir(src);dest.mkdir(parents=True,exist_ok=True)
- def save_summary(data,drive,start):
-  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{}),'drive_summary':drive,'replay_v':data.get('replayV'),**start},ensure_ascii=False))
+ def save_summary(data,drive,start,track):
+  (dest/'summary.json').write_text(json.dumps({'duration':data['duration'],'warnings':data['warnings'],'model_frames':len(data['frames']),'video':data.get('video'),'videos':data.get('videos',{}),'drive_summary':drive,'replay_v':data.get('replayV'),**start,**track},ensure_ascii=False))
  print('로그 읽는 중:',src,flush=True)
  report('log_prepare',100)
  compressed_size=max(src.stat().st_size,1)
@@ -169,7 +170,7 @@ def prepare(value,route=None):
  streams=collections.defaultdict(list)
  ccnc=[];ccnc_rears=[];ccnc_roads=[];road_signals=[]
  video_indices=collections.defaultdict(list)
- models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter();starts=Starts()
+ models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter();starts=Starts();track=gps_track.Collector()
  offset=0;report('log_read',0)
  for number,e in enumerate(log.Event.read_multiple_bytes(raw)):
   # The native reader validated this message. Track its framed byte extent only for progress.
@@ -182,7 +183,7 @@ def prepare(value,route=None):
    # A newer Event union member has no name in our schema. Preserve known events.
    if 'Attempted to call which on a non-union type' not in str(exc):raise
    counts['unknownEvent']+=1;continue
-  counts[kind]+=1;starts.add(e,kind)
+  counts[kind]+=1;starts.add(e,kind);track.add(e,kind)
   if kind in ('carState','carControl','controlsState','carOutput','selfdriveState','liveParameters','carParams','liveCalibration'):streams[kind].append((e.logMonoTime,e.valid,pick(getattr(e,kind),SPECS[kind])))
   if kind=='initData':streams[kind].append((e.logMonoTime,e.valid,{'dongleId':str(e.initData.dongleId)}))
   if kind=='deviceState':streams[kind].append((e.logMonoTime,e.valid,{'deviceType':str(e.deviceState.deviceType)}))
@@ -345,7 +346,10 @@ def prepare(value,route=None):
  # backfill tries again.
  try:start=starts.fields()
  except Exception as exc:start={'started_at':None};print('경고: 주행 시작 시각을 읽지 못했습니다:',exc,flush=True)
- save_summary(data,drive,start)
+ # The GPS route on the replay timeline (gps_track.py); optional like the thumbnail: never fail the conversion for it.
+ try:track_fields=gps_track.write(dest,track.points(telemetry_origin),track.source())
+ except Exception as exc:track_fields=gps_track.summary_fields([]);(dest/gps_track.FILE).unlink(missing_ok=True);print('경고: 주행 경로를 저장하지 못했습니다:',exc,flush=True)
+ save_summary(data,drive,start,track_fields)
  report('summary_save',100)
  print('준비 완료:',len(frames),'개 모델 프레임',flush=True)
  return dest,attach(data)

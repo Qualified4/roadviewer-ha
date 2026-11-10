@@ -4,6 +4,15 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.1.0
+
+- Drive route maps. Converting a log now also keeps its GPS track at one point per second (about 1 KB per minute); logs converted earlier get theirs in the background from three minutes after start, when the original is on Home Assistant or the NAS, waiting while uploads, conversions, playback or archiving run.
+- The Logs screen has a List | Map switch: the map draws every drive the list's current filters show, one colour each; tapping a line offers play, the drive map, or showing it in the list.
+- Route cards show the route's shape; tapping it opens the drive map: the map stays on top while the segment list scrolls below, and segments and their part of the route highlight each other. The segment ⋯ menu's "Show on map" opens it too.
+- The replay's analysis tabs gain a Map tab: a car marker follows playback, and tapping the route seeks there.
+- Overlay settings › Map turns on a small map in the video's top-right corner (off by default), with automatic, light or dark colours and an option without place names; tapping it fills the picture. It hides while the Map tab is shown.
+- Map tiles are CARTO's, as in Home Assistant's map (© OpenStreetMap contributors © CARTO), fetched by the browser. Coordinates are not exposed through the log list, sharing, exports or the device API.
+
 ## 1.0.37
 
 - A segment row's first line now reads name, time, playable state and pin, and on phones it runs over the play button's column; tags always sit on the line below the title, in segment rows and card headers alike.

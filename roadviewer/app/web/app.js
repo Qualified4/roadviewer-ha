@@ -1343,6 +1343,7 @@ async function loadLogNavigation(){
   if(!response.ok)throw Error('로그 목록을 불러오지 못했습니다.');
   const {logs}=await response.json(),current=location.pathname.split('/').filter(Boolean).at(-1);
   const active=logs.find(log=>log.id===current);
+  window.rvMaps?.replayLog?.(active);  // The route map (maps.js), when this log has GPS.
   recordingNameFiles=active?.files||{};
   updateTagCatalog(logs);
   const tagButton=$('editReplayTags');tagButton.disabled=!active;

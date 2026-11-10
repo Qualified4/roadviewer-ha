@@ -45,11 +45,11 @@ html.rv-navigating::after{content:"";position:fixed;z-index:10000;top:0;left:0;r
 @media (prefers-reduced-motion:no-preference){
 
 /* ---------- Dialogs and sheets (M3 emphasized) ---------- */
-/* Enter 400 ms: fade 150 ms, rise 16px and grow from .96. Exit 200 ms: fade with a slight drop. */
-.editor-dialog,.camera-info-dialog,.pair-dialog{transition:opacity .2s var(--m3-emph-accelerate),transform .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
-.editor-dialog[open],.camera-info-dialog[open],.pair-dialog[open]{transition:opacity .15s linear,transform .4s var(--m3-emph-decelerate),overlay .4s allow-discrete,display .4s allow-discrete}
-.editor-dialog:not([open]),.camera-info-dialog:not([open]),.pair-dialog:not([open]){opacity:0;transform:translateY(8px)}
-@starting-style{.editor-dialog[open],.camera-info-dialog[open],.pair-dialog[open]{opacity:0;transform:translateY(16px) scale(.96)}}
+/* Enter 400 ms: fade 150 ms, rise 16px and grow from .96 (주행 지도, full screen, only rises). Exit 200 ms: fade with a slight drop. */
+.editor-dialog,.camera-info-dialog,.pair-dialog,.drive-map-dialog{transition:opacity .2s var(--m3-emph-accelerate),transform .2s var(--m3-emph-accelerate),overlay .2s allow-discrete,display .2s allow-discrete}
+.editor-dialog[open],.camera-info-dialog[open],.pair-dialog[open],.drive-map-dialog[open]{transition:opacity .15s linear,transform .4s var(--m3-emph-decelerate),overlay .4s allow-discrete,display .4s allow-discrete}
+.editor-dialog:not([open]),.camera-info-dialog:not([open]),.pair-dialog:not([open]),.drive-map-dialog:not([open]){opacity:0;transform:translateY(8px)}
+@starting-style{.editor-dialog[open],.camera-info-dialog[open],.pair-dialog[open]{opacity:0;transform:translateY(16px) scale(.96)}.drive-map-dialog[open]{opacity:0;transform:translateY(16px)}}
 /* Anchored choices behave like menus (M2): fade 120 ms + grow from .8 over 150 ms out of the trigger-side corner
    (choices.js sets transform-origin after measuring); exit is a 75 ms fade. offsetHeight measuring ignores the scale. */
 .rv-choice-dialog{transition:opacity 75ms linear,overlay 75ms allow-discrete,display 75ms allow-discrete}
