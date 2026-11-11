@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.11
+
+- Fixed the one-frame blink in the Android app when a drive card in the log list is folded or unfolded (the cards above it, or a thumbnail, vanished for a frame). Verified by recording a real phone's screen, in both themes, with the animation pace unchanged.
+- The map tab's map is taller on short screens (a Fold's inner screen): scrolled until the filter chips reach the app bar, it fills down to just above the tab bar.
+- Fixed the small map over the video not showing in fullscreen on a phone held upright.
+
 ## 1.2.10
 
 - Reverts 1.2.9's log list fold change (the flashes stayed and the unfold motion stuttered).

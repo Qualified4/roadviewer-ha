@@ -248,6 +248,17 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     // The phone map reaches down to just above the bottom tab bar (whatever sits above it), with the page at the top.
     {const g=await page.evaluate(()=>{const m=document.getElementById('logMap').getBoundingClientRect(),t=document.querySelector('.lib-tabs').getBoundingClientRect();return {gap:Math.round(t.top-(m.top+window.scrollY+m.height)),h:Math.round(m.height)}});
      assert(g.gap>=8&&g.gap<=16,'the phone map ends just above the tab bar '+JSON.stringify(g))}
+    // A short screen (a Fold's inner one): the map is taller than what is left under the header; the page stays where it
+    // is, and scrolled until the chips reach the app bar the map ends just above the tab bar.
+    {const size=page.viewportSize();await page.setViewportSize({width:476,height:670});
+     await page.locator('#logView button[data-view="list"]').click();await page.locator('#logView button[data-view="map"]').click();
+     await page.waitForTimeout(500);assert.equal(await page.evaluate(()=>scrollY),0,'opening the map does not scroll the page');
+     await page.evaluate(()=>{const c=document.getElementById('logChips').getBoundingClientRect(),a=document.querySelector('.lib-appbar').getBoundingClientRect();scrollTo(0,c.top-a.bottom-8)});await page.waitForTimeout(200);
+     const g=await page.evaluate(()=>{const m=document.getElementById('logMap').getBoundingClientRect(),t=document.querySelector('.lib-tabs').getBoundingClientRect(),c=document.getElementById('logChips').getBoundingClientRect(),a=document.querySelector('.lib-appbar').getBoundingClientRect();
+      return {h:Math.round(m.height),gap:Math.round(t.top-m.bottom),chips:Math.round(c.top-a.bottom),chipsShown:c.bottom<=m.top+1,scrollY:Math.round(scrollY)}});
+     assert(g.h>=420&&g.gap>=8&&g.gap<=16&&g.chips>=4&&g.chips<=12&&g.chipsShown,'the short-screen map fills below the chips '+JSON.stringify(g));
+     await page.setViewportSize(size);await page.evaluate(()=>scrollTo(0,0));
+     await page.locator('#logView button[data-view="list"]').click();await page.locator('#logView button[data-view="map"]').click();await page.waitForTimeout(400)}
     assert.equal(await handle.getAttribute('role'),'slider');assert.equal(await page.locator('#logMap [autofocus]').count(),0);
     assert.equal(await rows.count(),2);assert(await rows.first().evaluate(r=>getComputedStyle(r).backdropFilter!=='none'),'glass cards');
     assert.equal(await page.locator('#logMapRows .map-list-pick[data-no-ripple]').count(),2,'a press scales the whole card instead of rippling in its title part');
@@ -600,6 +611,19 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     await page.waitForTimeout(250);await small('fullscreen');await page.evaluate(()=>document.exitFullscreen());await page.waitForFunction(()=>!document.fullscreenElement);
    }else console.log('maps: fullscreen unavailable here, skipped');
    await page.setViewportSize({width:390,height:844});await settleLayout(page);
+   // A phone held upright turns the fullscreen picture a quarter (CSS): the small map is still there, measured in the
+   // picture's own frame (it was hidden: its room, taken from sideways screen rectangles, came out negative).
+   await page.evaluate(()=>{try{Object.defineProperty(screen.orientation,'lock',{configurable:true,value:()=>Promise.reject(new DOMException('refused','NotSupportedError'))})}catch{}document.getElementById("fullscreenButton").click()});
+   if(await page.waitForFunction(()=>document.querySelector('.camera-panel').classList.contains('is-turned'),null,{timeout:3000}).then(()=>true,()=>false)){
+    await page.waitForTimeout(400);
+    const t=await page.evaluate(()=>{const m=document.getElementById('videoMap'),b=m.getBoundingClientRect(),s=document.getElementById('videoStage').getBoundingClientRect(),h=document.querySelector('#videoStage .video-hud').getBoundingClientRect();
+     return {noRoom:m.classList.contains('no-room'),room:parseFloat(m.style.getPropertyValue('--vmap-room')),map:[b.left,b.top,b.width,b.height].map(Math.round),stage:[s.left,s.top,s.width,s.height].map(Math.round),hud:[h.width,h.height].map(Math.round)}});
+    assert(!t.noRoom&&t.room>100,'the small map has room in the turned fullscreen picture '+JSON.stringify(t));
+    assert(t.map[3]>t.map[2]&&t.map[3]>=t.hud[1]-1&&t.map[0]>=t.stage[0]&&t.map[1]>=t.stage[1]&&t.map[0]+t.map[2]<=t.stage[0]+t.stage[2]+1&&t.map[1]+t.map[3]<=t.stage[1]+t.stage[3]+1,'turned with the picture and inside it '+JSON.stringify(t));
+    await shot('mini-turned');
+    await page.evaluate(()=>document.exitFullscreen());await page.waitForFunction(()=>!document.fullscreenElement);await settleLayout(page);
+   }else{console.log('maps: turned fullscreen unavailable here, skipped');await page.evaluate(()=>document.fullscreenElement&&document.exitFullscreen());await page.waitForFunction(()=>!document.fullscreenElement)}
+   await page.evaluate(()=>{delete screen.orientation.lock});
    await mapTab.tap();await page.locator('#videoMap').waitFor({state:'hidden'});await page.locator('#routeMapView .map-car').waitFor();
    // Tapping segment 0 of the drive on the map opens that segment at that point.
    {const lines=page.locator('#routeMapView .leaflet-overlay-pane path.leaflet-interactive');assert(await lines.count()>=2);

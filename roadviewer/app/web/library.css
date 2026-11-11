@@ -544,6 +544,12 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
    card and one with an open menu are left out, because this also clips whatever overflows the card (the fold's drawn
    outline and shadows, the menu). The placeholder height is replaced by each card's real height once it has been seen. */
 .log-route:not(.is-folding):not(:has(.recording-more[open])){content-visibility:auto;contain-intrinsic-size:auto 160px}
+/* Each card, its thumbnail and its chevron keep a compositing layer of their own. Without it Chromium re-divides the
+   layers around a card the moment its fold starts, and the Android WebView showed the new ones before they were drawn:
+   the cards above the tapped one, or a thumbnail, vanished for one frame. Measured on a phone (Fold, WebView 156) by
+   screen recording scripted taps: 5 blank frames per 24 taps and 3 thumbnail blinks per 33 without this, none with it,
+   in both themes, at the same frame pacing. Turning content-visibility off instead changed nothing. */
+.log-route,.route-thumb,.log-route-chevron svg{will-change:transform}
 /* The divider is a colour property so a fold can fade it (disclosure.js) instead of it popping in and out with [open]. */
 @property --divider{syntax:'<color>';inherits:false;initial-value:transparent}
 .log-route>summary{position:relative;z-index:1;background:var(--surface);box-shadow:var(--surface-highlight),inset 0 -1px 0 var(--divider)}

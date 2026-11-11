@@ -493,11 +493,18 @@
   // Phones: the map reaches from where it starts (the page scrolled to the top) down to just above the bottom tab bar,
   // whatever sits above it (the Home Assistant app's own header, the search, the filter chips); a fixed allowance left a
   // tall device (a Fold) with a short map and empty space under it.
+  // A short screen (a Fold's inner one, 670px tall) left only the 320px minimum under the title, search and chips: there the
+  // map is as tall as the screen allows with the filter chips kept above it: scrolled until the chips reach the app bar,
+  // it ends just above the tab bar. The page is not scrolled for the user. The chips stay because they filter the map
+  // and are where a finger can still scroll the page: a map covering the whole screen takes every drag for itself.
   function fitPanelHeight(){
    if(panel.hidden||wide.matches){panel.style.removeProperty('--map-room');return}
    const tabs=document.querySelector('.lib-tabs'),bar=tabs?.getBoundingClientRect(),bottom=bar&&getComputedStyle(tabs).position==='fixed'&&bar.top>innerHeight/2?bar.top:innerHeight;
-   const top=panel.getBoundingClientRect().top+window.scrollY;
-   panel.style.setProperty('--map-room',Math.round(Math.max(320,bottom-top-12))+'px');
+   const top=panel.getBoundingClientRect().top+window.scrollY,room=bottom-top-12;
+   const chips=document.getElementById('logChips'),appbar=document.querySelector('.lib-appbar');
+   const head=appbar&&['sticky','fixed'].includes(getComputedStyle(appbar).position)?appbar.getBoundingClientRect().height:0;
+   const lift=room<440&&chips?Math.max(0,Math.round(chips.getBoundingClientRect().top+window.scrollY-head-8)):0;
+   panel.style.setProperty('--map-room',Math.round(Math.max(320,room+lift))+'px');
   }
   addEventListener('resize',()=>{if(mode==='map')fitPanelHeight()});
   function setMode(next){
@@ -869,12 +876,19 @@
   }
   // At least as wide as the speed and wheel; on a short picture no lower than the bottom row (none at all when only
   // the speed's height would be left).
+  // A phone held upright shows the fullscreen picture turned a quarter (app.js, .is-turned: a CSS rotation), and screen
+  // rectangles are then sideways to the picture: measured as they are, the room came out negative and the map was hidden
+  // in fullscreen. inStage gives a rectangle in the picture's own frame (x along its width from its left edge), point a
+  // pointer position in the same frame.
+  const turned=()=>!!stage.closest('.is-turned');
+  const inStage=(b,frame=stage.getBoundingClientRect())=>turned()?{left:b.top-frame.top,right:b.bottom-frame.top,top:frame.right-b.right,width:b.height,height:b.width}:{left:b.left-frame.left,right:b.right-frame.left,top:b.top-frame.top,width:b.width,height:b.height};
+  const point=e=>turned()?{x:e.clientY,y:-e.clientX}:{x:e.clientX,y:e.clientY};
   function measureSmall(){
    if(mini.hidden)return;
-   const speed=hud.getBoundingClientRect();stage.style.setProperty('--vmap-min-w',Math.ceil(speed.width)+'px');
-   const box=stage.getBoundingClientRect(),top=parseFloat(getComputedStyle(mini).top)||12;
-   const rows=[...stage.querySelectorAll('.video-tools,.video-fullscreen')].map(e=>e.getBoundingClientRect()).filter(b=>b.width&&b.height);
-   const room=Math.min(box.height-2*top,...rows.map(b=>b.top-8-box.top-top));
+   const frame=stage.getBoundingClientRect(),box=inStage(frame,frame),speed=inStage(hud.getBoundingClientRect(),frame);stage.style.setProperty('--vmap-min-w',Math.ceil(speed.width)+'px');
+   const top=parseFloat(getComputedStyle(mini).top)||12;
+   const rows=[...stage.querySelectorAll('.video-tools,.video-fullscreen')].map(e=>e.getBoundingClientRect()).filter(b=>b.width&&b.height).map(b=>inStage(b,frame));
+   const room=Math.min(box.height-2*top,...rows.map(b=>b.top-8-top));
    mini.style.setProperty('--vmap-room',Math.floor(room)+'px');mini.classList.toggle('no-room',room<speed.height+28);
   }
   miniToggle.addEventListener('change',syncMini);
@@ -882,7 +896,7 @@
   // button float over it as they float over the video, and the quality and overlay controls step aside (stage
   // .video-map-large) so the messages take their place at the bottom edge.
   function measureLarge(){
-   const box=stage.getBoundingClientRect(),style=getComputedStyle(mini),top=parseFloat(style.top)||12,right=parseFloat(style.right)||12;
+   const frame=stage.getBoundingClientRect(),box=inStage(frame,frame),style=getComputedStyle(mini),top=parseFloat(style.top)||12,right=parseFloat(style.right)||12;
    mini.style.setProperty('--vmap-large-w',Math.max(0,box.width-2*right)+'px');mini.style.setProperty('--vmap-large-h',Math.max(0,box.height-2*top)+'px');
   }
   new ResizeObserver(()=>{measureSmall();if(mini.classList.contains('is-large'))measureLarge()}).observe(stage);
@@ -901,12 +915,12 @@
   let sizing=null;
   grip.addEventListener('pointerdown',e=>{
    if(mini.classList.contains('is-large')||e.button>0)return;e.preventDefault();e.stopPropagation();try{grip.setPointerCapture(e.pointerId)}catch{}
-   const r=mini.getBoundingClientRect(),box=stage.getBoundingClientRect(),room=parseFloat(mini.style.getPropertyValue('--vmap-room'))||box.height;
+   const frame=stage.getBoundingClientRect(),r=inStage(mini.getBoundingClientRect(),frame),box=inStage(frame,frame),room=parseFloat(mini.style.getPropertyValue('--vmap-room'))||box.height,at=point(e);
    const min=Math.max(104,parseFloat(stage.style.getPropertyValue('--vmap-min-w'))||0),max=Math.max(min,Math.min(box.width-2*(box.right-r.right),room/.75));
-   sizing={id:e.pointerId,x:e.clientX,y:e.clientY,w:r.width,min,max,stageW:box.width,moved:false,f:null};mini.classList.add('is-sizing');
+   sizing={id:e.pointerId,x:at.x,y:at.y,w:r.width,min,max,stageW:box.width,moved:false,f:null};mini.classList.add('is-sizing');
   });
   grip.addEventListener('pointermove',e=>{
-   if(!sizing||e.pointerId!==sizing.id)return;const dx=sizing.x-e.clientX,dy=(e.clientY-sizing.y)/.75;
+   if(!sizing||e.pointerId!==sizing.id)return;const at=point(e),dx=sizing.x-at.x,dy=(at.y-sizing.y)/.75;
    if(!sizing.moved&&Math.hypot(dx,dy)<3)return;sizing.moved=true;e.preventDefault();
    const w=Math.min(sizing.max,Math.max(sizing.min,sizing.w+(Math.abs(dx)>=Math.abs(dy)?dx:dy)));sizing.f=w/sizing.stageW;applySize(sizing.f);
   });
