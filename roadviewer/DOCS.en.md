@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.2.14**.
+This guide describes **1.2.15**.
 
 [한국어](DOCS.md) · English
 
