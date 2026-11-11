@@ -269,6 +269,15 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     assert.deepEqual(await rows.nth(1).locator('.map-card-actions>:is(a,button)').allInnerTexts(),['재생','주행 지도','목록에서 보기']);
     assert(await mapCard.isHidden(),'no bottom card while the sheet is up');
     assert(await rows.nth(1).evaluate(r=>{const b=r.getBoundingClientRect(),l=r.parentElement.getBoundingClientRect();return b.top>=l.top-1&&b.bottom<=l.bottom+1}),'the marked card is in view');
+    // A tap beside a route line, a finger's width away and on no line, marks that route all the same (the lines are a few
+    // pixels wide; such a tap used to clear the selection). Here: beside the other route's line (the thinner one).
+    {const beside=await page.evaluate(()=>{const p=[...document.querySelectorAll('#logMap .leaflet-overlay-pane path.leaflet-interactive')].find(p=>Number(p.getAttribute('stroke-width'))!==6),m=p.getScreenCTM(),length=p.getTotalLength();
+      for(const k of [.5,.4,.6,.3,.7,.2,.8])for(const [dx,dy] of [[0,14],[14,0],[0,-14],[-14,0]]){const at=p.getPointAtLength(length*k),x=Math.round(at.x*m.a+at.y*m.c+m.e)+dx,y=Math.round(at.x*m.b+at.y*m.d+m.f)+dy,hit=document.elementFromPoint(x,y);
+       if(hit&&hit.closest('.log-map-canvas')&&hit.localName!=='path'&&!hit.closest('.leaflet-control,#logMapList'))return {x,y}}return null});
+     assert(beside,'a free spot beside the other route');await page.touchscreen.tap(beside.x,beside.y);
+     await page.waitForFunction(()=>document.querySelectorAll('#logMapRows>.map-list-row')[0].classList.contains('is-selected'),null,{timeout:3000});
+     // Back to the second route, by its own line (now the thinner one; a marked line is brought to the front).
+     await tapLine(page.locator('#logMap .leaflet-overlay-pane path.leaflet-interactive:not([stroke-width="6"])').first());await page.waitForFunction(()=>document.querySelectorAll('#logMapRows>.map-list-row')[1].classList.contains('is-selected'));await page.waitForTimeout(150)}
     // A tap on a card selects that drive and fits the map to it above the sheet. (lineBox(): the first card's line, the marked
     // one having been brought to the front, the last path).
     const before=await lineBox();await rows.first().locator('.map-list-pick').tap();await page.waitForTimeout(450);
