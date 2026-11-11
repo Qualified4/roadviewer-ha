@@ -1,5 +1,7 @@
-import {pageScope} from './page-scope.js';
 const host=document.getElementById('pageHost'),notice=document.getElementById('navigationStatus'),assets=new URL('./',import.meta.url),version=new URL(import.meta.url).search;
+// With this file's version, like the page modules: imported by its bare name it came from the browser's cache for hours
+// after an update, an older page scope under newer page scripts.
+const {pageScope}=await import(new URL('page-scope.js'+version,assets));
 const base=new URL('../',assets),libraryStyle=document.getElementById('libraryStyle');
 let current=null,revision=0,pending=null,libraryScroll=0;
 // The library's page shell is static per version: fetch it ahead (when idle on a replay) so going back skips a round trip.

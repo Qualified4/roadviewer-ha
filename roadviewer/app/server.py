@@ -506,8 +506,12 @@ def assets(name):
  for kind,scripts in PAGE_SCRIPTS.items():
   if name=='page-'+kind+'.js':
    # Native module factory: trusted application sources share one page-local scope.
-   bindings='window,document,location,fetch,setTimeout,clearTimeout,setInterval,clearInterval,requestAnimationFrame,cancelAnimationFrame,ResizeObserver,MutationObserver,IntersectionObserver,XMLHttpRequest,matchMedia,addEventListener,removeEventListener,onPageDispose'
-   source='export function mount(env) {\nconst {'+bindings+'}=env;\n'+ '\n;\n'.join((BASE/'web'/(script+'.js')).read_text() for script in scripts)
+   bindings='window,document,location,fetch,setTimeout,clearTimeout,setInterval,clearInterval,requestAnimationFrame,cancelAnimationFrame,ResizeObserver,MutationObserver,XMLHttpRequest,matchMedia'
+   # Names added to the page scope later fall back to the browser's own: page-scope.js may come from the browser's cache
+   # (1.2.12 took them straight from env, and under a cached older page-scope.js every page failed with "addEventListener
+   # is not a function").
+   later='const addEventListener=env.addEventListener||globalThis.addEventListener.bind(globalThis),removeEventListener=env.removeEventListener||globalThis.removeEventListener.bind(globalThis),IntersectionObserver=env.IntersectionObserver||globalThis.IntersectionObserver,onPageDispose=env.onPageDispose||(()=>{});'+chr(10)
+   source='export function mount(env) {\nconst {'+bindings+'}=env;\n'+later+ '\n;\n'.join((BASE/'web'/(script+'.js')).read_text() for script in scripts)
    source+='\nreturn {ready:pageReady,canLeave:()=>'+('!busy&&!cleaning&&!networkRestarting' if kind=='library' else 'true')+'};\n}'
    response=app.make_response(source);response.mimetype='application/javascript'
    response.headers['Cache-Control']='public, max-age=31536000' if request.args.get('v') else 'no-cache'
