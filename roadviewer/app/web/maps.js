@@ -490,9 +490,20 @@
    openDrive(group,{segment:id});
   }
   // ① 목록 | 지도
+  // Phones: the map reaches from where it starts (the page scrolled to the top) down to just above the bottom tab bar,
+  // whatever sits above it (the Home Assistant app's own header, the search, the filter chips); a fixed allowance left a
+  // tall device (a Fold) with a short map and empty space under it.
+  function fitPanelHeight(){
+   if(panel.hidden||wide.matches){panel.style.removeProperty('--map-room');return}
+   const tabs=document.querySelector('.lib-tabs'),bar=tabs?.getBoundingClientRect(),bottom=bar&&getComputedStyle(tabs).position==='fixed'&&bar.top>innerHeight/2?bar.top:innerHeight;
+   const top=panel.getBoundingClientRect().top+window.scrollY;
+   panel.style.setProperty('--map-room',Math.round(Math.max(320,bottom-top-12))+'px');
+  }
+  addEventListener('resize',()=>{if(mode==='map')fitPanelHeight()});
   function setMode(next){
    mode=next;for(const button of switcher.querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.view===mode));
    document.getElementById('list').hidden=mode==='map';panel.hidden=mode!=='map';
+   if(mode==='map')fitPanelHeight();
    if(mode==='map'){document.getElementById('empty').hidden=true;listSheet.set(1);drawOverview(true)}else{card.rvPill=(card.rvPill||0)+1;card.classList.remove('is-leaving');card.hidden=true;selected=null;applyFilters()}
    try{sessionStorage.setItem('roadviewer-log-view',mode)}catch{}
   }

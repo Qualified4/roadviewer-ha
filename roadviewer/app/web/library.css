@@ -540,10 +540,13 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .log-route{--route-r:14px;--fold-shadow:1;position:relative;isolation:isolate;contain:layout style}
 .log-route:has(.recording-more[open]){z-index:3}
 /* Cards off screen skip layout and paint (content-visibility), so a fold, which changes the list's height every frame,
-   only lays out what is visible: on a phone-speed CPU with 30 cards the fold went from about 35 to 60 fps. The folding
-   card and one with an open menu are left out, because this also clips whatever overflows the card (the fold's drawn
-   outline and shadows, the menu). The placeholder height is replaced by each card's real height once it has been seen. */
-.log-route:not(.is-folding):not(:has(.recording-more[open])){content-visibility:auto;contain-intrinsic-size:auto 160px}
+   only lays out what is visible: on a phone-speed CPU with 30 cards the fold went from about 35 to 60 fps. This also
+   clips what overflows the card, so the clip reaches 48px past it (overflow-clip-margin): the fold's drawn outline and
+   shadow (0 12px 32px) stay whole. The folding card keeps it: lifting it for the fold and restoring it at the end made
+   Android's WebView redraw the card and others, which showed for a frame as a blank card or thumbnail. A card with an
+   open menu is still left out (the menu reaches further). The placeholder height is replaced by each card's real
+   height once it has been seen. */
+.log-route:not(:has(.recording-more[open])){content-visibility:auto;contain-intrinsic-size:auto 160px;overflow-clip-margin:48px}
 /* The divider is a colour property so a fold can fade it (disclosure.js) instead of it popping in and out with [open]. */
 @property --divider{syntax:'<color>';inherits:false;initial-value:transparent}
 .log-route>summary{position:relative;z-index:1;background:var(--surface);box-shadow:var(--surface-highlight),inset 0 -1px 0 var(--divider)}
@@ -862,7 +865,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  /* 지도 sits right beside 재생; the empty left of the row folds the card like the rest of the header. */
  .log-route-actions:has(>.route-map-button){justify-content:flex-end}
  .route-map-button{height:44px}
- .log-map{height:calc(100dvh - 300px);min-height:320px}
+ .log-map{height:var(--map-room,calc(100dvh - 300px));min-height:320px}  /* --map-room: maps.js, down to the tab bar */
 }
 /* 주행 지도: a full-screen dialog over the library (its motion is the dialogs' in motion.css). Phones: the map on top,
    the segment sheet below with a grab handle (maps.js snaps it to 36 / 54 / 70% of the height, so the map keeps at least
@@ -1029,10 +1032,11 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 @media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.9);--mark-highlight:inset 0 1px 0 #fff,0 0 0 .5px rgba(16,24,40,.14);--mark-color:#14935F;--mark-rim:80%;--mark-rim-bottom:80%;--mark-base:rgba(255,255,255,.9)}}
 /* Light theme: green over white glass reads as paint, not light, so the marked card is near-opaque white (90%) and its
    green stays where the dark theme's shows: a crisp line at the middle of the top and bottom edges (the rim above, in a
-   deeper green) and a faint light inside them, at the dark theme's ratio (10% under the top edge, 22% over the bottom).
+   deeper green) and a faint light inside them, shaped and spaced like the dark theme's (10% under the top edge, 22% rising
+   from below the bottom one).
    The other cards keep their clear glass. */
-:root[data-theme=light] :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child){background:radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%),radial-gradient(40% 55% at 50% 100%,color-mix(in srgb,var(--accent) 22%,transparent),transparent 85%),var(--mark-base)}
-@media(prefers-color-scheme:light){:root:not([data-theme=dark]) :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child){background:radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%),radial-gradient(40% 55% at 50% 100%,color-mix(in srgb,var(--accent) 22%,transparent),transparent 85%),var(--mark-base)}}
+:root[data-theme=light] :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child){background:radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%),radial-gradient(125% 85% at 50% 135%,color-mix(in srgb,var(--accent) 22%,transparent) 0%,color-mix(in srgb,var(--accent) 13%,transparent) 28%,color-mix(in srgb,var(--accent) 7%,transparent) 56%,color-mix(in srgb,var(--accent) 3%,transparent) 74%,transparent 94%),var(--mark-base)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]) :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child){background:radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%),radial-gradient(125% 85% at 50% 135%,color-mix(in srgb,var(--accent) 22%,transparent) 0%,color-mix(in srgb,var(--accent) 13%,transparent) 28%,color-mix(in srgb,var(--accent) 7%,transparent) 56%,color-mix(in srgb,var(--accent) 3%,transparent) 74%,transparent 94%),var(--mark-base)}}
 /* The secondary buttons inside the glass cards (주행 지도, 목록에서 보기, ✕): a soft tint only, no outline. */
 .log-map .map-card-actions>button,.log-map-card .map-card-actions>button{border-color:transparent;box-shadow:none}
 /* Phones: the last segment card scrolls clear of the attribution in the corner. The sheet is clear glass over the map:

@@ -47,8 +47,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   // Full route IDs group segments without merging equal shortened counters with different hashes.
   const group=page.locator('.log-route[data-route="00000395--0d0eda17c5"]'),summary=group.locator(':scope>summary');
   assert.equal(await page.locator('.log-route').count(),2);
-  // A fold (and an open menu) lifts the card's content-visibility. Nothing in the header may be redrawn a pixel off
-  // while it does: the same picture with and without it.
+  // An open menu lifts the card's content-visibility (a fold keeps it: lifting it flashed cards blank on Android). Nothing
+  // in the header may be redrawn a pixel off while it is lifted: the same picture with and without it.
   {await page.evaluate(()=>document.fonts.ready);await page.mouse.move(0,0);
    const parts=['.route-bar','.route-facts','.log-route-actions .replay'],draw=()=>Promise.all(parts.map(part=>summary.locator(part).screenshot({animations:'disabled',caret:'hide'})));
    assert.equal(await group.evaluate(g=>getComputedStyle(g).contentVisibility),'auto');const frames=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));await frames();const rest=await draw();await group.evaluate(g=>{g.style.contentVisibility='visible'});await frames();
