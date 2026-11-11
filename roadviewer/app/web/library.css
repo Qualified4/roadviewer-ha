@@ -1017,8 +1017,8 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  box-shadow:var(--mark-highlight,var(--map-glass-highlight)),var(--map-glass-shadow)}
 /* The marked card's light: dark glass needs little; light glass (white over a light map) needs more to show. */
 :root{--mark-edge-base:var(--map-glass-border);--mark-rim-bottom:35%;--mark-rim:50%;--mark-top:9%;--mark-glow:24%;--mark-haze:7%}
-:root[data-theme=light]{--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:48%;--mark-rim:55%;--mark-top:15%;--mark-glow:46%;--mark-haze:18%}
-@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:48%;--mark-rim:55%;--mark-top:15%;--mark-glow:46%;--mark-haze:18%}}
+:root[data-theme=light]{--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:22%;--mark-rim:26%;--mark-top:15%;--mark-glow:46%;--mark-haze:18%}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:22%;--mark-rim:26%;--mark-top:15%;--mark-glow:46%;--mark-haze:18%}}
 /* The secondary buttons inside the glass cards (주행 지도, 목록에서 보기, ✕): a soft tint only, no outline. */
 .log-map .map-card-actions>button,.log-map-card .map-card-actions>button{border-color:transparent;box-shadow:none}
 /* Phones: the last segment card scrolls clear of the attribution in the corner. The sheet is clear glass over the map:

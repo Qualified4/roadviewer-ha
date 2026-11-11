@@ -162,7 +162,11 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await page.waitForTimeout(100);{const l=await layout();assert(l.rowVisible,JSON.stringify(l))}
    // The sheet's handle: dragged up the sheet grows to 70% and the map keeps ≥ 30%; dragged down it snaps to 36%.
    const drag=async dy=>{const box=await drive.locator('.drive-map-handle').boundingBox(),x=box.x+box.width/2,y=box.y+box.height/2;await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x,y+dy/2,{steps:4});await page.mouse.move(x,y+dy,{steps:4});await page.mouse.up();await page.waitForTimeout(120)};
+   // Raising or lowering the sheet does not move the map (only a tap on a card does): the drawn route stays put.
+   const routeBox=()=>page.evaluate(()=>{const b=document.querySelector('#driveMap .leaflet-overlay-pane path').getBoundingClientRect();return [b.left,b.top,b.width,b.height].map(Math.round)});
+   const routeBefore=await routeBox();
    await drag(-160);{const l=await layout();assert(Math.abs(l.share-.7)<.02&&l.area.h>=.26*l.body,JSON.stringify(l))}
+   await page.waitForTimeout(450);{const after=await routeBox();assert(after.every((v,i)=>Math.abs(v-routeBefore[i])<=1),'the sheet moved the map: '+JSON.stringify({routeBefore,after}))}
    await drive.locator(`.log-row[data-id="${last}"] .log-meta`).tap();await page.waitForTimeout(100);
    {const l=await layout();assert(l.rowVisible&&l.lineInside,JSON.stringify(l))}
    await shot('drive-up');
