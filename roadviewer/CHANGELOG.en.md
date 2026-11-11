@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.15
+
+- The bottom bar on the map tab and the drive map has slightly more room between the close button and the bar's edge, and before the text on the left.
+
 ## 1.2.14
 
 - On the map tab and the drive map, a tap near a route line (within a finger's width) selects that drive or segment; the thin lines had to be hit exactly.

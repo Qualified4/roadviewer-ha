@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [g1, g2, g3, g4, g5, g6, g7]
+        group: [g1, g2, g3, g4, g5, g6, g7, g8]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -172,9 +172,11 @@ jobs:
         if: matrix.group == 'g3'
       - run: node tests/tag_filter_fold.cjs
         if: matrix.group == 'g4'
-      # Route maps: the longest browser file (both themes, phone and desktop), alone in its group.
-      - run: node tests/maps.cjs
+      # Route maps: the longest browser file (phone and desktop), one group per theme.
+      - run: RV_MAP_SCHEMES=dark node tests/maps.cjs
         if: matrix.group == 'g7'
+      - run: RV_MAP_SCHEMES=light node tests/maps.cjs
+        if: matrix.group == 'g8'
   browser-tests:
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs: [browser-test-groups]
@@ -203,8 +205,8 @@ jobs:
       - name: Validate AppArmor policy
         if: matrix.group == 'p1'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends apparmor
+          # apparmor_parser ships with the runner image; apt-get update here once stalled for 2.5 minutes.
+          apparmor_parser --version
           python tests/test_apparmor.py
       - run: python tests/test_duplicates.py
         if: matrix.group == 'p1'

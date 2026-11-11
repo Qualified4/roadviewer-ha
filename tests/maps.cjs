@@ -8,6 +8,8 @@ const {settleLayout}=require('./browser-helpers.cjs');
 // street names, so 글자 숨기기 has layers to hide), its TileJSON, empty vector tiles and empty glyph ranges.
 // RV_MAP_REAL_TILES=1 lets the browser fetch the real OpenFreeMap styles and tiles instead (with RV_MAP_SHOTS, to look).
 const REAL=process.env.RV_MAP_REAL_TILES==='1';
+// RV_MAP_SCHEMES=dark or =light runs one theme only: CI runs the two as separate groups (the file took 140-170 s as one).
+const SCHEMES=(process.env.RV_MAP_SCHEMES||'dark,light').split(',');
 // Synthetic routes: in the stubbed run on empty ground (the fixture streets lie around it); with real tiles, in a city
 // centre (a public landmark, not a drive) so the pictures show roads and names.
 const ORIGIN=REAL?[37.55,126.96]:[10,20];
@@ -69,7 +71,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   const base=`http://127.0.0.1:${port}/api/hassio_ingress/test/`;
   const video=fs.readFileSync(process.env.RV_TEST_VIDEO||'/tmp/roadviewer-test.mp4');
   browser=await chromium.launch({headless:true});
-  for(const scheme of ['dark','light']){
+  for(const scheme of SCHEMES){
    const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true,colorScheme:scheme,reducedMotion:'reduce'}),page=await context.newPage(),errors=[],tiles=[],stubbed=[];
    page.on('pageerror',error=>errors.push(error.message));await context.addInitScript(hookMaps);
    page.on('request',request=>{if(request.url().startsWith(OFM))tiles.push(request.url())});
@@ -689,7 +691,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   const long=[];{let [lat,lon]=[ORIGIN[0]+.01,ORIGIN[1]-.04];for(let k=0;k<40;k++){const d=turns[k%turns.length];long.push({id:(0xf0000000+k).toString(16).padEnd(32,'0'),name:`00000600--6b6b6b6b6b / 구간 ${k}`,uploaded:200+k,points:track(lat,lon,d[0]/3,d[1]/3)});lat=+(lat+20*d[0]).toFixed(6);lon=+(lon+20*d[1]).toFixed(6)}}
   [...many,...long].forEach(writeLog);
   const drives=2+many.length+1;
-  for(const scheme of ['dark','light']){
+  for(const scheme of SCHEMES){
    const context=await browser.newContext({viewport:{width:1280,height:800},colorScheme:scheme,reducedMotion:'reduce'}),page=await context.newPage(),errors=[];
    page.on('pageerror',error=>errors.push(error.message));await context.addInitScript(hookMaps);
    if(!REAL)await context.route(OFM+'**',route=>{const url=route.request().url(),style=url===SIMPLE_LIGHT?['light']:Object.entries(STYLE_OF).find(([,u])=>url===u);
@@ -851,7 +853,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   // listener left on the window or on the connection object, or a map never removed, kept every page and its log:
   // 1,500 nodes more with each one). The measured page is never touched by evaluate or a selector wait (the debugger's
   // own handles keep a page alive): the buttons' places come from a second page, and only taps and counters follow.
-  {const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true,colorScheme:'dark',reducedMotion:'reduce'});
+  if(SCHEMES.includes('dark')){const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true,colorScheme:'dark',reducedMotion:'reduce'});
    await context.route(OFM+'**',route=>{const url=route.request().url(),style=url===SIMPLE_LIGHT?['light']:Object.entries(STYLE_OF).find(([,u])=>url===u);
     if(style)return route.fulfill({body:JSON.stringify(fixtureStyle(style[0])),contentType:'application/json'});
     if(url===OFM+'planet')return route.fulfill({body:JSON.stringify({tilejson:'3.0.0',tiles:[OFM+'planet/fixture/{z}/{x}/{y}.pbf'],minzoom:0,maxzoom:14}),contentType:'application/json'});

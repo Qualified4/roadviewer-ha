@@ -1012,7 +1012,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
    buttons wrap under the date, keep the same glass with rounder ends than a card. */
 /* The rim (::after) is the bar's whole outline: with the glass's inset top highlight under it as well, the top edge was
    twice as thick as the sides. */
-.log-map-card{flex-wrap:nowrap;gap:14px;width:max-content;max-width:calc(100% - 24px);padding:10px 10px 10px 24px;border-radius:999px;border-color:transparent;isolation:isolate;box-shadow:var(--map-glass-shadow)}
+.log-map-card{flex-wrap:nowrap;gap:14px;width:max-content;max-width:calc(100% - 24px);padding:10px 12px 10px 26px;border-radius:999px;border-color:transparent;isolation:isolate;box-shadow:var(--map-glass-shadow)}
 .log-map-card::after{content:"";position:absolute;inset:-1px;padding:1px;border-radius:inherit;pointer-events:none;background:var(--map-glass-rim);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);mask-composite:exclude}
 .log-map-card .map-card-text{flex:0 1 auto;gap:0}
 .log-map-card .map-card-title{font-size:14px;white-space:nowrap}
@@ -1096,7 +1096,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 @media(min-width:1024px),(min-width:600px) and (orientation:landscape){.drive-map-body>.drive-map-card{bottom:20px}}
 /* Phones: the segment pill has only 재생 and ✕, so it stays a one-line pill. */
 @media(max-width:599px){
- .drive-map-body>.drive-map-card{flex-wrap:nowrap;width:max-content;max-width:calc(100% - 24px);padding:8px 8px 8px 18px;border-radius:999px}
+ .drive-map-body>.drive-map-card{flex-wrap:nowrap;width:max-content;max-width:calc(100% - 24px);padding:8px 10px 8px 20px;border-radius:999px}
  .drive-map-body>.drive-map-card .map-card-text{flex:0 1 auto;min-width:0}
  .drive-map-body>.drive-map-card .map-card-actions{flex:0 0 auto;margin-left:8px}
  .drive-map-body>.drive-map-card .map-card-actions>.map-card-close{margin-left:0}
