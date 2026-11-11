@@ -62,6 +62,13 @@
  // map's own choices; other maps follow the page's 회색 지도 and 글자 숨기기 buttons). margin: the share of the map's
  // size drawn beyond each edge, by the basemap (the plugin's padding) and the route lines (the SVG renderer's padding),
  // for the maps that follow the car by scrolling what is drawn (the replay's); the others keep the defaults (0.1).
+ // A tap beside a route line counts as a tap on it: the line nearest the tap within a finger's reach (24px; 8px with a
+ // mouse). The lines are 4-5px wide, and on a phone a tap had to land exactly on one, or it cleared the selection.
+ const nearestLine=(lines,event)=>{
+  const reach=event.originalEvent?.pointerType==='mouse'?8:24;let best=null;
+  for(const line of lines){if(!line._map)continue;const at=line.closestLayerPoint(event.layerPoint);if(at&&at.distance<=reach&&(!best||at.distance<best.distance))best={distance:at.distance,line}}
+  return best?.line||null;
+ };
  function createMap(L,container,{zoom=true,interactive=true,attribution=ATTRIBUTION,tone=null,labels=null,grey=null,margin=null}={}){
   const map=L.map(container,{zoomControl:false,attributionControl:true,dragging:interactive,touchZoom:interactive,scrollWheelZoom:interactive,doubleClickZoom:interactive,boxZoom:interactive,keyboard:interactive,tap:interactive,zoomSnap:.25,maxZoom:19,fadeAnimation:!reduced(),zoomAnimation:!reduced(),markerZoomAnimation:!reduced(),...(margin?{renderer:L.svg({padding:margin})}:{})});
   map.rvMargin=margin||0;map.rvMarginMax=margin||0;
@@ -350,7 +357,7 @@
    try{[L,track]=await Promise.all([loadLeaflet(),fetch(`api/logs/${group.firstLog.id}/track`,{cache:'no-cache'}).then(r=>r.ok?r.json():{segments:[]})])}
    catch(e){if(ticket===driveTicket)error(e.message);return}
    if(ticket!==driveTicket||!drive.open)return;
-   if(!driveMap){driveMap=createMap(L,driveCanvas);driveLayer=L.layerGroup().addTo(driveMap);driveMap.on('click',()=>markDrive(null,{fit:true}))}
+   if(!driveMap){driveMap=createMap(L,driveCanvas);driveLayer=L.layerGroup().addTo(driveMap);driveMap.on('click',event=>{const line=nearestLine(driveLines.values(),event);if(line)markDrive(line.rvId,{scroll:true});else markDrive(null,{fit:true})})}
    driveLayer.clearLayers();driveLines.clear();
    const colour=css('--accent')||'#3DCB92';
    for(const part of track.segments){
@@ -562,7 +569,7 @@
    if(!tracks){empty.hidden=true;return}
    let L;try{L=await loadLeaflet()}catch(e){error(e.message);return}
    if(mode!=='map')return;
-   if(!overview){overview=createMap(L,canvas);overview.on('click',()=>select(null))}
+   if(!overview){overview=createMap(L,canvas);overview.on('click',event=>{const line=nearestLine(overviewLines.values(),event);if(line)select(line.rvGroup,{scroll:true});else select(null)})}
    const shown=visibleGroups().map(group=>({group,route:groupRoute(group)})).filter(item=>item.route&&item.route.points.length>1);
    const keys=new Set(shown.map(item=>item.route.key));
    for(const [key,line] of overviewLines)if(!keys.has(key)){line.rvCasing?.remove();line.remove();overviewLines.delete(key)}

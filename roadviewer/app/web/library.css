@@ -1010,7 +1010,9 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 @media(prefers-reduced-motion:reduce){.drive-map-body .drive-map-list>.log-row{transition:none}}
 /* The all-drives map's info card: a pill of the over-video glass (gradient rim, pill buttons). Phones, where the
    buttons wrap under the date, keep the same glass with rounder ends than a card. */
-.log-map-card{flex-wrap:nowrap;gap:14px;width:max-content;max-width:calc(100% - 24px);padding:10px 10px 10px 24px;border-radius:999px;border-color:transparent;isolation:isolate}
+/* The rim (::after) is the bar's whole outline: with the glass's inset top highlight under it as well, the top edge was
+   twice as thick as the sides. */
+.log-map-card{flex-wrap:nowrap;gap:14px;width:max-content;max-width:calc(100% - 24px);padding:10px 10px 10px 24px;border-radius:999px;border-color:transparent;isolation:isolate;box-shadow:var(--map-glass-shadow)}
 .log-map-card::after{content:"";position:absolute;inset:-1px;padding:1px;border-radius:inherit;pointer-events:none;background:var(--map-glass-rim);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);mask-composite:exclude}
 .log-map-card .map-card-text{flex:0 1 auto;gap:0}
 .log-map-card .map-card-title{font-size:14px;white-space:nowrap}

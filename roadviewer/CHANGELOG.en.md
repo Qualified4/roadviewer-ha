@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.14
+
+- On the map tab and the drive map, a tap near a route line (within a finger's width) selects that drive or segment; the thin lines had to be hit exactly.
+- Fixed the bar shown at the bottom of the map tab when the drive list is folded: its top edge looked thicker than its sides.
+
 ## 1.2.13
 
 - Fixed pages failing to open with "addEventListener is not a function" after updating to 1.2.12: one script of the previous version, kept by the browser's cache, was used together with the new ones.
