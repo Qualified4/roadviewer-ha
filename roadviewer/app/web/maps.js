@@ -9,7 +9,7 @@
 // tiles (OpenStreetMap data, no API key) drawn by MapLibre GL JS (vendor/, BSD-3) through maplibre-gl-leaflet
 // (vendor/, ISC). All three and their stylesheets load only when a map is first shown. Style: Liberty (light) or
 // Dark with the app's theme; 회색 지도 takes Positron or Dark without the busy layers and 글자 숨기기 hides the names and
-// symbols; the attribution stays visible.
+// symbols; the attribution stays one tap away (an ⓘ in the corner, compactCredit).
 (()=>{
  const library=!!document.getElementById('panel-logs'),replay=!!document.getElementById('roadView');
  if(!library&&!replay)return;
@@ -75,24 +75,23 @@
    layer.addTo(map);
   }
   if(zoom){L.control.zoom({position:'topright',zoomInTitle:'확대',zoomOutTitle:'축소'}).addTo(map);simpleControl(L).addTo(map)}
-  compactCredit(L,map,container,!interactive);
-  new ResizeObserver(()=>{if(container.isConnected){map.invalidateSize({animate:false});map.rvCredit?.()}}).observe(container);
+  compactCredit(L,map,container);
+  new ResizeObserver(()=>{if(container.isConnected)map.invalidateSize({animate:false})}).observe(container);
   return map;
  }
- // The map credit (OpenFreeMap, OpenMapTiles, OpenStreetMap) folds into an ⓘ button in the bottom-right corner on
- // maps narrower than 640 px and always on the small map over the video, as MapLibre's compact attribution does: a
- // narrow map shows it until its first touch, then folds it; the button shows or hides it.
- function compactCredit(L,map,container,always){
+ // The map credit (OpenFreeMap, OpenMapTiles, OpenStreetMap) folds into an ⓘ button in the bottom-right corner on every
+ // map (phones, tablets and the small map over the video alike), as MapLibre's compact attribution does: folded at
+ // first, the button shows or hides it.
+ function compactCredit(L,map,container){
   const corner=map.attributionControl.getContainer().parentNode,toggle=L.DomUtil.create('button','rv-credit-toggle leaflet-control',corner);
   toggle.type='button';toggle.setAttribute('aria-label','지도 출처');toggle.title='지도 출처';
   toggle.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><path d="M12 7.5h.01" stroke-width="2.6"/></svg>';
   L.DomEvent.disableClickPropagation(toggle);
-  let open=!always,touched=always;
-  const sync=()=>{const compact=always||container.clientWidth<640;container.classList.toggle('is-credit-compact',compact);container.classList.toggle('is-credit-open',compact&&open);toggle.setAttribute('aria-expanded',String(compact&&open))};
-  toggle.addEventListener('click',e=>{e.preventDefault();open=!(open&&container.classList.contains('is-credit-compact'));touched=true;sync()});
+  let open=false;
+  const sync=()=>{container.classList.add('is-credit-compact');container.classList.toggle('is-credit-open',open);toggle.setAttribute('aria-expanded',String(open))};
+  toggle.addEventListener('click',e=>{e.preventDefault();open=!open;sync()});
   toggle.addEventListener('keydown',e=>e.stopPropagation());
-  container.addEventListener('pointerdown',e=>{if(touched||e.target.closest('.leaflet-control'))return;touched=true;open=false;sync()});
-  map.rvCredit=sync;sync();
+  sync();
  }
  function simpleControl(L){
   const control=L.control({position:'topright'});
@@ -182,6 +181,17 @@
   let tracks=null,trackTag=null,trackText=null,trackSignature=null,trackRequest=null,mode='list',overview=null,overviewLines=new Map(),selected=null;
   const switcher=document.getElementById('logView'),panel=document.getElementById('logMap'),canvas=panel.querySelector('.log-map-canvas'),card=document.getElementById('logMapCard'),empty=panel.querySelector('.log-map-empty');
   const routeOf=new Map();  // log id -> route of /api/tracks
+  // The glass pills at the bottom of the maps (the selected drive, the marked segment) rise in (library.css
+  // rv-map-card-in) and sink out (.is-leaving, rv-map-card-out) before they are hidden; shown again meanwhile, they
+  // come straight back. done runs once the pill is hidden (at once without motion).
+  function showPill(pill,on,done=null){
+   const ticket=pill.rvPill=(pill.rvPill||0)+1;
+   if(on){pill.classList.remove('is-leaving');pill.hidden=false;return}
+   const finish=()=>{if(pill.rvPill!==ticket)return;pill.classList.remove('is-leaving');pill.hidden=true;done?.()};
+   if(pill.hidden||reduced()||!pill.getClientRects().length){finish();return}
+   pill.classList.add('is-leaving');
+   pill.addEventListener('animationend',e=>{if(e.target===pill)finish()},{once:true});setTimeout(finish,320);
+  }
   const groupRoute=group=>{for(const log of group.logs){const route=routeOf.get(log.id);if(route)return route}return null};
   async function fetchTracks(){
    trackRequest?.abort();const request=trackRequest=new AbortController();
@@ -246,19 +256,29 @@
   const drive=document.getElementById('driveMap'),driveBody=drive.querySelector('.drive-map-body'),driveCanvas=drive.querySelector('.drive-map-canvas'),sheet=drive.querySelector('.drive-map-sheet'),handle=drive.querySelector('.drive-map-handle'),sheetList=drive.querySelector('.drive-map-list');
   // The card columns over the maps fade out at an edge with more cards beyond it (none at the top while scrolled to the
   // top, none at the end). Each card near an edge is masked itself, in the column's coordinates: a mask on the column
-  // would make it the cards' backdrop root and take away their blur of the map.
-  const FADE=28;
+  // would make it the cards' backdrop root and take away their blur of the map. As on the replay's segment strip
+  // (app.js segmentStripFades), each fade widens with the distance scrolled from that end (full after FADE/2 px) instead
+  // of switching on at once. The mask reaches SHADOW px past the card on every side and is not clipped to it
+  // (mask-clip:no-clip), so a masked card keeps its drop shadow: it fades with the card instead of vanishing.
+  const FADE=28,SHADOW=28;
+  const MASK_PROPS=[['maskSize',`calc(100% + ${2*SHADOW}px) calc(100% + ${2*SHADOW}px)`],['maskPosition',`${-SHADOW}px ${-SHADOW}px`],['maskRepeat','no-repeat'],['maskOrigin','border-box'],['maskClip','no-clip']];
+  function setMask(card,mask){
+   if(card.style.maskImage===mask)return;
+   for(const [name,value] of MASK_PROPS){const v=mask?value:'';card.style['webkit'+name[0].toUpperCase()+name.slice(1)]=v;card.style[name]=v}
+   card.style.webkitMaskImage=mask;card.style.maskImage=mask;
+  }
   function fadeEdges(column){
    let frame=0;
    const paint=()=>{
-    frame=0;const top=column.scrollTop,h=column.clientHeight,atTop=top<=1,atEnd=top>=column.scrollHeight-h-1,origin=column.getBoundingClientRect().top;
-    column.classList.toggle('fade-top',!atTop);column.classList.toggle('fade-bottom',!atEnd);
-    const cards=[...column.children],boxes=cards.map(card=>card.getBoundingClientRect());
+    frame=0;const top=Math.max(0,column.scrollTop),h=column.clientHeight,end=Math.max(0,column.scrollHeight-h-top),origin=column.getBoundingClientRect().top+column.clientTop;
+    const topFade=Math.min(FADE,top*2),endFade=Math.min(FADE,end*2);
+    column.classList.toggle('fade-top',top>1);column.classList.toggle('fade-bottom',end>1);
+    column.style.setProperty('--fade-top',topFade.toFixed(1)+'px');column.style.setProperty('--fade-bottom',endFade.toFixed(1)+'px');
+    const cards=[...column.children],boxes=cards.map(card=>card.getBoundingClientRect()),px=v=>(v+SHADOW).toFixed(1)+'px';
     cards.forEach((card,i)=>{
      // A card with its ⋯ menu open is not masked: the mask would cut off the menu where it leaves the card.
-     const y=boxes[i].top-origin,still=!card.querySelector('.recording-more[open]'),fadeTop=still&&!atTop&&y<FADE,fadeBottom=still&&!atEnd&&y+boxes[i].height>h-FADE;
-     const mask=fadeTop||fadeBottom?`linear-gradient(to bottom,${fadeTop?`transparent ${(-y).toFixed(1)}px,#000 ${(FADE-y).toFixed(1)}px`:'#000 0'},${fadeBottom?`#000 ${(h-FADE-y).toFixed(1)}px,transparent ${(h-y).toFixed(1)}px`:'#000 100%'})`:'';
-     if(card.style.maskImage!==mask){card.style.maskImage=mask;card.style.webkitMaskImage=mask}
+     const y=boxes[i].top-origin,still=!card.querySelector('.recording-more[open]'),fadeTop=still&&topFade>.5&&y<topFade,fadeBottom=still&&endFade>.5&&y+boxes[i].height>h-endFade;
+     setMask(card,fadeTop||fadeBottom?`linear-gradient(to bottom,${fadeTop?`transparent ${px(-y)},#000 ${px(topFade-y)}`:'#000 0'},${fadeBottom?`#000 ${px(h-endFade-y)},transparent ${px(h-y)}`:'#000 100%'})`:'');
     });
    };
    const later=()=>{if(!frame)frame=requestAnimationFrame(paint)};
@@ -345,7 +365,7 @@
    const log=driveMarked&&driveGroup?.logs.find(l=>l.id===driveMarked);
    let folded=false;try{folded=driveFolded()}catch{}  // Not yet defined while the screen is being set up.
    const out=wide.matches?folded:snap<0,show=!!log&&drive.open&&out;
-   segmentCard.hidden=!show;if(!show)return;
+   showPill(segmentCard,show);if(!show)return;
    const n=logRoute(log).segment,date=logDate(log),end=date&&Number.isFinite(log.duration)?new Date(date.getTime()+log.duration*1000):null;
    segmentCard.querySelector('.map-card-title').textContent=`구간 ${n??'—'}`+(date?` · ${shortClock(date)}${end?'–'+shortClock(end):''}`:'');
    segmentCard.querySelector('.map-card-facts').textContent=[Number.isFinite(log.duration)?durationText(log.duration):null,log.status==='ready'?'재생 가능':null].filter(Boolean).join(' · ');
@@ -428,7 +448,7 @@
   function setMode(next){
    mode=next;for(const button of switcher.querySelectorAll('button'))button.setAttribute('aria-pressed',String(button.dataset.view===mode));
    document.getElementById('list').hidden=mode==='map';panel.hidden=mode!=='map';
-   if(mode==='map'){document.getElementById('empty').hidden=true;drawOverview(true)}else{card.hidden=true;selected=null;applyFilters()}
+   if(mode==='map'){document.getElementById('empty').hidden=true;drawOverview(true)}else{card.rvPill=(card.rvPill||0)+1;card.classList.remove('is-leaving');card.hidden=true;selected=null;applyFilters()}
    try{sessionStorage.setItem('roadviewer-log-view',mode)}catch{}
   }
   switcher.addEventListener('click',e=>{const button=e.target.closest('button[data-view]');if(button&&button.dataset.view!==mode)setMode(button.dataset.view)});
@@ -502,14 +522,14 @@
    const inline=!!group&&listShown(),row=group&&mapRow.get(groupRoute(group)?.key);
    // A redraw (the list polls) keeps the selected row's buttons, and with them the focus.
    for(const other of mapRows.querySelectorAll('.map-list-row.is-selected,.map-list-row:has(>.map-card-actions)'))if(other!==row||!inline){other.classList.remove('is-selected');other.querySelector(':scope>.map-card-actions')?.remove()}
-   card.hidden=!group||inline;
+   showPill(card,!!group&&!inline,()=>{if(card.hidden)card.querySelector('.map-card-play')?.remove()});
    if(fit&&group)fitOverview(group);
    if(row){
     row.classList.add('is-selected');
     if(inline&&!row.querySelector(':scope>.map-card-actions'))row.append(rowActions(group));
     if(scroll){const box=row.getBoundingClientRect(),list=mapRows.getBoundingClientRect();if(box.top<list.top||box.bottom>list.bottom)mapRows.scrollTo({top:mapRows.scrollTop+box.top-list.top-Math.max(0,(list.height-box.height)/2),behavior:reduced()?'auto':'smooth'})}
    }
-   if(!group||inline){card.querySelector('.map-card-play')?.remove();return}
+   if(!group||inline){if(card.hidden)card.querySelector('.map-card-play')?.remove();return}  // else once it has sunk out
    const route=groupRoute(group),date=logDate(group.firstLog),duration=group.logs.reduce((sum,log)=>sum+(Number.isFinite(log.duration)?log.duration:0),0);
    card.querySelector('.map-card-title').textContent=date?`${localeDate(date)} ${clockText(date)}`:group.route.title;
    card.querySelector('.map-card-facts').textContent=[kmText(route?.distance_m),duration?durationText(duration):null,`${group.logs.length}개 구간`].filter(Boolean).join(' · ');
@@ -551,6 +571,9 @@
   // 작은 지도 색상: 자동 (app theme) | 라이트 | 다크, kept on this browser.
   const toneSwitch=document.getElementById('videoMiniMapTone'),TONE_KEY='roadviewer-minimap-tone';
   let miniTone='auto';try{const saved=localStorage.getItem(TONE_KEY);if(['auto','light','dark'].includes(saved))miniTone=saved}catch{}
+  // Full screen (the video on black, the controls dark): 자동 takes the dark map too; 라이트 and 다크 stay as chosen.
+  const fullscreen=()=>!!document.fullscreenElement?.contains(mini);
+  document.addEventListener('fullscreenchange',()=>{for(const map of maps)if(map.getContainer().closest('#videoMap'))applyTiles(map)});
   const showTone=()=>{for(const b of toneSwitch.querySelectorAll('button'))b.setAttribute('aria-pressed',String(b.dataset.tone===miniTone))};showTone();
   toneSwitch.addEventListener('click',event=>{const b=event.target.closest('button[data-tone]');if(!b||b.dataset.tone===miniTone)return;miniTone=b.dataset.tone;showTone();try{localStorage.setItem(TONE_KEY,miniTone)}catch{}for(const map of maps)if(map.getContainer().closest('#videoMap'))applyTiles(map)});
   // 글자 없는 지도: the small map without place and road names (the style's symbol layers hidden); saved with the
@@ -620,7 +643,7 @@
   async function ensureSmall(){
    if(small||!route)return;
    const L=await loadLeaflet().catch(()=>null);if(!L||small)return;
-   const map=createMap(L,mini.querySelector('.video-map-canvas'),{zoom:false,interactive:false,tone:()=>miniTone==='auto'?null:miniTone,labels:()=>!miniPlain.checked,grey:()=>miniGrey.checked,attribution:SHORT_ATTRIBUTION});
+   const map=createMap(L,mini.querySelector('.video-map-canvas'),{zoom:false,interactive:false,tone:()=>miniTone==='auto'?(fullscreen()?'dark':null):miniTone,labels:()=>!miniPlain.checked,grey:()=>miniGrey.checked,attribution:SHORT_ATTRIBUTION});
    small={map,lines:layers(L,map,false)};fitSmall();
    // Refit when the map or the speed and wheel over it change size (the speed appears once the replay has data).
    {const watch=new ResizeObserver(()=>{if(small&&!mini.hidden&&!resizing)fitSmall()});watch.observe(mini);watch.observe(hud)}

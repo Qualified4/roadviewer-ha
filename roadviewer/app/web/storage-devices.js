@@ -206,6 +206,7 @@ function trackFillText(t){
  else if(t.waiting==='busy')text+=' · 업로드·변환·재생·아카이빙이 끝나기를 기다리는 중';
  else if(t.running)text+=' · 진행 중';
  else if(t.manual)text+=' · 곧 시작';
+ else if(t.finished_at){const when=jobFinishedText(Number(t.finished_at));if(when)text+=` · ${when} 완료`}  // The last pass (older servers: none).
  const error=t.last_error?TRACK_FILL_ERRORS[t.last_error]||`오류 (${t.last_error})`:'';
  return error?text+'\n'+error:text;
 }
@@ -289,7 +290,19 @@ function archiveEta(seconds){
  if(m<1)return '1분 미만 남음';
  return m<60?`약 ${m}분 남음`:`약 ${Math.floor(m/60)}시간${m%60?` ${m%60}분`:''} 남음`;
 }
+// When a finished job ended, for its status line: '오늘 오후 9:30', '11월 10일 오후 9:30' (another year: with the year).
+const jobDayFormat=new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric'}),jobYearFormat=new Intl.DateTimeFormat('ko-KR',{year:'numeric',month:'long',day:'numeric'}),jobClockFormat=new Intl.DateTimeFormat('ko-KR',{hour:'numeric',minute:'2-digit'});
+function jobFinishedText(seconds){
+ const date=Number.isFinite(seconds)&&seconds>0?new Date(seconds*1000):null;if(!date||Number.isNaN(date.getTime()))return '';
+ const now=new Date(),day=date.toDateString()===now.toDateString()?'오늘':date.getFullYear()===now.getFullYear()?jobDayFormat.format(date):jobYearFormat.format(date);
+ return `${day} ${jobClockFormat.format(date)}`;
+}
 function archiveJobText(job,drive){
+ const text=archiveJobState(job,drive),when=job.state!=='running'?jobFinishedText(Number(job.finished_at)):'';
+ return when?`${text}
+${job.state==='done'||job.state==='partial'?'완료':'중단'}: ${when}`:text;
+}
+function archiveJobState(job,drive){
  const verb=job.mode==='move'?'이동':'복사',done=`성공 ${job.succeeded}개 · 실패 ${job.failed}개`;
  // Before its first file a run may wait for the archive's startup checks (after a restart): their progress is shown.
  if(job.state==='running'&&job.checking&&job.checking.total)return `${verb} 준비 중 · 보관본 확인 ${job.checking.done}/${job.checking.total}`;

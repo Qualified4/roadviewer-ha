@@ -900,7 +900,7 @@ select,.rv-choice-trigger{font-weight:500}
 .rv-map.leaflet-container .leaflet-tooltip-top::before{border-top-color:var(--pop)}
 .rv-map.leaflet-container .leaflet-interactive:focus{outline:0}
 .map-view{padding:12px 16px}
-.route-map-view{position:relative;height:clamp(300px,58vh,620px);border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px var(--line)}
+.route-map-view{position:relative;isolation:isolate;height:clamp(300px,58vh,620px);border-radius:14px;overflow:hidden;box-shadow:0 0 0 1px var(--line)}
 .route-map-view[hidden]{display:none}
 .route-map-canvas{position:absolute;inset:0}
 .map-follow{position:absolute;left:10px;top:10px;z-index:500;display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 12px;border:0;border-radius:999px;background:var(--pop);box-shadow:var(--raised-shadow);color:var(--muted);font-size:12px;font-weight:600}
@@ -940,6 +940,8 @@ select,.rv-choice-trigger{font-weight:500}
 .video-map .rv-map.is-credit-compact .rv-credit-toggle{right:3px;bottom:3px;width:18px;height:18px}
 .video-map .rv-map.is-credit-compact .rv-credit-toggle svg{width:12px;height:12px}
 .video-map .rv-map.is-credit-compact.is-credit-open .leaflet-control-attribution{margin:0 24px 4px 0;max-width:calc(var(--vmap-w,180px) - 34px)}  /* small: clear of the resize corner */
+/* Full screen (black stage, dark controls): the small map is dark too (maps.js tone), and so are its credit and ⓘ. */
+.camera-panel:fullscreen .video-map{--text:#F2F4F6;--text-2:#C5CAD1;--muted:#AEB9C7;--map-glass-border:rgba(255,255,255,.12);--focus:#5BE3AE;color-scheme:dark}
 .video-map .map-car-body{width:20px;height:20px}.video-map .map-car-body svg{width:15px;height:15px}
 .video-map:focus-visible{outline:2px solid var(--hud-focus,var(--focus));outline-offset:2px}
 @container(max-width:520px){.video-map{top:8px;right:8px;border-radius:12px}}

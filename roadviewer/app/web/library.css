@@ -768,7 +768,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 @media(max-height:500px){.bulk-dock{max-height:calc(100dvh - 72px)}.bulk-download-menu,.bulk-extra{max-height:calc(100dvh - 180px);overflow-y:auto}}
 /* Maps (maps.js): ① the list's 지도 view with its route card, ② the route shape on a card and 주행 지도 (the drive full screen). */
 .lib-panel-head>#logView{margin-left:auto}
-.log-map{position:relative;height:clamp(340px,64vh,720px);border-radius:14px;overflow:hidden;background:var(--surface);box-shadow:var(--surface-shadow)}
+.log-map{position:relative;isolation:isolate;height:clamp(340px,64vh,720px);border-radius:14px;overflow:hidden;background:var(--surface);box-shadow:var(--surface-shadow)}
 .log-map[hidden]{display:none}
 .log-map-canvas{position:absolute;inset:0}
 .log-map-empty{position:absolute;left:50%;top:50%;z-index:500;transform:translate(-50%,-50%);margin:0;padding:10px 16px;border-radius:12px;background:var(--pop);box-shadow:var(--pop-shadow);color:var(--muted);text-align:center}
@@ -817,7 +817,10 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.log-map-list{background:var(--glass-solid)}}
 @media(prefers-reduced-transparency:reduce){.log-map-list,.map-fold{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
 @keyframes rv-map-card-in{from{opacity:0;transform:translateY(8px)}}
-@media(prefers-reduced-motion:reduce){.log-map-card{animation:none}}
+/* Hidden again (maps.js showPill): it sinks out the way it rose in, a little faster, before it is hidden. */
+.log-map-card.is-leaving{animation:rv-map-card-out .18s var(--m2-accelerate,cubic-bezier(.4,0,1,1)) forwards;pointer-events:none}
+@keyframes rv-map-card-out{to{opacity:0;transform:translateY(8px)}}
+@media(prefers-reduced-motion:reduce){.log-map-card,.log-map-card.is-leaving{animation:none}}
 /* The route on a card with GPS (maps.js shapeSvg): theme tokens for its map ground, grid and line. */
 :root{--route-bg:#14181B;--route-grid:rgba(255,255,255,.06);--route-start:#4F8C76;--route-end:#5BE3AE;--route-halo:rgba(91,227,174,.28)}
 :root[data-theme=light]{--route-bg:#EDF1EE;--route-grid:rgba(16,24,40,.07);--route-start:#7FA394;--route-end:#1FA874;--route-halo:rgba(31,168,116,.22)}
@@ -947,22 +950,26 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .drive-map-handle{align-self:center;width:auto;min-width:120px;min-height:44px;margin:0 0 6px;padding:7px 18px 8px;border-radius:999px;gap:5px;color:var(--text-2)}
 .drive-map-list{padding:2px 12px max(12px,env(safe-area-inset-bottom))}
 @media(min-width:1024px),(min-width:600px) and (orientation:landscape){
- .log-map-list{gap:8px;border:0;border-radius:0;overflow:visible;background:none;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none}
- .log-map-rows{margin:0 -6px;padding:2px 6px 10px}
+ /* The scrolling column reaches 16px past the cards on each side (and below the last one) so their shadows are not cut
+    off at its edges; the first card starts 16px below the fold button. */
+ .log-map-list{gap:6px;border:0;border-radius:0;overflow:visible;background:none;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none}
+ .log-map-rows{margin:0 -16px;padding:10px 16px 18px}
  .drive-map-sheet{border:0;overflow:visible}
- .drive-map-handle{align-self:flex-start;min-width:0;min-height:0;margin:0 0 8px;padding:5px 12px;border-radius:999px;font-size:12.5px}
- .drive-map-list{margin:0 -6px;padding:2px 6px 10px}
+ .drive-map-handle{align-self:flex-start;min-width:0;min-height:0;margin:0 0 6px;padding:5px 12px;border-radius:999px;font-size:12.5px}
+ .drive-map-list{margin:0 -16px;padding:10px 16px 18px}
 }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.log-map-list,.drive-map-sheet{background:none}}
 @media(prefers-reduced-transparency:reduce){.log-map-list,.drive-map-sheet{background:none}}
 
-/* Wide screens: the count label sits on the fold button's line; folding slides the cards out to the side with a fade
+/* Wide screens: the count label sits on the fold button's bottom line; folding slides the cards out to the side with a fade
    (staggered), unfolding slides them back in; the label stays put and only fades. The column keeps its place while
    folded (hidden after the motion) so both directions animate. */
 @media(min-width:1024px),(min-width:600px) and (orientation:landscape){
- .log-map-list{top:16px;max-height:calc(100% - 32px);animation:none;visibility:visible;transition:visibility 0s}
- .drive-map-sheet{top:16px;max-height:calc(100% - 32px - env(safe-area-inset-bottom));animation:none;visibility:visible;transition:visibility 0s}
- .log-map-list-head,.drive-map-handle{box-sizing:border-box;height:30px;min-height:0;margin-top:calc((var(--fold-size) - 30px) / 2);display:inline-flex;align-items:center}
+ /* The column stops 40px above the map's bottom edge: the credit's ⓘ in the corner stays uncovered and tappable. */
+ .log-map-list{top:16px;max-height:calc(100% - 56px);animation:none;visibility:visible;transition:visibility 0s}
+ .drive-map-sheet{top:16px;max-height:calc(100% - 56px - env(safe-area-inset-bottom));animation:none;visibility:visible;transition:visibility 0s}
+ /* The count label's bottom edge lines up with the fold button's. */
+ .log-map-list-head,.drive-map-handle{box-sizing:border-box;height:30px;min-height:0;margin-top:calc(var(--fold-size) - 30px);display:inline-flex;align-items:center}
  .log-map.is-folded .log-map-list,.drive-map-body.is-folded .drive-map-sheet{display:flex;visibility:hidden;pointer-events:none;transition:visibility 0s .42s}
  .log-map-list-head,.drive-map-handle{transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1))}
  .log-map.is-folded .log-map-list-head,.drive-map-body.is-folded .drive-map-handle{opacity:0}
@@ -1000,21 +1007,31 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .log-map-card .map-card-actions>.map-card-close{margin-left:auto}
 }
 /* The marked card over the maps (a selected drive, a marked segment): no accent outline; the glass's top reflection
-   turns accent-coloured and a soft accent glow rises from the bottom edge, like a lit glass tab. */
+   turns accent-coloured and a soft accent glow rises from the bottom edge, like a lit glass tab (a wide, low ellipse
+   that thins out gradually over most of the card's height, so it has no visible edge). */
 .log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child{
  border-color:var(--mark-border,var(--map-glass-border));
  border-color:transparent;position:relative;
  background:  radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) var(--mark-top),transparent),transparent 70%),
-  radial-gradient(90% 55% at 50% 118%,color-mix(in srgb,var(--accent) var(--mark-glow),transparent) 0%,color-mix(in srgb,var(--accent) var(--mark-haze),transparent) 55%,transparent 75%),var(--map-glass);
+  radial-gradient(125% 85% at 50% 135%,color-mix(in srgb,var(--accent) var(--mark-glow),transparent) 0%,color-mix(in srgb,var(--accent) calc(var(--mark-glow) * .6),transparent) 28%,color-mix(in srgb,var(--accent) var(--mark-haze),transparent) 56%,color-mix(in srgb,var(--accent) calc(var(--mark-haze) * .4),transparent) 74%,transparent 94%),var(--map-glass);
  box-shadow:var(--mark-highlight,var(--map-glass-highlight)),var(--map-glass-shadow)}
 /* The marked card's light: dark glass needs little; light glass (white over a light map) needs more to show. */
 :root{--mark-edge-base:var(--map-glass-border);--mark-rim-bottom:35%;--mark-rim:50%;--mark-top:9%;--mark-glow:24%;--mark-haze:7%}
-:root[data-theme=light]{--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:48%;--mark-rim:55%;--mark-top:15%;--mark-glow:54%;--mark-haze:18%}
-@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:48%;--mark-rim:55%;--mark-top:15%;--mark-glow:54%;--mark-haze:18%}}
+:root[data-theme=light]{--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:48%;--mark-rim:55%;--mark-top:15%;--mark-glow:46%;--mark-haze:18%}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:48%;--mark-rim:55%;--mark-top:15%;--mark-glow:46%;--mark-haze:18%}}
 /* The secondary buttons inside the glass cards (주행 지도, 목록에서 보기, ✕): a soft tint only, no outline. */
 .log-map .map-card-actions>button,.log-map-card .map-card-actions>button{border-color:transparent;box-shadow:none}
-/* Phones: the last segment card scrolls clear of the attribution in the corner. */
-@media not ((min-width:1024px) or ((min-width:600px) and (orientation:landscape))){.drive-map-list{padding-bottom:calc(max(12px,env(safe-area-inset-bottom)) + 18px)}}
+/* Phones: the last segment card scrolls clear of the attribution in the corner. The sheet is clear glass over the map:
+   only its handle and cards take taps, so the credit's ⓘ (and the map) under its empty parts stay tappable; the cards
+   still scroll the list. */
+@media not ((min-width:1024px) or ((min-width:600px) and (orientation:landscape))){
+ .drive-map-list{padding-bottom:calc(max(12px,env(safe-area-inset-bottom)) + 18px)}
+ .drive-map-sheet,.drive-map-list{pointer-events:none}
+ .drive-map-handle,.drive-map-list>*{pointer-events:auto}
+ .drive-map-body.is-sheet-hidden .drive-map-list>*{pointer-events:none}
+}
+/* Phones: the all-drives map's card stays above the credit's ⓘ in the bottom-right corner. */
+@media(max-width:599px){.log-map>.log-map-card{bottom:40px}}
 /* The marked card's rim follows its rounded corners: one 1px ring (a masked pseudo-element, like the over-video glass)
    whose top and bottom edges turn accent towards the middle and keep the glass border colour at the sides. */
 .log-map .map-list-row.is-selected::after,.drive-map-body .drive-map-list>.log-row.is-map-marked::after{content:"";position:absolute;inset:-1px;padding:1px;border-radius:14px;pointer-events:none;z-index:1;

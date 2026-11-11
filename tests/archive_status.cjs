@@ -67,6 +67,8 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   // Confirmed: the run starts, and the unreachable share stops it safely with the files kept.
   await page.locator('#archiveRun').click();await dialog.waitFor({state:'visible'});await page.locator('#archiveAllConfirm').click();
   await page.waitForFunction(()=>/^중단됨: NAS에 연결할 수 없습니다\./.test(document.getElementById('archiveJobText').textContent));
+  // A finished run shows when it ended, on its own line.
+  assert.match(await page.locator('#archiveJobText').textContent(),/\n중단: 오늘 (오전|오후) \d{1,2}:\d{2}$/);
   assert.deepEqual(runs.slice(1),[['GET','1',200],['POST','1',202]]);
   assert(fs.existsSync(path.join(onDir,ids[1],'rlog.zst')),'nothing moved while the share is unreachable');
   // While a run is active (as the server reports it), progress shows and the settings are locked.
