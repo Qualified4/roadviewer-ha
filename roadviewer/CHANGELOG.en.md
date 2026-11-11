@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.4
+
+- On phones, raising or lowering the drive map's bottom list no longer refits the map to the marked segment; the map only moves when a card is tapped.
+- In the light theme the selected card's green top and bottom rim is fainter.
+
 ## 1.2.3
 
 - The bottom-right ⓘ (map credit) can be tapped again on the phone drive map and the list maps; the credit now starts folded into ⓘ on every map and ⓘ shows it.

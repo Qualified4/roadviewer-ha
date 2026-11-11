@@ -294,7 +294,7 @@
    const same=drive.open&&driveGroup===group;driveGroup=group;
    if(!same){
     driveMarked=segment;driveRows.clear();sheetList.replaceChildren();syncDrive();sheetList.scrollTop=0;
-    if(!drive.open){driveOpener=opener||document.activeElement;drive.showModal();document.body.style.overflow='hidden';setSnap(1)}
+    if(!drive.open){driveOpener=opener||document.activeElement;drive.showModal();document.body.style.overflow='hidden';setSnap(1,{fit:true})}
     if(push){
      const url=new URL(window.location.href);if(!url.hash||url.hash===DRIVE_HASH){url.hash=libraryTab||'logs';history.replaceState(history.state,'',url)}
      url.hash=DRIVE_HASH;history.pushState({...(history.state||{}),rvScroll:scrollY,rvDrive:group.route.key,rvDriveSegment:segment},'',url);
@@ -391,11 +391,13 @@
   // below the lowest height, the cards slide away down and only the handle stays (snap -1); a tap brings them back.
   let refit=0;
   const handleOnly=()=>Math.ceil(handle.getBoundingClientRect().height+18)+'px';
-  function setSnap(i){
+  function setSnap(i,{fit=false}={}){
    snap=Math.max(-1,Math.min(SNAPS.length-1,i));const hidden=snap<0;
    driveBody.classList.toggle('is-sheet-hidden',hidden);driveBody.style.setProperty('--sheet-h',hidden?handleOnly():SNAPS[snap]*100+'%');
    handle.setAttribute('aria-valuenow',String(hidden?0:Math.round(SNAPS[snap]*100)));syncSegmentCard();handle.setAttribute('aria-valuetext',hidden?'숨김':Math.round(SNAPS[snap]*100)+'%');
-   clearTimeout(refit);if(driveMap)refit=setTimeout(()=>{if(drive.open){driveMap.invalidateSize({animate:false});fitDrive(false)}},reduced()?0:300);
+   // Raising or lowering the sheet keeps the map where it is: only a tap on a card moves it. Opening the screen (fit)
+   // still fits once the sheet has risen, beside its final height.
+   clearTimeout(refit);if(driveMap)refit=setTimeout(()=>{if(drive.open){driveMap.invalidateSize({animate:false});if(fit)fitDrive(false)}},reduced()?0:300);
   }
   handle.addEventListener('pointerdown',event=>{
    if(wide.matches||event.button>0)return;
