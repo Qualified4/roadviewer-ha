@@ -155,8 +155,8 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    // scrolls the sheet back to it.
    {const box=await drive.locator('.drive-map-area').boundingBox();await page.touchscreen.tap(box.x+14,box.y+40)}
    await page.waitForFunction(()=>!document.querySelector('#driveMap .log-row.is-map-marked'));await page.waitForTimeout(100);
-   // A narrow map shows its credit until the first touch, then folds it into an ⓘ.
-   assert(await drive.locator('.leaflet-control-attribution').isHidden()&&await drive.locator('.rv-credit-toggle').isVisible(),'the credit folds after a touch');
+   // Every map folds its credit into an ⓘ from the start.
+   assert(await drive.locator('.leaflet-control-attribution').isHidden()&&await drive.locator('.rv-credit-toggle').isVisible(),'the credit is folded');
    await tapLine(driveLines.nth(1),.5);
    await page.waitForFunction(id=>document.querySelector(`#driveMap .log-row[data-id="${id}"]`)?.classList.contains('is-map-marked'),logs[1].id);
    await page.waitForTimeout(100);{const l=await layout();assert(l.rowVisible,JSON.stringify(l))}
@@ -170,6 +170,10 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await drag(400);{const g=await page.evaluate(()=>{const b=document.querySelector('#driveMap .drive-map-body'),h=document.querySelector('#driveMap .drive-map-handle'),row=document.querySelector('#driveMap .drive-map-list>.log-row');return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-valuenow'),text:h.getAttribute('aria-valuetext'),rowOpacity:getComputedStyle(row).opacity,handle:h.getBoundingClientRect().bottom<=innerHeight}});
     assert(g.hidden&&g.now==='0'&&g.text==='숨김'&&g.rowOpacity==='0'&&g.handle,JSON.stringify(g))}
    await shot('drive-hidden');
+   // The ⓘ in the corner is not under the clear sheet: a tap opens the credit, another folds it.
+   {const toggle=drive.locator('.rv-credit-toggle'),credit=drive.locator('.leaflet-control-attribution');
+    assert(await toggle.evaluate(t=>{const b=t.getBoundingClientRect();return t.contains(document.elementFromPoint(b.left+b.width/2,b.top+b.height/2))}),'nothing covers the ⓘ');
+    await toggle.tap();await credit.waitFor();assert.equal(await toggle.getAttribute('aria-expanded'),'true');await toggle.tap();await credit.waitFor({state:'hidden'})}
    await drive.locator('.drive-map-handle').click();await page.waitForTimeout(120);{const l=await layout();assert(Math.abs(l.share-.36)<.02,JSON.stringify(l))}
    await drag(-30);{const l=await layout();assert(Math.abs(l.share-.36)<.02,'a short drag snaps back: '+JSON.stringify(l))}
    // The system back closes it (back in the list, the card's shape focused again).
@@ -186,9 +190,9 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    // Wide screens: the map fills the screen under the header; the list floats over its right side as a glass card
    // (16px in, its own scroll), the zoom buttons and attribution beside it, a marked segment fitted left of it.
    await page.setViewportSize({width:1280,height:800});await cardA.locator('.route-map-button').tap();await driveOpen();
-   {const g=await page.evaluate(()=>{const r=s=>document.querySelector('#driveMap '+s).getBoundingClientRect(),area=r('.drive-map-area'),sheet=r('.drive-map-sheet'),bar=r('.drive-map-bar'),zoom=r('.leaflet-control-zoom'),credit=r('.leaflet-control-attribution');
+   {const g=await page.evaluate(()=>{const r=s=>document.querySelector('#driveMap '+s).getBoundingClientRect(),area=r('.drive-map-area'),sheet=r('.drive-map-sheet'),bar=r('.drive-map-bar'),zoom=r('.leaflet-control-zoom'),credit=r('.rv-credit-toggle');
      return {full:area.left<=1&&area.right>=innerWidth-1&&area.top>=bar.bottom-1&&area.bottom>=innerHeight-1,inset:[innerWidth-sheet.right,sheet.top-bar.bottom,innerHeight-sheet.bottom].map(Math.round),w:Math.round(sheet.width),
-      clear:zoom.right<=sheet.left-8&&Math.abs(credit.right-area.right)<=1&&Math.abs(credit.bottom-area.bottom)<=1,glass:getComputedStyle(document.querySelector('#driveMap .drive-map-list>.log-row')).backdropFilter!=='none'&&getComputedStyle(document.querySelector('#driveMap .drive-map-sheet')).backgroundColor==='rgba(0, 0, 0, 0)',scrolls:getComputedStyle(document.querySelector('#driveMap .drive-map-list')).overflowY}});
+      clear:zoom.right<=sheet.left-8&&area.right-credit.right>=0&&area.right-credit.right<=8&&area.bottom-credit.bottom>=0&&area.bottom-credit.bottom<=8&&sheet.bottom<=credit.top,glass:getComputedStyle(document.querySelector('#driveMap .drive-map-list>.log-row')).backdropFilter!=='none'&&getComputedStyle(document.querySelector('#driveMap .drive-map-sheet')).backgroundColor==='rgba(0, 0, 0, 0)',scrolls:getComputedStyle(document.querySelector('#driveMap .drive-map-list')).overflowY}});
     assert(g.full&&g.inset[0]===16&&g.inset[1]===16&&g.inset[2]>=16&&g.w>=320&&g.w<=400&&g.clear&&g.glass&&g.scrolls==='auto',JSON.stringify(g))}
    await drive.locator(`.log-row[data-id="${logs[3].id}"] .log-meta`).click();await page.waitForTimeout(150);
    {const g=await page.evaluate(()=>{const d=document.getElementById('driveMap'),sheet=d.querySelector('.drive-map-sheet').getBoundingClientRect(),line=[...d.querySelectorAll('.leaflet-overlay-pane path.leaflet-interactive')].find(p=>Number(p.getAttribute('stroke-width'))===7)?.getBoundingClientRect();return {left:!!line&&line.right<=sheet.left+1,line:line&&[line.left,line.right].map(Math.round),sheet:Math.round(sheet.left)}});
@@ -240,6 +244,8 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
      const top=Math.max(map.top,bar.top),bottom=Math.min(map.bottom,bar.bottom);if(bottom<=top)return null;const e=document.elementFromPoint(bar.left+bar.width/2,(top+bottom)/2);return !!e?.closest('.playback')});
     assert(covered!==false,'the playback bar stays above the map')}
    assert(await page.locator('#road').isHidden());assert.equal(await page.locator('#mapFollow').getAttribute('aria-pressed'),'true');
+   // 따라가기 stacks inside the map view (its own stacking context): it never rises over the sticky video above it.
+   assert.equal(await page.locator('#routeMapView').evaluate(v=>getComputedStyle(v).isolation),'isolate');
    const carAt=()=>page.locator('#routeMapView .map-car').evaluate(e=>e.style.transform||e.getAttribute('style'));
    const seek=value=>page.locator('#seek').evaluate((e,value)=>{e.value=String(value);e.dispatchEvent(new Event('input'))},value);
    const start=await carAt();await seek(40);await page.waitForFunction(start=>document.querySelector('#routeMapView .map-car').style.transform!==start,start);
@@ -464,14 +470,15 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await page.locator('#logView').getByRole('button',{name:'지도'}).click();
    const rows=page.locator('#logMapRows .map-list-row'),fold=page.locator('#logMap>.map-fold');
    await page.waitForFunction(n=>document.querySelectorAll('#logMapRows .map-list-row').length===n&&document.querySelectorAll('#logMap .leaflet-overlay-pane path.leaflet-interactive').length===n,drives,{timeout:20000});
-   const card=()=>page.evaluate(()=>{const r=s=>document.querySelector(s).getBoundingClientRect(),map=r('#logMap'),list=r('#logMapList'),button=r('#logMap>.map-fold'),rows=document.getElementById('logMapRows'),zoom=r('#logMap .leaflet-control-zoom'),credit=r('#logMap .leaflet-control-attribution');
+   const card=()=>page.evaluate(()=>{const r=s=>document.querySelector(s).getBoundingClientRect(),map=r('#logMap'),list=r('#logMapList'),button=r('#logMap>.map-fold'),rows=document.getElementById('logMapRows'),zoom=r('#logMap .leaflet-control-zoom'),credit=r('#logMap .rv-credit-toggle');
     return {right:Math.round(map.right-list.right),below:Math.abs(list.top-button.top)<=1,bottom:list.bottom<=map.bottom-15,w:Math.round(list.width),scrolls:rows.scrollHeight>rows.clientHeight+40,button:[map.right-button.right,button.top-map.top].map(Math.round),size:Math.round(button.width),
-     clear:zoom.right<list.left&&Math.abs(credit.right-map.right)<=1&&Math.abs(credit.bottom-map.bottom)<=1,glass:getComputedStyle(document.querySelector('#logMapRows>.map-list-row')).backdropFilter!=='none'&&getComputedStyle(document.getElementById('logMapList')).backgroundColor==='rgba(0, 0, 0, 0)',shown:!!list.width}});
+     clear:zoom.right<list.left&&map.right-credit.right>=0&&map.right-credit.right<=8&&map.bottom-credit.bottom>=0&&map.bottom-credit.bottom<=8&&list.bottom<=credit.top,glass:getComputedStyle(document.querySelector('#logMapRows>.map-list-row')).backdropFilter!=='none'&&getComputedStyle(document.getElementById('logMapList')).backgroundColor==='rgba(0, 0, 0, 0)',shown:!!list.width}});
    {const g=await card();assert(g.shown&&g.right===16&&g.below&&g.bottom&&g.w>=300&&g.w<=380&&g.scrolls&&g.clear&&g.glass&&g.button[0]===16&&g.button[1]===16&&g.size===40,JSON.stringify(g))}
    assert.equal(await fold.getAttribute('aria-expanded'),'true');assert.equal(await fold.getAttribute('aria-label'),'주행 목록 접기');
    assert.equal(await page.locator('#logMapList .log-map-list-count').innerText(),`${drives}개`);
-   // The count label sits on the fold button's line.
-   {const [head,button]=await page.evaluate(()=>['#logMapList .log-map-list-head','#logMap>.map-fold'].map(s=>{const r=document.querySelector(s).getBoundingClientRect();return r.top+r.height/2}));assert(Math.abs(head-button)<=1.5,'label and fold button on one line '+head+' '+button)}
+   // The count label's bottom lines up with the fold button's; the first card starts at least 12px below them.
+   {const [head,button,first]=await page.evaluate(()=>['#logMapList .log-map-list-head','#logMap>.map-fold','#logMapRows>.map-list-row'].map(s=>document.querySelector(s).getBoundingClientRect()));
+    assert(Math.abs(head.bottom-button.bottom)<=1&&first.top-button.bottom>=12,'label on the fold button bottom line, cards below '+JSON.stringify([head.bottom,button.bottom,first.top]))}
    // Each row in its line's colour; a hovered row's line stands out.
    const strong=()=>page.locator('#logMap .leaflet-overlay-pane path.leaflet-interactive').evaluateAll(lines=>lines.map((l,i)=>Number(l.getAttribute('stroke-width'))===6?l.getAttribute('stroke'):null).filter(Boolean));
    await rows.nth(4).hover();await page.waitForTimeout(50);
@@ -489,6 +496,12 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    {const fades=()=>page.evaluate(()=>{const c=document.getElementById('logMapRows'),cards=[...c.children];return {top:c.classList.contains('fade-top'),bottom:c.classList.contains('fade-bottom'),masked:cards.filter(e=>e.style.maskImage).length}});
     await page.evaluate(()=>document.getElementById('logMapRows').scrollTop=0);await page.waitForTimeout(100);
     {const f=await fades();assert(!f.top&&f.bottom&&f.masked>=1,JSON.stringify(f))}
+    // The top fade grows with the distance scrolled (none, half after 7px, full after 14px), and a masked card keeps its
+    // shadow (the mask reaches past it, unclipped).
+    {const widths=[];for(const top of [0,7,40]){widths.push(await page.evaluate(top=>new Promise(done=>{const c=document.getElementById('logMapRows');c.scrollTop=top;requestAnimationFrame(()=>requestAnimationFrame(()=>done(parseFloat(c.style.getPropertyValue('--fade-top'))))) }),top))}
+     assert.deepEqual(widths,[0,14,28],'top fade width follows the scroll distance');
+     const masked=await page.evaluate(()=>{const card=[...document.getElementById('logMapRows').children].find(e=>e.style.maskImage),st=card&&getComputedStyle(card);return st&&[st.maskClip,st.maskRepeat,st.boxShadow!=='none']});
+     assert.deepEqual(masked,['no-clip','no-repeat',true],'the masked card keeps its shadow')}
     await page.evaluate(()=>{const c=document.getElementById('logMapRows');c.scrollTop=c.scrollHeight/2});await page.waitForTimeout(100);
     {const f=await fades();assert(f.top&&f.bottom&&f.masked>=2,JSON.stringify(f))}
     await shot('list-wide-scrolled');
@@ -573,7 +586,10 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
      await button.click();await page.locator('#driveMap .drive-map-list>.log-row .log-meta').first().click();await button.click();await pill.waitFor();assert.match(await pill.locator('.map-card-title').innerText(),/^구간 \d+/);
      assert(await pill.locator('a.map-card-play').count()===1,'재생 in the pill');await shot('drive-wide-folded-pill');
      assert.equal(await pill.locator('.map-card-actions>*').count(),2,'재생 and ✕ only');
-     await pill.locator('.map-card-close').click();await pill.waitFor({state:'hidden'});assert.equal(await page.locator('#driveMap .drive-map-list>.log-row.is-map-marked').count(),0)}
+     await pill.locator('.map-card-close').click();
+     // It sinks out (no instant cut) before it is hidden.
+     if(!await page.evaluate(()=>matchMedia('(prefers-reduced-motion: reduce)').matches))assert.equal(await pill.evaluate(p=>p.classList.contains('is-leaving')&&getComputedStyle(p).animationName),'rv-map-card-out','the pill animates out');
+     await pill.waitFor({state:'hidden'});assert.equal(await page.locator('#driveMap .drive-map-list>.log-row.is-map-marked').count(),0)}
     await shot('drive-wide-folded');await button.click();assert(await page.locator('#driveMap .drive-map-sheet').isVisible())}
    assert.deepEqual(errors,[]);
    await context.close();

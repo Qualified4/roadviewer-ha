@@ -4,6 +4,15 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.3
+
+- The bottom-right ⓘ (map credit) can be tapped again on the phone drive map and the list maps; the credit now starts folded into ⓘ on every map and ⓘ shows it.
+- Right-hand map list: spacing between the list toggle and the cards, the list title aligned to the toggle's bottom edge, a top fade that grows with the scroll distance, card shadows no longer vanish or clip at the sides when the fade starts, and a softer green glow under the selected card.
+- The selected-segment bar under the map also animates out.
+- The replay page's follow button no longer rises above the video.
+- In fullscreen the small map over the video uses the dark map (colour Auto).
+- Storage shows when a move run and the Drive log map fill finished.
+
 ## 1.2.2
 
 - The small map over the video keeps the car centred across and a little below the middle (60% down), showing more road ahead. Fixed the car marker drawn a few pixels off the route line on the small map, and the small map turning white while pressed in light mode.

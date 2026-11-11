@@ -211,6 +211,7 @@ class TrackBackfill:
   self.waiting=None  # 'busy' while it waits for uploads, conversions, playback or an archive run.
   self.counts=None  # {'total','done','failed'} of the Drive-only logs, from the worker's latest scan.
   self.last_error=None;self.retry_at=0.0;self.backoff=0
+  self.finished_at=None  # Wall-clock time the last Drive pass (by hand or by the setting) ended; not kept over a restart.
  def start(self,delay=None):
   for stale in Path(self.s.ROOT).glob(self.TEMP_PREFIX+'*'):shutil.rmtree(stale,ignore_errors=True)  # Left by a restart mid-read.
   self.thread=threading.Thread(target=self._loop,args=(self.START_DELAY if delay is None else delay,),name='track-backfill',daemon=True);self.thread.start()
@@ -248,7 +249,9 @@ class TrackBackfill:
    self.manual=False;self.halt=self.active
   return was
  def end_pass(self):
-  with self.lock:self.manual=self.halt=False
+  with self.lock:
+   if self.manual or self.active:self.finished_at=time.time()
+   self.manual=self.halt=False
   self.active=False;self.waiting=None
  def status(self):
   # The counts come from the worker's scans; only before its first one (or without the worker) are they made here, once.
@@ -260,7 +263,7 @@ class TrackBackfill:
   return dict(enabled=self.enabled(),manual=self.manual,running=self.active,stopping=self.halt and self.active,waiting=self.waiting,
               total=total,done=c['done'] if c else None,failed=c['failed'] if c else None,
               pending=max(0,total-c['done']-c['failed']) if c else None,last_error=self.last_error,
-              retry_in=round(retry) if retry>0 else None)
+              retry_in=round(retry) if retry>0 else None,finished_at=self.finished_at)
  # --- Which logs.
  @staticmethod
  def needs(p,m):

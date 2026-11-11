@@ -19,7 +19,7 @@ GDRIVE_KEYS = SMB_KEYS | {'backend', 'mode', 'effective_mode', 'local_delete_all
                           'remote_copies_bytes', 'archive_errors', 'gdrive',
                           'usage_known', 'usage_measuring', 'track_fill'}
 GDRIVE_BLOCK_KEYS = {'configured', 'connected', 'folder_ok', 'pending', 'last_auth_error'}
-TRACK_FILL_KEYS = {'enabled', 'manual', 'running', 'stopping', 'waiting', 'total', 'done', 'failed', 'pending', 'last_error', 'retry_in'}
+TRACK_FILL_KEYS = {'enabled', 'manual', 'running', 'stopping', 'waiting', 'total', 'done', 'failed', 'pending', 'last_error', 'retry_in', 'finished_at'}
 
 class GdriveSettingsTests(unittest.TestCase):
     def setUp(self):
