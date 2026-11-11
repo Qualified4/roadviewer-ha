@@ -194,6 +194,9 @@ const {showTab}=require('./browser-helpers.cjs');
    const near=(a,b)=>a&&Math.abs(a[0]-b[0])<3&&Math.abs(a[1]-b[1])<3;
    if(wasOpen){await card.locator('.log-route-chevron').click();await card.evaluate(e=>e.classList.contains('is-folding')?new Promise(done=>{const o=new MutationObserver(()=>{if(!e.classList.contains('is-folding')){o.disconnect();done()}});o.observe(e,{attributes:true,attributeFilter:['class']})}):null)}
    await card.locator('.log-route-chevron').click();
+   // The folding card keeps its content-visibility (lifting and restoring it flashed it blank on Android) and its clip
+   // reaches past it far enough for the drawn outline and shadow.
+   assert.deepEqual(await card.evaluate(e=>{const c=getComputedStyle(e);return [e.classList.contains('is-folding'),c.contentVisibility,c.overflowClipMargin]}),[true,'auto','48px'],'the fold keeps content-visibility');
    {const s=await shade();assert(near(s.strip,[head,head+stripFull]),'opening: the drawn outline grows from the header to the whole card '+JSON.stringify(s.strip));delete s.strip;assert.deepEqual(s,{corners:[16,0],behind:'auto',folding:true,z:'1',opaque:true,divider:true,after:[1,0],same:true},'opening: header on top, shades fade out')}
    await card.evaluate(e=>e.classList.contains('is-folding')?new Promise(done=>{const o=new MutationObserver(()=>{if(!e.classList.contains('is-folding')){o.disconnect();done()}});o.observe(e,{attributes:true,attributeFilter:['class']})}):null);
    await card.locator('.log-route-chevron').click();

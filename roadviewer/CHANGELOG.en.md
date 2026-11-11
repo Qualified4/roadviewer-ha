@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.9
+
+- On phones the 지도 view's map fills down to just above the tab bar (it was short on tall devices such as a Fold, under the Home Assistant header, the search and the filters).
+- In the light theme the selected card's bottom light spreads wide and low from the bottom edge like the dark theme's instead of gathering in the middle.
+- In the Android app a drive card in the log list no longer flashes blank (the whole card or its thumbnail) for a frame as a card unfolds or folds (the folding card keeps its rendering optimisation).
+
 ## 1.2.8
 
 - On phones the 지도 view shows the drive list as a bottom sheet like the drive map's: a tap on its handle hides it or brings the middle height, a drag settles on one of three heights, and only a tap on a card fits the map to that drive; with the sheet hidden the selected drive's card shows above the handle.

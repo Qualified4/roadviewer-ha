@@ -245,6 +245,9 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     const drag=async dy=>{const box=await handle.boundingBox(),x=box.x+box.width/2,y=box.y+box.height/2;await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x,y+dy/2,{steps:4});await page.mouse.move(x,y+dy,{steps:4});await page.mouse.up();await page.waitForTimeout(120)};
     const creditFree=()=>page.locator('#logMap .rv-credit-toggle').evaluate(t=>{const b=t.getBoundingClientRect();return t.contains(document.elementFromPoint(b.left+b.width/2,b.top+b.height/2))});
     assert.equal((await handle.innerText()).trim(),'주행 목록 2개');assert(await handle.isVisible()&&await page.locator('#logMapList .log-map-list-head').isHidden());
+    // The phone map reaches down to just above the bottom tab bar (whatever sits above it), with the page at the top.
+    {const g=await page.evaluate(()=>{const m=document.getElementById('logMap').getBoundingClientRect(),t=document.querySelector('.lib-tabs').getBoundingClientRect();return {gap:Math.round(t.top-(m.top+window.scrollY+m.height)),h:Math.round(m.height)}});
+     assert(g.gap>=8&&g.gap<=16,'the phone map ends just above the tab bar '+JSON.stringify(g))}
     assert.equal(await handle.getAttribute('role'),'slider');assert.equal(await page.locator('#logMap [autofocus]').count(),0);
     assert.equal(await rows.count(),2);assert(await rows.first().evaluate(r=>getComputedStyle(r).backdropFilter!=='none'),'glass cards');
     assert.equal(await page.locator('#logMapRows .map-list-pick[data-no-ripple]').count(),2,'a press scales the whole card instead of rippling in its title part');
