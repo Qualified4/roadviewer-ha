@@ -65,6 +65,9 @@
  function createMap(L,container,{zoom=true,interactive=true,attribution=ATTRIBUTION,tone=null,labels=null,grey=null,margin=null}={}){
   const map=L.map(container,{zoomControl:false,attributionControl:true,dragging:interactive,touchZoom:interactive,scrollWheelZoom:interactive,doubleClickZoom:interactive,boxZoom:interactive,keyboard:interactive,tap:interactive,zoomSnap:.25,maxZoom:19,fadeAnimation:!reduced(),zoomAnimation:!reduced(),markerZoomAnimation:!reduced(),...(margin?{renderer:L.svg({padding:margin})}:{})});
   map.rvMargin=margin||0;map.rvMarginMax=margin||0;
+  // Leaflet listens on the window and MapLibre keeps a WebGL context and workers: a map left standing when its page
+  // goes kept the whole page alive.
+  if(typeof onPageDispose==='function')onPageDispose(()=>map.remove());  // not there on a page loaded by itself
   // margin is the most asked for: each side gets as much of it as keeps the drawn canvas within GL_SIDE device pixels on
   // its longer side (MapLibre and phone GPUs stop at 4096; beyond, the map blurs or is cut), never under the default 0.1.
   // A phone's 지도 tab gets the full 0.5; a tablet's or a desktop's large map, or the small map enlarged on a big
@@ -902,10 +905,25 @@
   new ResizeObserver(()=>{measureSmall();if(mini.classList.contains('is-large'))measureLarge()}).observe(stage);
   function setLarge(large,instant=false){
    if(large)measureLarge();
+   const moving=!(instant||reduced());if(moving)holdCanvas(large);else releaseCanvas();
    mini.classList.toggle('is-large',large);stage.classList.toggle('video-map-large',large);mini.setAttribute('aria-pressed',String(large));mini.setAttribute('aria-label',large?'작은 지도 · 눌러서 작게 보기':'작은 지도 · 눌러서 크게 보기');
    clearTimeout(resizing);
-   resizing=setTimeout(()=>{resizing=0;fitSmall()},instant||reduced()?0:280);
+   resizing=setTimeout(()=>{resizing=0;releaseCanvas();fitSmall()},moving?280:0);
   }
+  // While the map changes size (.26 s), its Leaflet container keeps one size, centred in the moving frame and showing
+  // past its own edges: the larger of the two sizes, so the frame is covered throughout. Growing, the map is drawn
+  // once at the large size as the motion starts (held at the small size, the frame outgrew what was drawn and its
+  // sides stayed empty until the end); shrinking, once at the small size when the motion ends. Following the frame instead, the container changed size every
+  // frame and MapLibre redrew the whole canvas each time (up to 4000 px wide on a Fold's inner screen: three redraws of
+  // 55-140 ms inside the animation, 11-27 frames in 0.4 s; held, 26-44 frames and nothing over 56 ms, on the device).
+  const HELD=['inset','left','top','width','height','transform','overflow'];
+  function holdCanvas(growing){
+   const box=mini.querySelector('.video-map-canvas');if(!small||mini.hidden||!box||box.style.width)return;  // a reversal keeps the first hold
+   const wide=parseFloat(mini.style.getPropertyValue('--vmap-large-w')),tall=parseFloat(mini.style.getPropertyValue('--vmap-large-h')),grow=growing&&wide>0&&tall>0;
+   Object.assign(box.style,{inset:'auto',left:'50%',top:'50%',width:(grow?wide:mini.clientWidth)+'px',height:(grow?tall:mini.clientHeight)+'px',transform:'translate(-50%,-50%)',overflow:'visible'});
+   if(grow)small.map.invalidateSize({animate:false});
+  }
+  function releaseCanvas(){const box=mini.querySelector('.video-map-canvas');if(box)for(const key of HELD)box.style.removeProperty(key)}
   // The bottom-left corner resizes the small map (mouse or touch), anchored at its top-right, 4:3: from its least
   // width up to the picture's width or the room above the bottom row. Kept in this browser as a share of the picture's
   // width; a double tap on the corner goes back to the default size. Dragging never toggles 크게 보기.

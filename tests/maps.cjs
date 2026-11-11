@@ -611,6 +611,19 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     await page.waitForTimeout(250);await small('fullscreen');await page.evaluate(()=>document.exitFullscreen());await page.waitForFunction(()=>!document.fullscreenElement);
    }else console.log('maps: fullscreen unavailable here, skipped');
    await page.setViewportSize({width:390,height:844});await settleLayout(page);
+   // With motion on, the map is not redrawn while it changes size: its container keeps the larger of the two sizes,
+   // centred in the moving frame (so the frame is always covered), and follows the frame again once the motion has ended
+   // (a redraw per frame made the animation stutter).
+   {await page.emulateMedia({reducedMotion:'no-preference'});
+    const state=()=>page.evaluate(()=>{const m=document.getElementById('videoMap'),box=m.querySelector('.video-map-canvas'),a=m.getBoundingClientRect(),b=box.getBoundingClientRect();
+     return {held:!!box.style.width,box:[Math.round(b.width),Math.round(b.height)],frame:[Math.round(a.width),Math.round(a.height)],centred:Math.abs((a.left+a.right)-(b.left+b.right))<2&&Math.abs((a.top+a.bottom)-(b.top+b.bottom))<2,large:m.classList.contains('is-large')}});
+    for(const large of [true,false]){
+     const before=await state();assert(!before.held&&before.large!==large&&before.box.join()===before.frame.join(),'at rest the map fills its frame '+JSON.stringify(before));
+     await page.evaluate(()=>document.getElementById('videoMap').click());await page.waitForTimeout(120);
+     const during=await state();assert(during.held&&during.centred&&during.frame.join()!==before.frame.join()&&during.box[0]>=during.frame[0]&&during.box[1]>=during.frame[1]&&(large||during.box.join()===before.box.join()),'held, centred and covering the moving frame '+JSON.stringify({before,during}));
+     await page.waitForTimeout(600);
+     const after=await state();assert(!after.held&&after.large===large&&after.box.join()===after.frame.join()&&after.frame.join()!==before.frame.join()&&(!large||Math.abs(during.box[0]-after.frame[0])<2&&Math.abs(during.box[1]-after.frame[1])<2),'released at the new size (growing: the size it was held at) '+JSON.stringify({during,after}))}
+    await page.emulateMedia({reducedMotion:'reduce'});await settleLayout(page)}
    // A phone held upright turns the fullscreen picture a quarter (CSS): the small map is still there, measured in the
    // picture's own frame (it was hidden: its room, taken from sideways screen rectangles, came out negative).
    await page.evaluate(()=>{try{Object.defineProperty(screen.orientation,'lock',{configurable:true,value:()=>Promise.reject(new DOMException('refused','NotSupportedError'))})}catch{}document.getElementById("fullscreenButton").click()});
@@ -825,6 +838,27 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    assert.deepEqual(errors,[]);
    await context.close();
   }
+  // Opening one segment after another does not keep the pages left behind: nodes, listeners and heap stay level (a
+  // listener left on the window or on the connection object, or a map never removed, kept every page and its log:
+  // 1,500 nodes more with each one). The measured page is never touched by evaluate or a selector wait (the debugger's
+  // own handles keep a page alive): the buttons' places come from a second page, and only taps and counters follow.
+  {const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true,colorScheme:'dark',reducedMotion:'reduce'});
+   await context.route(OFM+'**',route=>{const url=route.request().url(),style=url===SIMPLE_LIGHT?['light']:Object.entries(STYLE_OF).find(([,u])=>url===u);
+    if(style)return route.fulfill({body:JSON.stringify(fixtureStyle(style[0])),contentType:'application/json'});
+    if(url===OFM+'planet')return route.fulfill({body:JSON.stringify({tilejson:'3.0.0',tiles:[OFM+'planet/fixture/{z}/{x}/{y}.pbf'],minzoom:0,maxzoom:14}),contentType:'application/json'});
+    return route.fulfill({body:Buffer.alloc(0),contentType:'application/x-protobuf'})});
+   await context.route(`**/api/logs/${withVideo}/video**`,route=>route.fulfill({body:video,contentType:'video/mp4'}));
+   const start=base+'view/'+logs[3].id+'/',probe=await context.newPage();await probe.goto(start);await probe.waitForSelector('#nextLog');await probe.waitForTimeout(1200);
+   const at=await probe.evaluate(()=>Object.fromEntries(['nextLog','previousLog'].map(id=>{const r=document.getElementById(id).getBoundingClientRect();return [id,[r.left+r.width/2,r.top+r.height/2]]})));await probe.close();
+   const page=await context.newPage();await page.goto(start);await page.waitForTimeout(2500);
+   const cdp=await context.newCDPSession(page);await cdp.send('Performance.enable');await cdp.send('HeapProfiler.enable');
+   const count=async()=>{for(let i=0;i<3;i++){await cdp.send('HeapProfiler.collectGarbage');await new Promise(r=>setTimeout(r,250))}
+    const m=Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(x=>[x.name,x.value]));return {nodes:m.Nodes,listeners:m.JSEventListeners,url:page.url().slice(-9,-1)}};
+   const tap=async id=>{const [x,y]=at[id];await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await new Promise(r=>setTimeout(r,1300))};
+   const before=await count();for(const id of ['previousLog','previousLog','nextLog','nextLog','nextLog','previousLog'])await tap(id);const after=await count();
+   assert.equal(before.url,logs[3].id.slice(-8));assert.equal(after.url,logs[3].id.slice(-8),'the taps opened other segments and came back '+JSON.stringify(after));
+   assert(after.nodes<=before.nodes*1.2&&after.listeners<=before.listeners*1.2,'pages left behind are freed '+JSON.stringify({before,after}));
+   await context.close()}
   console.log('maps ok');
  }finally{await browser?.close();python.kill();fs.rmSync(dir,{recursive:true,force:true})}
 })().catch(error=>{console.error(error);process.exit(1)});

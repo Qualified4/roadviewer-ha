@@ -802,7 +802,11 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .log-map-rows{flex:0 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid color-mix(in srgb,var(--text) 10%,transparent)}
 .log-map-list-head{flex:none;display:flex;align-items:baseline;gap:8px;padding:12px 16px;font-size:13px;font-weight:600}
 .log-map-list-count{color:var(--muted);font-weight:500;font-variant-numeric:tabular-nums}
-.map-list-row{border-top:1px solid color-mix(in srgb,var(--text) 8%,transparent);content-visibility:auto;contain-intrinsic-size:auto 60px}
+/* A fixed placeholder height, not "auto 60px": auto remembers the row's last drawn height, and a selected row (166px with
+   its buttons) that lost the selection in the same frame it was pushed off screen (the row picked above it grew) was
+   never drawn again at 60px. It kept 166px of empty space, one more with every pick, and the rows below slid away.
+   58px plus the row's border and spacing is the 60px of a drawn row. */
+.map-list-row{border-top:1px solid color-mix(in srgb,var(--text) 8%,transparent);content-visibility:auto;contain-intrinsic-size:58px}
 .map-list-row:first-child{border-top:0}
 .map-list-pick{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:2px 10px;width:100%;min-height:44px;margin:0;padding:10px 16px;border:0;border-radius:0;background:transparent;box-shadow:none;color:var(--text);font:inherit;text-align:left;text-shadow:none}
 .map-list-pick::before{content:"";grid-row:1;width:10px;height:10px;border-radius:50%;background:var(--tag-color,var(--accent));box-shadow:0 0 0 2px color-mix(in srgb,var(--tag-color,var(--accent)) 28%,transparent)}
