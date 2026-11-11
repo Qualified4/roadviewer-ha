@@ -31,6 +31,8 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
  for(const dir of [onDir,offDir])fs.writeFileSync(path.join(dir,'.processing-settings.json'),JSON.stringify({auto_convert:false}));
  // A local copy of the storage id but no sentinel on the share: the archive must read as unreachable, never be re-claimed.
  fs.writeFileSync(path.join(onDir,'.archive.json'),JSON.stringify({storage_id:'c'.repeat(32)}));
+ // A pinned recording is archived like the others: the manual plan counts it and names no pinned exclusion.
+ fs.writeFileSync(path.join(onDir,'.storage-settings.json'),JSON.stringify({max_bytes:0,policy:'reject_new',pinned_logs:[ids[1]]}));
  recording(onDir,ids[0],0,{storage:{'fcamera.mp4':{location:'nas',bytes:9}}});recording(onDir,ids[1],1);
  // Mixed (front available locally, low-res removed by NAS cleanup) and all removed.
  recording(onDir,ids[2],2,{video:true,storage:{'camera.mp4':{location:'removed',removed_at:1,reason:'nas_full'}}});
@@ -62,6 +64,7 @@ async function stop(server){if(server?.python.exitCode===null){server.python.kil
   assert.equal(plan['처리할 파일'],'5개');assert.equal(plan['주행 구간'],'4개');assert.equal(plan['로컬 원본 삭제'],'검증 후 삭제');assert(plan['예상 로컬 확보 용량']);
   assert.match(await page.locator('#archiveAllDelete').textContent(),/이 기기에서 삭제됩니다/);
   assert.equal(await page.locator('#archiveAllConfirm').textContent(),'5개 파일 이동');
+  assert.doesNotMatch(await page.locator('#archiveAllExcluded').textContent(),/고정/);
   await page.locator('#archiveAllCancel').click();await dialog.waitFor({state:'hidden'});
   assert.deepEqual(runs,[['GET','1',200]]);
   // Confirmed: the run starts, and the unreachable share stops it safely with the files kept.

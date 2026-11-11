@@ -85,10 +85,20 @@ class DriveCapacityTests(unittest.TestCase):
         p=self.log();self.shortage();self.backend.failure='unavailable'
         self.assertEqual(self.begin().status_code,201);self.wait();self.assert_intact(p)
         self.backend.state='unavailable';self.assertEqual(self.begin().status_code,201);self.wait();self.assert_intact(p)
-    def test_pin_and_minimum_age_are_not_bypassed_by_soft_limit(self):
-        p=self.log();self.policy['pinned_logs']=[p.name];self.shortage()
-        self.assertEqual(self.begin().status_code,201);self.wait();self.assert_intact(p);self.assertEqual(self.backend.uploads,[])
-        self.policy['pinned_logs']=[];m=server.read_meta(p);m['uploaded']=time.time();server.save_meta(p,m)
+    def test_soft_limit_moves_pinned_logs_last(self):
+        # 'a' is first by upload order but pinned: the unpinned 'b' goes first, 'a' only while space is still short.
+        a=self.log('a');b=self.log('b',route='00000002--bbbbbbbbbb');self.policy['pinned_logs']=[a.name];self.shortage()
+        self.assertEqual(self.begin().status_code,201);self.wait()
+        self.assertEqual(self.backend.uploads,[(b.name,'fcamera.mp4')]);self.assert_intact(a)
+        self.shortage(2*SIZE+200000)
+        self.assertEqual(self.begin().status_code,201);self.wait()
+        uploads=self.backend.uploads;self.assertEqual(uploads[:3],[(b.name,'fcamera.mp4'),(b.name,'rlog.zst'),(a.name,'fcamera.mp4')])
+        self.assertTrue(all(id==a.name for id,_ in uploads[2:]))
+        m=server.read_meta(a);self.assertEqual(media_store.location(m,'fcamera.mp4'),'gdrive');self.assertFalse((a/'fcamera.mp4').exists())
+        self.assertTrue(server.storage_policy.pinned(m));self.assertEqual(self.backend.deleted,[])
+    def test_minimum_age_is_not_bypassed_by_soft_limit(self):
+        p=self.log();self.shortage()
+        m=server.read_meta(p);m['uploaded']=time.time();server.save_meta(p,m)
         object.__setattr__(self.settings,'min_age_seconds',3600)
         self.assertEqual(self.begin().status_code,201);self.wait();self.assert_intact(p);self.assertEqual(self.backend.uploads,[])
     def test_quota_is_soft_even_when_smaller_than_upload_or_archive_is_disabled(self):
@@ -152,10 +162,24 @@ class DriveCapacityTests(unittest.TestCase):
         with patch('storage_policy.shutil.disk_usage',return_value=SimpleNamespace(free=MARGIN)):
             self.assertEqual(self.begin().status_code,507);self.wait()
         self.assert_intact(p)
-    def test_pin_during_transfer_keeps_local_file(self):
+    def test_pin_during_transfer_still_moves(self):
         p=self.log();self.shortage();self.backend.release=threading.Event();self.assertEqual(self.begin().status_code,201);self.assertTrue(self.backend.started.wait(2))
         with server.lock:self.policy['pinned_logs']=[p.name]
-        self.backend.release.set();self.wait();self.assert_intact(p)
+        self.backend.release.set();self.wait()
+        m=server.read_meta(p);self.assertEqual(media_store.location(m,'fcamera.mp4'),'gdrive');self.assertFalse((p/'fcamera.mp4').exists())
+        self.assertTrue(server.storage_policy.pinned(m));self.assertEqual(self.backend.deleted,[])
+    def test_local_quota_auto_delete_still_keeps_pinned(self):
+        # Drive COPY: the local quota deletes the oldest unpinned recording, never a pinned one.
+        object.__setattr__(self.settings,'mode','copy')
+        a=self.log('a');b=self.log('b',route='00000002--bbbbbbbbbb');self.policy['pinned_logs']=[a.name];self.policy['max_bytes']=server.storage_used_bytes()
+        files=[{'name':'00000009--bbbbbbbbbb--0--rlog.zst','size':4096}]
+        with server.registration_lock,server.lock:server.storage_policy.admit(4096,files,commit=True,staging=False)
+        self.assertTrue((a/'meta.json').exists());self.assertTrue((a/'fcamera.mp4').exists());self.assertFalse(b.exists())
+        # With only the pinned one left nothing is deleted: the upload is refused instead.
+        self.policy['max_bytes']=server.storage_used_bytes()
+        with server.registration_lock,server.lock,self.assertRaises(server.StorageError):
+            server.storage_policy.admit(4096,files,commit=True,staging=False)
+        self.assert_intact(a)
     def test_metadata_commit_failure_never_unlinks_local_file(self):
         p=self.log();self.shortage();original=media_store.atomic_json
         def save(path,value):

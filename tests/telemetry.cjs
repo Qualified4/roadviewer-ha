@@ -83,7 +83,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    try{renderTelemetry()}finally{delete performance.now}
   });
   const displayedRange=async()=>(await page.locator('#graphTime').textContent()).split(' · ')[1];
-  const centered=async()=>assert(await canvas.evaluate(c=>Math.abs(parseFloat(c.parentElement.querySelector('.telemetry-cursor').style.left)-(48+(c.getBoundingClientRect().width-56)/2))<2),'zoomed playhead should be centered');
+  const centered=async()=>assert(await canvas.evaluate(c=>Math.abs(c.parentElement.querySelector('.telemetry-cursor').getBoundingClientRect().left-c.parentElement.getBoundingClientRect().left-(48+(c.getBoundingClientRect().width-56)/2))<2),'zoomed playhead should be centered');
   await page.evaluate(()=>setTime(.7));assert.equal(await displayedRange(),'0.2–1.2s');await centered();
   await page.evaluate(()=>toggle());await page.waitForFunction(()=>t>.85);await page.evaluate(()=>pause());await centered();assert.notEqual(await displayedRange(),'0.2–1.2s','range should follow during playback before the playhead reaches an edge');
   for(const play of [false,true]){

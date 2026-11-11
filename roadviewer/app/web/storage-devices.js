@@ -255,7 +255,6 @@ function showArchivePlan(plan){
  $('archiveAllDelete').className=move?'archive-mode archive-warning':'archive-mode';
  const ex=plan.excluded||{},age=Number(plan.min_age_hours)||0,ageText=age%24===0?`${age/24}일`:`${age}시간`,notes=[];
  if(ex.min_age)notes.push(`최소 보관 기간(${ageText})이 지나지 않은 ${ex.min_age}개 구간은 제외합니다.`);
- if(ex.pinned)notes.push(`고정된 ${ex.pinned}개 구간은 이동하지 않고 로컬에 유지합니다.`);
  if(ex.not_ready)notes.push(`변환 전이거나 처리 중인 ${ex.not_ready}개 구간은 제외합니다.`);
  $('archiveAllExcluded').replaceChildren(...notes.map(text=>Object.assign(document.createElement('li'),{textContent:text})));
  $('archiveAllConfirm').textContent=`${plan.files}개 파일 ${verb}`;
@@ -429,7 +428,7 @@ function renderStoragePreview(){
  if(soft){
   const trigger=Math.min(...[threshold,limit].filter(value=>value>0));
   if(Number.isFinite(trigger))detail+=`새 업로드 시에는 ${storageSize(trigger)}부터 MOVE를 요청합니다. `;
-  detail+='고정·사용 중·최소 보관 기간·배치 제한을 유지하며, Drive 장애 시에도 원본을 보존합니다. 디스크 안전 여유가 있으면 로컬 한도를 초과한 업로드도 허용합니다.';
+  detail+='사용 중·최소 보관 기간·배치 제한을 유지하고 고정 구간은 마지막에 옮기며, Drive 장애 시에도 원본을 보존합니다. 디스크 안전 여유가 있으면 로컬 한도를 초과한 업로드도 허용합니다.';
  }else detail+=local.policy==='delete_oldest'?'로컬 한도 초과 시 오래된 미고정 로컬 기록을 정리합니다. Drive 파일이 연결된 기록은 삭제하지 않습니다.':'로컬 한도 초과 시 새 업로드를 거부하고 기존 기록을 유지합니다.';
  $('storageBehaviorDetail').textContent=detail;
  $('storagePreviewState').textContent=editorDirty()?'미저장 설정 미리보기 · 저장 후 적용':'저장된 설정';

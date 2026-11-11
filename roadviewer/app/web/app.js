@@ -2,6 +2,11 @@
 const $=id=>document.getElementById(id),v=$('video'),canvas=$('road'),ctx=canvas.getContext('2d');
 let data=null,t=0,idx=0,playing=false,last=0,loading=true,videoReadyPending=false;
 const checked=id=>$(id).checked;
+// The analysis panel's work (the 주행 상황 drawing and tables, the vehicle graphs) is skipped while the panel is off
+// screen, and done again as soon as it comes back.
+let analysisOnScreen=true;
+new IntersectionObserver(entries=>{const on=entries.at(-1).isIntersecting;if(on===analysisOnScreen)return;analysisOnScreen=on;if(on&&typeof render==='function')render()}).observe(document.querySelector('.road-panel'));
+const roadShown=()=>analysisOnScreen&&!$('roadView').hidden;
 // Show the selected log name while replay data is loading.
 try{
  const from=JSON.parse(sessionStorage.getItem('rv-route')||'null');sessionStorage.removeItem('rv-route');
@@ -23,7 +28,7 @@ function morphPlayIcon(on){
  playIconFrame=requestAnimationFrame(step);
 }
 function playLabel(on){const button=$('play'),was=button.dataset.playing==='true';button.querySelector('.play-label').textContent=on?'일시정지':'재생';button.dataset.playing=String(on);if(was!==on)morphPlayIcon(on)}
-function pause(){playing=false;pauseVideo();playLabel(false)}
+function pause(){playing=false;pauseVideo();playLabel(false);renderTime()}
 let videoPlayPending=false,videoPauseRevision=0,videoSource=null,resumeAfterVideo=false;
 const failedVideos=new Set();
 let pendingVideoSeek=null,seekPointer=null,seekReleased=false;
@@ -68,8 +73,9 @@ function missingModelMessage(){
 }
 function syncVideo(seek=false){
  const visible=videoAvailable(),wasHidden=v.hidden,hold=finalVideoFrame();
- v.hidden=!visible;$('noVideo').hidden=visible;
- $('noVideo').textContent=!data?.video?'이 로그에 동기화 가능한 영상이 없습니다.':t<data.video.start?'아직 영상이 시작되지 않은 구간입니다.':playing?'영상이 종료되었습니다. 로그 재생을 계속합니다.':'영상이 종료된 구간입니다.';
+ // Called every frame while playing: only changes are written.
+ const note=$('noVideo'),text=!data?.video?'이 로그에 동기화 가능한 영상이 없습니다.':t<data.video.start?'아직 영상이 시작되지 않은 구간입니다.':playing?'영상이 종료되었습니다. 로그 재생을 계속합니다.':'영상이 종료된 구간입니다.';
+ if(wasHidden===visible)v.hidden=!visible;if(note.hidden!==visible)note.hidden=visible;if(note.textContent!==text)note.textContent=text;
  if(!visible){pendingVideoSeek=null;pauseVideo();return}
  const duration=Number.isFinite(v.duration)?v.duration:data.video.duration;
  const target=Math.max(0,Math.min(hold?duration:t-data.video.start,duration-.001));
@@ -112,9 +118,24 @@ try{const ar=Number(localStorage.getItem('roadviewer-video-ar'));if(ar>.5&&ar<4)
 v.addEventListener('loadedmetadata',()=>{if(!v.videoWidth||!v.videoHeight)return;const ar=String(+(v.videoWidth/v.videoHeight).toFixed(4));document.body.style.setProperty('--video-ar',ar);try{localStorage.setItem('roadviewer-video-ar',ar)}catch{}});
 // The time readout is a toggle that swaps current time (default) for the total length in the same reserved width; the label carries both.
 let timeTotal=false;try{timeTotal=localStorage.getItem('roadviewer-time-total')==='1'}catch{}
-function renderTime(){const el=$('time'),full=`${clock(t)} / ${clock(data?.duration||0)}`,label=full+' · 눌러서 전체 길이 표시/숨기기';el.children[0].textContent=clock(t);el.children[1].textContent=clock(data?.duration||0);el.title=label;el.setAttribute('aria-label',label);el.setAttribute('aria-pressed',String(timeTotal))}
+// Playback calls it every frame: the texts are written when they change at the precision shown, the label (title,
+// aria-label) at most once a second while playing (lazy) and right away otherwise.
+let timeLabelAt=-Infinity;
+function renderTime(lazy=false){
+ const el=$('time'),now=clock(t),total=clock(data?.duration||0),pressed=String(timeTotal),at=performance.now();
+ if(el.children[0].textContent!==now)el.children[0].textContent=now;if(el.children[1].textContent!==total)el.children[1].textContent=total;
+ if(el.getAttribute('aria-pressed')!==pressed)el.setAttribute('aria-pressed',pressed);
+ if(lazy&&at-timeLabelAt<1000)return;timeLabelAt=at;
+ const label=`${now} / ${total} · 눌러서 전체 길이 표시/숨기기`;if(el.getAttribute('aria-label')!==label){el.title=label;el.setAttribute('aria-label',label)}
+}
 $('time').onclick=()=>{timeTotal=!timeTotal;try{timeTotal?localStorage.setItem('roadviewer-time-total','1'):localStorage.removeItem('roadviewer-time-total')}catch{}renderTime()};renderTime();
-function setTime(time,seekVideo=true,lazy=false){if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);$('seek').value=t;$('seekPlayed').style.width=`${data.duration>0?t/data.duration*100:0}%`;renderTime();if(t>=data.duration&&seekPointer===null&&playing)pause();syncVideo(seekVideo);render(lazy);window.renderBookmarks?.()}
+let playedWidth='';
+function setTime(time,seekVideo=true,lazy=false){
+ if(!data)return;t=Math.max(0,Math.min(time,data.duration));idx=nearest(t);
+ const seek=$('seek'),width=`${data.duration>0?(t/data.duration*100).toFixed(3):0}%`;
+ if(Math.abs(seek.valueAsNumber-t)>=5e-4)seek.value=t;if(width!==playedWidth){playedWidth=width;$('seekPlayed').style.width=width}
+ renderTime(lazy);if(t>=data.duration&&seekPointer===null&&playing)pause();syncVideo(seekVideo);render(lazy);window.renderBookmarks?.();
+}
 function step(n){if(loading)return;pause();if(data)setTime(data.frames[Math.max(0,Math.min(data.frames.length-1,idx+n))].t)}
 function toggle(){if(!data||loading)return;if(playing){pause();return}if(t>=data.duration-.05)setTime(0);playing=true;last=performance.now();playLabel(true);syncVideo(true)}
 function tick(now){
@@ -698,9 +719,10 @@ function paintBlindspotWall(ctx,bottom,top,amount,time,glow=false){
 
 let modelPathWidth=1.86;
 try{const saved=localStorage.getItem('roadviewer-path-width');if(saved!==null&&Number.isFinite(Number(saved)))modelPathWidth=Math.max(1,Math.min(3,Number(saved)))}catch{}
-let renderedFrame='';
+let renderedFrame='',telemetryAt=-Infinity;
 function render(lazy){
- window.renderTelemetry?.();
+ // Playback (lazy) updates the vehicle graphs at most 30 times a second, whatever the display rate.
+ {const at=performance.now();if(lazy!==true||at-telemetryAt>=1000/30-1){telemetryAt=at;window.renderTelemetry?.()}}
  // Playback ticks at the display rate (60 Hz+) but model frames change at 20 Hz: redraw only on a new frame.
  const frameKey=data?`${idx}|${frameAvailable(data.frames[idx])}|${v.hidden}`:'';
  if(lazy===true&&frameKey===renderedFrame){window.renderVideoOverlayMotion?.();return;}
@@ -710,7 +732,7 @@ function render(lazy){
  window.renderVideoOverlay?.(f,frameAvailable(f));
  const rawVisible=frameAvailable(f)&&f.liveTracksValid;
  const rawTargets=rawVisible?(f.liveTracks||[]).filter(target=>!checked('hideScc')||String(target.source).toLowerCase()!=='scc'):[];
- if(document.fullscreenElement!==v.closest('.camera-panel')){
+ if(document.fullscreenElement!==v.closest('.camera-panel')&&roadShown()){
  const w=canvas.clientWidth,h=canvas.clientHeight,dpr=devicePixelRatio||1;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);
  const range=Number($('range').value),rear=checked('rearView')?({25:5,50:10,80:20}[range]||0):0,bottom=h-48,scale=(h-78)/(range+rear),lateral=Number($('lateralRange').value),manualLateral=Number.isFinite(lateral)&&lateral>0,cx=manualLateral?(38+w-12)/2:w/2,cy=bottom-rear*scale;
  const lateralScale=manualLateral?(w-50)/(2*lateral):scale;
@@ -866,6 +888,7 @@ function updateValueRows(body,values,empty,columns,colors=[]){
 function renderRadarValues(f,valid,rawTargets,rawVisible){
  const radar=$('radarRows'),raw=$('rawRows');
  const count=`· ${rawTargets.length}개`;if($('rawCount').textContent!==count)$('rawCount').textContent=count;
+ if(!roadShown())return;  // drawn again when the 주행 상황 tab or the panel comes back
  if(radar.closest('details').open){
   const targets=valid?(f.radarTargets||[]):[];
   updateValueRows(radar,targets.map(target=>[targetStyle[target.group].label+' '+(target.index+1),target.x.toFixed(2),target.yRel.toFixed(2),target.vRel.toFixed(2),target.radar?'예':'아니오',target.trackId]),'이 시점에 유효한 중앙·좌우 차량이 없습니다.',6,targets.map(target=>tone(targetStyle[target.group].color)));

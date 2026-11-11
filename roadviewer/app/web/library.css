@@ -1045,6 +1045,17 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
    (a ring inside the transparent border read as a doubled, uneven edge). Only that card stops clipping (its title part
    has no hover tint, so nothing shows past the corners). */
 .log-map .map-list-row.is-selected{overflow:visible;content-visibility:visible}
+/* Light theme: the marked card lifts instead of glowing green (the green glow drowned in green hills and parks): whiter
+   glass, a white rim and a deeper shadow, raised 2px. The marked route line on the map stays green; the dark theme keeps
+   its green glow and rim. */
+:root[data-theme=light] :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child){
+ background:rgba(255,255,255,.66);border-color:#fff;box-shadow:0 0 0 .5px rgba(16,24,40,.18),0 10px 26px rgba(16,24,40,.24);transform:translateY(-2px)}
+:root[data-theme=light] :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked)::after{content:none}
+@media(prefers-color-scheme:light){
+ :root:not([data-theme=dark]) :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child){
+  background:rgba(255,255,255,.66);border-color:#fff;box-shadow:0 0 0 .5px rgba(16,24,40,.18),0 10px 26px rgba(16,24,40,.24);transform:translateY(-2px)}
+ :root:not([data-theme=dark]) :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked)::after{content:none}
+}
 /* Light theme: the all-drives map often lies under water and woods, which the card glass (36% white, 180% saturation)
    turned into blue and green blotches. Its glass is whiter and barely saturated, so its cards read like a drive's
    segment cards over any map. The drive map itself and the dark theme keep their glass. */

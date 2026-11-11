@@ -25,6 +25,8 @@ function fixtureStyle(scheme){
    {id:'poi_r1',type:'symbol',source:'streets',layout:{'text-field':['get','name'],'text-font':['Noto Sans Regular']}},
    {id:'poi-hidden',type:'symbol',source:'streets',layout:{visibility:'none','text-field':['get','name'],'text-font':['Noto Sans Regular']}}]};
 }
+// Each Leaflet map of the page (window.rvTestMaps), for the checks against MapLibre's own projection.
+const hookMaps=()=>{let L;Object.defineProperty(window,'L',{configurable:true,get:()=>L,set(v){L=v;try{v.Map.addInitHook(function(){(window.rvTestMaps||=[]).push(this)})}catch{}}})};
 (async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'rv-maps-')),shots=process.env.RV_MAP_SHOTS;
  if(shots)fs.mkdirSync(shots,{recursive:true});
@@ -33,6 +35,9 @@ function fixtureStyle(scheme){
  const track=(lat,lon,dlat,dlon)=>Array.from({length:61},(_,i)=>[i,+(lat+i*dlat).toFixed(6),+(lon+i*dlon+Math.sin(i/9)*2e-5).toFixed(6),12.5,Math.round(Math.atan2(dlon,dlat)*180/Math.PI+360)%360]);
  const turns=[[8e-5,6e-5],[0,1e-4],[7e-5,4e-5],[1e-4,0],[6e-5,-5e-5],[0,9e-5],[8e-5,3e-5],[5e-5,7e-5]];
  const routeA=[];{let [lat,lon]=ORIGIN;turns.forEach(([dlat,dlon],k)=>{routeA.push(track(lat,lon,dlat,dlon));lat=+(lat+60*dlat).toFixed(6);lon=+(lon+60*dlon).toFixed(6)})}
+ // Segment 1 (the one with video): its bearing climbs 3° a second through north (350° … 359°, 2° …), and its sample
+ // at 31 s holds the fix of 30 s (a GPS hold while moving).
+ routeA[1].forEach((p,i)=>{p[4]=(350+3*i)%360});routeA[1][31][1]=routeA[1][30][1];routeA[1][31][2]=routeA[1][30][2];
  const hex=k=>'0123456789'[k];
  const logs=[
   ...routeA.map((points,k)=>({id:hex(k).repeat(32),name:`00000395--0d0eda17c5 / 구간 ${k}`,uploaded:30+k,points,tags:k===0?[{name:'출근',color:'blue'}]:[],video:k===1})),
@@ -66,7 +71,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   browser=await chromium.launch({headless:true});
   for(const scheme of ['dark','light']){
    const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true,colorScheme:scheme,reducedMotion:'reduce'}),page=await context.newPage(),errors=[],tiles=[],stubbed=[];
-   page.on('pageerror',error=>errors.push(error.message));
+   page.on('pageerror',error=>errors.push(error.message));await context.addInitScript(hookMaps);
    page.on('request',request=>{if(request.url().startsWith(OFM))tiles.push(request.url())});
    if(REAL)page.on('console',message=>{if(message.type()==='error')console.log('maps: console',message.text().slice(0,200))});
    else await context.route(OFM+'**',route=>{
@@ -172,7 +177,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await drive.locator(`.log-row[data-id="${last}"] .log-meta`).tap();await page.waitForTimeout(100);
    {const l=await layout();assert(l.rowVisible&&l.lineInside,JSON.stringify(l))}
    await shot('drive-up');
-   // Dragged all the way down the cards hide and only the handle stays; a tap brings them back at the lowest height.
+   // Dragged all the way down the cards hide and only the handle stays; a tap brings them back at the middle height.
    await drag(400);{const g=await page.evaluate(()=>{const b=document.querySelector('#driveMap .drive-map-body'),h=document.querySelector('#driveMap .drive-map-handle'),row=document.querySelector('#driveMap .drive-map-list>.log-row');return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-valuenow'),text:h.getAttribute('aria-valuetext'),rowOpacity:getComputedStyle(row).opacity,handle:h.getBoundingClientRect().bottom<=innerHeight}});
     assert(g.hidden&&g.now==='0'&&g.text==='숨김'&&g.rowOpacity==='0'&&g.handle,JSON.stringify(g))}
    await shot('drive-hidden');
@@ -187,8 +192,14 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     const top0=(await pill.boundingBox()).y;
     const next=await page.evaluate(()=>new Promise(resolve=>{document.querySelector('#driveMap .drive-map-handle').click();requestAnimationFrame(()=>{const p=document.querySelector('#driveMap .drive-map-card');resolve({top:p.getBoundingClientRect().top,leaving:p.classList.contains('is-leaving')||p.hidden})})}));
     assert(next.leaving&&next.top>0&&Math.abs(next.top-top0)<40,'the pill leaves without a jump: '+JSON.stringify({top0,next}))}
-   await page.waitForTimeout(400);await page.emulateMedia({reducedMotion:'reduce'});{const l=await layout();assert(Math.abs(l.share-.36)<.02,JSON.stringify(l));assert(await drive.locator('.drive-map-card').isHidden(),'the pill has gone')}
-   await drag(-30);{const l=await layout();assert(Math.abs(l.share-.36)<.02,'a short drag snaps back: '+JSON.stringify(l))}
+   await page.waitForTimeout(400);await page.emulateMedia({reducedMotion:'reduce'});{const l=await layout();assert(Math.abs(l.share-.54)<.02,JSON.stringify(l));assert(await drive.locator('.drive-map-card').isHidden(),'the pill has gone')}
+   await drag(-30);{const l=await layout();assert(Math.abs(l.share-.54)<.02,'a short drag snaps back: '+JSON.stringify(l))}
+   // A tap folds and unfolds like a disclosure: shown (at any height) -> hidden, hidden -> the middle height.
+   {const hidden=()=>page.evaluate(()=>document.querySelector('#driveMap .drive-map-body').classList.contains('is-sheet-hidden'));
+    await drive.locator('.drive-map-handle').tap();await page.waitForTimeout(150);assert(await hidden(),'a tap on a shown sheet hides it');
+    await drive.locator('.drive-map-handle').tap();await page.waitForTimeout(150);{const l=await layout();assert(!await hidden()&&Math.abs(l.share-.54)<.02,'a tap on the hidden sheet brings the middle height: '+JSON.stringify(l))}
+    await drag(-160);await drive.locator('.drive-map-handle').tap();await page.waitForTimeout(150);assert(await hidden(),'from the top height too, a tap hides it')
+    await drive.locator('.drive-map-handle').tap();await page.waitForTimeout(150)}
    // The system back closes it (back in the list, the card's shape focused again).
    await page.goBack();await driveClosed();assert.notEqual(new URL(page.url()).hash,'#drive-map');
    assert(await page.locator('#list').isVisible());
@@ -265,6 +276,64 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    {const box=await page.locator('#routeMapView').boundingBox();await page.touchscreen.tap(box.x+box.width/2,box.y+box.height-30);
     await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2+60,box.y+box.height/2+40,{steps:5});await page.mouse.up();
     await page.waitForFunction(()=>document.getElementById('mapFollow').getAttribute('aria-pressed')==='false');
+    await page.locator('#mapFollow').tap();assert.equal(await page.locator('#mapFollow').getAttribute('aria-pressed'),'true')}
+   // A pinch narrows the 지도 tab's margin (basemap and lines) to 0.1 for the gesture (MapLibre redraws the whole canvas
+   // each frame); a second after it, the full margin again, the car, lines and basemap together. A one-finger drag
+   // moves what is drawn with the pane: a few redraws at most, the map left where the drag left it, nothing cut off.
+   {await page.waitForFunction(()=>window.rvTestMaps.some(m=>document.querySelector('#routeMapView').contains(m.getContainer())&&m.rvGl?.loaded?.()),null,{timeout:15000});
+    await page.evaluate(()=>{
+     const m=document.querySelector('#routeMapView .rv-map'),map=window.rvTestMaps.find(x=>m.contains(x.getContainer())||x.getContainer()===m),gl=map.rvGl;
+     const t=window.rvTestBig={map,renders:0,redraws:0};gl.on('render',()=>t.renders++);{const redraw=gl.redraw.bind(gl);gl.redraw=()=>{t.redraws++;return redraw()}}map.on('dragstart',()=>{t.atDrag={renders:t.renders,redraws:t.redraws}});
+     const inside=(a,b)=>a.left<=b.left+1&&a.top<=b.top+1&&a.right>=b.right-1&&a.bottom>=b.bottom-1;
+     t.state=()=>{
+      let car=null;map.eachLayer(l=>{if(l.options?.icon?.options?.className==='map-car')car=l.getLatLng()});
+      const box=m.getBoundingClientRect(),c=gl.getCanvas().getBoundingClientRect(),q=gl.project([car.lng,car.lat]),b=m.querySelector('.map-car-body').getBoundingClientRect(),at=[b.left+b.width/2,b.top+b.height/2];
+      const line=Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{if(!p.getTotalLength())return [Infinity];const M=p.getScreenCTM();return [p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())].map(r=>Math.hypot(r.x*M.a+r.y*M.c+M.e-at[0],r.x*M.b+r.y*M.d+M.f-at[1]))}));
+      return {base:Math.hypot(c.left+q.x-at[0],c.top+q.y-at[1]),line,layer:map.rvGlLayer.options.padding,lines:map.options.renderer.options.padding,margin:map.rvMargin,
+       basemapCovers:inside(c,box),linesCover:inside(m.querySelector('.leaflet-overlay-pane svg').getBoundingClientRect(),box),renders:t.renders,redraws:t.redraws};
+     };
+    });
+    const cdp=await context.newCDPSession(page),state=()=>page.evaluate(()=>window.rvTestBig.state());
+    const touch=(type,points)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:points});
+    await seek(20);await page.waitForTimeout(400);const full=await state();
+    assert(full.layer===full.margin&&full.lines===full.margin&&full.margin>.1,'full margin before '+JSON.stringify(full));
+    const b=await page.locator('#routeMapView .rv-map').boundingBox(),cx=b.x+b.width/2,cy=b.y+Math.min(b.height,844-b.y-120)/2;
+    const pair=d=>[{x:cx-d,y:cy,id:1},{x:cx+d,y:cy,id:2}];
+    await touch('touchStart',pair(40));const pinching=await state();
+    for(let k=1;k<=10;k++){await touch('touchMove',pair(40+3*k));await page.waitForTimeout(16)}
+    const during=await state();await touch('touchEnd',[]);await page.waitForTimeout(300);const ended=await state();
+    assert(pinching.layer===.1&&pinching.lines===.1&&during.layer===.1&&during.lines===.1&&ended.layer===.1,'narrow while pinching '+JSON.stringify([pinching,during,ended]));
+    assert(during.basemapCovers,'the basemap covers the map while pinching '+JSON.stringify(during));
+    await page.waitForTimeout(1300);const after=await state();
+    assert(after.layer===full.margin&&after.lines===full.margin&&after.margin===full.margin,'full margin after the pinch '+JSON.stringify(after));
+    assert(after.base<=1&&after.line<=1&&after.basemapCovers&&after.linesCover,'together after the pinch '+JSON.stringify(after));
+    // A pinch ending exactly on a zoom step (twice the spread: +1) with reduced motion (no zoom animation): Leaflet fires
+    // no zoomend for it; the basemap still follows (not frozen out of place) and the full margin comes back.
+    {const z0=await page.evaluate(()=>window.rvTestBig.map.getZoom());
+     await touch('touchStart',pair(40));for(let k=1;k<=8;k++){await touch('touchMove',pair(40+5*k));await page.waitForTimeout(16)}
+     await touch('touchEnd',[]);await page.waitForTimeout(1600);const step=await state();
+     const z=await page.evaluate(()=>({zoom:window.rvTestBig.map.getZoom(),stuck:!!window.rvTestBig.map.rvGlLayer._zooming}));
+     assert(z.zoom===z0+1&&!z.stuck,'the pinch ended on a whole step and closed its zoom '+JSON.stringify({z0,...z}));
+     assert(step.base<=1&&step.basemapCovers&&step.layer===full.margin,'together after a pinch ending on a step '+JSON.stringify(step))}
+    // One finger, ~300 px over ~1 s, held still before lifting (no inertia).
+    await seek(30);await page.waitForTimeout(400);
+    // A fixed place on the basemap, on screen (the car could still move a little after the seek).
+    await page.evaluate(()=>{const t=window.rvTestBig;t.c0=t.map.getCenter()});
+    const onScreen=()=>page.evaluate(()=>{const t=window.rvTestBig,gl=t.map.rvGl,c=gl.getCanvas().getBoundingClientRect(),q=gl.project([t.c0.lng,t.c0.lat]);return {x:c.left+q.x,y:c.top+q.y}}),from=await onScreen();
+    let mid=null;
+    await touch('touchStart',[{x:cx+150,y:cy,id:1}]);
+    for(let k=1;k<=60;k++){await touch('touchMove',[{x:cx+150-5*k,y:cy+k/3,id:1}]);await page.waitForTimeout(16);if(k===40)mid=await state()}
+    const held=await state();await page.waitForTimeout(150);await touch('touchEnd',[]);await page.waitForTimeout(400);
+    const dragged=await state(),moved=await onScreen();
+    assert.equal(await page.locator('#mapFollow').getAttribute('aria-pressed'),'false','a drag turns 따라가기 off');
+    // From the drag's start: redrawn once past RECENTRE of the margin and once at rest; the other renders are
+    // MapLibre's own (tiles of the newly drawn area). Each frame before (~60).
+    const s0=await page.evaluate(()=>window.rvTestBig.atDrag);
+    assert(dragged.redraws-s0.redraws<=2&&dragged.renders-s0.renders<=6,'a drag redraws the basemap a few times at most: '+JSON.stringify([dragged.redraws-s0.redraws,dragged.renders-s0.renders]));
+    assert(Math.abs(moved.x-from.x+300)<=2&&Math.abs(moved.y-from.y-20)<=2,'the map stays where the drag left it '+JSON.stringify([from,moved]));
+    assert(dragged.layer===full.margin&&mid.layer===full.margin,'full margin while dragging '+JSON.stringify([mid,dragged]));
+    assert([mid,held,dragged].every(s=>s.basemapCovers&&s.linesCover),'nothing cut off while dragging '+JSON.stringify([mid,held,dragged]));
+    assert(dragged.base<=1&&dragged.line<=1,'together after the drag '+JSON.stringify(dragged));
     await page.locator('#mapFollow').tap();assert.equal(await page.locator('#mapFollow').getAttribute('aria-pressed'),'true')}
    tilesUsed();
    // ④ 겹쳐 보기 설정 › 지도 › 영상 위 작은 지도: off by default, kept on this browser, tap to enlarge and shrink.
@@ -349,6 +418,68 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    {const d=await mini.evaluate(m=>{const b=m.querySelector('.map-car-body').getBoundingClientRect(),c=[b.left+b.width/2,b.top+b.height/2];
      return Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{const M=p.getScreenCTM();return [p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())].map(q=>Math.hypot(q.x*M.a+q.y*M.c+M.e-c[0],q.x*M.b+q.y*M.d+M.f-c[1]))}))});
     assert(d<=1,'car on the line: '+d)}
+   // Smooth following. The car's place on the map (car centre minus the map pane's on-screen origin, both including
+   // the sub-pixel translates) moves on every frame of playback by a fraction of a pixel, never a whole-pixel jump; the
+   // heading turns between samples the short way round, with no CSS transition; a held GPS sample is passed over.
+   {const frame=()=>page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+    const carOnMap=()=>mini.evaluate(m=>{const a=m.querySelector('.leaflet-map-pane').getBoundingClientRect(),b=m.querySelector('.map-car-body').getBoundingClientRect();return [b.left+b.width/2-a.left,b.top+b.height/2-a.top]});
+    const turn=()=>mini.locator('.map-car-body').evaluate(b=>Number(/rotate\(([-\d.]+)deg\)/.exec(b.style.transform)?.[1]));
+    await page.evaluate(()=>{const b=document.getElementById('play');if(b.dataset.playing==='true')b.click()});assert.equal(await mini.locator('.map-car-body').evaluate(b=>getComputedStyle(b).transitionDuration),'0s','no heading transition');
+    await seek(3.5);await frame();assert(Math.abs(await turn()-.5)<.01,'359° → 2°: 0.5° half way '+await turn());
+    await seek(3.25);await frame();assert(Math.abs(await turn()-359.75)<.01,'a quarter of the way '+await turn());
+    await seek(30);await frame();const at30=await carOnMap();await seek(31);await frame();const at31=await carOnMap();await seek(32);await frame();const at32=await carOnMap();
+    const mid=[(at30[0]+at32[0])/2,(at30[1]+at32[1])/2];
+    assert(Math.hypot(at31[0]-mid[0],at31[1]-mid[1])<.6&&Math.hypot(at32[0]-at30[0],at32[1]-at30[1])>4,'the held sample at 31 s is passed over '+JSON.stringify([at30,at31,at32]));
+    // One second of playback from 0.5 s: per frame, the car's place and the DOM writes to the time readout, the no-video
+    // note and the bookmark time (written only when they change: the label at most once a second, the note when playing
+    // starts or stops).
+    await seek(.5);await frame();
+    const run=await page.evaluate(()=>new Promise(resolve=>{
+     const m=document.getElementById('videoMap'),pane=m.querySelector('.leaflet-map-pane'),body=m.querySelector('.map-car-body'),time=document.getElementById('time');
+     const writes={label:0,total:0,note:0,bookmark:0},watch=(target,key,options)=>new MutationObserver(records=>{writes[key]+=records.length}).observe(target,options);
+     watch(time,'label',{attributes:true});watch(time.querySelector('.time-total'),'total',{childList:true,characterData:true,subtree:true});
+     watch(document.getElementById('noVideo'),'note',{childList:true,characterData:true,subtree:true,attributes:true});watch(document.querySelector('.bookmark-time'),'bookmark',{childList:true,characterData:true,subtree:true});
+     const out=[],play=document.getElementById('play');play.click();const started=performance.now();
+     const step=()=>{const a=pane.getBoundingClientRect(),b=body.getBoundingClientRect();out.push([b.left+b.width/2-a.left,b.top+b.height/2-a.top]);
+      if(performance.now()-started<1000)requestAnimationFrame(step);else{play.click();setTimeout(()=>resolve({out,writes}))}};
+     requestAnimationFrame(step);
+    }));
+    const steps=run.out.slice(1).map((p,i)=>Math.hypot(p[0]-run.out[i][0],p[1]-run.out[i][1])),moved=steps.filter(d=>d>.001).length,biggest=Math.max(...steps);
+    const fractional=run.out.filter(p=>p.some(v=>Math.abs(v-Math.round(v))>.05)).length;
+    assert(biggest<1&&moved>=steps.length*.6&&fractional>=run.out.length/3,'smooth: '+JSON.stringify({frames:run.out.length,moved,biggest,fractional}));
+    assert(run.writes.label<=4&&run.writes.total===0&&run.writes.note<=2&&run.writes.bookmark<=2,'per-frame DOM writes: '+JSON.stringify(run.writes))}
+   // Following scrolls what is drawn: over 2 s of playback the small map's basemap (MapLibre) draws at most twice (it is
+   // panned and redrawn only when the car nears the edge of its drawn margin), and on every frame the basemap, the lines
+   // and the car stay together: the car's centre is where MapLibre places its position, and the current lines end there
+   // (within a pixel; the lines' end, on whole pixels and moved 10 times a second, within 1.5). Stepping on (paused) until
+   // the basemap is re-centred: together (within a pixel) just before and just after, the car
+   // still in its place on the map.
+   // The replay maps draw up to their margin (1: a full size) beyond each edge, as much as keeps the basemap canvas within 4000 device
+   // pixels on its longer side; the basemap and the route lines use the same margin.
+   {const margins=await page.evaluate(()=>window.rvTestMaps.filter(m=>m.rvFitMargin&&m.getSize().x>0).map(m=>{const s=m.getSize(),r=Math.min(devicePixelRatio||1,2),side=Math.max(s.x,s.y)*r;
+     return {margin:m.rvMargin,layer:m.rvGlLayer?.options.padding,lines:m.options.renderer.options.padding,canvas:Math.round((1+2*m.rvMargin)*side),max:m.rvMarginMax,full:(1+2*m.rvMarginMax)*side<=4000}}));
+    assert(margins.length>=1&&margins.every(m=>m.layer===m.margin&&m.lines===m.margin&&m.canvas<=4001&&m.margin>=.1&&(!m.full||m.margin===m.max)),'replay map margins: '+JSON.stringify(margins))}
+   {const frame=()=>page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+    await page.evaluate(()=>{
+     const m=document.getElementById('videoMap'),map=window.rvTestMaps.find(x=>m.contains(x.getContainer())),gl=map.rvGl;
+     window.rvTestSmall={renders:0};gl.on('render',()=>window.rvTestSmall.renders++);
+     window.rvTestAlign=()=>{
+      let car=null;map.eachLayer(l=>{if(l.options?.icon?.options?.className==='map-car')car=l.getLatLng()});
+      const c=gl.getCanvas().getBoundingClientRect(),q=gl.project([car.lng,car.lat]),b=m.querySelector('.map-car-body').getBoundingClientRect(),at=[b.left+b.width/2,b.top+b.height/2],box=m.getBoundingClientRect();
+      const line=Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{const M=p.getScreenCTM();return [p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())].map(r=>Math.hypot(r.x*M.a+r.y*M.c+M.e-at[0],r.x*M.b+r.y*M.d+M.f-at[1]))}));
+      return {base:Math.hypot(c.left+q.x-at[0],c.top+q.y-at[1]),line,place:Math.hypot(at[0]-(box.left+box.width/2),at[1]-(box.top+box.height*.6)),drawn:m.querySelector('.leaflet-gl-layer').style.transform};
+     };
+    });
+    await seek(5);await frame();await page.waitForTimeout(400);
+    const run=await page.evaluate(()=>new Promise(resolve=>{
+     const out=[],play=document.getElementById('play'),from=window.rvTestSmall.renders;play.click();const started=performance.now();
+     const step=()=>{out.push(window.rvTestAlign());if(performance.now()-started<2000)requestAnimationFrame(step);else{play.click();resolve({frames:out.length,renders:window.rvTestSmall.renders-from,base:Math.max(...out.map(a=>a.base)),line:Math.max(...out.map(a=>a.line)),place:Math.max(...out.map(a=>a.place))})}};
+     requestAnimationFrame(step);
+    }));
+    assert(run.frames>30&&run.renders<=2&&run.base<=1&&run.line<=1.5&&run.place<=1,'scrolled, together: '+JSON.stringify(run));
+    let last=await page.evaluate(()=>window.rvTestAlign()),recentred=null;
+    for(let s=6;s<=29&&!recentred;s++){await seek(s);await frame();const now=await page.evaluate(()=>window.rvTestAlign());if(now.drawn!==last.drawn)recentred=[last,now];else last=now}
+    assert(recentred&&recentred.every(a=>a.base<=1&&a.line<=1&&a.place<=1),'re-centred, together: '+JSON.stringify(recentred))}
    // ⑤ The bottom-left corner resizes it, here by touch (real touch events through CDP): wider, anchored at its top-right,
    // 4:3, not enlarged by the drag, kept in this browser; a double tap on the corner goes back to the default size.
    {const grip=mini.locator('.video-map-grip'),b0=await mini.boundingBox(),g=await grip.boundingBox(),cdp=await context.newCDPSession(page);
@@ -451,7 +582,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
   const drives=2+many.length+1;
   for(const scheme of ['dark','light']){
    const context=await browser.newContext({viewport:{width:1280,height:800},colorScheme:scheme,reducedMotion:'reduce'}),page=await context.newPage(),errors=[];
-   page.on('pageerror',error=>errors.push(error.message));
+   page.on('pageerror',error=>errors.push(error.message));await context.addInitScript(hookMaps);
    if(!REAL)await context.route(OFM+'**',route=>{const url=route.request().url(),style=url===SIMPLE_LIGHT?['light']:Object.entries(STYLE_OF).find(([,u])=>url===u);
     if(style)return route.fulfill({body:JSON.stringify(fixtureStyle(style[0])),contentType:'application/json'});
     if(url===OFM+'planet')return route.fulfill({body:JSON.stringify({tilejson:'3.0.0',tiles:[OFM+'planet/fixture/{z}/{x}/{y}.pbf'],minzoom:0,maxzoom:14}),contentType:'application/json'});

@@ -58,8 +58,9 @@ class StoragePolicy:
                 return ((not targets or s.storage_used_bytes() + reserved + extra <= min(targets))
                         and shutil.disk_usage(s.ROOT).free >= reserved + extra + MARGIN)
         def eligible(meta):
+            # Pinned recordings are eligible too (moving is not deleting); the archiver takes them last.
             with s.lock:
-                if self.pinned(meta) or meta['id'] in protected_ids or meta.get('status') != 'ready' or meta['id'] in s.processes: return False
+                if meta['id'] in protected_ids or meta.get('status') != 'ready' or meta['id'] in s.processes: return False
                 key = self.route_key(meta)
                 if key in self.protected_routes(incoming_files): return False
                 return not any(self.route_key(m) == key and (m.get('status') in ('queued', 'processing') or m['id'] in s.processes)

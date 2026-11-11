@@ -16,8 +16,10 @@
  }
  function jump(item){if(!data||loading)return;setTime(item.time);last=performance.now()}
  function capture(time){captured=time;find('.bookmark-time').textContent=clock(captured)}
+ // Following playback (called every frame) with the editor closed, the unseen time text is written once a second;
+ // opening the editor (or any other capture) writes it exactly.
  function renderMarkers(force=false){
-  if(follow&&!editing&&captured!==t)capture(t);
+  if(follow&&!editing&&captured!==t){if(dialog.open||Math.floor(captured)!==Math.floor(t))capture(t);else captured=t}
   if(listLoading!==loading){listLoading=loading;renderList()}
   if(!force&&duration===data?.duration)return;duration=data?.duration;markers.replaceChildren();renderList();
   if(!(duration>0))return;
