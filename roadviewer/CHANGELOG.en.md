@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.13
+
+- Fixed pages failing to open with "addEventListener is not a function" after updating to 1.2.12: one script of the previous version, kept by the browser's cache, was used together with the new ones.
+
 ## 1.2.12
 
 - Fixed a memory leak in the replay: every log opened from another kept the page left behind (listeners left on the window and on the network state, maps never removed). It slowed the app down after many logs.
