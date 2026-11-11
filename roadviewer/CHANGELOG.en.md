@@ -4,6 +4,13 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.8
+
+- On phones the 지도 view shows the drive list as a bottom sheet like the drive map's: a tap on its handle hides it or brings the middle height, a drag settles on one of three heights, and only a tap on a card fits the map to that drive; with the sheet hidden the selected drive's card shows above the handle.
+- A tap on a phone sheet's handle no longer clears the selected segment or drive (the click after the tap fell on the map).
+- A press on a 지도 view card presses the whole card instead of lighting only its title part.
+- In the light theme the selected map card is near-opaque white with a green line at the middle of its top and bottom edges and a faint inner light at the dark theme's ratio (instead of 1.2.7's near-black light; the dark theme is unchanged).
+
 ## 1.2.7
 
 - In the light theme the selected map card returns to the dark theme's top-and-bottom light, drawn in near-black so it no longer drowns in green hills and parks (the dark theme and the selected route line stay green).
