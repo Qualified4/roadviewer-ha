@@ -938,6 +938,11 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .map-list-pick{min-height:44px;padding:9px 14px;border-radius:0}
 .map-list-pick b{font-size:13.5px}
 @media(hover:hover) and (pointer:fine){.map-list-pick:hover{background:var(--map-glass-hover)}.map-list-row.is-selected .map-list-pick:hover{background:transparent}}  /* selected: its title part alone would light up, half the card */
+/* A press on a card's title presses the whole card (scaled down a little) instead of rippling in the title part alone,
+   which lit only the top of the card with square corners. */
+.map-list-row{transition:transform .12s var(--m2-standard,ease)}
+.map-list-row:has(>.map-list-pick:active){transform:scale(.985)}
+@media(prefers-reduced-motion:reduce){.map-list-row:has(>.map-list-pick:active){transform:none}}
 .map-list-row.is-selected,.drive-map-list>.log-row.is-map-marked{background:color-mix(in srgb,var(--accent) 15%,var(--map-glass));border-color:var(--accent-line);box-shadow:var(--map-glass-highlight),inset 0 0 0 .5px var(--accent-line),var(--map-glass-shadow)}
 .map-list-row .map-card-actions{gap:6px;padding:0 12px 12px 34px}
 .map-card-actions>button{border:1px solid var(--map-glass-border);background:var(--map-glass-hover);box-shadow:var(--map-glass-highlight);color:var(--text)}
@@ -976,7 +981,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .log-map.is-folded .log-map-list,.drive-map-body.is-folded .drive-map-sheet{display:flex;visibility:hidden;pointer-events:none;transition:visibility 0s .42s}
  .log-map-list-head,.drive-map-handle{transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1))}
  .log-map.is-folded .log-map-list-head,.drive-map-body.is-folded .drive-map-handle{opacity:0}
- .log-map .log-map-rows>.map-list-row,.drive-map-body .drive-map-list>.log-row{--k:0;transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s}
+ .log-map .log-map-rows>.map-list-row,.drive-map-body .drive-map-list>.log-row{--k:0;transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s,transform .12s}
  
  .log-map.is-folded .log-map-rows>.map-list-row,.drive-map-body.is-folded .drive-map-list>.log-row{opacity:0;translate:28px 0;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
 }
@@ -1016,13 +1021,18 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  border-color:var(--mark-border,var(--map-glass-border));
  border-color:transparent;position:relative;
  background:  radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--mark-color,var(--accent)) var(--mark-top),transparent),transparent 70%),
-  radial-gradient(125% 85% at 50% 135%,color-mix(in srgb,var(--mark-color,var(--accent)) var(--mark-glow),transparent) 0%,color-mix(in srgb,var(--mark-color,var(--accent)) calc(var(--mark-glow) * .6),transparent) 28%,color-mix(in srgb,var(--mark-color,var(--accent)) var(--mark-haze),transparent) 56%,color-mix(in srgb,var(--mark-color,var(--accent)) calc(var(--mark-haze) * .4),transparent) 74%,transparent 94%),var(--map-glass);
+  radial-gradient(125% 85% at 50% 135%,color-mix(in srgb,var(--mark-color,var(--accent)) var(--mark-glow),transparent) 0%,color-mix(in srgb,var(--mark-color,var(--accent)) calc(var(--mark-glow) * .6),transparent) 28%,color-mix(in srgb,var(--mark-color,var(--accent)) var(--mark-haze),transparent) 56%,color-mix(in srgb,var(--mark-color,var(--accent)) calc(var(--mark-haze) * .4),transparent) 74%,transparent 94%),var(--mark-base,var(--map-glass));
  box-shadow:var(--mark-highlight,var(--map-glass-highlight)),var(--map-glass-shadow)}
-/* The marked card's light: dark glass needs little, in the accent; light glass is lit in near-black instead (a green light
-   drowned in green hills and parks), and more faintly, as black shows far more than green on white. */
+/* The marked card's light: the dark theme's values below; the light theme's after them (see the light rule further on). */
 :root{--mark-edge-base:var(--map-glass-border);--mark-rim-bottom:35%;--mark-rim:50%;--mark-top:9%;--mark-glow:24%;--mark-haze:7%}
-:root[data-theme=light]{--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-color:#11151C;--mark-rim-bottom:30%;--mark-rim:30%;--mark-top:6%;--mark-glow:16%;--mark-haze:5%}
-@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-color:#11151C;--mark-rim-bottom:30%;--mark-rim:30%;--mark-top:6%;--mark-glow:16%;--mark-haze:5%}}
+:root[data-theme=light]{--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.9);--mark-highlight:inset 0 1px 0 #fff,0 0 0 .5px rgba(16,24,40,.14);--mark-color:#14935F;--mark-rim:80%;--mark-rim-bottom:80%;--mark-base:rgba(255,255,255,.9)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.9);--mark-highlight:inset 0 1px 0 #fff,0 0 0 .5px rgba(16,24,40,.14);--mark-color:#14935F;--mark-rim:80%;--mark-rim-bottom:80%;--mark-base:rgba(255,255,255,.9)}}
+/* Light theme: green over white glass reads as paint, not light, so the marked card is near-opaque white (90%) and its
+   green stays where the dark theme's shows: a crisp line at the middle of the top and bottom edges (the rim above, in a
+   deeper green) and a faint light inside them, at the dark theme's ratio (10% under the top edge, 22% over the bottom).
+   The other cards keep their clear glass. */
+:root[data-theme=light] :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child){background:radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%),radial-gradient(40% 55% at 50% 100%,color-mix(in srgb,var(--accent) 22%,transparent),transparent 85%),var(--mark-base)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]) :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child){background:radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) 10%,transparent),transparent 70%),radial-gradient(40% 55% at 50% 100%,color-mix(in srgb,var(--accent) 22%,transparent),transparent 85%),var(--mark-base)}}
 /* The secondary buttons inside the glass cards (주행 지도, 목록에서 보기, ✕): a soft tint only, no outline. */
 .log-map .map-card-actions>button,.log-map-card .map-card-actions>button{border-color:transparent;box-shadow:none}
 /* Phones: the last segment card scrolls clear of the attribution in the corner. The sheet is clear glass over the map:
@@ -1081,3 +1091,25 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 
 /* 목록에서 보기 brings a tall drive card to the top of the screen: a little room above it. */
 #list .log-route{scroll-margin-top:calc(var(--lib-appbar-h,64px) + 12px)}
+/* Phones: the all-drives list is a bottom sheet like the drive map's (maps.js bottomSheet, the same snap heights): the
+   sheet is clear, its handle the same small glass grip (with the count instead of the label) and the drive cards stack
+   under it. Only the handle and the cards take taps, so the credit's ⓘ (and the map) under its empty parts stay tappable.
+   Pulled down, the cards slide away and the selected drive's pill rides on the handle like the segment pill. */
+@media not ((min-width:1024px) or ((min-width:600px) and (orientation:landscape))){
+ .log-map{--sheet-h:54%}
+ .log-map-list{position:absolute;z-index:550;left:0;right:0;bottom:0;display:flex;flex-direction:column;height:var(--sheet-h);pointer-events:none;transition:height .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+ .log-map.is-dragging .log-map-list{transition:none}
+ .log-map-list-head{display:none}
+ .log-map-handle{pointer-events:auto}
+ .log-map.is-dragging .log-map-handle{cursor:grabbing}
+ .log-map-rows{flex:1;min-height:0;padding:2px 12px calc(max(12px,env(safe-area-inset-bottom)) + 18px);pointer-events:none}
+ .log-map-rows>*{pointer-events:auto}
+ .log-map .log-map-rows>.map-list-row{--k:0;transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s,transform .12s}
+ .log-map.is-sheet-hidden .log-map-rows{overflow:hidden}
+ .log-map.is-sheet-hidden .log-map-rows>*{pointer-events:none;opacity:0;translate:0 32px;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
+ .log-map>.log-map-card{bottom:calc(var(--sheet-h) + 10px);transition:bottom .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+ .log-map.is-dragging>.log-map-card{transition:none}
+ .log-map>.log-map-card.is-leaving{animation-name:rv-drive-card-out}
+ @media(prefers-reduced-motion:reduce){.log-map-list,.log-map .log-map-rows>.map-list-row,.log-map>.log-map-card{transition:none}}
+}
+@media(min-width:1024px),(min-width:600px) and (orientation:landscape){.log-map .log-map-handle{display:none}}

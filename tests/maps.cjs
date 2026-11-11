@@ -234,6 +234,63 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    const colours=await routeLines.evaluateAll(lines=>lines.map(l=>l.getAttribute('stroke')));assert.notEqual(colours[0],colours[1],'each drive in its own colour');
    assert.equal(await page.locator('#logMap .leaflet-control-attribution').innerText(),'OpenFreeMap © OpenMapTiles Data from OpenStreetMap');
    await page.locator('#logMap').scrollIntoViewIfNeeded();
+   // Phones: the drives are a bottom sheet like the drive map's: a small glass handle with the count over the same glass
+   // cards, at the middle height to start (no label, nothing autofocused).
+   // The whole map on screen, clear of the header and the fixed tab bar.
+   await page.locator('#logMap').evaluate(m=>m.scrollIntoView({block:'center'}));await page.waitForTimeout(100);
+   {const handle=page.locator('#logMap .log-map-handle'),rows=page.locator('#logMapRows .map-list-row'),mapCard=page.locator('#logMapCard');
+    const sheetState=()=>page.evaluate(()=>{const m=document.getElementById('logMap'),r=m.getBoundingClientRect(),s=document.getElementById('logMapList').getBoundingClientRect(),h=m.querySelector('.log-map-handle'),row=m.querySelector('#logMapRows>.map-list-row');
+     return {hidden:m.classList.contains('is-sheet-hidden'),share:s.height/r.height,bottom:Math.round(r.bottom-s.bottom),now:h.getAttribute('aria-valuenow'),text:h.getAttribute('aria-valuetext'),rowOpacity:getComputedStyle(row).opacity}});
+    const lineBox=(width=null)=>page.evaluate(width=>{const p=[...document.querySelectorAll('#logMap .leaflet-overlay-pane path.leaflet-interactive')].find(p=>width===null||Number(p.getAttribute('stroke-width'))===width),b=p.getBoundingClientRect();return [b.left,b.top,b.width,b.height].map(Math.round)},width);
+    const drag=async dy=>{const box=await handle.boundingBox(),x=box.x+box.width/2,y=box.y+box.height/2;await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x,y+dy/2,{steps:4});await page.mouse.move(x,y+dy,{steps:4});await page.mouse.up();await page.waitForTimeout(120)};
+    const creditFree=()=>page.locator('#logMap .rv-credit-toggle').evaluate(t=>{const b=t.getBoundingClientRect();return t.contains(document.elementFromPoint(b.left+b.width/2,b.top+b.height/2))});
+    assert.equal((await handle.innerText()).trim(),'주행 목록 2개');assert(await handle.isVisible()&&await page.locator('#logMapList .log-map-list-head').isHidden());
+    assert.equal(await handle.getAttribute('role'),'slider');assert.equal(await page.locator('#logMap [autofocus]').count(),0);
+    assert.equal(await rows.count(),2);assert(await rows.first().evaluate(r=>getComputedStyle(r).backdropFilter!=='none'),'glass cards');
+    assert.equal(await page.locator('#logMapRows .map-list-pick[data-no-ripple]').count(),2,'a press scales the whole card instead of rippling in its title part');
+    {const g=await sheetState();assert(!g.hidden&&Math.abs(g.share-.54)<.02&&g.bottom===0&&g.now==='54',JSON.stringify(g))}
+    assert(await creditFree(),'the open sheet leaves the ⓘ uncovered');
+    // A tap on a route marks its card (its actions inline, scrolled into view); no bottom card while the cards show.
+    await tapLine(routeLines.nth(1));await page.waitForFunction(()=>document.querySelectorAll('#logMapRows>.map-list-row')[1].classList.contains('is-selected'));await page.waitForTimeout(150);
+    assert.deepEqual(await rows.nth(1).locator('.map-card-actions>:is(a,button)').allInnerTexts(),['재생','주행 지도','목록에서 보기']);
+    assert(await mapCard.isHidden(),'no bottom card while the sheet is up');
+    assert(await rows.nth(1).evaluate(r=>{const b=r.getBoundingClientRect(),l=r.parentElement.getBoundingClientRect();return b.top>=l.top-1&&b.bottom<=l.bottom+1}),'the marked card is in view');
+    // A tap on a card selects that drive and fits the map to it above the sheet. (lineBox(): the first card's line, the marked
+    // one having been brought to the front, the last path).
+    const before=await lineBox();await rows.first().locator('.map-list-pick').tap();await page.waitForTimeout(450);
+    assert(await rows.first().evaluate(r=>r.classList.contains('is-selected'))&&!await rows.nth(1).evaluate(r=>r.classList.contains('is-selected')));
+    {const g=await page.evaluate(()=>{const m=document.getElementById('logMap').getBoundingClientRect(),s=document.getElementById('logMapList').getBoundingClientRect(),line=[...document.querySelectorAll('#logMap .leaflet-overlay-pane path.leaflet-interactive')].find(p=>Number(p.getAttribute('stroke-width'))===6).getBoundingClientRect();
+      return {inside:line.top>=m.top-1&&line.bottom<=s.top+1&&line.left>=m.left-1&&line.right<=m.right+1,line:[line.top,line.bottom].map(Math.round),sheet:Math.round(s.top)}});
+     const after=await lineBox(6);assert(g.inside&&after[3]>before[3]*2,'fitted above the sheet '+JSON.stringify({g,before,after}))}
+    await shot('list-map-middle');
+    // Raising and lowering the sheet keeps the map where it is; a drag snaps to the nearest height.
+    const still=await lineBox(6);
+    await drag(-160);{const g=await sheetState();assert(!g.hidden&&Math.abs(g.share-.7)<.02,JSON.stringify(g))}
+    await page.waitForTimeout(450);{const after=await lineBox(6);assert(after.every((v,i)=>Math.abs(v-still[i])<=1),'the sheet moved the map: '+JSON.stringify({still,after}))}
+    await drag(110);{const g=await sheetState();assert(Math.abs(g.share-.54)<.02,'snaps to the middle '+JSON.stringify(g))}
+    // Pulled all the way down only the handle stays; the selected drive's card shows above it.
+    await drag(400);await page.waitForTimeout(150);
+    {const g=await sheetState();assert(g.hidden&&g.now==='0'&&g.text==='숨김'&&g.rowOpacity==='0',JSON.stringify(g))}
+    {const after=await lineBox(6);assert(after.every((v,i)=>Math.abs(v-still[i])<=1),'hiding the sheet moved the map: '+JSON.stringify({still,after}))}
+    await mapCard.waitFor();
+    {const [c,h]=await page.evaluate(()=>['#logMapCard','#logMap .log-map-handle'].map(s=>document.querySelector(s).getBoundingClientRect()));assert(c.bottom<=h.top+1,'the card sits above the handle '+JSON.stringify([c.bottom,h.top]))}
+    assert.deepEqual(await mapCard.locator('.map-card-actions>:is(a,button):not(.map-card-close)').allInnerTexts(),['재생','주행 지도','목록에서 보기']);
+    await shot('list-map-hidden');
+    {const toggle=page.locator('#logMap .rv-credit-toggle'),credit=page.locator('#logMap .leaflet-control-attribution');
+     assert(await creditFree(),'nothing covers the ⓘ');await toggle.tap();await credit.waitFor();await toggle.tap();await credit.waitFor({state:'hidden'})}
+    // A tap (or Enter) folds and unfolds: hidden -> the middle height (the card leaves), shown -> hidden (it is back).
+    await handle.tap();await page.waitForTimeout(400);{const g=await sheetState();assert(!g.hidden&&Math.abs(g.share-.54)<.02,JSON.stringify(g))}
+    assert(await mapCard.isHidden(),'the card leaves while the cards show');
+    await handle.tap();await page.waitForTimeout(150);assert((await sheetState()).hidden,'a tap hides it');await mapCard.waitFor();
+    await handle.focus();await page.keyboard.press('Enter');await page.waitForTimeout(150);assert(!(await sheetState()).hidden,'Enter brings it back');
+    await page.keyboard.press('Enter');await page.waitForTimeout(150);assert((await sheetState()).hidden,'Enter hides it');
+    await page.evaluate(()=>document.activeElement.blur());
+    // Shown again, the map starts like the drive map: every drive fitted, the sheet at the middle height.
+    await switcher.getByRole('button',{name:'목록'}).tap();await page.locator('#list').waitFor();await switcher.getByRole('button',{name:'지도'}).tap();
+    await page.waitForFunction(()=>document.querySelectorAll('#logMap .leaflet-overlay-pane path.leaflet-interactive').length===2);await page.locator('#logMap').scrollIntoViewIfNeeded();await page.waitForTimeout(150);
+    {const g=await sheetState();assert(!g.hidden&&Math.abs(g.share-.54)<.02,JSON.stringify(g))}
+    await handle.tap();await page.waitForTimeout(150);assert((await sheetState()).hidden)}
+   // The checks below use the bottom card: the sheet stays hidden.
    await tapLine(routeLines.first());const card=page.locator('#logMapCard');await card.waitFor();
    assert.match(await card.locator('.map-card-facts').innerText(),new RegExp(`^(${(A*0.9).toFixed(1)} km · ${A}:00 · ${A}개 구간|900 m · 1:00 · 1개 구간)$`));
    assert.match(await card.locator('.map-card-play').getAttribute('href'),/view\/[a-f0-9]{32}\/$/);
