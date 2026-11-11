@@ -1015,13 +1015,14 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child{
  border-color:var(--mark-border,var(--map-glass-border));
  border-color:transparent;position:relative;
- background:  radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--accent) var(--mark-top),transparent),transparent 70%),
-  radial-gradient(125% 85% at 50% 135%,color-mix(in srgb,var(--accent) var(--mark-glow),transparent) 0%,color-mix(in srgb,var(--accent) calc(var(--mark-glow) * .6),transparent) 28%,color-mix(in srgb,var(--accent) var(--mark-haze),transparent) 56%,color-mix(in srgb,var(--accent) calc(var(--mark-haze) * .4),transparent) 74%,transparent 94%),var(--map-glass);
+ background:  radial-gradient(70% 45% at 50% 0%,color-mix(in srgb,var(--mark-color,var(--accent)) var(--mark-top),transparent),transparent 70%),
+  radial-gradient(125% 85% at 50% 135%,color-mix(in srgb,var(--mark-color,var(--accent)) var(--mark-glow),transparent) 0%,color-mix(in srgb,var(--mark-color,var(--accent)) calc(var(--mark-glow) * .6),transparent) 28%,color-mix(in srgb,var(--mark-color,var(--accent)) var(--mark-haze),transparent) 56%,color-mix(in srgb,var(--mark-color,var(--accent)) calc(var(--mark-haze) * .4),transparent) 74%,transparent 94%),var(--map-glass);
  box-shadow:var(--mark-highlight,var(--map-glass-highlight)),var(--map-glass-shadow)}
-/* The marked card's light: dark glass needs little; light glass (white over a light map) needs more to show. */
+/* The marked card's light: dark glass needs little, in the accent; light glass is lit in near-black instead (a green light
+   drowned in green hills and parks), and more faintly, as black shows far more than green on white. */
 :root{--mark-edge-base:var(--map-glass-border);--mark-rim-bottom:35%;--mark-rim:50%;--mark-top:9%;--mark-glow:24%;--mark-haze:7%}
-:root[data-theme=light]{--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:38%;--mark-rim:26%;--mark-top:15%;--mark-glow:46%;--mark-haze:18%}
-@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-rim-bottom:38%;--mark-rim:26%;--mark-top:15%;--mark-glow:46%;--mark-haze:18%}}
+:root[data-theme=light]{--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-color:#11151C;--mark-rim-bottom:30%;--mark-rim:30%;--mark-top:6%;--mark-glow:16%;--mark-haze:5%}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]){--mark-border:rgba(255,255,255,.55);--mark-edge-base:rgba(255,255,255,.85);--mark-highlight:0 0 #0000;--mark-color:#11151C;--mark-rim-bottom:30%;--mark-rim:30%;--mark-top:6%;--mark-glow:16%;--mark-haze:5%}}
 /* The secondary buttons inside the glass cards (주행 지도, 목록에서 보기, ✕): a soft tint only, no outline. */
 .log-map .map-card-actions>button,.log-map-card .map-card-actions>button{border-color:transparent;box-shadow:none}
 /* Phones: the last segment card scrolls clear of the attribution in the corner. The sheet is clear glass over the map:
@@ -1038,24 +1039,13 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 /* The marked card's rim follows its rounded corners: one 1px ring (a masked pseudo-element, like the over-video glass)
    whose top and bottom edges turn accent towards the middle and keep the glass border colour at the sides. */
 .log-map .map-list-row.is-selected::after,.drive-map-body .drive-map-list>.log-row.is-map-marked::after{content:"";position:absolute;inset:-1px;padding:1px;border-radius:14px;pointer-events:none;z-index:1;
- background:linear-gradient(90deg,var(--mark-edge-base) 0%,color-mix(in srgb,var(--accent) var(--mark-rim),var(--mark-edge-base)) 50%,var(--mark-edge-base) 100%) top/100% 50% no-repeat,
-  linear-gradient(90deg,var(--mark-edge-base) 0%,color-mix(in srgb,var(--accent) var(--mark-rim-bottom),var(--mark-edge-base)) 50%,var(--mark-edge-base) 100%) bottom/100% 50% no-repeat;
+ background:linear-gradient(90deg,var(--mark-edge-base) 0%,color-mix(in srgb,var(--mark-color,var(--accent)) var(--mark-rim),var(--mark-edge-base)) 50%,var(--mark-edge-base) 100%) top/100% 50% no-repeat,
+  linear-gradient(90deg,var(--mark-edge-base) 0%,color-mix(in srgb,var(--mark-color,var(--accent)) var(--mark-rim-bottom),var(--mark-edge-base)) 50%,var(--mark-edge-base) 100%) bottom/100% 50% no-repeat;
  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);mask-composite:exclude}
 /* The all-drives list's selected card draws its rim like a drive's segment card: on the 1px border, not 1px inside it
    (a ring inside the transparent border read as a doubled, uneven edge). Only that card stops clipping (its title part
    has no hover tint, so nothing shows past the corners). */
 .log-map .map-list-row.is-selected{overflow:visible;content-visibility:visible}
-/* Light theme: the marked card lifts instead of glowing green (the green glow drowned in green hills and parks): whiter
-   glass, a white rim and a deeper shadow, raised 2px. The marked route line on the map stays green; the dark theme keeps
-   its green glow and rim. */
-:root[data-theme=light] :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child){
- background:rgba(255,255,255,.66);border-color:#fff;box-shadow:0 0 0 .5px rgba(16,24,40,.18),0 10px 26px rgba(16,24,40,.24);transform:translateY(-2px)}
-:root[data-theme=light] :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked)::after{content:none}
-@media(prefers-color-scheme:light){
- :root:not([data-theme=dark]) :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked,.drive-map-body .drive-map-list>.log-row.is-map-marked:first-child){
-  background:rgba(255,255,255,.66);border-color:#fff;box-shadow:0 0 0 .5px rgba(16,24,40,.18),0 10px 26px rgba(16,24,40,.24);transform:translateY(-2px)}
- :root:not([data-theme=dark]) :is(.log-map .map-list-row.is-selected,.drive-map-body .drive-map-list>.log-row.is-map-marked)::after{content:none}
-}
 /* Light theme: the all-drives map often lies under water and woods, which the card glass (36% white, 180% saturation)
    turned into blue and green blotches. Its glass is whiter and barely saturated, so its cards read like a drive's
    segment cards over any map. The drive map itself and the dark theme keep their glass. */

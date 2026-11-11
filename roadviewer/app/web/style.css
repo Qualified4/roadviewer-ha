@@ -286,8 +286,8 @@ button.bookmark-marker{position:absolute;top:17px;transform:translateX(-50%);wid
    top and fading out below, instead of an even outline. Dark keeps the backdrop dimmed so white text holds 4.5:1 over
    any footage. Light follows the page theme except in full screen. Opaque without backdrop-filter or with reduced transparency. */
 .video-wrap{--glass-bg:rgba(18,20,24,.1);--glass-filter:blur(14px) saturate(150%) brightness(.7);--glass-border:transparent;--glass-highlight:none;--glass-shadow:0 2px 8px rgba(0,0,0,.18);--glass-rim:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.04) 45%,rgba(255,255,255,.04));--glass-solid:#1E2126;--hud-text:#F2F4F6;--hud-muted:rgba(242,244,246,.85);--hud-warn:#F8D27A;--hud-line:rgba(255,255,255,.14);--hud-hover:rgba(255,255,255,.10);--hud-focus:#5BE3AE}
-:root[data-theme=light] .camera-panel:not(:fullscreen) .video-wrap{--glass-bg:rgba(255,255,255,.4);--glass-filter:blur(14px) saturate(150%) brightness(1.15);--glass-border:transparent;--glass-highlight:none;--glass-shadow:0 2px 8px rgba(0,0,0,.14);--glass-rim:linear-gradient(180deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,.12) 18%,rgba(16,24,40,.05) 45%,rgba(16,24,40,.04) 70%,rgba(16,24,40,.04) 100%);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#262B35;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}
-@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .camera-panel:not(:fullscreen) .video-wrap{--glass-bg:rgba(255,255,255,.4);--glass-filter:blur(14px) saturate(150%) brightness(1.15);--glass-border:transparent;--glass-highlight:none;--glass-shadow:0 2px 8px rgba(0,0,0,.14);--glass-rim:linear-gradient(180deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,.12) 18%,rgba(16,24,40,.05) 45%,rgba(16,24,40,.04) 70%,rgba(16,24,40,.04) 100%);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#262B35;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}}
+:root[data-theme=light] .camera-panel .video-wrap{--glass-bg:rgba(255,255,255,.4);--glass-filter:blur(14px) saturate(150%) brightness(1.15);--glass-border:transparent;--glass-highlight:none;--glass-shadow:0 2px 8px rgba(0,0,0,.14);--glass-rim:linear-gradient(180deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,.12) 18%,rgba(16,24,40,.05) 45%,rgba(16,24,40,.04) 70%,rgba(16,24,40,.04) 100%);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#262B35;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .camera-panel .video-wrap{--glass-bg:rgba(255,255,255,.4);--glass-filter:blur(14px) saturate(150%) brightness(1.15);--glass-border:transparent;--glass-highlight:none;--glass-shadow:0 2px 8px rgba(0,0,0,.14);--glass-rim:linear-gradient(180deg,rgba(255,255,255,.28) 0%,rgba(255,255,255,.12) 18%,rgba(16,24,40,.05) 45%,rgba(16,24,40,.04) 70%,rgba(16,24,40,.04) 100%);--glass-solid:#F4F5F7;--hud-text:#14171C;--hud-muted:#262B35;--hud-warn:#5C3500;--hud-line:rgba(16,24,40,.12);--hud-hover:rgba(16,24,40,.06);--hud-focus:#0B7A54}}
 .glass,.video-tools .rv-choice-trigger{background:var(--glass-bg);border:1px solid var(--glass-border);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);color:var(--hud-text);text-shadow:none}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.glass,.video-tools .rv-choice-trigger{background:var(--glass-solid)}}
 @media(prefers-reduced-transparency:reduce){.glass,.video-tools .rv-choice-trigger{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
@@ -429,7 +429,7 @@ details[open]:not(.is-closing)>summary>.icon-more .more-dot{opacity:0}details[op
 .video-fullscreen{position:absolute;right:12px;bottom:12px;z-index:3;display:inline-flex;align-items:center;justify-content:center;width:var(--hud-h);height:var(--hud-h);min-height:0;padding:0;border-radius:50%}
 .video-fullscreen .exit,.video-fullscreen.is-active .enter{display:none}.video-fullscreen.is-active .exit{display:block}
 .camera-panel:fullscreen{display:flex;flex-direction:column;width:100%;height:100%;border-radius:0;background:#000}
-.camera-panel:fullscreen .video-wrap{flex:1;min-height:0;aspect-ratio:auto;border-radius:0}
+.camera-panel:fullscreen .video-wrap{flex:1;min-height:0;aspect-ratio:auto;border-radius:0;background:#000}
 /* The frame is layout-free until full screen on a portrait touch screen that refused the landscape lock: then it is
    laid out landscape (screen height wide) and turned a quarter turn clockwise to fill the screen. Dialogs live in the
    top layer, outside the turn, so they are turned the same way. */
@@ -438,8 +438,8 @@ details[open]:not(.is-closing)>summary>.icon-more .more-dot{opacity:0}details[op
 :root.stage-turned dialog[open]{rotate:90deg;max-width:calc(100vh - 32px);max-height:calc(100vw - 32px)}
 /* Touch full screen: no segment strip (its drag-scroll does not work across the turn; the title menu still changes segments). */
 @media(pointer:coarse){.camera-panel:fullscreen .segment-strip{display:none}}
-/* Fullscreen has no page around it, so its transport bar stays dark. */
-.camera-panel:fullscreen .playback{--text:#F2F4F6;--muted:#AEB9C7;--raised:rgba(255,255,255,.06);--raised-hover:rgba(255,255,255,.10);--control-line:rgba(255,255,255,.10);--track:rgba(255,255,255,.08);--track-shadow:none;--accent:#3DCB92;--pin:#F5C451;--drive:#7FB4FF;--takeover:#FF9F5A;--warn:#F5C451;--danger:#FF7A6B;--unconverted:#4A4F58;--ready:#3DCB92;--warn-text:#F5C451;--warn-edge:none;--danger-text:#FF7A6B;--takeover-text:#FF9F5A;--drive-text:#7FB4FF;--nas-text:#B79CFF;--focus:#5BE3AE;--hover:rgba(255,255,255,.10);position:static;width:auto;margin:0;border:0;border-radius:0;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;color:var(--text);color-scheme:dark;background:#11151C}
+/* Fullscreen: the picture stays on black, its controls follow the theme (the transport bar a glass bar over the picture). */
+.camera-panel:fullscreen .playback{position:static;width:auto;margin:0;border:0;border-radius:0;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none;color:var(--text)}
 @container(max-width:520px){.video-tools{top:8px;left:8px;gap:6px;max-width:calc(100% - 128px)}.video-tools,.video-hud,.video-fullscreen{--hud-h:36px}.video-tools .rv-choice-trigger,.overlay-group button{font-size:12px;padding:0 9px}.overlay-group .overlay-label{display:none}.video-hud{top:8px;right:8px;gap:5px}.video-hud .ego-speed{padding:0 10px 0 9px}.video-hud .ego-speed strong{font-size:20px}.video-hud .ego-speed span{padding-top:3px;font-size:10px}.video-hud .steering-status{width:40px;height:40px}.video-hud .steering-status svg{left:-12px;width:64px;height:40px}.steering-badge{padding:0 5px;font-size:9px;line-height:13px}.video-messages{left:8px;bottom:8px;right:52px}.video-fullscreen{right:8px;bottom:8px}}
 @container(max-width:300px){.video-hud .steering-status{display:none}.overlay-group #videoOverlayToggle>span:last-child{display:none}}
 /* Transport bar: a glass pane floating at the bottom of the viewport, as wide as the page content. Playback is per segment.
@@ -801,8 +801,8 @@ select,.rv-choice-trigger{font-weight:500}
 .replay-page.layout-stacked .camera-panel:not(:fullscreen){box-shadow:var(--surface-shadow)}
 /* Notices over the video (status, overlay and log warnings) are thinner than the controls so more of the picture shows. */
 .video-wrap .video-messages>:is(p,span).glass{--glass-bg:rgba(18,20,24,.05)}
-:root[data-theme=light] .camera-panel:not(:fullscreen) .video-messages>:is(p,span).glass{--glass-bg:rgba(255,255,255,.3)}
-@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .camera-panel:not(:fullscreen) .video-messages>:is(p,span).glass{--glass-bg:rgba(255,255,255,.3)}}
+:root[data-theme=light] .camera-panel .video-messages>:is(p,span).glass{--glass-bg:rgba(255,255,255,.3)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .camera-panel .video-messages>:is(p,span).glass{--glass-bg:rgba(255,255,255,.3)}}
 /* The gradient rim of the over-video glass: a 1px ring cut out with a mask (content-box minus border-box); choice
    triggers draw it with ::before because their ::after is the chevron. */
 .video-wrap :is(.overlay-group,.video-messages>*,.video-tools .rv-choice-trigger,.video-title .app-title-button,.video-title .log-neighbors .icon-button){position:relative}
@@ -827,7 +827,9 @@ select,.rv-choice-trigger{font-weight:500}
    glass). While playing it hides with the other video controls; a touch shows them all, another touch hides them;
    paused, everything stays. The bottom-left chips and the full-screen button sit just above the bar. */
 .camera-panel:fullscreen{position:relative}
-.camera-panel:fullscreen .playback{position:absolute;left:0;right:0;bottom:0;z-index:5;background:rgba(11,14,19,.72);-webkit-backdrop-filter:blur(16px) saturate(140%);backdrop-filter:blur(16px) saturate(140%);padding-bottom:calc(12px + env(safe-area-inset-bottom));transition:opacity .18s var(--m2-standard,ease)}
+.camera-panel:fullscreen .playback{position:absolute;left:0;right:0;bottom:0;z-index:5;background:var(--fs-bar,rgba(11,14,19,.72));-webkit-backdrop-filter:blur(16px) saturate(140%);backdrop-filter:blur(16px) saturate(140%);padding-bottom:calc(12px + env(safe-area-inset-bottom));transition:opacity .18s var(--m2-standard,ease)}
+:root[data-theme=light] .camera-panel:fullscreen{--fs-bar:rgba(246,247,249,.92)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .camera-panel:fullscreen{--fs-bar:rgba(246,247,249,.92)}}
 .replay-page.hud-idle .camera-panel:fullscreen .playback{opacity:0;pointer-events:none;transition-duration:.3s}
 .camera-panel:fullscreen :is(.video-tools,.video-fullscreen){bottom:calc(var(--transport-height,130px) + 12px)}
 .camera-panel:fullscreen .video-messages{bottom:calc(var(--transport-height,130px) + var(--hud-h) + 20px)}

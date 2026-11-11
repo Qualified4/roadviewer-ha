@@ -288,7 +288,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
      t.state=()=>{
       let car=null;map.eachLayer(l=>{if(l.options?.icon?.options?.className==='map-car')car=l.getLatLng()});
       const box=m.getBoundingClientRect(),c=gl.getCanvas().getBoundingClientRect(),q=gl.project([car.lng,car.lat]),b=m.querySelector('.map-car-body').getBoundingClientRect(),at=[b.left+b.width/2,b.top+b.height/2];
-      const line=Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{if(!p.getTotalLength())return [Infinity];const M=p.getScreenCTM();return [p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())].map(r=>Math.hypot(r.x*M.a+r.y*M.c+M.e-at[0],r.x*M.b+r.y*M.d+M.f-at[1]))}));
+      const line=Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{if(!p.getTotalLength())return [Infinity];const M=p.getScreenCTM();return (p.style.strokeDasharray?[p.getPointAtLength(parseFloat(p.style.strokeDasharray))]:[p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())]).map(r=>Math.hypot(r.x*M.a+r.y*M.c+M.e-at[0],r.x*M.b+r.y*M.d+M.f-at[1]))}));
       return {base:Math.hypot(c.left+q.x-at[0],c.top+q.y-at[1]),line,layer:map.rvGlLayer.options.padding,lines:map.options.renderer.options.padding,margin:map.rvMargin,
        basemapCovers:inside(c,box),linesCover:inside(m.querySelector('.leaflet-overlay-pane svg').getBoundingClientRect(),box),renders:t.renders,redraws:t.redraws};
      };
@@ -416,7 +416,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await small('portrait');
    // The car (smaller here than on the big map) sits on the line's end: its body centred on the marker's anchor.
    {const d=await mini.evaluate(m=>{const b=m.querySelector('.map-car-body').getBoundingClientRect(),c=[b.left+b.width/2,b.top+b.height/2];
-     return Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{const M=p.getScreenCTM();return [p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())].map(q=>Math.hypot(q.x*M.a+q.y*M.c+M.e-c[0],q.x*M.b+q.y*M.d+M.f-c[1]))}))});
+     return Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{const M=p.getScreenCTM();return (p.style.strokeDasharray?[p.getPointAtLength(parseFloat(p.style.strokeDasharray))]:[p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())]).map(q=>Math.hypot(q.x*M.a+q.y*M.c+M.e-c[0],q.x*M.b+q.y*M.d+M.f-c[1]))}))});
     assert(d<=1,'car on the line: '+d)}
    // Smooth following. The car's place on the map (car centre minus the map pane's on-screen origin, both including
    // the sub-pixel translates) moves on every frame of playback by a fraction of a pixel, never a whole-pixel jump; the
@@ -439,19 +439,22 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
      const writes={label:0,total:0,note:0,bookmark:0},watch=(target,key,options)=>new MutationObserver(records=>{writes[key]+=records.length}).observe(target,options);
      watch(time,'label',{attributes:true});watch(time.querySelector('.time-total'),'total',{childList:true,characterData:true,subtree:true});
      watch(document.getElementById('noVideo'),'note',{childList:true,characterData:true,subtree:true,attributes:true});watch(document.querySelector('.bookmark-time'),'bookmark',{childList:true,characterData:true,subtree:true});
+     // The current segment's lines are drawn once: only the travelled line's dash moves with the car.
+     const paths=[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')],d0=paths.map(p=>p.getAttribute('d')),dashes=new Set();
      const out=[],play=document.getElementById('play');play.click();const started=performance.now();
-     const step=()=>{const a=pane.getBoundingClientRect(),b=body.getBoundingClientRect();out.push([b.left+b.width/2-a.left,b.top+b.height/2-a.top]);
-      if(performance.now()-started<1000)requestAnimationFrame(step);else{play.click();setTimeout(()=>resolve({out,writes}))}};
+     const step=()=>{const a=pane.getBoundingClientRect(),b=body.getBoundingClientRect();out.push([b.left+b.width/2-a.left,b.top+b.height/2-a.top]);dashes.add(m.querySelector('path.map-travelled').style.strokeDasharray);
+      if(performance.now()-started<1000)requestAnimationFrame(step);else{play.click();setTimeout(()=>resolve({out,writes,redrawn:paths.filter((p,i)=>!p.isConnected||p.getAttribute('d')!==d0[i]).length,paths:paths.length,dashes:dashes.size}))}};
      requestAnimationFrame(step);
     }));
     const steps=run.out.slice(1).map((p,i)=>Math.hypot(p[0]-run.out[i][0],p[1]-run.out[i][1])),moved=steps.filter(d=>d>.001).length,biggest=Math.max(...steps);
     const fractional=run.out.filter(p=>p.some(v=>Math.abs(v-Math.round(v))>.05)).length;
     assert(biggest<1&&moved>=steps.length*.6&&fractional>=run.out.length/3,'smooth: '+JSON.stringify({frames:run.out.length,moved,biggest,fractional}));
+    assert(run.paths===2&&run.redrawn===0&&run.dashes>=run.out.length/3,'the segment drawn once, its dash following: '+JSON.stringify({paths:run.paths,redrawn:run.redrawn,dashes:run.dashes,frames:run.out.length}));
     assert(run.writes.label<=4&&run.writes.total===0&&run.writes.note<=2&&run.writes.bookmark<=2,'per-frame DOM writes: '+JSON.stringify(run.writes))}
    // Following scrolls what is drawn: over 2 s of playback the small map's basemap (MapLibre) draws at most twice (it is
    // panned and redrawn only when the car nears the edge of its drawn margin), and on every frame the basemap, the lines
    // and the car stay together: the car's centre is where MapLibre places its position, and the current lines end there
-   // (within a pixel; the lines' end, on whole pixels and moved 10 times a second, within 1.5). Stepping on (paused) until
+   // (within a pixel: the travelled line is dashed up to the car). Stepping on (paused) until
    // the basemap is re-centred: together (within a pixel) just before and just after, the car
    // still in its place on the map.
    // The replay maps draw up to their margin (1: a full size) beyond each edge, as much as keeps the basemap canvas within 4000 device
@@ -466,7 +469,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
      window.rvTestAlign=()=>{
       let car=null;map.eachLayer(l=>{if(l.options?.icon?.options?.className==='map-car')car=l.getLatLng()});
       const c=gl.getCanvas().getBoundingClientRect(),q=gl.project([car.lng,car.lat]),b=m.querySelector('.map-car-body').getBoundingClientRect(),at=[b.left+b.width/2,b.top+b.height/2],box=m.getBoundingClientRect();
-      const line=Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{const M=p.getScreenCTM();return [p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())].map(r=>Math.hypot(r.x*M.a+r.y*M.c+M.e-at[0],r.x*M.b+r.y*M.d+M.f-at[1]))}));
+      const line=Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{const M=p.getScreenCTM();return (p.style.strokeDasharray?[p.getPointAtLength(parseFloat(p.style.strokeDasharray))]:[p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())]).map(r=>Math.hypot(r.x*M.a+r.y*M.c+M.e-at[0],r.x*M.b+r.y*M.d+M.f-at[1]))}));
       return {base:Math.hypot(c.left+q.x-at[0],c.top+q.y-at[1]),line,place:Math.hypot(at[0]-(box.left+box.width/2),at[1]-(box.top+box.height*.6)),drawn:m.querySelector('.leaflet-gl-layer').style.transform};
      };
     });
@@ -476,7 +479,7 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
      const step=()=>{out.push(window.rvTestAlign());if(performance.now()-started<2000)requestAnimationFrame(step);else{play.click();resolve({frames:out.length,renders:window.rvTestSmall.renders-from,base:Math.max(...out.map(a=>a.base)),line:Math.max(...out.map(a=>a.line)),place:Math.max(...out.map(a=>a.place))})}};
      requestAnimationFrame(step);
     }));
-    assert(run.frames>30&&run.renders<=2&&run.base<=1&&run.line<=1.5&&run.place<=1,'scrolled, together: '+JSON.stringify(run));
+    assert(run.frames>30&&run.renders<=2&&run.base<=1&&run.line<=1&&run.place<=1,'scrolled, together: '+JSON.stringify(run));
     let last=await page.evaluate(()=>window.rvTestAlign()),recentred=null;
     for(let s=6;s<=29&&!recentred;s++){await seek(s);await frame();const now=await page.evaluate(()=>window.rvTestAlign());if(now.drawn!==last.drawn)recentred=[last,now];else last=now}
     assert(recentred&&recentred.every(a=>a.base<=1&&a.line<=1&&a.place<=1),'re-centred, together: '+JSON.stringify(recentred))}

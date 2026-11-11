@@ -605,9 +605,6 @@
   // 작은 지도 색상: 자동 (app theme) | 라이트 | 다크, kept on this browser.
   const toneSwitch=document.getElementById('videoMiniMapTone'),TONE_KEY='roadviewer-minimap-tone';
   let miniTone='auto';try{const saved=localStorage.getItem(TONE_KEY);if(['auto','light','dark'].includes(saved))miniTone=saved}catch{}
-  // Full screen (the video on black, the controls dark): 자동 takes the dark map too; 라이트 and 다크 stay as chosen.
-  const fullscreen=()=>!!document.fullscreenElement?.contains(mini);
-  document.addEventListener('fullscreenchange',()=>{for(const map of maps)if(map.getContainer().closest('#videoMap'))applyTiles(map)});
   const showTone=()=>{for(const b of toneSwitch.querySelectorAll('button'))b.setAttribute('aria-pressed',String(b.dataset.tone===miniTone))};showTone();
   toneSwitch.addEventListener('click',event=>{const b=event.target.closest('button[data-tone]');if(!b||b.dataset.tone===miniTone)return;miniTone=b.dataset.tone;showTone();try{localStorage.setItem(TONE_KEY,miniTone)}catch{}for(const map of maps)if(map.getContainer().closest('#videoMap'))applyTiles(map)});
   // 글자 없는 지도: the small map without place and road names (the style's symbol layers hidden); saved with the
@@ -671,8 +668,11 @@
     const line=L.polyline(latlngs(segment.points),{color:i<current?done:rest,weight:5,opacity:i<current?.95:.45,lineCap:'round',lineJoin:'round',interactive}).addTo(map);
     if(interactive)line.on('click',e=>seekTo(e.latlng));(i<current?lines.before:lines.after).push(line);
    });
-   lines.ahead=L.polyline([],{color:rest,weight:5,opacity:.45,lineCap:'round',interactive,className:'map-current'}).addTo(map);
-   lines.behind=L.polyline([],{color:done,weight:6,opacity:.95,lineCap:'round',lineJoin:'round',interactive,className:'map-current'}).addTo(map);
+   // The current segment, drawn whole once: faded, and over it solid, its stroke dashed up to the car (draw). Kept
+   // unclipped and unsimplified, so the drawn points are the samples (the dash is measured along them) and never change.
+   const whole={noClip:true,smoothFactor:0,lineCap:'round',lineJoin:'round',interactive};
+   lines.ahead=L.polyline([],{...whole,color:rest,weight:5,opacity:.45,className:'map-current'}).addTo(map);
+   lines.behind=L.polyline([],{...whole,color:done,weight:6,opacity:.95,className:'map-current map-travelled'}).addTo(map);
    if(interactive)for(const line of [lines.ahead,lines.behind])line.on('click',e=>seekTo(e.latlng));
    lines.car=L.marker([0,0],{icon:carIcon(L),interactive:false,keyboard:false}).addTo(map);
    return lines;
@@ -701,7 +701,7 @@
   async function ensureSmall(){
    if(small||!route)return;
    const L=await loadLeaflet().catch(()=>null);if(!L||small)return;
-   const map=createMap(L,mini.querySelector('.video-map-canvas'),{margin:SMALL_MARGIN,zoom:false,interactive:false,tone:()=>miniTone==='auto'?(fullscreen()?'dark':null):miniTone,labels:()=>!miniPlain.checked,grey:()=>miniGrey.checked,attribution:SHORT_ATTRIBUTION});
+   const map=createMap(L,mini.querySelector('.video-map-canvas'),{margin:SMALL_MARGIN,zoom:false,interactive:false,tone:()=>miniTone==='auto'?null:miniTone,labels:()=>!miniPlain.checked,grey:()=>miniGrey.checked,attribution:SHORT_ATTRIBUTION});
    small={map,lines:layers(L,map,false)};watchView(small);fitSmall();
    // Refit when the map or the speed and wheel over it change size (the speed appears once the replay has data).
    {const watch=new ResizeObserver(()=>{if(small&&!mini.hidden&&!resizing)fitSmall()});watch.observe(mini);watch.observe(hud)}
@@ -794,15 +794,16 @@
   function setFollow(on){if(!on&&big)settle(big);following=on;follow.setAttribute('aria-pressed',String(on));follow.classList.toggle('is-off',!on);if(on)update(true);else if(big)shiftPane(big,'')}
   follow.onclick=()=>setFollow(!following);
   function draw(target,pos,force){
-   const {lines,map}=target,points=route[current].points,now=pos.latlng,clock=performance.now(),span=pos.from+':'+pos.to;
-   // The current segment's two lines: rebuilt when the car passes a sample, otherwise only their shared end follows
-   // the car, at most 10 times a second (it sits under the car).
-   const rebuild=force||lines.span!==span;
-   if(rebuild){lines.span=span;lines.behindPoints=[...latlngs(points.slice(0,pos.from+1)),now];lines.aheadPoints=[now,...latlngs(points.slice(pos.to))]}
-   if(rebuild||clock-lines.drawn>=100){
-    if(!rebuild){lines.behindPoints[lines.behindPoints.length-1]=now;lines.aheadPoints[0]=now}
-    lines.behind.setLatLngs(lines.behindPoints);lines.ahead.setLatLngs(lines.aheadPoints);lines.drawn=clock;lines.stale=false;
-   }else lines.stale=true;
+   const {lines,map}=target,points=route[current].points,now=pos.latlng;
+   // The current segment is drawn once; as the car moves only the travelled line's dash grows (to the car's place
+   // along the drawn samples), so the line is never projected, rounded or simplified again under the car.
+   if(force||lines.points!==points){lines.points=points;const path=latlngs(points);lines.ahead.setLatLngs(path);lines.behind.setLatLngs(path)}
+   const parts=lines.behind._parts?.[0],el=lines.behind.getElement?.();
+   if(el&&parts?.length===points.length){
+    if(lines.cum?.parts!==parts){const cum=[0];for(let i=1;i<parts.length;i++)cum.push(cum[i-1]+parts[i].distanceTo(parts[i-1]));lines.cum={parts,cum}}
+    const cum=lines.cum.cum,dash=(cum[pos.from]+(cum[pos.to]-cum[pos.from])*pos.k).toFixed(2)+' 1000000';
+    if(lines.dash!==dash||el.style.strokeDasharray===''){lines.dash=dash;el.style.strokeDasharray=dash}
+   }
    // The marker sits on Leaflet's whole pixel; its body takes the remaining fraction and the heading.
    lines.car.setLatLng(now);const body=lines.car.getElement()?.querySelector('.map-car-body');
    if(body){const p=map.project(now,map.getZoom()),transform=`translate(${(p.x-Math.round(p.x)).toFixed(3)}px,${(p.y-Math.round(p.y)).toFixed(3)}px) rotate(${pos.bearing.toFixed(2)}deg)`;if(lines.transform!==transform){lines.transform=transform;body.style.transform=transform}}
@@ -811,9 +812,8 @@
   function update(force=false){
    if(!route||current<0||typeof t==='undefined')return;
    const pos=position(t),key=pos.index+':'+pos.k.toFixed(4),moved=force||key!==lastKey;lastKey=key;
-   // Unmoved, a line end held back by the 10 Hz limit still catches up with the car.
-   if(big&&mode==='map'&&(moved||big.lines.stale))draw(big,pos,force);
-   if(small&&!mini.hidden&&(moved||small.lines.stale))draw(small,pos,force);
+   if(big&&mode==='map'&&moved)draw(big,pos,force);
+   if(small&&!mini.hidden&&moved)draw(small,pos,force);
   }
   // Follows playback: one cheap check per frame while a map is shown.
   const loop=()=>{if(route&&current>=0&&hasVideo()!==miniVideo)syncMini();if((big&&mode==='map')||(small&&!mini.hidden))update();requestAnimationFrame(loop)};requestAnimationFrame(loop);

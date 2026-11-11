@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.7
+
+- In the light theme the selected map card returns to the dark theme's top-and-bottom light, drawn in near-black so it no longer drowns in green hills and parks (the dark theme and the selected route line stay green).
+- The replay maps draw the current segment's line once and only lengthen its travelled part as the car moves, so the line around the car no longer jitters.
+- Log replay in full screen follows the screen theme instead of always dark (transport bar, buttons and small map; the area around the picture stays black).
+
 ## 1.2.6
 
 - Pinning now only prevents permanent deletion: pinned segments are archived to Drive/NAS like the others (automatic, manual and capacity runs; capacity moves take pinned segments last). Local quota deletion, NAS cleanup and bulk delete still skip them, and Drive/NAS copies are never deleted automatically. Pinned segments that were only copied to Drive have their local originals cleaned up on the next move.
