@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.5
+
+- On phones, raising the drive map's bottom list moves the marked-segment bar smoothly with the sheet and fades it out in place (no jump, no sinking).
+- Opening the drive map focuses its title instead of the back button, so no focus ring shows; this targets the Android app, where the sheet's handle could not be dragged in that state.
+- Log map view (light theme): the drive list cards use whiter, calmer glass so they read like the drive map's segment cards over water and woods, the selected card's rim no longer looks doubled, and the selected card's bottom rim is a little stronger again.
+
 ## 1.2.4
 
 - On phones, raising or lowering the drive map's bottom list no longer refits the map to the marked segment; the map only moves when a card is tapped.

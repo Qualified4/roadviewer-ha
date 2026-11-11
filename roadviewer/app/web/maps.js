@@ -364,7 +364,8 @@
   function syncSegmentCard(){
    const log=driveMarked&&driveGroup?.logs.find(l=>l.id===driveMarked);
    let folded=false;try{folded=driveFolded()}catch{}  // Not yet defined while the screen is being set up.
-   const out=wide.matches?folded:snap<0,show=!!log&&drive.open&&out;
+   // Phones: the pill shows while the cards are away; the class (not the snap) also follows a drag in progress.
+   const out=wide.matches?folded:driveBody.classList.contains('is-sheet-hidden'),show=!!log&&drive.open&&out;
    showPill(segmentCard,show);if(!show)return;
    const n=logRoute(log).segment,date=logDate(log),end=date&&Number.isFinite(log.duration)?new Date(date.getTime()+log.duration*1000):null;
    segmentCard.querySelector('.map-card-title').textContent=`구간 ${n??'—'}`+(date?` · ${shortClock(date)}${end?'–'+shortClock(end):''}`:'');
@@ -405,7 +406,9 @@
    const startY=event.clientY,startH=sheet.getBoundingClientRect().height,total=driveBody.clientHeight;let moved=false;
    driveBody.classList.add('is-dragging');
    const floor=parseFloat(handleOnly());
-   const move=e=>{const dy=e.clientY-startY;if(Math.abs(dy)>4)moved=true;const h=Math.max(floor,Math.min(SNAPS.at(-1)*total,startH-dy));driveBody.style.setProperty('--sheet-h',h+'px');driveBody.classList.toggle('is-sheet-hidden',h<SNAPS[0]*total*.6)};
+   const move=e=>{const dy=e.clientY-startY;if(Math.abs(dy)>4)moved=true;const h=Math.max(floor,Math.min(SNAPS.at(-1)*total,startH-dy));driveBody.style.setProperty('--sheet-h',h+'px');
+    // The cards coming back (or going away) mid-drag: the segment pill leaves (or returns) right then, not on release.
+    const hide=h<SNAPS[0]*total*.6;if(hide!==driveBody.classList.contains('is-sheet-hidden')){driveBody.classList.toggle('is-sheet-hidden',hide);syncSegmentCard()}};
    const end=()=>{
     handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',end);handle.removeEventListener('pointercancel',end);
     driveBody.classList.remove('is-dragging');
