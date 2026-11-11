@@ -540,13 +540,10 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .log-route{--route-r:14px;--fold-shadow:1;position:relative;isolation:isolate;contain:layout style}
 .log-route:has(.recording-more[open]){z-index:3}
 /* Cards off screen skip layout and paint (content-visibility), so a fold, which changes the list's height every frame,
-   only lays out what is visible: on a phone-speed CPU with 30 cards the fold went from about 35 to 60 fps. This also
-   clips what overflows the card, so the clip reaches 48px past it (overflow-clip-margin): the fold's drawn outline and
-   shadow (0 12px 32px) stay whole. The folding card keeps it: lifting it for the fold and restoring it at the end made
-   Android's WebView redraw the card and others, which showed for a frame as a blank card or thumbnail. A card with an
-   open menu is still left out (the menu reaches further). The placeholder height is replaced by each card's real
-   height once it has been seen. */
-.log-route:not(:has(.recording-more[open])){content-visibility:auto;contain-intrinsic-size:auto 160px;overflow-clip-margin:48px}
+   only lays out what is visible: on a phone-speed CPU with 30 cards the fold went from about 35 to 60 fps. The folding
+   card and one with an open menu are left out, because this also clips whatever overflows the card (the fold's drawn
+   outline and shadows, the menu). The placeholder height is replaced by each card's real height once it has been seen. */
+.log-route:not(.is-folding):not(:has(.recording-more[open])){content-visibility:auto;contain-intrinsic-size:auto 160px}
 /* The divider is a colour property so a fold can fade it (disclosure.js) instead of it popping in and out with [open]. */
 @property --divider{syntax:'<color>';inherits:false;initial-value:transparent}
 .log-route>summary{position:relative;z-index:1;background:var(--surface);box-shadow:var(--surface-highlight),inset 0 -1px 0 var(--divider)}

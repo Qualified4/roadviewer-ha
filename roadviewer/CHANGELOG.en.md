@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.10
+
+- Reverts 1.2.9's log list fold change (the flashes stayed and the unfold motion stuttered).
+
 ## 1.2.9
 
 - On phones the 지도 view's map fills down to just above the tab bar (it was short on tall devices such as a Fold, under the Home Assistant header, the search and the filters).
