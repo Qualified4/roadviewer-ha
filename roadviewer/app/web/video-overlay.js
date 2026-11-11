@@ -63,9 +63,11 @@
   }
   return target.x.toFixed(1)+'m';
  }
+ // The stage size, read when it changes (ResizeObserver below) rather than after the DOM writes of every draw.
+ let stageSize=null;const measureStage=()=>{const box=layer.parentElement;stageSize=[box.clientWidth,box.clientHeight]};
  window.renderVideoOverlay=(frame,available)=>{
   const height=currentHeight();boxAnimating=false;
-  const w=layer.parentElement.clientWidth,h=layer.parentElement.clientHeight,dpr=devicePixelRatio||1;
+  if(!stageSize)measureStage();const [w,h]=stageSize,dpr=devicePixelRatio||1;
   if(layer.width!==Math.round(w*dpr)||layer.height!==Math.round(h*dpr)){layer.width=Math.round(w*dpr);layer.height=Math.round(h*dpr)}
   context.setTransform(dpr,0,0,dpr,0,0);context.clearRect(0,0,w,h);
   layer.hidden=(!enabled&&!fade)||video.hidden;status.textContent='';
@@ -273,7 +275,7 @@
  for(const id of ['ccncBoxHeight','ccncOpacity','modelPathWidth','bsdHeight'])document.getElementById(id+'Reset').onclick=()=>{
   const input=document.getElementById(id);input.value=input.defaultValue;input.dispatchEvent(new Event('input',{bubbles:true}));
  };
- new ResizeObserver(()=>render()).observe(layer.parentElement);
+ new ResizeObserver(()=>{measureStage();render()}).observe(layer.parentElement);
  video.addEventListener('loadedmetadata',()=>render());
  render();
 })();

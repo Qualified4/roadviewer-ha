@@ -4,6 +4,15 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.6
+
+- Pinning now only prevents permanent deletion: pinned segments are archived to Drive/NAS like the others (automatic, manual and capacity runs; capacity moves take pinned segments last). Local quota deletion, NAS cleanup and bulk delete still skip them, and Drive/NAS copies are never deleted automatically. Pinned segments that were only copied to Drive have their local originals cleaned up on the next move.
+- The replay's small map and 지도 tab move the car smoothly instead of in whole-pixel steps, with a smoothly turning heading. The maps draw a generous margin and scroll it while following (hardly any redraws); a pinch on the 지도 tab draws a narrow margin, and a one-finger drag slides what is drawn.
+- With reduced motion, a pinch ending exactly on a zoom step no longer leaves the basemap frozen out of place.
+- The replay page writes its time, progress, bookmark labels and graph measurements only when they change and skips drawing hidden tabs and panels.
+- On phones a tap on the drive map's handle folds and unfolds the sheet (hidden ↔ the middle height); dragging still settles on three heights.
+- Light theme: the selected map card lifts in white instead of a green glow, so it stands out over green hills (the selected route line stays green; dark theme unchanged).
+
 ## 1.2.5
 
 - On phones, raising the drive map's bottom list moves the marked-segment bar smoothly with the sheet and fades it out in place (no jump, no sinking).

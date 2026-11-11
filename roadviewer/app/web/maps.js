@@ -56,11 +56,33 @@
  // Asked once; the probe's context is released right away (phones allow only a few).
  let hasWebgl=null;
  const webgl=()=>hasWebgl??=(()=>{try{const canvas=document.createElement('canvas'),gl=canvas.getContext('webgl2')||canvas.getContext('webgl');gl?.getExtension('WEBGL_lose_context')?.loseContext();return !!gl}catch{return false}})();
+ const GL_SIDE=4000;  // the drawn basemap canvas's longest side, in device pixels, for the margins below
  // tone: a function giving 'light' or 'dark' to override the app theme; labels: a function, false to hide the style's
  // place and road names (its symbol layers); grey: a function, true for the grey style (tone, labels, grey: the small
- // map's own choices; other maps follow the page's 회색 지도 and 글자 숨기기 buttons).
- function createMap(L,container,{zoom=true,interactive=true,attribution=ATTRIBUTION,tone=null,labels=null,grey=null}={}){
-  const map=L.map(container,{zoomControl:false,attributionControl:true,dragging:interactive,touchZoom:interactive,scrollWheelZoom:interactive,doubleClickZoom:interactive,boxZoom:interactive,keyboard:interactive,tap:interactive,zoomSnap:.25,maxZoom:19,fadeAnimation:!reduced(),zoomAnimation:!reduced(),markerZoomAnimation:!reduced()});
+ // map's own choices; other maps follow the page's 회색 지도 and 글자 숨기기 buttons). margin: the share of the map's
+ // size drawn beyond each edge, by the basemap (the plugin's padding) and the route lines (the SVG renderer's padding),
+ // for the maps that follow the car by scrolling what is drawn (the replay's); the others keep the defaults (0.1).
+ function createMap(L,container,{zoom=true,interactive=true,attribution=ATTRIBUTION,tone=null,labels=null,grey=null,margin=null}={}){
+  const map=L.map(container,{zoomControl:false,attributionControl:true,dragging:interactive,touchZoom:interactive,scrollWheelZoom:interactive,doubleClickZoom:interactive,boxZoom:interactive,keyboard:interactive,tap:interactive,zoomSnap:.25,maxZoom:19,fadeAnimation:!reduced(),zoomAnimation:!reduced(),markerZoomAnimation:!reduced(),...(margin?{renderer:L.svg({padding:margin})}:{})});
+  map.rvMargin=margin||0;map.rvMarginMax=margin||0;
+  // margin is the most asked for: each side gets as much of it as keeps the drawn canvas within GL_SIDE device pixels on
+  // its longer side (MapLibre and phone GPUs stop at 4096; beyond, the map blurs or is cut), never under the default 0.1.
+  // A phone's 지도 tab gets the full 0.5; a tablet's or a desktop's large map, or the small map enlarged on a big
+  // screen, a share that fits. Set again on every resize (Leaflet's resize runs this before the plugin redraws).
+  // map.rvNarrow (the 지도 tab during a hand zoom): the default 0.1, as MapLibre redraws the whole canvas each frame.
+  if(margin){
+   const fit=()=>{const size=map.getSize(),side=Math.max(size.x,size.y)*Math.min(window.devicePixelRatio||1,2);
+    const share=map.rvNarrow?.1:side>0?Math.max(.1,Math.min(margin,(GL_SIDE/side-1)/2)):margin;map.rvMargin=share;
+    if(map.options.renderer)map.options.renderer.options.padding=share;if(map.rvGlLayer)map.rvGlLayer.options.padding=share;};
+   map.rvFitMargin=fit;map.on('resize',()=>{fit();map.options.renderer?._update?.()});
+  }
+  // Leaflet 1.9.4 without zoom animation (reduced motion) moves the zoom along with the fingers during a pinch, so when
+  // the pinch ends its final view (_resetView) sees no zoom change and fires no zoomend after the zoomstart: the basemap
+  // plugin, waiting for it, stayed frozen out of place (and the 지도 tab's narrow margin with it). A move that ends with a
+  // zoom still open, no zoom animation and no pinch in progress closes it.
+  let zoomOpen=false;
+  map.on('zoomstart',()=>{zoomOpen=true}).on('zoomend',()=>{zoomOpen=false})
+   .on('moveend',()=>{if(zoomOpen&&!map._animatingZoom&&!map.touchZoom?._zooming)map.fire('zoomend')});
   map.attributionControl.setPrefix(false);
   const tiles=()=>tone?.()||theme(),plain=()=>labels?!labels():bare,isGrey=()=>grey?grey():simple,tileKey=()=>tiles()+(isGrey()?'-grey':'')+(plain()?'-nolabels':'');
   container.classList.add('rv-map');container.dataset.tiles=tiles();container.dataset.tileKey=tileKey();map.rvTiles=tiles;map.rvTileKey=tileKey;map.rvPlain=plain;map.rvGrey=isGrey;map.rvOwn=!!(labels||grey);maps.add(map);
@@ -70,10 +92,14 @@
   // still drawn, on the plain background.
   map.rvGl=null;map.rvSymbols=[];
   if(webgl()){
-   const layer=L.maplibreGL({attributionControl:{customAttribution:attribution},pixelRatio:Math.min(window.devicePixelRatio||1,2),fadeDuration:reduced()?0:300,renderWorldCopies:false});
-   layer.once('add',()=>{map.rvGl=layer.getMaplibreMap();map.rvGl.on('styledata',()=>showLabels(map,false));setStyle(map)});
+   const layer=L.maplibreGL({attributionControl:{customAttribution:attribution},pixelRatio:Math.min(window.devicePixelRatio||1,2),fadeDuration:reduced()?0:300,renderWorldCopies:false,...(margin?{padding:margin}:{})});
+   // The plugin redraws on every Leaflet move (throttled); map.rvHold (a hand drag of the 지도 tab while its margin
+   // still covers) skips that: what is drawn moves with the map pane, re-centred by the caller.
+   layer._throttledUpdate=L.Util.throttle(function(e){if(!map.rvHold?.())this._update(e)},layer.options.updateInterval,layer);
+   map.rvGlLayer=layer;layer.once('add',()=>{map.rvGl=layer.getMaplibreMap();map.rvGl.on('styledata',()=>showLabels(map,false));setStyle(map)});
    layer.addTo(map);
   }
+  map.rvFitMargin?.();  // the basemap layer exists now: its padding too
   if(zoom){L.control.zoom({position:'topright',zoomInTitle:'확대',zoomOutTitle:'축소'}).addTo(map);simpleControl(L).addTo(map)}
   compactCredit(L,map,container);
   new ResizeObserver(()=>{if(container.isConnected)map.invalidateSize({animate:false})}).observe(container);
@@ -412,13 +438,16 @@
    const end=()=>{
     handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',end);handle.removeEventListener('pointercancel',end);
     driveBody.classList.remove('is-dragging');
-    if(!moved){setSnap(snap<0||snap===SNAPS.length-1?0:snap+1);return}
+    if(!moved){toggleSheet();return}
     const share=sheet.getBoundingClientRect().height/total;if(share<SNAPS[0]*.6){setSnap(-1);return}
     let best=0;SNAPS.forEach((value,i)=>{if(Math.abs(value-share)<Math.abs(SNAPS[best]-share))best=i});setSnap(best);
    };
    handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',end);handle.addEventListener('pointercancel',end);
   });
-  handle.addEventListener('click',e=>{if(e.detail===0&&!wide.matches)setSnap(snap<0||snap===SNAPS.length-1?0:snap+1)});
+  // A tap (or Enter/Space) folds and unfolds like a disclosure: hidden -> the middle height, shown at any height -> hidden.
+  // Dragging still settles on any of the three heights; the arrow keys still step through them.
+  function toggleSheet(){setSnap(snap<0?1:-1)}
+  handle.addEventListener('click',e=>{if(e.detail===0&&!wide.matches)toggleSheet()});
   const driveFolded=foldable(driveBody.querySelector('.drive-map-fold'),driveBody,'roadviewer-drive-list-folded',()=>syncSegmentCard());  // Folding keeps the map where it is.
   handle.addEventListener('keydown',e=>{const step={ArrowUp:1,ArrowDown:-1}[e.key];if(step&&!wide.matches){e.preventDefault();setSnap(snap+step)}});
   // Closing goes through history, so the system back, the header's back button and Escape all end the same way.
@@ -612,15 +641,26 @@
    syncMini();
   }
   window.addEventListener('rv:analysistab',e=>{const next=e.detail==='map'?'map':'road';if(next!==mode)setMode(next)});
-  // Position at replay time t: between this segment's 1 Hz points; bearing from the receiver or the path itself.
+  // Position at replay time t: between this segment's 1 Hz points. A held sample (the receiver repeating its last fix
+  // once while the car moves) is passed over, so the car does not stop for a second and then jump twice as far. The
+  // heading turns between the two samples' bearings the short way round (each from the receiver, or the path itself
+  // where it gave none).
+  const same=(p,q)=>!!p&&!!q&&p[1]===q[1]&&p[2]===q[2];
+  const held=(points,j)=>j>0&&j<points.length-1&&same(points[j-1],points[j])&&!same(points[j-2],points[j-1])&&!same(points[j],points[j+1])&&!(Number.isFinite(points[j][3])&&points[j][3]<.5);
+  function heading(points,j){
+   const p=points[j];if(Number.isFinite(p[4]))return p[4];
+   const [from,to]=j<points.length-1&&!same(p,points[j+1])?[p,points[j+1]]:[points[Math.max(0,j-1)],p];
+   return same(from,to)?null:Math.atan2((to[2]-from[2])*Math.cos(p[1]*Math.PI/180),to[1]-from[1])*180/Math.PI;
+  }
   function position(time){
    const points=route[current].points;let i=0;
    while(i<points.length-1&&points[i+1][0]<=time)i++;
-   const a=points[i],b=points[Math.min(i+1,points.length-1)],span=b[0]-a[0],k=span>0?Math.max(0,Math.min(1,(time-a[0])/span)):0;
-   const lat=a[1]+(b[1]-a[1])*k,lon=a[2]+(b[2]-a[2])*k;
-   let bearing=a[4];
-   if(bearing===null||bearing===undefined){const [from,to]=b!==a?[a,b]:[points[Math.max(0,i-1)],a];bearing=Math.atan2((to[2]-from[2])*Math.cos(lat*Math.PI/180),to[1]-from[1])*180/Math.PI}
-   return {latlng:[lat,lon],bearing:Number.isFinite(bearing)?bearing:0,index:i,k};
+   let from=i,to=Math.min(i+1,points.length-1);
+   if(held(points,to))to++;else if(held(points,from))from--;
+   const a=points[from],b=points[to],span=b[0]-a[0],k=span>0?Math.max(0,Math.min(1,(time-a[0])/span)):0;
+   const lat=a[1]+(b[1]-a[1])*k,lon=a[2]+(b[2]-a[2])*k,ha=heading(points,from),hb=heading(points,to);
+   const bearing=ha!==null&&hb!==null?ha+(((hb-ha)%360+540)%360-180)*k:ha??hb??0;
+   return {latlng:[lat,lon],bearing:Number.isFinite(bearing)?(bearing%360+360)%360:0,index:i,k,from,to};
   }
   const carIcon=L=>L.divIcon({className:'map-car',html:'<span class="map-car-body"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3 19 20 12 16 5 20Z"/></svg></span>',iconSize:[28,28],iconAnchor:[14,14]});
   // The drive's lines: travelled solid, the rest faded. Only the large map seeks on a tap (interactive).
@@ -640,16 +680,29 @@
   async function ensureBig(){
    if(big||!route)return;
    const L=await loadLeaflet().catch(e=>{showError(e.message);return null});if(!L||big)return;
-   const map=createMap(L,view.querySelector('.route-map-canvas'));big={map,lines:layers(L,map)};
+   const map=createMap(L,view.querySelector('.route-map-canvas'),{margin:BIG_MARGIN});big={map,lines:layers(L,map)};
    const bounds=L.latLngBounds(route.flatMap(segment=>latlngs(segment.points)));
    map.fitBounds(bounds,{padding:[24,24],animate:false,maxZoom:17});
-   map.on('dragstart',()=>setFollow(false));lastKey='';update(true);
+   map.on('dragstart',()=>setFollow(false));watchView(big);lastKey='';update(true);
+   map.rvHold=()=>!!big?.held;map.on('dragstart',()=>{big.held=true;big.anchor=dragAnchor(map)}).on('move',()=>dragMove(big)).on('moveend',()=>{if(big.held){big.held=false;recentre(big)}});
+   map.on('zoomstart',()=>{if(performance.now()<(big.eager||0))narrow(big)}).on('zoomstart zoom zoomend',()=>{if(map.rvNarrow)narrow(big)});
+   // A touch, click, wheel or key on the map first folds the scroll into Leaflet's own view (one pan, the translate
+   // back under a pixel), and for a moment after it the map pans by every whole pixel again: a drag, a zoom (buttons,
+   // pinch, wheel, keys) and a tap's place (seeking on a line) then work on what is shown.
+   const box=map.getContainer();
+   // A zoom by hand (two fingers, the wheel, the buttons, +/-, a box zoom; a double tap or click through zoomstart)
+   // narrows the margin first, before Leaflet's own handlers.
+   for(const type of ['pointerdown','touchstart','mousedown','wheel','keydown','dblclick'])box.addEventListener(type,e=>{if(e.touches)big.touches=e.touches.length;if(zoomInput(e))narrow(big);big.eager=performance.now()+800;settle(big)},{capture:true,passive:true});
+   for(const type of ['touchmove','touchend','touchcancel'])box.addEventListener(type,e=>{big.touches=e.touches.length;if(type==='touchmove'&&e.touches.length>=2&&map.rvNarrow)narrow(big)},{capture:true,passive:true});
   }
+  // A zoom (buttons, wheel, pinch) is left to Leaflet; following picks up again when it ends, and after a resize.
+  // The basemap's sub-pixel alignment also follows Leaflet's own moves (a drag with 따라가기 off, a zoom, a resize).
+  function watchView(target){target.map.on('zoomstart',()=>{target.zooming=true}).on('zoomend',()=>{target.zooming=false;lastKey=''}).on('resize',()=>{target.eager=performance.now()+300;lastKey=''}).on('move zoomend resize',()=>alignBasemap(target))}
   async function ensureSmall(){
    if(small||!route)return;
    const L=await loadLeaflet().catch(()=>null);if(!L||small)return;
-   const map=createMap(L,mini.querySelector('.video-map-canvas'),{zoom:false,interactive:false,tone:()=>miniTone==='auto'?(fullscreen()?'dark':null):miniTone,labels:()=>!miniPlain.checked,grey:()=>miniGrey.checked,attribution:SHORT_ATTRIBUTION});
-   small={map,lines:layers(L,map,false)};fitSmall();
+   const map=createMap(L,mini.querySelector('.video-map-canvas'),{margin:SMALL_MARGIN,zoom:false,interactive:false,tone:()=>miniTone==='auto'?(fullscreen()?'dark':null):miniTone,labels:()=>!miniPlain.checked,grey:()=>miniGrey.checked,attribution:SHORT_ATTRIBUTION});
+   small={map,lines:layers(L,map,false)};watchView(small);fitSmall();
    // Refit when the map or the speed and wheel over it change size (the speed appears once the replay has data).
    {const watch=new ResizeObserver(()=>{if(small&&!mini.hidden&&!resizing)fitSmall()});watch.observe(mini);watch.observe(hud)}
   }
@@ -662,26 +715,105 @@
    lastKey='';update(true);
   }
   const SMALL_ZOOM=16,CAR_Y=.6;
-  function centerCar(latlng){
-   const map=small.map,size=map.getSize(),point=map.latLngToContainerPoint(latlng);
-   const dx=point.x-size.x/2,dy=point.y-size.y*CAR_Y;
-   if(Math.abs(dx)>.5||Math.abs(dy)>.5)map.panBy([dx,dy],{animate:false});
+  // Following (the small map always, the 지도 tab with 따라가기) scrolls what is already drawn: the basemap and the lines
+  // are drawn a margin beyond each edge, and the car's movement is a translate of the map pane (the basemap, the lines
+  // and the car move together, sub-pixel, on the compositor), with no pan and no redraw. Only once the car has gone
+  // RECENTRE of the margin (either way) is the map panned once by the whole pixels and the basemap re-centred and drawn
+  // in the same frame (MapLibre's synchronous redraw), the translate falling back under a pixel: what is shown does not
+  // move. At 45 km/h (zoom 16, ~7 px/s) that is one redraw every 5-7 s instead of one per pixel (7-9 a second).
+  // The margins, a share of the size per side: memory buys fewer redraws (speed first). Both maps draw a full size
+  // beyond each edge, (1+2*1)^2 = 9x the shown area (~1100 px a side for the small map and ~2300 for the 지도 tab on a
+  // phone, tens of MB), so following redraws about every 10 s (small map) or 20 s (지도 tab) at 45 km/h. A hand zoom
+  // redraws the whole canvas each frame, so the 지도 tab narrows the margin for it (narrow); a hand drag scrolls what is
+  // drawn like following (dragMove). createMap lowers the margin where the canvas would pass GL_SIDE (large maps on
+  // tablets and desktops).
+  const SMALL_MARGIN=1,BIG_MARGIN=1,RECENTRE=.65;
+  // eager (and for a moment after an input or a resize): pan by every whole pixel, Leaflet's own view kept on what is shown.
+  function followCar(target,latlng,share,eager=performance.now()<(target.eager||0)){
+   const {map}=target,pane=map.getPane('mapPane'),size=map.getSize(),reach=eager?0:RECENTRE*map.rvMargin;
+   const at=()=>map.project(latlng,map.getZoom())._subtract(map.getPixelOrigin())._add(window.L.DomUtil.getPosition(pane));
+   let p=at(),dx=p.x-size.x/2,dy=p.y-size.y*share;target.follow={latlng,share};
+   if(Math.abs(dx)>Math.max(.5,reach*size.x)||Math.abs(dy)>Math.max(.5,reach*size.y)){
+    map.panBy([Math.round(dx),Math.round(dy)],{animate:false});redrawBasemap(map);p=at();dx=p.x-size.x/2;dy=p.y-size.y*share;
+   }
+   shiftPane(target,`${(-dx).toFixed(3)}px ${(-dy).toFixed(3)}px`);alignBasemap(target);
   }
-  function setFollow(on){following=on;follow.setAttribute('aria-pressed',String(on));follow.classList.toggle('is-off',!on);if(on)update(true)}
+  // The basemap exactly under the lines, by a sub-pixel translate of its canvas: the plugin puts the canvas on a whole
+  // pixel, though its margin (a share of the size) can end in a half, and centres MapLibre on getCenter(), which until
+  // the first pan after a setView or a zoom is the centre asked for, not the one Leaflet drew from (its pixel origin is
+  // rounded). With a pan on every pixel neither showed; scrolling for seconds between pans, both would.
+  function alignBasemap(target,force=false){
+   const {map}=target,box=map.rvGlLayer?.getContainer?.();if(!box||(target.held&&!force))return;  // held: what is drawn moves with the pane
+   const size=map.getSize(),zoom=map.getZoom(),p=map.containerPointToLayerPoint([0,0]).subtract(size.multiplyBy(map.rvGlLayer.options.padding));
+   const c=map.project(map.getCenter(),zoom).subtract(map.getPixelOrigin()).subtract(map.containerPointToLayerPoint(size.divideBy(2)));
+   const value=`${(p.x-Math.round(p.x)+c.x).toFixed(3)}px ${(p.y-Math.round(p.y)+c.y).toFixed(3)}px`;
+   if(target.align!==value){target.align=value;box.style.translate=value}
+  }
+  // Leaflet's view brought to what is shown (the translate back under a pixel).
+  function settle(target){if(target.follow&&target.shift&&!target.zooming&&(target===small||following))followCar(target,target.follow.latlng,target.follow.share,true)}
+  function shiftPane(target,value){if(target.shift===value)return;target.shift=value;target.map.getPane('mapPane').style.translate=value}
+  function redrawBasemap(map,force=false){  // Still loading: MapLibre draws on its own frame.
+   const layer=map.rvGlLayer,zooming=layer?._zooming;
+   try{if(force&&layer)layer._zooming=false;layer?._update?.();map.rvGl?.redraw?.()}catch{}finally{if(layer)layer._zooming=zooming}
+  }
+  // A hand zoom on the 지도 tab (pinch, wheel, double tap, +/-, the buttons, a box zoom) redraws the whole basemap canvas
+  // every frame, its cost following the canvas's area (a full margin each side: 9x the shown area, ~70 ms a frame on a
+  // phone). From the gesture's start until ZOOM_HOLD after its last input (and Leaflet's zoom animation) the margin is
+  // the default 0.1, then the full margin again: each a single resize and redraw, the shown area unmoved.
+  const ZOOM_HOLD=1000,ZOOM_KEYS=new Set(['+','=','-','_']);
+  const zoomInput=e=>e.type==='wheel'||e.type==='dblclick'||(e.type==='touchstart'&&e.touches.length>=2)||(e.type==='keydown'&&ZOOM_KEYS.has(e.key))||
+   (e.type==='mousedown'&&e.shiftKey)||(e.type==='pointerdown'&&!!e.target?.closest?.('.leaflet-control-zoom'));
+  function narrow(target){
+   const {map}=target;clearTimeout(target.widen);target.widen=setTimeout(()=>widen(target),ZOOM_HOLD);
+   if(map.rvNarrow||map._animatingZoom)return;map.rvNarrow=true;setMargin(target);
+  }
+  function widen(target){
+   const {map}=target;
+   if(target.zooming||map._animatingZoom||target.held||target.touches>=2){target.widen=setTimeout(()=>widen(target),ZOOM_HOLD/4);return}
+   if(map.rvNarrow){map.rvNarrow=false;setMargin(target)}
+  }
+  // The basemap's and the lines' margin set again (createMap's fit), the canvas resized and drawn once around the view.
+  function setMargin(target){
+   const {map}=target,layer=map.rvGlLayer;map.rvFitMargin?.();
+   try{if(layer?._container&&layer._glMap){layer._resizeContainer();layer._glMap.resize()}}catch{}
+   recentre(target,true);
+  }
+  // A hand drag (and its inertia) moves the map pane, and with it what is drawn: the basemap is re-centred (and the
+  // lines clipped again) only once the pane has moved RECENTRE of the margin since, and when the map comes to rest.
+  function dragAnchor(map){const o=map.rvGlLayer?._offset;return o?window.L.point(-o.x,-o.y):window.L.DomUtil.getPosition(map.getPane('mapPane'))}
+  function dragMove(target){
+   if(!target.held||target.zooming)return;
+   const {map}=target,p=window.L.DomUtil.getPosition(map.getPane('mapPane')),a=target.anchor,size=map.getSize(),reach=RECENTRE*map.rvMargin;
+   if(!a||Math.abs(p.x-a.x)>reach*size.x||Math.abs(p.y-a.y)>reach*size.y)recentre(target);
+  }
+  function recentre(target,force=false){
+   const {map}=target;if(target.zooming&&!force)return;
+   redrawBasemap(map,force);map.options.renderer?._update?.();
+   target.anchor=window.L.DomUtil.getPosition(map.getPane('mapPane'));alignBasemap(target,true);
+  }
+  function setFollow(on){if(!on&&big)settle(big);following=on;follow.setAttribute('aria-pressed',String(on));follow.classList.toggle('is-off',!on);if(on)update(true);else if(big)shiftPane(big,'')}
   follow.onclick=()=>setFollow(!following);
-  function draw(target,pos,moved){
-   const {lines,map}=target,points=route[current].points,now=pos.latlng;
-   lines.behind.setLatLngs([...latlngs(points.slice(0,pos.index+1)),now]);
-   lines.ahead.setLatLngs([now,...latlngs(points.slice(pos.index+1))]);
-   lines.car.setLatLng(now);const body=lines.car.getElement()?.querySelector('.map-car-body');if(body)body.style.transform=`rotate(${pos.bearing}deg)`;
-   if(moved&&target===small)centerCar(now);else if(moved&&following)map.panTo(now,{animate:false});
+  function draw(target,pos,force){
+   const {lines,map}=target,points=route[current].points,now=pos.latlng,clock=performance.now(),span=pos.from+':'+pos.to;
+   // The current segment's two lines: rebuilt when the car passes a sample, otherwise only their shared end follows
+   // the car, at most 10 times a second (it sits under the car).
+   const rebuild=force||lines.span!==span;
+   if(rebuild){lines.span=span;lines.behindPoints=[...latlngs(points.slice(0,pos.from+1)),now];lines.aheadPoints=[now,...latlngs(points.slice(pos.to))]}
+   if(rebuild||clock-lines.drawn>=100){
+    if(!rebuild){lines.behindPoints[lines.behindPoints.length-1]=now;lines.aheadPoints[0]=now}
+    lines.behind.setLatLngs(lines.behindPoints);lines.ahead.setLatLngs(lines.aheadPoints);lines.drawn=clock;lines.stale=false;
+   }else lines.stale=true;
+   // The marker sits on Leaflet's whole pixel; its body takes the remaining fraction and the heading.
+   lines.car.setLatLng(now);const body=lines.car.getElement()?.querySelector('.map-car-body');
+   if(body){const p=map.project(now,map.getZoom()),transform=`translate(${(p.x-Math.round(p.x)).toFixed(3)}px,${(p.y-Math.round(p.y)).toFixed(3)}px) rotate(${pos.bearing.toFixed(2)}deg)`;if(lines.transform!==transform){lines.transform=transform;body.style.transform=transform}}
+   if(!target.zooming&&(target===small||following))followCar(target,now,target===small?CAR_Y:.5);
   }
   function update(force=false){
    if(!route||current<0||typeof t==='undefined')return;
-   const pos=position(t),key=pos.index+':'+pos.k.toFixed(3);
-   if(!force&&key===lastKey)return;lastKey=key;
-   if(big&&mode==='map')draw(big,pos,true);
-   if(small&&!mini.hidden)draw(small,pos,true);
+   const pos=position(t),key=pos.index+':'+pos.k.toFixed(4),moved=force||key!==lastKey;lastKey=key;
+   // Unmoved, a line end held back by the 10 Hz limit still catches up with the car.
+   if(big&&mode==='map'&&(moved||big.lines.stale))draw(big,pos,force);
+   if(small&&!mini.hidden&&(moved||small.lines.stale))draw(small,pos,force);
   }
   // Follows playback: one cheap check per frame while a map is shown.
   const loop=()=>{if(route&&current>=0&&hasVideo()!==miniVideo)syncMini();if((big&&mode==='map')||(small&&!mini.hidden))update();requestAnimationFrame(loop)};requestAnimationFrame(loop);

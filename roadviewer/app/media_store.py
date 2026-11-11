@@ -688,8 +688,9 @@ class Archiver:
         return job
 
     # --- 'Archive everything eligible' (manual). The same cycle lock and per-file engine as the scheduled cycle,
-    # repeated until nothing eligible is left: no batch and no local threshold. The minimum age stays, and in move
-    # mode pinned recordings are left out (pins keep their local files). Nothing on the remote side is ever deleted.
+    # repeated until nothing eligible is left: no batch and no local threshold. The minimum age stays; pinned
+    # recordings are archived like the others (a pin protects from deletion, not from moving). Nothing on the
+    # remote side is ever deleted.
 
     def _job_path(self): return Path(self.server.ROOT) / MANUAL_JOB
 
@@ -725,7 +726,7 @@ class Archiver:
     def manual_plan(self):
         # What a manual run would process now, for the confirmation; reads only the local index and files.
         s, now, moving = self.server, time.time(), self.moves_local()
-        excluded = {'min_age': 0, 'pinned': 0, 'not_ready': 0}
+        excluded = {'min_age': 0, 'not_ready': 0}
         files = recordings = size = 0
         with s.lock: active = set(s.processes)
         for p in s.recording_paths():
@@ -737,9 +738,6 @@ class Archiver:
             uploaded = m.get('uploaded')
             if m.get('status') != 'ready' or p.name in active: excluded['not_ready'] += 1; continue
             if not isinstance(uploaded, (int, float)) or now - uploaded < self.settings.min_age_seconds: excluded['min_age'] += 1; continue
-            if moving:
-                with s.lock: pinned = bool(s.storage_policy.pinned(m))
-                if pinned: excluded['pinned'] += 1; continue
             recordings += 1; files += len(found); size += sum(n for _, n in found)
         s_ = self.settings
         return dict(backend=s_.backend, mode='move' if moving else 'copy', configured_mode='move' if not self.remote else s_.mode,
@@ -900,7 +898,10 @@ class Archiver:
         if enough(): return 'space_available'
         failure = self._remote_state()
         if failure: return self._failed(failure)
-        for p, meta in self.candidates():
+        # Pinned recordings move too, but only after every other candidate (a stable sort keeps the upload order).
+        rows = self.candidates()
+        with self.server.lock: rows.sort(key=lambda row: bool(self.server.storage_policy.pinned(row[1])))
+        for p, meta in rows:
             if not eligible(meta): continue
             for kind in ARCHIVE_ORDER:
                 if enough(): return 'space_available'
@@ -950,14 +951,10 @@ class Archiver:
         return reason
 
     def _archive(self, result):
-        # A manual run (manual_active) has no batch limit, leaves pinned recordings local in move mode, counts each
-        # file in its job and goes on after a copy that did not verify (that file stays local, marked or retried).
+        # A manual run (manual_active) has no batch limit, counts each file in its job and goes on after a copy that
+        # did not verify (that file stays local, marked or retried). Pinned recordings are archived like the others.
         s, manual = self.server, self.manual_active
-        moving = manual and self.moves_local()
         for p, meta in self.candidates():
-            if moving:
-                with s.lock: pinned = bool(s.storage_policy.pinned(meta))
-                if pinned: continue
             for kind in ARCHIVE_ORDER:
                 if not manual and result['archived'] >= self.settings.batch: return None
                 if location(meta, kind) != 'local': continue
@@ -1595,12 +1592,11 @@ class Archiver:
 
     def _done_remotely(self, meta, kind):
         # A local file the remote path leaves alone: one whose upload did not verify waits for attention (it would
-        # be uploaded again every cycle); in copy mode one with a verified copy is done; in move mode a pinned
-        # recording keeps its local file next to its copy.
+        # be uploaded again every cycle); in copy mode one with a verified copy is done. In move mode a pinned
+        # recording is moved like any other (a pin protects from deletion, not from moving).
         if entry(meta, kind).get('error') == 'remote_mismatch': return True
         if remote(meta, kind) is None: return False
-        if self.settings.effective_mode == 'copy': return True
-        with self.server.lock: return bool(self.server.storage_policy.pinned(meta))
+        return self.settings.effective_mode == 'copy'
 
     def _ref(self, block):
         from archive_backends import RemoteRef  # archive_backends imports this module.
@@ -1697,13 +1693,13 @@ class Archiver:
             self.reason = 'hash_mismatch'
             return False
         # 5./6. Under the lock: the recording is still the one hashed, the index is committed (fsync'd), and only
-        # then, in move mode with deleting allowed and nothing protecting or reading it, the local file goes.
-        # Otherwise only the copy is recorded (design §2.6: protected files are copied, not moved).
+        # then, in move mode with deleting allowed and nothing reading it, the local file goes (pinned ones too: a pin
+        # protects from deletion, not from moving). Otherwise only the copy is recorded.
         with s.lock:
             current = self._unchanged(p, kind, revision, stat)
             if current is None: return False  # The copy on Drive is adopted by find() if the content comes back.
             move = (self.settings.effective_mode == 'move' and self.settings.allow_local_delete and current.get('status') == 'ready'
-                    and p.name not in s.processes and not s.storage_policy.pinned(current) and (move_guard is None or move_guard(current)))
+                    and p.name not in s.processes and (move_guard is None or move_guard(current)))
             md5 = ref.md5 or md5
             if move: set_location(current, kind, location='gdrive', file_id=ref.file_id, bytes=size, sha256=sha256, md5=md5, archived_at=time.time())
             else:
@@ -1892,7 +1888,7 @@ class Archiver:
                 current, now = s.read_meta(p), local.stat()
                 if ((now.st_size, now.st_mtime_ns) == (stat.st_size, stat.st_mtime_ns) and entry(current, kind) == e
                         and current.get('conversion_revision', 0) == m.get('conversion_revision', 0) and current.get('status') == 'ready'
-                        and p.name not in s.processes and not s.storage_policy.pinned(current)): local.unlink()
+                        and p.name not in s.processes): local.unlink()
             except (OSError, ValueError): pass
 
     def _recheck_missing_remote(self):

@@ -108,7 +108,7 @@
   stopZoom();tab=panes[next]&&!panes[next][0].hidden?next:'road';
   for(const [name,[button,pane]] of Object.entries(panes)){const show=name===tab;pane.hidden=!show;button.setAttribute('aria-selected',String(show));button.tabIndex=show?0:-1}
   if(save)try{localStorage.setItem(tabKey,tab)}catch{}
-  placeIndicator();void load();render();
+  placeIndicator();measured=false;void load();render();
   window.dispatchEvent(new CustomEvent('rv:analysistab',{detail:tab}));
  }
  window.selectAnalysisTab=selectTab;
@@ -149,13 +149,13 @@
   canvas.addEventListener('keydown',e=>{if(!data||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();e.stopPropagation();const range=domain();setTime(e.key==='Home'?range[0]:e.key==='End'?range[1]:t+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?1:.1));last=performance.now()});
  }
  function rebuild(){
-  scroll.replaceChildren();cards.clear();
+  scroll.replaceChildren();cards.clear();cardWatch.disconnect();measured=false;
   for(const graph of graphs.filter(g=>selected.has(g.id))){
    const card=document.createElement('section');card.className='telemetry-chart';card.dataset.graph=graph.id;
    const title=document.createElement('h3');title.textContent=graph.title+(graph.unit?' · '+graph.unit:'');
    const legend=document.createElement('div');legend.className='telemetry-legend';const labels=graph.lines.map((s,i)=>{const label=document.createElement('span');label.style.color=`var(--chart-${i%colors.length+1})`;legend.append(label);return label});
    const plot=document.createElement('div');plot.className='telemetry-plot';const canvas=document.createElement('canvas');canvas.tabIndex=0;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',graph.title+' 시간축 그래프. 클릭 또는 좌우 방향키로 재생 위치 이동');
-   const cursor=document.createElement('div');cursor.className='telemetry-cursor';cursor.setAttribute('aria-hidden','true');plot.append(canvas,cursor);const note=document.createElement('p');note.className='telemetry-source-note';note.hidden=true;card.append(title,legend,plot,note);scroll.append(card);cards.set(graph.id,{graph,card,canvas,cursor,labels,note,noteKey:null,cache:''});installSeeking(canvas);
+   const cursor=document.createElement('div');cursor.className='telemetry-cursor';cursor.setAttribute('aria-hidden','true');plot.append(canvas,cursor);const note=document.createElement('p');note.className='telemetry-source-note';note.hidden=true;card.append(title,legend,plot,note);scroll.append(card);cards.set(graph.id,{graph,card,canvas,cursor,labels,note,noteKey:null,cache:''});installSeeking(canvas);cardWatch.observe(card);
   }
   if(!selected.size){const empty=document.createElement('p');empty.textContent='선택된 그래프가 없습니다. 그래프 선택에서 항목을 켜 주세요.';scroll.append(empty)}
   update();
@@ -189,9 +189,9 @@
  }
  function update(){
   if(data&&loadedKey!==(data.key||location.pathname)&&(tab==='telemetry'||!loading)){void load();if(tab==='telemetry')return}
-  if(tab!=='telemetry')return;
+  if(tab!=='telemetry'||!analysisOnScreen)return;  // app.js draws again when the panel comes back on screen
   initialPreviewTimes.clear();
-  for(const summary of summaries){const value=current(summary.series);summary.value.textContent=summary.series.key==='steeringPressed'?(value===null?'확인 불가':value?'개입':'없음'):format(value,summary.unit)}
+  for(const summary of summaries){const value=current(summary.series);put(summary.value,summary.series.key==='steeringPressed'?(value===null?'확인 불가':value?'개입':'없음'):format(value,summary.unit))}
   if(!payload)return;
   if(zoomMotion){
    const {from,target,began}=zoomMotion,duration=Math.max(.001,data.duration),width=target??duration;
@@ -203,22 +203,31 @@
   }
   let range=domain();
   if(!zoomMotion&&!gesture&&(span!==null||t<range[0]||t>range[1])){start=t-(range[1]-range[0])/2;range=domain()}
-  $('graphTime').textContent=clock(t)+' · '+range[0].toFixed(1)+'–'+range[1].toFixed(1)+'s';
-  const bounds=scroll.getBoundingClientRect();
+  put($('graphTime'),clock(t)+' · '+range[0].toFixed(1)+'–'+range[1].toFixed(1)+'s');
+  // The cards' widths and which of them are in view are measured after a resize or a scroll, not on every frame.
+  if(!measured){
+   measured=true;const bounds=scroll.getBoundingClientRect();
+   for(const card of cards.values()){const r=card.canvas.getBoundingClientRect();card.width=r.width;card.inView=!(r.bottom<bounds.top||r.top>bounds.bottom||r.width<1)}
+  }
   for(const card of cards.values()){
-   card.graph.lines.forEach((s,i)=>{const value=current(s),states=card.graph.booleanLabels;card.labels[i].textContent=s.label+': '+(states&&typeof value==='boolean'?states[Number(value)]:format(value,'',card.graph.precision||2))});
+   card.graph.lines.forEach((s,i)=>{const value=current(s),states=card.graph.booleanLabels;put(card.labels[i],s.label+': '+(states&&typeof value==='boolean'?states[Number(value)]:format(value,'',card.graph.precision||2)))});
    if(card.noteKey!==loadedKey){
     const missing=[],zero=[];
     for(const source of card.graph.lines){const samples=series(source).values.filter(valid);if(!samples.length)missing.push(source.label);else if(card.graph.checkZero&&samples.every(value=>value===0))zero.push(source.label)}
-    card.note.textContent=[card.graph.note,missing.length?missing.join('·')+': 이 로그에 유효한 기록 없음':null,zero.length?zero.join('·')+': 기록값이 모두 0입니다. 실제 0인지 미기록 기본값인지 구분할 수 없습니다.':null].filter(Boolean).join(' ');card.note.hidden=!card.note.textContent;card.noteKey=loadedKey;
+    card.note.textContent=[card.graph.note,missing.length?missing.join('·')+': 이 로그에 유효한 기록 없음':null,zero.length?zero.join('·')+': 기록값이 모두 0입니다. 실제 0인지 미기록 기본값인지 구분할 수 없습니다.':null].filter(Boolean).join(' ');card.note.hidden=!card.note.textContent;card.noteKey=loadedKey;measured=false;
    }
-   const r=card.canvas.getBoundingClientRect();if(r.bottom<bounds.top||r.top>bounds.bottom||r.width<1)continue;
-   const cache=[r.width,devicePixelRatio,range[0],range[1]].join(':');if(cache!==card.cache){draw(card,range,r.width);card.cache=cache}
-   card.cursor.hidden=t<range[0]||t>range[1];card.cursor.style.left=(48+(t-range[0])/(range[1]-range[0])*Math.max(1,r.width-56))+'px';
+   if(!card.inView)continue;
+   const width=card.width,cache=[width,devicePixelRatio,range[0],range[1]].join(':');if(cache!==card.cache){draw(card,range,width);card.cache=cache}
+   const hidden=t<range[0]||t>range[1],transform=`translateX(${(48+(t-range[0])/(range[1]-range[0])*Math.max(1,width-56)).toFixed(2)}px)`;
+   if(card.cursor.hidden!==hidden)card.cursor.hidden=hidden;if(card.cursorAt!==transform){card.cursorAt=transform;card.cursor.style.transform=transform}
   }
   const preview=[...initialPreviewTimes];
-  status.textContent=preview.length?'시작 데이터 미리보기 · '+Math.min(...preview).toFixed(3)+(preview.length>1?'–'+Math.max(...preview).toFixed(3):'')+'초의 첫 유효값':'';
+  put(status,preview.length?'시작 데이터 미리보기 · '+Math.min(...preview).toFixed(3)+(preview.length>1?'–'+Math.max(...preview).toFixed(3):'')+'초의 첫 유효값':'');
  }
+ const put=(element,text)=>{if(element.textContent!==text)element.textContent=text};
+ let measured=false,remeasureFrame=0;
+ // A card that changes height (its legend wraps, a note appears) moves the ones below it: measured again next frame.
+ const cardWatch=new ResizeObserver(()=>{measured=false;if(!remeasureFrame)remeasureFrame=requestAnimationFrame(()=>{remeasureFrame=0;update()})});
  function zoom(factor){
   if(!payload)return;
   const range=domain(),duration=data.duration,current=zoomMotion?(zoomMotion.target??duration):range[1]-range[0];
@@ -228,7 +237,7 @@
  $('graphZoomIn').onclick=()=>zoom(.5);$('graphZoomOut').onclick=()=>zoom(2);$('graphReset').onclick=()=>zoom(null);
  $('retryTelemetry').onclick=()=>{failedKey=null;void load()};
  window.addEventListener('rv:themechange',()=>{readChartInk();renderEvents();for(const card of cards.values())card.cache='';update()});
- scroll.addEventListener('scroll',update,{passive:true});new ResizeObserver(update).observe(scroll);
+ {const remeasure=()=>{measured=false;update()};scroll.addEventListener('scroll',remeasure,{passive:true});new ResizeObserver(remeasure).observe(scroll)}
  const dialog=$('graphDialog'),opener=$('chooseGraphs');let oldOverflow='',dialogOpen=false;
  const options=$('graphOptions'),rows=new Map();let drag=null,dragFrame=0;
  function arrangeOptions(){
@@ -287,5 +296,5 @@
  $('graphDialogClose').onclick=close;dialog.addEventListener('cancel',e=>{e.preventDefault();close()});dialog.addEventListener('close',()=>{if(!dialog.open)finishClose()});
  dialog.onclick=e=>{if(e.target!==dialog)return;const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()};
  window.renderTelemetry=update;rebuild();selectTab(tab,false);
- document.fonts.ready.then(()=>{for(const card of cards.values())card.cache=null;if(scroll.isConnected)update()});
+ document.fonts.ready.then(()=>{for(const card of cards.values())card.cache=null;measured=false;if(scroll.isConnected)update()});
 })();

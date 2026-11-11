@@ -188,11 +188,13 @@ class GdriveArchiverTests(unittest.TestCase):
         with patch.object(Path, 'unlink', unlink), patch.object(media_store, 'atomic_json', side_effect=committed):
             self.assertEqual(archiver.run_cycle()['archived'], 1)
         self.assertEqual(seen, ['gdrive']); self.assertEqual(commits[-1], 'gdrive'); self.assertFalse((p / 'fcamera.mp4').exists())
-        # Pinned or converting recordings are copied instead of moved.
+        # A pinned recording is moved too (a pin protects from deletion, not from moving) and stays pinned.
         q = self.log('b' * 32, ['fcamera.mp4'])
         with patch.object(server.storage_policy, 'settings', {**server.storage_policy.settings, 'pinned_logs': [q.name]}):
             self.assertEqual(archiver.run_cycle()['archived'], 1)
-        self.assert_copied(q, 'fcamera.mp4')
+            self.assertTrue(server.storage_policy.pinned(server.read_meta(q)))
+        self.assertEqual(media_store.location(server.read_meta(q), 'fcamera.mp4'), 'gdrive'); self.assertFalse((q / 'fcamera.mp4').exists())
+        self.assertEqual(self.requests('DELETE'), [])
 
     def test_resume_after_restart_from_308(self):
         data = random.Random(1).randbytes(3 * 2**20 + 123)
@@ -309,11 +311,11 @@ class GdriveArchiverTests(unittest.TestCase):
 
     def test_remote_404_is_dynamic_missing_only(self):
         p = self.log('a' * 32, ['fcamera.mp4'])
+        self.archiver(mode='move', allow_local_delete=True).run_cycle()
         q = self.log('b' * 32, ['fcamera.mp4'])
-        with patch.object(server.storage_policy, 'settings', {**server.storage_policy.settings, 'pinned_logs': [q.name]}):
-            self.archiver(mode='move', allow_local_delete=True).run_cycle()
+        self.archiver().run_cycle()  # Copy mode for the later recording.
         self.assertEqual(media_store.location(server.read_meta(p), 'fcamera.mp4'), 'gdrive')  # Moved.
-        self.assertIsNotNone(media_store.remote(server.read_meta(q), 'fcamera.mp4'))  # Pinned: copied.
+        self.assertIsNotNone(media_store.remote(server.read_meta(q), 'fcamera.mp4'))  # Copied.
         for file_id in self.files():  # Both gone from Drive (deleted by hand); the folder stays.
             with self.drive.lock: del self.drive.files[file_id]
         before = {r: self.meta_bytes(r) for r in (p, q)}
@@ -323,8 +325,9 @@ class GdriveArchiverTests(unittest.TestCase):
         self.assertEqual({r: self.meta_bytes(r) for r in (p, q)}, before)
         self.assertTrue((q / 'fcamera.mp4').is_file())
         self.assertEqual(media_store.resolve(p, server.read_meta(p), 'fcamera.mp4', None, self.backend)[1], 'missing')
-        with patch.object(server.storage_policy, 'settings', {**server.storage_policy.settings, 'pinned_logs': [q.name]}):
-            archiver.run_cycle()
+        # In copy mode (a move would upload q's local original again, as it would for any missing copy).
+        object.__setattr__(archiver.settings, 'mode', 'copy')
+        archiver.run_cycle()
         self.assertEqual({r: self.meta_bytes(r) for r in (p, q)}, before); self.assertEqual(archiver.status()['missing_archived'], 2)
 
     def test_pending_delete_uses_backend_delete_and_refuses_foreign(self):
@@ -397,11 +400,19 @@ class GdriveArchiverTests(unittest.TestCase):
 
     def test_recovery_keeps_local_file_when_protected_or_copy_mode(self):
         p, _ = self.moved_with_local()
-        for fields, pinned in (({}, False), ({'mode': 'move'}, False), ({'mode': 'move', 'allow_local_delete': True}, True)):
+        for fields, busy in (({}, False), ({'mode': 'move'}, False), ({'mode': 'move', 'allow_local_delete': True}, True)):
             archiver = self.archiver(**fields); archiver.held_checked = True
-            with patch.object(server.storage_policy, 'settings', {**server.storage_policy.settings, 'pinned_logs': [p.name] if pinned else []}):
-                archiver.recover_startup()
+            if busy: server.processes[p.name] = object()
+            try: archiver.recover_startup()
+            finally: server.processes.pop(p.name, None)
             self.assertTrue(archiver.recovered); self.assertTrue((p / 'fcamera.mp4').is_file())
+        # A pin does not keep the leftover: it protects from deletion, not from moving. The pin and the copy stay.
+        archiver = self.archiver(mode='move', allow_local_delete=True); archiver.held_checked = True
+        with patch.object(server.storage_policy, 'settings', {**server.storage_policy.settings, 'pinned_logs': [p.name]}):
+            archiver.recover_startup()
+            self.assertTrue(server.storage_policy.pinned(server.read_meta(p)))
+        self.assertTrue(archiver.recovered); self.assertFalse((p / 'fcamera.mp4').exists())
+        self.assertEqual(media_store.location(server.read_meta(p), 'fcamera.mp4'), 'gdrive'); self.assertEqual(self.requests('DELETE'), [])
 
     def test_logs_never_expose_session_or_file_ids(self):
         data = random.Random(2).randbytes(2 * 2**20 + 7)

@@ -1,5 +1,5 @@
 """'Archive everything eligible' (Archiver.start_manual) against the fake Drive: no batch or local threshold, the
-minimum age and pins kept, copy mode never deleting, no second upload of a verified copy, a run at a time, partial
+minimum age kept, pinned recordings moved like the others, copy mode never deleting, no second upload of a verified copy, a run at a time, partial
 failures keeping local originals, safe stops on outage or expired sign-in, and a run interrupted by a restart."""
 import json, shutil, sys, tempfile, threading, unittest
 from pathlib import Path
@@ -31,10 +31,10 @@ class ManualArchiveTests(unittest.TestCase):
     def pins(self, *ids):
         return patch.object(server.storage_policy, 'settings', {**server.storage_policy.settings, 'pinned_logs': [p.name for p in ids]})
 
-    def test_move_all_ignores_batch_and_threshold_keeps_age_and_pins(self):
-        old = [self.log(c * 32) for c in 'abc']
-        young = self.log('d' * 32, uploaded=server.time.time())
+    def test_move_all_ignores_batch_and_threshold_keeps_age_and_moves_pins(self):
         pinned = self.log('e' * 32)
+        old = [self.log(c * 32) for c in 'abc'] + [pinned]
+        young = self.log('d' * 32, uploaded=server.time.time())
         archiver = self.archiver(mode='move', allow_local_delete=True, batch=1, local_threshold_bytes=10**15)
         # The scheduled cycle is held by its threshold.
         self.assertEqual(archiver.run_cycle()['stopped'], 'below_threshold')
@@ -42,18 +42,18 @@ class ManualArchiveTests(unittest.TestCase):
             plan = archiver.manual_plan()
             size = sum((p / k).stat().st_size for p in old for k in KINDS)
             self.assertEqual((plan['mode'], plan['deletes_local'], plan['files'], plan['recordings'], plan['bytes'], plan['frees_bytes']),
-                             ('move', True, 6, 3, size, size))
-            self.assertEqual(plan['excluded'], {'min_age': 1, 'pinned': 1, 'not_ready': 0})
+                             ('move', True, 8, 4, size, size))
+            self.assertEqual(plan['excluded'], {'min_age': 1, 'not_ready': 0})
             job = self.run_manual(archiver)
+            self.assertTrue(server.storage_policy.pinned(server.read_meta(pinned)))  # Moved and still pinned.
         self.assertEqual((job['state'], job['total_files'], job['processed'], job['succeeded'], job['failed'], job['freed_bytes']),
-                         ('done', 6, 6, 6, 0, size))
+                         ('done', 8, 8, 8, 0, size))
         for p in old:
             m = server.read_meta(p)
             for kind in KINDS: self.assertEqual(media_store.location(m, kind), 'gdrive'); self.assertFalse((p / kind).exists())
-        for p in (young, pinned):
-            m = server.read_meta(p)
-            for kind in KINDS: self.assertTrue((p / kind).is_file()); self.assertIsNone(media_store.remote(m, kind))
-        self.assertEqual(len(self.files()), 6)
+        m = server.read_meta(young)
+        for kind in KINDS: self.assertTrue((young / kind).is_file()); self.assertIsNone(media_store.remote(m, kind))
+        self.assertEqual(len(self.files()), 8); self.assertEqual(self.requests('DELETE'), [])
         # Persisted: a reload reads the finished run.
         self.assertEqual(json.loads((self.root / media_store.MANUAL_JOB).read_text())['state'], 'done')
 
@@ -230,9 +230,12 @@ class ManualNasTests(unittest.TestCase):
         logs = [tga.make_log(self.root, c * 32, KINDS, []) for c in 'abc']
         archiver = self.archiver(batch=1, local_threshold_bytes=10**15)
         self.assertEqual(archiver.run_cycle()['stopped'], 'below_threshold')
-        plan = archiver.manual_plan()
-        self.assertEqual((plan['mode'], plan['deletes_local'], plan['files']), ('move', True, 6))
-        job = self.run_manual(archiver)
+        # The pinned recording is moved like the others and stays pinned.
+        with patch.object(server.storage_policy, 'settings', {**server.storage_policy.settings, 'pinned_logs': [logs[1].name]}):
+            plan = archiver.manual_plan()
+            self.assertEqual((plan['mode'], plan['deletes_local'], plan['files'], plan['excluded']), ('move', True, 6, {'min_age': 0, 'not_ready': 0}))
+            job = self.run_manual(archiver)
+            self.assertTrue(server.storage_policy.pinned(server.read_meta(logs[1])))
         self.assertEqual((job['state'], job['succeeded']), ('done', 6))
         for p in logs:
             for kind in KINDS: self.assertEqual(media_store.location(server.read_meta(p), kind), 'nas'); self.assertFalse((p / kind).exists())
