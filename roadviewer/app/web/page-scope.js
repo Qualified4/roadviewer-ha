@@ -1,6 +1,6 @@
 // Resources belong to one mounted page; old asynchronous work must never address the next page.
 export function pageScope(root,url,navigate){
- const controller=new AbortController(),timers=new Set(),intervals=new Set(),frames=new Set(),observers=new Set(),requests=new Set(),transitions=new Set();
+ const controller=new AbortController(),timers=new Set(),intervals=new Set(),frames=new Set(),observers=new Set(),requests=new Set(),transitions=new Set(),cleanups=new Set();
  let active=true;
  const live=callback=>(...args)=>{if(active)return callback(...args)};
  const listen=(target,type,callback,options)=>target.addEventListener(type,callback,{...(typeof options==='boolean'?{capture:options}:options),signal:controller.signal});
@@ -39,12 +39,18 @@ export function pageScope(root,url,navigate){
   setInterval:(...args)=>timer(true,...args),clearInterval:id=>{intervals.delete(id);clearInterval(id)},
   requestAnimationFrame:callback=>{if(!active)return 0;const id=requestAnimationFrame(time=>{frames.delete(id);if(active)callback(time)});frames.add(id);return id},
   cancelAnimationFrame:id=>{frames.delete(id);cancelAnimationFrame(id)},
-  ResizeObserver:observer(ResizeObserver),MutationObserver:observer(MutationObserver),
+  ResizeObserver:observer(ResizeObserver),MutationObserver:observer(MutationObserver),IntersectionObserver:observer(IntersectionObserver),
+  // A bare addEventListener() in a page script is the window's: left to the real one it outlived the page and kept the
+  // whole page (its DOM, its log data) alive, one more with every log opened.
+  addEventListener:(...args)=>listen(window,...args),removeEventListener:(...args)=>window.removeEventListener(...args),
+  // What a page must undo itself when it goes (a Leaflet map: it listens on the window and keeps its container).
+  onPageDispose:callback=>{cleanups.add(callback)},
   XMLHttpRequest:class extends XMLHttpRequest{constructor(){super();requests.add(this);this.addEventListener('loadend',()=>requests.delete(this))}open(method,path,...rest){super.open(method,new URL(path,url).href,...rest)}},
   matchMedia:query=>{const media=matchMedia(query);return new Proxy(media,{get(target,key){if(key==='addEventListener')return (...args)=>listen(target,...args);const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value}})}
  };
  return {env,dispose(){
   active=false;transitions.forEach(t=>t.skipTransition());controller.abort();timers.forEach(clearTimeout);intervals.forEach(clearInterval);frames.forEach(cancelAnimationFrame);observers.forEach(o=>o.disconnect());requests.forEach(r=>r.abort());
+  cleanups.forEach(c=>{try{c()}catch(error){console.error(error)}});cleanups.clear();
   root.getAnimations({subtree:true}).forEach(a=>a.cancel());
   for(const v of root.querySelectorAll('video')){v.pause();v.removeAttribute('src');v.load()}
   for(const d of root.querySelectorAll('dialog[open]'))d.close();

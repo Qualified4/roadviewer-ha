@@ -506,7 +506,7 @@ def assets(name):
  for kind,scripts in PAGE_SCRIPTS.items():
   if name=='page-'+kind+'.js':
    # Native module factory: trusted application sources share one page-local scope.
-   bindings='window,document,location,fetch,setTimeout,clearTimeout,setInterval,clearInterval,requestAnimationFrame,cancelAnimationFrame,ResizeObserver,MutationObserver,XMLHttpRequest,matchMedia'
+   bindings='window,document,location,fetch,setTimeout,clearTimeout,setInterval,clearInterval,requestAnimationFrame,cancelAnimationFrame,ResizeObserver,MutationObserver,IntersectionObserver,XMLHttpRequest,matchMedia,addEventListener,removeEventListener,onPageDispose'
    source='export function mount(env) {\nconst {'+bindings+'}=env;\n'+ '\n;\n'.join((BASE/'web'/(script+'.js')).read_text() for script in scripts)
    source+='\nreturn {ready:pageReady,canLeave:()=>'+('!busy&&!cleaning&&!networkRestarting' if kind=='library' else 'true')+'};\n}'
    response=app.make_response(source);response.mimetype='application/javascript'

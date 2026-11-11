@@ -474,6 +474,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.evaluate(()=>document.getElementById('videoOverlayToggle').click());
   assert(await page.locator('#videoOverlay').isVisible());
   assert.equal(await page.locator('#videoOverlay').evaluate(e=>e.getAnimations().length),0,'reduced motion shows overlay instantly');
+  // A large high-density touch screen (a Fold's inner one): the canvas is drawn at no more than 2.4 million pixels and
+  // still covers the stage; a mouse device with the same screen keeps the screen's own density.
+  {const cdp=await page.context().newCDPSession(page),size=()=>page.evaluate(()=>{const c=document.getElementById('videoOverlay'),b=c.parentElement;return {px:c.width*c.height,full:Math.round(b.clientWidth*devicePixelRatio)*Math.round(b.clientHeight*devicePixelRatio),ratio:c.width/c.height,stage:b.clientWidth/b.clientHeight,coarse:matchMedia('(pointer:coarse)').matches}});
+   const settle=async()=>{await page.evaluate(()=>dispatchEvent(new Event('resize')));await page.waitForTimeout(400)};
+   await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:true});await cdp.send('Emulation.setEmitTouchEventsForMouse',{enabled:true,configuration:'mobile'});await cdp.send('Emulation.setDeviceMetricsOverride',{width:933,height:704,deviceScaleFactor:2.625,mobile:true});await settle();
+   const touch=await size();assert(touch.coarse&&touch.full>2.6e6,'a touch screen whose stage passes the limit '+JSON.stringify(touch));
+   assert(touch.px<=2.4e6*1.01&&touch.px>=2.4e6*.95&&Math.abs(touch.ratio-touch.stage)<.01,'the overlay canvas is capped and keeps the stage shape '+JSON.stringify(touch));
+   await cdp.send('Emulation.setEmitTouchEventsForMouse',{enabled:false});await cdp.send('Emulation.setTouchEmulationEnabled',{enabled:false});await cdp.send('Emulation.setDeviceMetricsOverride',{width:941,height:704,deviceScaleFactor:2.625,mobile:false});await settle();
+   const mouse=await size();assert(!mouse.coarse&&mouse.px===mouse.full,'a mouse device keeps the full density '+JSON.stringify(mouse));
+   await cdp.send('Emulation.clearDeviceMetricsOverride');await settle()}
   assert.deepEqual(errors,[]);console.log('PASS: overlay drawing/layout, playback and paused motion, reversal, reduced motion, missing calibration and saved settings');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

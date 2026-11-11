@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.12
+
+- Fixed a memory leak in the replay: every log opened from another kept the page left behind (listeners left on the window and on the network state, maps never removed). It slowed the app down after many logs.
+- Fixed choppy fullscreen playback on large high-density touch screens (a Fold's inner screen): the overlay over the video is drawn at no more than 2.4 million pixels (measured on the device: 75 fps to 105 fps, dropped video frames 17 to 1).
+
 ## 1.2.11
 
 - Fixed the one-frame blink in the Android app when a drive card in the log list is folded or unfolded (the cards above it, or a thumbnail, vanished for a frame). Verified by recording a real phone's screen, in both themes, with the animation pace unchanged.

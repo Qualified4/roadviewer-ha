@@ -65,6 +65,9 @@
  function createMap(L,container,{zoom=true,interactive=true,attribution=ATTRIBUTION,tone=null,labels=null,grey=null,margin=null}={}){
   const map=L.map(container,{zoomControl:false,attributionControl:true,dragging:interactive,touchZoom:interactive,scrollWheelZoom:interactive,doubleClickZoom:interactive,boxZoom:interactive,keyboard:interactive,tap:interactive,zoomSnap:.25,maxZoom:19,fadeAnimation:!reduced(),zoomAnimation:!reduced(),markerZoomAnimation:!reduced(),...(margin?{renderer:L.svg({padding:margin})}:{})});
   map.rvMargin=margin||0;map.rvMarginMax=margin||0;
+  // Leaflet listens on the window and MapLibre keeps a WebGL context and workers: a map left standing when its page
+  // goes kept the whole page alive.
+  if(typeof onPageDispose==='function')onPageDispose(()=>map.remove());  // not there on a page loaded by itself
   // margin is the most asked for: each side gets as much of it as keeps the drawn canvas within GL_SIDE device pixels on
   // its longer side (MapLibre and phone GPUs stop at 4096; beyond, the map blurs or is cut), never under the default 0.1.
   // A phone's 지도 tab gets the full 0.5; a tablet's or a desktop's large map, or the small map enlarged on a big

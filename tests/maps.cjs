@@ -825,6 +825,27 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    assert.deepEqual(errors,[]);
    await context.close();
   }
+  // Opening one segment after another does not keep the pages left behind: nodes, listeners and heap stay level (a
+  // listener left on the window or on the connection object, or a map never removed, kept every page and its log:
+  // 1,500 nodes more with each one). The measured page is never touched by evaluate or a selector wait (the debugger's
+  // own handles keep a page alive): the buttons' places come from a second page, and only taps and counters follow.
+  {const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,isMobile:true,colorScheme:'dark',reducedMotion:'reduce'});
+   await context.route(OFM+'**',route=>{const url=route.request().url(),style=url===SIMPLE_LIGHT?['light']:Object.entries(STYLE_OF).find(([,u])=>url===u);
+    if(style)return route.fulfill({body:JSON.stringify(fixtureStyle(style[0])),contentType:'application/json'});
+    if(url===OFM+'planet')return route.fulfill({body:JSON.stringify({tilejson:'3.0.0',tiles:[OFM+'planet/fixture/{z}/{x}/{y}.pbf'],minzoom:0,maxzoom:14}),contentType:'application/json'});
+    return route.fulfill({body:Buffer.alloc(0),contentType:'application/x-protobuf'})});
+   await context.route(`**/api/logs/${withVideo}/video**`,route=>route.fulfill({body:video,contentType:'video/mp4'}));
+   const start=base+'view/'+logs[3].id+'/',probe=await context.newPage();await probe.goto(start);await probe.waitForSelector('#nextLog');await probe.waitForTimeout(1200);
+   const at=await probe.evaluate(()=>Object.fromEntries(['nextLog','previousLog'].map(id=>{const r=document.getElementById(id).getBoundingClientRect();return [id,[r.left+r.width/2,r.top+r.height/2]]})));await probe.close();
+   const page=await context.newPage();await page.goto(start);await page.waitForTimeout(2500);
+   const cdp=await context.newCDPSession(page);await cdp.send('Performance.enable');await cdp.send('HeapProfiler.enable');
+   const count=async()=>{for(let i=0;i<3;i++){await cdp.send('HeapProfiler.collectGarbage');await new Promise(r=>setTimeout(r,250))}
+    const m=Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(x=>[x.name,x.value]));return {nodes:m.Nodes,listeners:m.JSEventListeners,url:page.url().slice(-9,-1)}};
+   const tap=async id=>{const [x,y]=at[id];await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await new Promise(r=>setTimeout(r,1300))};
+   const before=await count();for(const id of ['previousLog','previousLog','nextLog','nextLog','nextLog','previousLog'])await tap(id);const after=await count();
+   assert.equal(before.url,logs[3].id.slice(-8));assert.equal(after.url,logs[3].id.slice(-8),'the taps opened other segments and came back '+JSON.stringify(after));
+   assert(after.nodes<=before.nodes*1.2&&after.listeners<=before.listeners*1.2,'pages left behind are freed '+JSON.stringify({before,after}));
+   await context.close()}
   console.log('maps ok');
  }finally{await browser?.close();python.kill();fs.rmSync(dir,{recursive:true,force:true})}
 })().catch(error=>{console.error(error);process.exit(1)});

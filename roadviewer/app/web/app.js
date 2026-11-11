@@ -1498,7 +1498,8 @@ settingsDialog($('layoutWidthDialog'),$('layoutWidthButton'),$('layoutWidthClose
   $('videoQualityNetwork').textContent=known?`현재 연결: ${videoQuality[network].label}`:`현재 연결을 확인할 수 없어 ${videoQuality[network].label} 설정을 따릅니다.`;
  };
  for(const [network,name] of Object.entries(groups))for(const input of document.getElementsByName(name))input.onchange=()=>{try{localStorage.setItem(videoQuality[network].key,input.value)}catch{}};
- navigator.connection?.addEventListener?.('change',()=>{if($('videoQualityDialog').open)sync()});
+ // The connection object outlives the page: its listener goes with the page, or it kept the whole page (and its log) alive.
+ {const changed=()=>{if($('videoQualityDialog').open)sync()};navigator.connection?.addEventListener?.('change',changed);if(typeof onPageDispose==='function')onPageDispose(()=>navigator.connection?.removeEventListener?.('change',changed))}
  // Opened from the camera choice list's 기본 화질 button (choices.js).
  const open=settingsDialog($('videoQualityDialog'),null,$('videoQualityClose'),()=>document.querySelector(`input[name="${groups[videoNetwork().network]}"]:checked`),sync);
  $('videoSource').addEventListener('rv:choice-action',open);

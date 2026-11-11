@@ -64,10 +64,16 @@
   return target.x.toFixed(1)+'m';
  }
  // The stage size, read when it changes (ResizeObserver below) rather than after the DOM writes of every draw.
+ // On a phone or tablet the canvas is drawn at no more than OVERLAY_PIXELS: over a full-screen video on a large
+ // high-density screen (a Fold's inner one: 933x704 at 2.6 = 4.5 million pixels) it halved the frame rate and dropped
+ // video frames (measured on the device, full screen, 6 s each: 75 fps and 17 dropped frames at 4.5 MP, 105 and 1 at
+ // 2.4 MP). Never under 1; mouse devices (desktop GPUs) keep the screen's own density.
+ const OVERLAY_PIXELS=2.4e6,coarse=matchMedia('(pointer:coarse)');
+ const overlayScale=(w,h)=>{const dpr=devicePixelRatio||1;return coarse.matches?Math.max(1,Math.min(dpr,Math.sqrt(OVERLAY_PIXELS/Math.max(1,w*h)))):dpr};
  let stageSize=null;const measureStage=()=>{const box=layer.parentElement;stageSize=[box.clientWidth,box.clientHeight]};
  window.renderVideoOverlay=(frame,available)=>{
   const height=currentHeight();boxAnimating=false;
-  if(!stageSize)measureStage();const [w,h]=stageSize,dpr=devicePixelRatio||1;
+  if(!stageSize)measureStage();const [w,h]=stageSize,dpr=overlayScale(w,h);
   if(layer.width!==Math.round(w*dpr)||layer.height!==Math.round(h*dpr)){layer.width=Math.round(w*dpr);layer.height=Math.round(h*dpr)}
   context.setTransform(dpr,0,0,dpr,0,0);context.clearRect(0,0,w,h);
   layer.hidden=(!enabled&&!fade)||video.hidden;status.textContent='';
