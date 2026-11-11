@@ -9,6 +9,7 @@ These are the English release notes from 0.13.0 on. Earlier release entries rema
 - Fixed a memory leak in the replay: every log opened from another kept the page left behind (listeners left on the window and on the network state, maps never removed). It slowed the app down after many logs.
 - Fixed choppy fullscreen playback on large high-density touch screens (a Fold's inner screen): the overlay over the video is drawn at no more than 2.4 million pixels (measured on the device: 75 fps to 105 fps, dropped video frames 17 to 1).
 - Fixed the stutter when the small map over the video is enlarged or shrunk: the map is no longer redrawn at every step of the size change, only once when it ends.
+- Fixed the map tab's drive list leaving a tall empty gap for a card that had lost the selection, which pushed the cards below further away with every pick.
 
 ## 1.2.11
 
