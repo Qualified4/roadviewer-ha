@@ -907,8 +907,20 @@
    if(large)measureLarge();
    mini.classList.toggle('is-large',large);stage.classList.toggle('video-map-large',large);mini.setAttribute('aria-pressed',String(large));mini.setAttribute('aria-label',large?'작은 지도 · 눌러서 작게 보기':'작은 지도 · 눌러서 크게 보기');
    clearTimeout(resizing);
-   resizing=setTimeout(()=>{resizing=0;fitSmall()},instant||reduced()?0:280);
+   const moving=!(instant||reduced());if(moving)holdCanvas();else releaseCanvas();
+   resizing=setTimeout(()=>{resizing=0;releaseCanvas();fitSmall()},moving?280:0);
   }
+  // While the map changes size (.26 s), its Leaflet container keeps the size it had, centred in the moving frame and
+  // showing past its own edges: the frame uncovers or covers the margin already drawn around the car, and the map is
+  // drawn once, at the new size, when the motion ends. Following the frame instead, the container changed size every
+  // frame and MapLibre redrew the whole canvas each time (up to 4000 px wide on a Fold's inner screen: three redraws of
+  // 55-140 ms inside the animation, 11-27 frames in 0.4 s; held, 26-44 frames and nothing over 56 ms, on the device).
+  const HELD=['inset','left','top','width','height','transform','overflow'];
+  function holdCanvas(){
+   const box=mini.querySelector('.video-map-canvas');if(!small||mini.hidden||!box||box.style.width)return;  // a reversal keeps the first hold
+   Object.assign(box.style,{inset:'auto',left:'50%',top:'50%',width:mini.clientWidth+'px',height:mini.clientHeight+'px',transform:'translate(-50%,-50%)',overflow:'visible'});
+  }
+  function releaseCanvas(){const box=mini.querySelector('.video-map-canvas');if(box)for(const key of HELD)box.style.removeProperty(key)}
   // The bottom-left corner resizes the small map (mouse or touch), anchored at its top-right, 4:3: from its least
   // width up to the picture's width or the room above the bottom row. Kept in this browser as a share of the picture's
   // width; a double tap on the corner goes back to the default size. Dragging never toggles 크게 보기.

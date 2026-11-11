@@ -611,6 +611,18 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     await page.waitForTimeout(250);await small('fullscreen');await page.evaluate(()=>document.exitFullscreen());await page.waitForFunction(()=>!document.fullscreenElement);
    }else console.log('maps: fullscreen unavailable here, skipped');
    await page.setViewportSize({width:390,height:844});await settleLayout(page);
+   // With motion on, the map is not redrawn while it changes size: its container keeps its size, centred in the moving
+   // frame, and takes the new size once the motion has ended (a redraw per frame made the animation stutter).
+   {await page.emulateMedia({reducedMotion:'no-preference'});
+    const state=()=>page.evaluate(()=>{const m=document.getElementById('videoMap'),box=m.querySelector('.video-map-canvas'),a=m.getBoundingClientRect(),b=box.getBoundingClientRect();
+     return {held:!!box.style.width,box:[Math.round(b.width),Math.round(b.height)],frame:[Math.round(a.width),Math.round(a.height)],centred:Math.abs((a.left+a.right)-(b.left+b.right))<2&&Math.abs((a.top+a.bottom)-(b.top+b.bottom))<2,large:m.classList.contains('is-large')}});
+    for(const large of [true,false]){
+     const before=await state();assert(!before.held&&before.large!==large&&before.box.join()===before.frame.join(),'at rest the map fills its frame '+JSON.stringify(before));
+     await page.evaluate(()=>document.getElementById('videoMap').click());await page.waitForTimeout(120);
+     const during=await state();assert(during.held&&during.centred&&during.box.join()===before.box.join()&&during.frame.join()!==before.frame.join(),'held at its old size, centred, while the frame moves '+JSON.stringify({before,during}));
+     await page.waitForTimeout(600);
+     const after=await state();assert(!after.held&&after.large===large&&after.box.join()===after.frame.join()&&after.frame.join()!==before.frame.join(),'released at the new size '+JSON.stringify(after))}
+    await page.emulateMedia({reducedMotion:'reduce'});await settleLayout(page)}
    // A phone held upright turns the fullscreen picture a quarter (CSS): the small map is still there, measured in the
    // picture's own frame (it was hidden: its room, taken from sideways screen rectangles, came out negative).
    await page.evaluate(()=>{try{Object.defineProperty(screen.orientation,'lock',{configurable:true,value:()=>Promise.reject(new DOMException('refused','NotSupportedError'))})}catch{}document.getElementById("fullscreenButton").click()});
