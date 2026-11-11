@@ -125,6 +125,8 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await cardA.locator('.route-map-button').tap();await driveOpen();
    assert.equal(new URL(page.url()).hash,'#drive-map');
    assert.match(await page.locator('#driveMapTitle').innerText(),/\d/);
+   // Opening focuses the title (not the back button) and shows no focus ring.
+   assert.deepEqual(await page.evaluate(()=>({id:document.activeElement.id,ring:!!document.querySelector('#driveMap :focus-visible'),outline:getComputedStyle(document.activeElement).outlineStyle})),{id:'driveMapTitle',ring:false,outline:'none'});
    assert.equal(await page.locator('#driveMapFacts').innerText(),`${(A*0.9).toFixed(1)} km · ${A}:00 · ${A}개 구간`);
    assert.equal(await drive.locator('.drive-map-list>.log-row').count(),A,'one row per segment, in segment order');
    assert.deepEqual(await drive.locator('.drive-map-list>.log-row').evaluateAll(rows=>rows.map(r=>r.dataset.id[0])),logs.slice(0,A).map(log=>log.id[0]));
@@ -178,7 +180,14 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    {const toggle=drive.locator('.rv-credit-toggle'),credit=drive.locator('.leaflet-control-attribution');
     assert(await toggle.evaluate(t=>{const b=t.getBoundingClientRect();return t.contains(document.elementFromPoint(b.left+b.width/2,b.top+b.height/2))}),'nothing covers the ⓘ');
     await toggle.tap();await credit.waitFor();assert.equal(await toggle.getAttribute('aria-expanded'),'true');await toggle.tap();await credit.waitFor({state:'hidden'})}
-   await drive.locator('.drive-map-handle').click();await page.waitForTimeout(120);{const l=await layout();assert(Math.abs(l.share-.36)<.02,JSON.stringify(l))}
+   // The marked segment's pill sits on the hidden sheet; a tap brings the cards back and the pill leaves from where it
+   // is (riding up with the sheet's own motion, no jump to the new height) — it is leaving right away.
+   {const pill=drive.locator('.drive-map-card');assert(await pill.isVisible(),'the pill shows while the cards are away');
+    await page.emulateMedia({reducedMotion:'no-preference'});  // this check is about the motion itself
+    const top0=(await pill.boundingBox()).y;
+    const next=await page.evaluate(()=>new Promise(resolve=>{document.querySelector('#driveMap .drive-map-handle').click();requestAnimationFrame(()=>{const p=document.querySelector('#driveMap .drive-map-card');resolve({top:p.getBoundingClientRect().top,leaving:p.classList.contains('is-leaving')||p.hidden})})}));
+    assert(next.leaving&&next.top>0&&Math.abs(next.top-top0)<40,'the pill leaves without a jump: '+JSON.stringify({top0,next}))}
+   await page.waitForTimeout(400);await page.emulateMedia({reducedMotion:'reduce'});{const l=await layout();assert(Math.abs(l.share-.36)<.02,JSON.stringify(l));assert(await drive.locator('.drive-map-card').isHidden(),'the pill has gone')}
    await drag(-30);{const l=await layout();assert(Math.abs(l.share-.36)<.02,'a short drag snaps back: '+JSON.stringify(l))}
    // The system back closes it (back in the list, the card's shape focused again).
    await page.goBack();await driveClosed();assert.notEqual(new URL(page.url()).hash,'#drive-map');
