@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.2.6**.
+This guide describes **1.2.7**.
 
 [한국어](DOCS.md) · English
 
@@ -322,7 +322,7 @@ Converting a log also keeps its route at one point per second: the device GPS (`
 - **Replay Map tab**: segments with GPS get a Map tab among the analysis tabs. The travelled part is solid, the rest faded, and a car marker follows playback; Follow turns off when you move the map. Tapping the route seeks there, opening another segment if needed.
 
   ![Replay Map tab](../docs/images/roadviewer-replay-map.png)
-- **Small map over the video**: Overlay settings › Map (off by default). It shows a small map in the video's top-right corner, under the unchanged speed and wheel, at street zoom with the car centred across and a little below the middle (60% down), showing more road ahead. Its credit is folded into an ⓘ in the bottom-right corner; tapping the ⓘ shows it (without enlarging the map). Colours: automatic (screen theme; dark in fullscreen), light or dark; its own options 글자 숨기기 (hide labels) and 회색으로 (grey) apply the map display popover's two switches to the small map only (the popover does not change the small map). Drag its bottom-left corner (mouse or finger) to resize it, kept 4:3, never narrower than the speed and no lower than the bottom controls; the size is remembered in this browser and a double tap on the corner restores the default. Tapping it fills the picture and hides the quality and overlay controls meanwhile. It does not show for segments without video or GPS, nor while the Map tab is shown.
+- **Small map over the video**: Overlay settings › Map (off by default). It shows a small map in the video's top-right corner, under the unchanged speed and wheel, at street zoom with the car centred across and a little below the middle (60% down), showing more road ahead. Its credit is folded into an ⓘ in the bottom-right corner; tapping the ⓘ shows it (without enlarging the map). Colours: automatic (follows the screen theme), light or dark; its own options 글자 숨기기 (hide labels) and 회색으로 (grey) apply the map display popover's two switches to the small map only (the popover does not change the small map). Drag its bottom-left corner (mouse or finger) to resize it, kept 4:3, never narrower than the speed and no lower than the bottom controls; the size is remembered in this browser and a double tap on the corner restores the default. Tapping it fills the picture and hides the quality and overlay controls meanwhile. It does not show for segments without video or GPS, nor while the Map tab is shown.
 
   ![Small map over the video](../docs/images/roadviewer-video-minimap.png)
 
