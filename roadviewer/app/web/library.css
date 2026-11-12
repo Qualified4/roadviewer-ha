@@ -943,7 +943,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 @media(hover:hover) and (pointer:fine){.map-fold:hover{background-image:linear-gradient(var(--map-glass-hover),var(--map-glass-hover))}}
 .log-map-list-head{align-self:flex-start;gap:6px;padding:5px 12px;border-radius:999px;font-size:12.5px}
 .log-map-rows,.drive-map-list{display:flex;flex-direction:column;gap:8px;border-top:0;scrollbar-width:thin}
-.map-list-row{flex:none;border-radius:14px;overflow:hidden;contain-intrinsic-size:auto 58px}
+.map-list-row{flex:none;border-radius:14px;overflow:hidden;contain-intrinsic-size:58px}  /* no "auto": see the rule above */
 .map-list-row:first-child{border-top:1px solid var(--map-glass-border)}
 .map-list-pick{min-height:44px;padding:9px 14px;border-radius:0}
 .map-list-pick b{font-size:13.5px}

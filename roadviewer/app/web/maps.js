@@ -220,14 +220,27 @@
   // The glass pills at the bottom of the maps (the selected drive, the marked segment) rise in (library.css
   // rv-map-card-in) and sink out (.is-leaving, rv-map-card-out) before they are hidden; shown again meanwhile, they
   // come straight back. done runs once the pill is hidden (at once without motion).
-  function showPill(pill,on,done=null){
-   const ticket=pill.rvPill=(pill.rvPill||0)+1;
-   if(on){pill.classList.remove('is-leaving');pill.hidden=false;return}
-   const finish=()=>{if(pill.rvPill!==ticket)return;pill.classList.remove('is-leaving');pill.hidden=true;done?.()};
+  // wait (ms): a pill that shows because the cards were just put away rises in only once they have gone (listWait);
+  // rising in at once, it crossed the cards that were still sliding out.
+  function showPill(pill,on,done=null,wait=0){
+   const ticket=pill.rvPill=(pill.rvPill||0)+1,plain=()=>{pill.style.animationDelay='';pill.style.animationFillMode=''};
+   if(on){
+    if(pill.hidden||pill.classList.contains('is-leaving')){plain();if(wait>0&&!reduced()){pill.style.animationDelay=Math.round(wait)+'ms';pill.style.animationFillMode='backwards'}}
+    pill.classList.remove('is-leaving');pill.hidden=false;return;
+   }
+   const finish=()=>{if(pill.rvPill!==ticket)return;pill.classList.remove('is-leaving');plain();pill.hidden=true;done?.()};
    if(pill.hidden||reduced()||!pill.getClientRects().length){finish();return}
-   pill.classList.add('is-leaving');
+   plain();pill.classList.add('is-leaving');
    pill.addEventListener('animationend',e=>{if(e.target===pill)finish()},{once:true});setTimeout(finish,320);
   }
+  // Tells how long the cards of a list still need to leave: called with whether they are shown, it returns the rest of
+  // LIST_OUT_MS since that last turned (0 once they are gone, or when nothing changed).
+  const LIST_OUT_MS=300;
+  function listWait(){let last=null,at=-1e9;return shown=>{if(shown!==last){if(last!==null)at=performance.now();last=shown}return Math.max(0,at+LIST_OUT_MS-performance.now())}}
+  // Scrolls a list so that the row sits in its middle (as far as the list can scroll).
+  // The browser's scroll anchoring is off meanwhile: it moved the list for a card that had just shrunk above the row,
+  // after the target was worked out, and the row ended at the top instead of the middle.
+  function centreRow(list,row){list.style.overflowAnchor='none';clearTimeout(list.rvAnchor);list.rvAnchor=setTimeout(()=>{list.style.overflowAnchor=''},700);const box=row.getBoundingClientRect(),area=list.getBoundingClientRect();list.scrollTo({top:list.scrollTop+box.top-area.top-Math.max(0,(area.height-box.height)/2),behavior:reduced()?'auto':'smooth'})}
   const groupRoute=group=>{for(const log of group.logs){const route=routeOf.get(log.id);if(route)return route}return null};
   async function fetchTracks(){
    trackRequest?.abort();const request=trackRequest=new AbortController();
@@ -304,20 +317,24 @@
    card.style.webkitMaskImage=mask;card.style.maskImage=mask;
   }
   function fadeEdges(column){
-   let frame=0;
+   let frame=0,watched=new Set();
    const paint=()=>{
     frame=0;const top=Math.max(0,column.scrollTop),h=column.clientHeight,end=Math.max(0,column.scrollHeight-h-top),origin=column.getBoundingClientRect().top+column.clientTop;
     const topFade=Math.min(FADE,top*2),endFade=Math.min(FADE,end*2);
     column.classList.toggle('fade-top',top>1);column.classList.toggle('fade-bottom',end>1);
     column.style.setProperty('--fade-top',topFade.toFixed(1)+'px');column.style.setProperty('--fade-bottom',endFade.toFixed(1)+'px');
     const cards=[...column.children],boxes=cards.map(card=>card.getBoundingClientRect()),px=v=>(v+SHADOW).toFixed(1)+'px';
+    // Every card's size is watched: a card that grows or shrinks moves the ones below it, and their masks are in their
+    // own coordinates. Without this a mask painted for an earlier place stayed (a card in the middle of the list faded
+    // out and the ones under it stayed invisible, as if the list had been cut short).
+    {const now=new Set(cards);for(const card of watched)if(!now.has(card))sizes.unobserve(card);for(const card of cards)if(!watched.has(card))sizes.observe(card);watched=now}
     cards.forEach((card,i)=>{
      // A card with its ⋯ menu open is not masked: the mask would cut off the menu where it leaves the card.
      const y=boxes[i].top-origin,still=!card.querySelector('.recording-more[open]'),fadeTop=still&&topFade>.5&&y<topFade,fadeBottom=still&&endFade>.5&&y+boxes[i].height>h-endFade;
      setMask(card,fadeTop||fadeBottom?`linear-gradient(to bottom,${fadeTop?`transparent ${px(-y)},#000 ${px(topFade-y)}`:'#000 0'},${fadeBottom?`#000 ${px(h-endFade-y)},transparent ${px(h-y)}`:'#000 100%'})`:'');
     });
    };
-   const later=()=>{if(!frame)frame=requestAnimationFrame(paint)};
+   const later=()=>{if(!frame)frame=requestAnimationFrame(paint)},sizes=new ResizeObserver(later);
    column.addEventListener('scroll',later,{passive:true});
    new ResizeObserver(later).observe(column);
    new MutationObserver(later).observe(column,{childList:true,subtree:true,attributes:true,attributeFilter:['class','hidden','open']});
@@ -397,12 +414,13 @@
   segmentCard.innerHTML='<div class="map-card-text"><b class="map-card-title"></b><span class="map-card-facts"></span></div><div class="map-card-actions"><button type="button" class="map-card-close icon-button" aria-label="선택 해제" title="선택 해제"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>';
   driveBody.append(segmentCard);
   segmentCard.querySelector('.map-card-close').onclick=()=>markDrive(null);
+  const driveWait=listWait();
   function syncSegmentCard(){
    const log=driveMarked&&driveGroup?.logs.find(l=>l.id===driveMarked);
    let folded=false;try{folded=driveFolded()}catch{}  // Not yet defined while the screen is being set up.
    // Phones: the pill shows while the cards are away; the class (not the snap) also follows a drag in progress.
    const out=wide.matches?folded:driveBody.classList.contains('is-sheet-hidden'),show=!!log&&drive.open&&out;
-   showPill(segmentCard,show);if(!show)return;
+   showPill(segmentCard,show,null,driveWait(!out));if(!show)return;
    const n=logRoute(log).segment,date=logDate(log),end=date&&Number.isFinite(log.duration)?new Date(date.getTime()+log.duration*1000):null;
    segmentCard.querySelector('.map-card-title').textContent=`구간 ${n??'—'}`+(date?` · ${shortClock(date)}${end?'–'+shortClock(end):''}`:'');
    segmentCard.querySelector('.map-card-facts').textContent=[Number.isFinite(log.duration)?durationText(log.duration):null,log.status==='ready'?'재생 가능':null].filter(Boolean).join(' · ');
@@ -412,17 +430,14 @@
   function markDrive(id,{fit=false,scroll=false,animate=!reduced()}={}){
    driveMarked=id;paintDrive();if(fit)fitDrive(animate);syncSegmentCard();
    const row=id&&driveRows.get(id)?.row;
-   if(scroll&&row){
-    const box=row.getBoundingClientRect(),list=sheetList.getBoundingClientRect();
-    if(box.top<list.top||box.bottom>list.bottom)sheetList.scrollTo({top:sheetList.scrollTop+box.top-list.top-Math.max(0,(list.height-box.height)/2),behavior:reduced()?'auto':'smooth'});
-   }
+   if(scroll&&row)centreRow(sheetList,row);
   }
   // A tap on a row (outside its play button, ⋯ menu and other controls) marks its segment instead of playing it.
   sheetList.addEventListener('click',event=>{
    const row=event.target.closest('.log-row'),control=row&&event.target.closest('a,button,summary,details,input,label');
    if(!row||control&&row.contains(control))return;
    event.stopPropagation();sheetList.querySelectorAll('.recording-more[open]').forEach(more=>{more.open=false});
-   markDrive(row.dataset.id,{fit:true});
+   markDrive(row.dataset.id,{fit:true,scroll:true});
   });
   // A phone bottom sheet over a map (the drive map's segments, the all-drives list): its handle drags it between the snap
   // heights (a tap or the arrow keys step through them). Dragged (or stepped) below the lowest height, the cards slide
@@ -559,7 +574,7 @@
     row.append(pick);mapRow.set(route.key,row);return row;
    }));
   }
-  mapRows.addEventListener('click',event=>{const row=event.target.closest('.map-list-pick')?.parentElement;if(row)select(row.rvGroup,{fit:true})});
+  mapRows.addEventListener('click',event=>{const row=event.target.closest('.map-list-pick')?.parentElement;if(row)select(row.rvGroup,{fit:true,scroll:true})});
   mapRows.addEventListener('pointerover',event=>{if(event.pointerType!=='mouse')return;const group=event.target.closest('.map-list-row')?.rvGroup||null;if(group!==hovered){hovered=group;paintOverview()}});
   mapRows.addEventListener('pointerleave',()=>{if(hovered){hovered=null;paintOverview()}});
   wide.addEventListener('change',()=>{if(mode==='map')select(selected)});
@@ -597,17 +612,18 @@
   redrawColours=()=>{if(overview)paintOverview();const colour=css('--accent');for(const line of driveLines.values())line.setStyle({color:colour})};
   // The selected drive's actions: in its row while the cards are in sight (the list card, the phone sheet up), else in
   // the bottom card.
+  const overviewWait=listWait();
   function select(group,{fit=false,scroll=false}={}){
    selected=group;paintOverview();
-   const inline=!!group&&listShown(),row=group&&mapRow.get(groupRoute(group)?.key);
+   const wait=overviewWait(listShown()),inline=!!group&&listShown(),row=group&&mapRow.get(groupRoute(group)?.key);
    // A redraw (the list polls) keeps the selected row's buttons, and with them the focus.
    for(const other of mapRows.querySelectorAll('.map-list-row.is-selected,.map-list-row:has(>.map-card-actions)'))if(other!==row||!inline){other.classList.remove('is-selected');other.querySelector(':scope>.map-card-actions')?.remove()}
-   showPill(card,!!group&&!inline,()=>{if(card.hidden)card.querySelector('.map-card-play')?.remove()});
+   showPill(card,!!group&&!inline,()=>{if(card.hidden)card.querySelector('.map-card-play')?.remove()},wait);
    if(fit&&group)fitOverview(group);
    if(row){
     row.classList.add('is-selected');
     if(inline&&!row.querySelector(':scope>.map-card-actions'))row.append(rowActions(group));
-    if(scroll){const box=row.getBoundingClientRect(),list=mapRows.getBoundingClientRect();if(box.top<list.top||box.bottom>list.bottom)mapRows.scrollTo({top:mapRows.scrollTop+box.top-list.top-Math.max(0,(list.height-box.height)/2),behavior:reduced()?'auto':'smooth'})}
+    if(scroll)centreRow(mapRows,row);
    }
    if(!group||inline){if(card.hidden)card.querySelector('.map-card-play')?.remove();return}  // else once it has sunk out
    const route=groupRoute(group),date=logDate(group.firstLog),duration=group.logs.reduce((sum,log)=>sum+(Number.isFinite(log.duration)?log.duration:0),0);
