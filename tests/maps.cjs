@@ -183,7 +183,8 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    {const l=await layout();assert(l.rowVisible&&l.lineInside,JSON.stringify(l))}
    await shot('drive-up');
    // Dragged all the way down the cards hide and only the handle stays; a tap brings them back at the middle height.
-   await drag(400);{const g=await page.evaluate(()=>{const b=document.querySelector('#driveMap .drive-map-body'),h=document.querySelector('#driveMap .drive-map-handle'),row=document.querySelector('#driveMap .drive-map-list>.log-row');return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-valuenow'),text:h.getAttribute('aria-valuetext'),rowOpacity:getComputedStyle(row).opacity,handle:h.getBoundingClientRect().bottom<=innerHeight}});
+   await drag(400);{const g=await page.evaluate(()=>{const b=document.querySelector('#driveMap .drive-map-body'),h=document.querySelector('#driveMap .drive-map-handle'),row=document.querySelector('#driveMap .drive-map-list>.log-row.is-seen');  // a card that was in sight (the others are left alone, clipped)
+return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-valuenow'),text:h.getAttribute('aria-valuetext'),rowOpacity:getComputedStyle(row).opacity,handle:h.getBoundingClientRect().bottom<=innerHeight}});
     assert(g.hidden&&g.now==='0'&&g.text==='숨김'&&g.rowOpacity==='0'&&g.handle,JSON.stringify(g))}
    await shot('drive-hidden');
    // The ⓘ in the corner is not under the clear sheet: a tap opens the credit, another folds it.
@@ -836,6 +837,10 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await page.waitForTimeout(400);assert.equal(await pane(),view,'folding keeps the map where it is');
    assert.equal(await fold.getAttribute('aria-expanded'),'false');assert.equal(await fold.getAttribute('aria-label'),'주행 목록 펼치기');
    assert(await page.locator('#logMapList').isHidden());assert.deepEqual(await fold.boundingBox(),before,'the button stays put');
+   // Only the cards that were in sight fade and slide away (is-seen); the others, clipped by the column, are left alone
+   // (with every card of a long list animating, folding stuttered on phones).
+   {const s=await page.evaluate(()=>{const k=[...document.getElementById('logMapRows').children],seen=k.filter(r=>r.classList.contains('is-seen'));return {seen:seen.length,all:k.length,first:seen[0]&&getComputedStyle(seen[0]).opacity,rest:getComputedStyle(k.find(r=>!r.classList.contains('is-seen'))).opacity}});
+    assert(s.seen>0&&s.seen<12&&s.all>40&&s.first==='0'&&s.rest==='1',JSON.stringify(s))}
    assert(await page.locator('#logMapCard').isVisible(),'folded: the selection shows the bottom card');
    assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-list-folded')),'1');
    await shot('list-wide-folded');

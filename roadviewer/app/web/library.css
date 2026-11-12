@@ -900,7 +900,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
    top of the phone sheet and sit beside the column on wide screens). */
 .drive-map-area .leaflet-top.leaflet-right{right:var(--map-right)}.drive-map-area .leaflet-bottom{bottom:0}.drive-map-area .leaflet-bottom.leaflet-right{right:0}
 .drive-map-body.is-dragging .leaflet-bottom{transition:none}
-.drive-map-sheet{position:absolute;z-index:1;left:0;right:0;bottom:0;display:flex;flex-direction:column;height:var(--sheet-h);border:1px solid var(--glass-border);border-bottom:0;border-radius:16px 16px 0 0;background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);text-shadow:none;transition:height .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+.drive-map-sheet{position:absolute;z-index:1;left:0;right:0;bottom:0;display:flex;flex-direction:column;height:var(--sheet-h);border:1px solid var(--glass-border);border-bottom:0;border-radius:16px 16px 0 0;background:var(--glass-bg);-webkit-backdrop-filter:var(--glass-filter);backdrop-filter:var(--glass-filter);box-shadow:var(--glass-shadow);text-shadow:none;transition:height .28s var(--m2-standard,cubic-bezier(.4,0,.2,1)),translate .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.drive-map-sheet{background:var(--glass-solid)}}
 @media(prefers-reduced-transparency:reduce){.drive-map-sheet{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
 .drive-map-body.is-dragging .drive-map-sheet{transition:none}
@@ -993,8 +993,12 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .log-map.is-folded .log-map-list-head,.drive-map-body.is-folded .drive-map-handle{opacity:0}
  .log-map .log-map-rows>.map-list-row,.drive-map-body .drive-map-list>.log-row{--k:0;transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s,transform .12s}
  
- .log-map.is-folded .log-map-rows>.map-list-row,.drive-map-body.is-folded .drive-map-list>.log-row{opacity:0;translate:28px 0;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
+ /* Only the cards in sight (.is-seen, maps.js markSeen) move: with every card of a long list fading and sliding, the
+    style work per frame grew with the list and the motion stuttered on phones. The rest are clipped by the column. */
+ .log-map.is-folded .log-map-rows>.map-list-row.is-seen,.drive-map-body.is-folded .drive-map-list>.log-row.is-seen{opacity:0;translate:28px 0;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
 }
+/* maps.js markSeen: cards take (or lose) the hidden look at once while they are being marked. */
+.log-map .log-map-rows.is-marking>*,.drive-map-body .drive-map-list.is-marking>*{transition:none!important}
 @media(prefers-reduced-motion:reduce){.log-map .log-map-rows>.map-list-row,.drive-map-body .drive-map-list>.log-row,.log-map-list-head,.drive-map-handle{transition:none}.log-map.is-folded .log-map-list,.drive-map-body.is-folded .drive-map-sheet{transition:none}}
 
 /* The all-drives map's swatches match its pastel lines (maps.js PASTEL) in both themes. */
@@ -1004,8 +1008,10 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .drive-map-body .drive-map-list>.log-row{--k:0}
 @media not ((min-width:1024px) or ((min-width:600px) and (orientation:landscape))){
  .drive-map-body .drive-map-list>.log-row{transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s}
+ .drive-map-body.is-sheet-down .drive-map-sheet{translate:0 calc(100% - var(--sheet-peek,62px))}
+ .drive-map-body.is-settling .drive-map-sheet,.drive-map-body.is-settling>.drive-map-card{transition:none}
  .drive-map-body.is-sheet-hidden .drive-map-list{overflow:hidden;pointer-events:none}
- .drive-map-body.is-sheet-hidden .drive-map-list>.log-row{opacity:0;translate:0 32px;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
+ .drive-map-body.is-sheet-hidden .drive-map-list>.log-row.is-seen{opacity:0;translate:0 32px;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
 }
 @media(prefers-reduced-motion:reduce){.drive-map-body .drive-map-list>.log-row{transition:none}}
 /* The all-drives map's info card: a pill of the over-video glass (gradient rim, pill buttons). Phones, where the
@@ -1082,7 +1088,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 }
 /* The drive map's segment pill: above the phone sheet's handle, at the bottom on wide screens (left of nothing: the
    list is folded when it shows). */
-.drive-map-body>.drive-map-card{z-index:3;bottom:calc(var(--sheet-h,0px) + 10px)}
+.drive-map-body>.drive-map-card{z-index:3;bottom:calc(var(--sheet-top,var(--sheet-h,0px)) + 10px)}
 /* Phones: the pill rides on the sheet's top edge with the sheet's own motion (no jump when a snap or a release changes
    the height), follows the finger while dragging, and leaves in place (fades and shrinks a little) instead of sinking
    against a rising sheet. */
@@ -1110,7 +1116,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
    Pulled down, the cards slide away and the selected drive's pill rides on the handle like the segment pill. */
 @media not ((min-width:1024px) or ((min-width:600px) and (orientation:landscape))){
  .log-map{--sheet-h:54%}
- .log-map-list{position:absolute;z-index:550;left:0;right:0;bottom:0;display:flex;flex-direction:column;height:var(--sheet-h);pointer-events:none;transition:height .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+ .log-map-list{position:absolute;z-index:550;left:0;right:0;bottom:0;display:flex;flex-direction:column;height:var(--sheet-h);pointer-events:none;transition:height .28s var(--m2-standard,cubic-bezier(.4,0,.2,1)),translate .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
  .log-map.is-dragging .log-map-list{transition:none}
  .log-map-list-head{display:none}
  .log-map-handle{pointer-events:auto}
@@ -1118,9 +1124,14 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
  .log-map-rows{flex:1;min-height:0;padding:2px 12px calc(max(12px,env(safe-area-inset-bottom)) + 18px);pointer-events:none}
  .log-map-rows>*{pointer-events:auto}
  .log-map .log-map-rows>.map-list-row{--k:0;transition:opacity .24s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),translate .3s var(--m2-decelerate,cubic-bezier(0,0,.2,1)) calc(var(--k) * 22ms),background-color .2s,box-shadow .2s,transform .12s}
+ /* Put away by a tap, the sheet keeps its height and slides down until only the handle shows (is-sheet-down, maps.js
+    bottomSheet): a move the compositor does alone. Shrinking its height instead laid the list out again every frame. */
+ .log-map.is-sheet-down .log-map-list{translate:0 calc(100% - var(--sheet-peek,62px))}
+ .log-map.is-settling .log-map-list,.log-map.is-settling>.log-map-card{transition:none}
  .log-map.is-sheet-hidden .log-map-rows{overflow:hidden}
- .log-map.is-sheet-hidden .log-map-rows>*{pointer-events:none;opacity:0;translate:0 32px;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
- .log-map>.log-map-card{bottom:calc(var(--sheet-h) + 10px);transition:bottom .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
+ .log-map.is-sheet-hidden .log-map-rows>*{pointer-events:none}
+ .log-map.is-sheet-hidden .log-map-rows>.is-seen{opacity:0;translate:0 32px;transition-timing-function:var(--m2-accelerate,cubic-bezier(.4,0,1,1))}
+ .log-map>.log-map-card{bottom:calc(var(--sheet-top,var(--sheet-h)) + 10px);transition:bottom .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
  .log-map.is-dragging>.log-map-card{transition:none}
  .log-map>.log-map-card.is-leaving{animation-name:rv-drive-card-out}
  @media(prefers-reduced-motion:reduce){.log-map-list,.log-map .log-map-rows>.map-list-row,.log-map>.log-map-card{transition:none}}
