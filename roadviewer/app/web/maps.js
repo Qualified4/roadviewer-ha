@@ -291,11 +291,21 @@
    return {title:date?`${localeDate(date)} ${clockText(date)}`:group.route.title,facts:[kmText(route?.distance_m),duration?durationText(duration):null,`${group.logs.length}개 구간`].filter(Boolean).join(' · ')};
   };
   // The fold button of a list card over a map (wide screens): folds the card away and back, kept on this browser.
-  function foldable(button,box,key,changed){
+  // Marks the cards of a list that are in sight (.is-seen): only those fade and slide when the list is put away or
+  // brought back (library.css). Going away, that is what the column shows now; coming back, what it will show at
+  // `height` px (the column has no height yet then, but its cards keep their places). Marked without motion
+  // (.is-marking): a card marked while the list is away takes its hidden look at once, so it can then slide in.
+  function markSeen(column,height=null){
+   const area=column.getBoundingClientRect(),end=area.top+(height??area.height);
+   column.classList.add('is-marking');
+   for(const row of column.children){const box=row.getBoundingClientRect();row.classList.toggle('is-seen',box.bottom>area.top-80&&box.top<end+80)}  // a little beyond: a card just past the edge slides too
+   void column.offsetWidth;column.classList.remove('is-marking');void column.offsetWidth;
+  }
+  function foldable(button,box,key,changed,column){
    let folded=false;try{folded=localStorage.getItem(key)==='1'}catch{}
    const show=()=>{box.classList.toggle('is-folded',folded);button.setAttribute('aria-expanded',String(!folded));const label=folded?'주행 목록 펼치기':'주행 목록 접기';button.setAttribute('aria-label',label);button.title=label};
    show();
-   button.addEventListener('click',()=>{folded=!folded;show();try{localStorage.setItem(key,folded?'1':'0')}catch{}changed()});
+   button.addEventListener('click',()=>{markSeen(column);folded=!folded;show();try{localStorage.setItem(key,folded?'1':'0')}catch{}changed()});
    return ()=>folded;
   }
   // ---- 주행 지도: one drive full screen. The map stays on top (phones) or on the left (wide screens); the drive's
@@ -444,12 +454,28 @@
   // away down and only the handle stays (snap -1); a tap brings them back. body carries is-sheet-hidden, is-dragging and
   // --sheet-h; changed() runs whenever is-sheet-hidden may have changed (mid-drag too), settled(fit) once the sheet has
   // moved (only while ready()). Wide screens leave the handle alone.
-  function bottomSheet(body,sheet,handle,{changed,settled,ready}){
+  function bottomSheet(body,sheet,handle,{changed,settled,ready,column}){
    let snap=1,refit=0,dragged=false;
    const handleOnly=()=>Math.ceil(handle.getBoundingClientRect().height+18)+'px';
+   // Put away from a shown height, the sheet keeps that height and slides down until only the handle shows
+   // (is-sheet-down, library.css: no layout per frame). --sheet-top is where its top edge ends up (the pill rides on it).
+   // After a drag that hid the cards the sheet is as short as the finger left it: it shrinks to the handle and rest()
+   // then swaps it, unseen, for a full sheet slid down, so the next tap slides it up as well.
+   const down=()=>body.classList.contains('is-sheet-down'),top=value=>body.style.setProperty('--sheet-top',value);
+   let resting=0;
+   function rest(){
+    if(!body.classList.contains('is-sheet-hidden')||down()||body.classList.contains('is-dragging'))return;
+    body.classList.add('is-settling');body.style.setProperty('--sheet-h',SNAPS[1]*100+'%');body.classList.add('is-sheet-down');void sheet.offsetWidth;body.classList.remove('is-settling');
+   }
    function set(i,{fit=false}={}){
-    snap=Math.max(-1,Math.min(SNAPS.length-1,i));const hidden=snap<0;
-    body.classList.toggle('is-sheet-hidden',hidden);body.style.setProperty('--sheet-h',hidden?handleOnly():SNAPS[snap]*100+'%');
+    snap=Math.max(-1,Math.min(SNAPS.length-1,i));const hidden=snap<0,was=body.classList.contains('is-sheet-hidden');
+    clearTimeout(resting);
+    if(!wide.matches&&hidden!==was)markSeen(column,hidden||down()?null:SNAPS[snap]*body.clientHeight);
+    body.style.setProperty('--sheet-peek',handleOnly());
+    if(!hidden){body.classList.remove('is-sheet-down');body.style.setProperty('--sheet-h',SNAPS[snap]*100+'%')}
+    else if(!was)body.classList.add('is-sheet-down');
+    else if(!down()){body.style.setProperty('--sheet-h',handleOnly());resting=setTimeout(rest,reduced()?0:320)}
+    body.classList.toggle('is-sheet-hidden',hidden);top(hidden?handleOnly():SNAPS[snap]*100+'%');
     handle.setAttribute('aria-valuenow',String(hidden?0:Math.round(SNAPS[snap]*100)));changed();handle.setAttribute('aria-valuetext',hidden?'숨김':Math.round(SNAPS[snap]*100)+'%');
     // Raising or lowering the sheet keeps the map where it is: only a tap on a card moves it. Opening the screen (fit)
     // still fits once the sheet has risen, beside its final height.
@@ -458,12 +484,14 @@
    handle.addEventListener('pointerdown',event=>{
     if(wide.matches||event.button>0)return;
     event.preventDefault();dragged=false;try{handle.setPointerCapture(event.pointerId)}catch{}
-    const startY=event.clientY,startH=sheet.getBoundingClientRect().height,total=body.clientHeight;let moved=false;
+    const startY=event.clientY,startH=down()?parseFloat(handleOnly()):sheet.getBoundingClientRect().height,total=body.clientHeight;let moved=false;
     body.classList.add('is-dragging');
     const floor=parseFloat(handleOnly());
-    const move=e=>{const dy=e.clientY-startY;if(Math.abs(dy)>4)moved=true;const h=Math.max(floor,Math.min(SNAPS.at(-1)*total,startH-dy));body.style.setProperty('--sheet-h',h+'px');
+    const move=e=>{const dy=e.clientY-startY;if(Math.abs(dy)>4)moved=true;if(!moved)return;const h=Math.max(floor,Math.min(SNAPS.at(-1)*total,startH-dy));
+     clearTimeout(resting);body.classList.remove('is-sheet-down');  // dragged, the sheet follows the finger by its height
+     body.style.setProperty('--sheet-h',h+'px');top(h+'px');
      // The cards coming back (or going away) mid-drag: the pill leaves (or returns) right then, not on release.
-     const hide=h<SNAPS[0]*total*.6;if(hide!==body.classList.contains('is-sheet-hidden')){body.classList.toggle('is-sheet-hidden',hide);changed()}};
+     const hide=h<SNAPS[0]*total*.6;if(hide!==body.classList.contains('is-sheet-hidden')){markSeen(column,hide?null:SNAPS.at(-1)*total);body.classList.toggle('is-sheet-hidden',hide);changed()}};
     const end=()=>{
      handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',end);handle.removeEventListener('pointercancel',end);
      body.classList.remove('is-dragging');
@@ -483,9 +511,9 @@
    handle.addEventListener('keydown',e=>{const step={ArrowUp:1,ArrowDown:-1}[e.key];if(step&&!wide.matches){e.preventDefault();set(snap+step)}});
    return {set};
   }
-  const driveSheet=bottomSheet(driveBody,sheet,handle,{changed:()=>syncSegmentCard(),ready:()=>!!driveMap,
+  const driveSheet=bottomSheet(driveBody,sheet,handle,{column:sheetList,changed:()=>syncSegmentCard(),ready:()=>!!driveMap,
    settled:fit=>{if(drive.open){driveMap.invalidateSize({animate:false});if(fit)fitDrive(false)}}});
-  const driveFolded=foldable(driveBody.querySelector('.drive-map-fold'),driveBody,'roadviewer-drive-list-folded',()=>syncSegmentCard());  // Folding keeps the map where it is.
+  const driveFolded=foldable(driveBody.querySelector('.drive-map-fold'),driveBody,'roadviewer-drive-list-folded',()=>syncSegmentCard(),sheetList);  // Folding keeps the map where it is.
   // Closing goes through history, so the system back, the header's back button and Escape all end the same way.
   function closeDrive(){if(!drive.open)return;if(window.location.hash===DRIVE_HASH&&history.state?.rvDrive)history.back();else finishDrive()}
   // Focus goes back to what opened it right away (not on the later close event, which could take it from a field).
@@ -543,10 +571,10 @@
   const visibleGroups=()=>[...logGroups.values()].filter(group=>!group.element.hidden&&group.element.closest('.log-day')&&!group.element.closest('.log-day').hidden);
   let overviewFit=true,hovered=null,rowsKey='';
   const mapList=document.getElementById('logMapList'),mapRows=document.getElementById('logMapRows'),mapRow=new Map();  // route key -> row
-  const listFolded=foldable(panel.querySelector('.map-fold'),panel,'roadviewer-map-list-folded',()=>{select(selected,{fit:false})});  // Folding keeps the map where it is.
+  const listFolded=foldable(panel.querySelector('.map-fold'),panel,'roadviewer-map-list-folded',()=>{select(selected,{fit:false})},mapRows);  // Folding keeps the map where it is.
   // Phones: the cards are a bottom sheet like the drive map's (its handle shows the count); moving it keeps the map put.
   const listHandle=mapList.querySelector('.log-map-handle');
-  const listSheet=bottomSheet(panel,mapList,listHandle,{changed:()=>{if(mode==='map')select(selected)},ready:()=>!!overview,
+  const listSheet=bottomSheet(panel,mapList,listHandle,{column:mapRows,changed:()=>{if(mode==='map')select(selected)},ready:()=>!!overview,
    settled:()=>{if(mode==='map')overview.invalidateSize({animate:false})}});
   // The cards are in sight: the list card unfolded (wide screens) or the sheet up (phones; the class follows a drag too).
   const listShown=()=>wide.matches?!listFolded():!panel.classList.contains('is-sheet-hidden');
