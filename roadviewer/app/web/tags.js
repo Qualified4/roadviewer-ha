@@ -29,12 +29,14 @@ function recordingTagBadges(tags=[],limit=4){
 function fitTagGroup(group){
  const chips=[...group.querySelectorAll(':scope>.recording-tag')],more=group.querySelector(':scope>.tag-overflow');
  if(!more||!group.clientWidth)return;
- const key=group.clientWidth+'/'+chips.length;if(group.dataset.fit===key)return;
+ // The line's exact width: clientWidth is rounded, and at a fractional width (screen scaling such as 125 %) a row a
+ // fraction of a pixel too wide counted as fitting, squeezing every chip by a hair and ending each with "…".
+ const width=group.getBoundingClientRect().width,key=width.toFixed(2)+'/'+chips.length;if(group.dataset.fit===key)return;
  for(const chip of chips)chip.hidden=false;more.hidden=false;more.textContent='+'+chips.length;group.classList.add('is-measuring');
- const room=group.clientWidth,gap=parseFloat(getComputedStyle(group).columnGap)||0,widths=chips.map(chip=>chip.getBoundingClientRect().width),spare=more.getBoundingClientRect().width+gap;
+ const room=width,gap=parseFloat(getComputedStyle(group).columnGap)||0,widths=chips.map(chip=>chip.getBoundingClientRect().width),spare=more.getBoundingClientRect().width+gap;
  group.classList.remove('is-measuring');
  let shown=chips.length,used=widths.reduce((sum,width)=>sum+width,0)+gap*(chips.length-1);
- if(used>room+.5){used=spare;shown=0;while(shown<chips.length&&used+widths[shown]+(shown?gap:0)<=room+.5){used+=widths[shown]+(shown?gap:0);shown++}shown=Math.max(1,shown)}
+ if(used>room+.01){used=spare;shown=0;while(shown<chips.length&&used+widths[shown]+(shown?gap:0)<=room+.01){used+=widths[shown]+(shown?gap:0);shown++}shown=Math.max(1,shown)}
  chips.forEach((chip,i)=>{chip.hidden=i>=shown});more.hidden=shown===chips.length;more.textContent='+'+(chips.length-shown);more.title=chips.slice(shown).map(chip=>chip.textContent).join(', ');
  group.dataset.fit=key;
 }

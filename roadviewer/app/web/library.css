@@ -507,7 +507,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .route-seg[data-status=ready]{background:var(--ready);box-shadow:none}
 .route-seg[data-status=queued],.route-seg[data-status=processing]{background:color-mix(in srgb,var(--warn) 28%,var(--track))}
 .route-seg[data-status=processing]::after{content:"";position:absolute;inset:0 auto 0 0;width:calc(var(--progress,0) * 100%);border-radius:inherit;background:var(--warn);box-shadow:var(--warn-edge);transition:width .4s cubic-bezier(.4,0,.2,1)}
-.route-seg[data-status=processing]::before{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);background-size:50% 100%;background-repeat:no-repeat;animation:rv-sweep 1.8s linear infinite}
+.route-seg[data-status=processing]::before{content:"";position:absolute;inset:0;z-index:1;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);background-size:50% 100%;background-repeat:no-repeat;animation:rv-sweep 1.8s linear infinite reverse}  /* reverse: with a gradient narrower than the block the same keyframes run right to left; the light flows left to right, like the badges' */
 .route-seg[data-status=error]{background:var(--danger)}
 /* Long drives (library.js): the first 20 blocks, then a borderless "+" in the status colour of the remaining segments. */
 .route-bar.has-more{align-items:center}

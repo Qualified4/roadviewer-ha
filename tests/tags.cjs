@@ -81,10 +81,18 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await rowMore.waitFor();await headMore.waitFor();
    // Chips fill the one line they have; "+N" stands only for those that do not fit (it used to hide all past a fixed count).
    const fitted=()=>row(ids[1]).locator('.recording-tags').evaluate(g=>{const chips=[...g.querySelectorAll('.recording-tag')].filter(c=>!c.hidden),more=g.querySelector('.tag-overflow'),a=g.getBoundingClientRect();
-    return {shown:chips.length,more:more&&!more.hidden?more.textContent:null,cut:chips.filter(c=>c.scrollWidth>c.clientWidth).length,lines:new Set(chips.map(c=>Math.round(c.getBoundingClientRect().top))).size,inside:chips.every(c=>c.getBoundingClientRect().right<=a.right+1)&&(!more||more.hidden||more.getBoundingClientRect().right<=a.right+1)}});
-   {const f=await fitted();assert(f.shown>=2&&f.shown<five.length&&f.more==='+'+(five.length-f.shown)&&!f.cut&&f.lines===1&&f.inside,'phone: as many as fit, the rest counted '+JSON.stringify(f));
+    return {shown:chips.length,more:more&&!more.hidden?more.textContent:null,cut:chips.filter(c=>c.scrollWidth>c.clientWidth).length,lines:new Set(chips.map(c=>Math.round(c.getBoundingClientRect().top))).size,taller:Math.round(a.height-chips[0].getBoundingClientRect().height),inside:chips.every(c=>c.getBoundingClientRect().right<=a.right+1)&&(!more||more.hidden||more.getBoundingClientRect().right<=a.right+1)}});
+   {const f=await fitted();assert(f.shown>=2&&f.shown<five.length&&f.more==='+'+(five.length-f.shown)&&!f.cut&&f.lines===1&&f.inside&&f.taller<=1,'phone: as many as fit, the rest counted, the +N no taller than a chip (the line keeps its height) '+JSON.stringify(f));
     await page.setViewportSize({width:1280,height:800});await page.waitForFunction(n=>{const g=document.querySelectorAll('.log-row .recording-tags.is-fit');return [...g].some(x=>x.querySelectorAll('.recording-tag:not([hidden])').length===n)},five.length);
     const wide=await fitted();assert(wide.shown===five.length&&wide.more===null&&!wide.cut&&wide.lines===1,'wide: every tag, no count '+JSON.stringify(wide));
+    // A line a fraction of a pixel too narrow (screen scaling such as 125 %) counts as not fitting: the last chip goes
+    // to +1 instead of every chip being squeezed and ended with "…".
+    {const short=await row(ids[1]).locator('.recording-tags.is-fit').evaluate(async g=>{
+      const chips=[...g.querySelectorAll('.recording-tag')];g.classList.add('is-measuring');for(const c of chips)c.hidden=false;const gap=parseFloat(getComputedStyle(g).columnGap);
+      const used=chips.reduce((s,c)=>s+c.getBoundingClientRect().width,0)+gap*(chips.length-1);g.classList.remove('is-measuring');
+      const result=[];for(const less of [.3,-.2]){g.style.flex='none';g.style.width=(used-less)+'px';await new Promise(r=>setTimeout(r,150));result.push(chips.filter(c=>!c.hidden).length)}
+      g.style.flex=g.style.width='';return [chips.length,...result]});
+     assert.deepEqual(short,[short[0],short[0]-1,short[0]],'0.3 px short: +1; 0.2 px to spare: all '+JSON.stringify(short))}
     await page.setViewportSize({width:390,height:844});await page.waitForFunction(n=>{const m=document.querySelector('.log-row .recording-tags.is-fit .tag-overflow:not([hidden])');return !!m&&m.textContent===n},f.more)}
    const union=await page.evaluate(async()=>{const logs=(await (await fetch('api/logs')).json()).logs;return new Set(logs.flatMap(log=>(log.tags||[]).map(tag=>tag.name.toLowerCase()))).size});
    const group=page.locator('.log-route').first(),url=page.url();assert(await group.evaluate(g=>g.open));

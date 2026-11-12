@@ -143,11 +143,14 @@ function tick(now){
  if(playing&&data){
   const waiting=seekPointer!==null||videoAvailable()&&!firstVideoFrame()&&!finalVideoFrame()&&(v.seeking||pendingVideoSeek!==null||v.readyState<3&&!v.ended);
   if(waiting)syncVideo();
-  else{const next=t+(now-last)/1000*Number($('speed').value);setTime(next>=data.duration-.001?data.duration:next,false,true);if(t>=data.duration)pause()}
+  else{const next=t+(now-last)/1000*Number($('speed').value);setTime(next>=data.duration-.001?data.duration:next,false,true);if(t>=data.duration){pause();playedToEnd()}}
  }else window.renderVideoOverlayMotion?.();
  last=now;requestAnimationFrame(tick);
 }
+let resumePlay=false;try{resumePlay=sessionStorage.getItem('rv-resume-play')===location.pathname.split('/').filter(Boolean).at(-1);sessionStorage.removeItem('rv-resume-play')}catch{}
 function setPlaybackState(ready,message){
+ // Arrived from a segment that was playing (goToLog): play on once, as soon as this one can.
+ if(ready&&resumePlay){resumePlay=false;setTimeout(()=>{if(data&&!loading&&!playing)toggle()},0)}
  loading=!ready;$('play').disabled=!ready;
  $('playbackControls').hidden=!ready;$('playbackMessage').hidden=ready;if(ready)document.querySelector('.playback').style.minHeight='';
  $('playbackMessage').textContent=ready?'':message;$('status').textContent=message;$('status').dataset.state=ready?'ready':'busy';
@@ -386,7 +389,7 @@ async function loadData(){const id=location.pathname.split('/').filter(Boolean).
   throw Error(state.error||'로그 변환에 실패했습니다. 목록을 확인하세요.');
  }
  if(!res.ok)throw Error('로그를 불러오지 못했습니다. 목록을 확인하세요.');
- data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;t=0;const source=setupVideoSources();if(source){selectVideo(source)}else{videoSource=null;setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
+ data=expandReplayData(await readReplayJson(res));showError('');document.body.classList.remove('replay-loading');renderRecordingName($('routeName'),data.route,recordingNameFiles).id='route';placeholderTitle();$('details').textContent=`${data.frames.length.toLocaleString()} 모델 프레임 · ${data.video?'영상 있음':'영상 없음'}`;$('seek').max=data.duration;$('end').textContent=clock(data.duration);$('warnings').textContent=data.warnings.join('\n');$('warnings').hidden=!data.warnings.length;$('noVideo').hidden=!!data.video;v.hidden=!data.video;t=0;const source=setupVideoSources();if(source){selectVideo(source)}else{videoSource=null;setPlaybackState(true,'재생 준비 완료')}updateVideoBuffer();setTime(0)}
 // Transport presses glow and fade instead of rippling ([data-glow], ripple.js); the keys light their buttons too.
 const flash=button=>window.rvGlow?.(button);
 $('play').onclick=toggle;$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);$('seek').oninput=()=>{setTime(Number($('seek').value));last=performance.now()};$('speed').onchange=()=>v.playbackRate=Number($('speed').value);
@@ -1087,7 +1090,19 @@ function logSegmentInfo(name){
  return Number.isSafeInteger(number)?{route:match[1],number}:null;
 }
 const SEGMENT_STATES={unconverted:'미변환',queued:'대기 중',processing:'준비 중',error:'변환 실패'};
-const goToLog=log=>location.assign('../'+encodeURIComponent(log.id)+'/');
+// 보기 메뉴 › 재생 (kept on this browser): 끝나면 다음 구간 재생 (off by default) opens the drive's next playable segment
+// when this one plays to its end; 구간을 옮기면 일시정지 (on by default) is what moving to another segment always did,
+// and off, a move made while playing goes on playing there. The next page starts playing when it is ready
+// (rv-resume-play names it; the video is muted, so no gesture is needed).
+const AUTO_NEXT_KEY='roadviewer-auto-next',PAUSE_ON_JUMP_KEY='roadviewer-pause-on-jump',RESUME_KEY='rv-resume-play';
+let autoNext=false,pauseOnJump=true,nextDriveSegment=null;
+try{autoNext=localStorage.getItem(AUTO_NEXT_KEY)==='1';pauseOnJump=localStorage.getItem(PAUSE_ON_JUMP_KEY)!=='0'}catch{}
+{const show=()=>{$('autoNext').setAttribute('aria-pressed',String(autoNext));$('pauseOnJump').setAttribute('aria-pressed',String(pauseOnJump))};show();
+ $('autoNext').onclick=()=>{autoNext=!autoNext;try{localStorage.setItem(AUTO_NEXT_KEY,autoNext?'1':'0')}catch{}show()};
+ $('pauseOnJump').onclick=()=>{pauseOnJump=!pauseOnJump;try{localStorage.setItem(PAUSE_ON_JUMP_KEY,pauseOnJump?'1':'0')}catch{}show()}}
+const goToLog=(log,resume=playing&&!pauseOnJump)=>{try{if(resume)sessionStorage.setItem(RESUME_KEY,log.id);else sessionStorage.removeItem(RESUME_KEY)}catch{}location.assign('../'+encodeURIComponent(log.id)+'/')};
+// Played to the end (not sought there): on to the next segment when 끝나면 다음 구간 재생 is on.
+function playedToEnd(){if(autoNext&&nextDriveSegment)goToLog(nextDriveSegment,true)}
 // App bar title: when the route starts (its first segment's time, as in the log list), which segment this is and of how many.
 function renderTitle(active,segments){
  const info=logSegmentInfo(active?.name),first=segments[0]?.log||active;
@@ -1226,6 +1241,7 @@ function populateSegments(logs,current){
  const active=logs.find(log=>log.id===current),info=logSegmentInfo(active?.name);
  const segments=info?logs.map(log=>({log,info:logSegmentInfo(log.name)})).filter(item=>item.info?.route===info.route).sort((a,b)=>a.info.number-b.info.number||a.log.id.localeCompare(b.log.id)):[];
  renderTitle(active,segments);renderSegmentStrip(segments,current,active);
+ {const at=segments.findIndex(item=>item.log.id===current);nextDriveSegment=at<0?null:segments.slice(at+1).find(item=>item.log.status==='ready')?.log||null}
  if(segments.length<2)return;
  for(const {log,info} of segments){
   const option=document.createElement('option');option.value=log.id;
@@ -1303,7 +1319,7 @@ function renderReplayDownloads(log){
   button.onclick=async()=>{
    details.open=false;if(!confirm(`${log.name}\n${message}`))return;
    button.disabled=true;
-   try{await replayDelete(url,expected);const next=className==='delete'&&replaySegmentNeighbors.find(Boolean);if(next)goToLog(next);else location.assign('../../')}catch(e){showError(e.message);button.disabled=false}
+   try{await replayDelete(url,expected);const next=className==='delete'&&replaySegmentNeighbors.find(Boolean);if(next)goToLog(next,false);else location.assign('../../')}catch(e){showError(e.message);button.disabled=false}
   };
   return button;
  };
@@ -1358,7 +1374,13 @@ document.addEventListener('click',e=>{for(const details of replayMenus)if(detail
 document.addEventListener('keydown',e=>{const details=replayMenus.find(d=>d.open);if(e.key==='Escape'&&details&&!document.querySelector('dialog[open]')){details.open=false;details.querySelector('summary').focus()}});
 // The playable segments of the same drive just before and after this one (for 완전 삭제 above).
 let replaySegmentNeighbors=[];
+// The list can fail for a moment (the app restarting after an update, a slow first answer, Ingress re-authenticating):
+// it is asked again after 1, 2, 4… up to 30 s, and meanwhile the title is the replay data's own name (주행 N · 구간 k)
+// rather than the page's placeholder.
+let logNavigationRetry=0,logNavigationTimer=null;
+function placeholderTitle(){if(data?.route&&$('titleText').textContent==='로그 재생')renderTitle({name:data.route},[])}
 async function loadLogNavigation(){
+ clearTimeout(logNavigationTimer);
  const buttons=[$('previousLog'),$('nextLog')];
  const label=(button,text,title)=>{button.querySelector('.neighbor-label').textContent=text;button.setAttribute('aria-label',text);button.title=title};
  try{
@@ -1388,7 +1410,12 @@ async function loadLogNavigation(){
    label(button,text,log?text+' · '+log.name:'이동할 재생 가능한 로그가 없습니다.');
    button.onclick=log?()=>goToLog(log):null;
   });
- }catch{buttons.forEach(button=>{button.disabled=true;button.title='로그 목록을 불러오지 못했습니다. 새로고침해 주세요.'})}
+  logNavigationRetry=0;
+ }catch{
+  buttons.forEach(button=>{button.disabled=true;button.title='로그 목록을 불러오지 못했습니다. 잠시 후 다시 시도합니다.'});
+  placeholderTitle();
+  logNavigationTimer=setTimeout(loadLogNavigation,Math.min(30000,1000*2**logNavigationRetry++));
+ }
 }
 const pageReady=loadLogNavigation();
 

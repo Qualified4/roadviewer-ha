@@ -23,6 +23,9 @@
  const BARE_KEY='roadviewer-map-nolabels';
  let simple=false,bare=false;try{simple=localStorage.getItem(SIMPLE_KEY)==='1';bare=localStorage.getItem(BARE_KEY)==='1'}catch{}
  const simpleButtons=new Set();
+ // 지도 테마 (the same popover): 자동 follows the app's theme, 라이트 and 다크 fix the basemap for every map on the page
+ // but the small map over the video (its own 색상 setting); kept on this browser.
+ const TONE_KEY='roadviewer-map-tone';let mapTone='auto';try{const saved=localStorage.getItem(TONE_KEY);if(saved==='light'||saved==='dark')mapTone=saved}catch{}
  const link=(href,text)=>`<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
  const ATTRIBUTION=`${link('https://openfreemap.org','OpenFreeMap')} ${link('https://www.openmaptiles.org/','© OpenMapTiles')} Data from ${link('https://www.openstreetmap.org/copyright','OpenStreetMap')}`;
  const SHORT_ATTRIBUTION=`${link('https://openfreemap.org','OpenFreeMap')} ${link('https://www.openmaptiles.org/','© OpenMapTiles')} ${link('https://www.openstreetmap.org/copyright','© OSM')}`;
@@ -94,7 +97,7 @@
   map.on('zoomstart',()=>{zoomOpen=true}).on('zoomend',()=>{zoomOpen=false})
    .on('moveend',()=>{if(zoomOpen&&!map._animatingZoom&&!map.touchZoom?._zooming)map.fire('zoomend')});
   map.attributionControl.setPrefix(false);
-  const tiles=()=>tone?.()||theme(),plain=()=>labels?!labels():bare,isGrey=()=>grey?grey():simple,tileKey=()=>tiles()+(isGrey()?'-grey':'')+(plain()?'-nolabels':'');
+  const tiles=()=>tone?tone()||theme():mapTone==='auto'?theme():mapTone,plain=()=>labels?!labels():bare,isGrey=()=>grey?grey():simple,tileKey=()=>tiles()+(isGrey()?'-grey':'')+(plain()?'-nolabels':'');
   container.classList.add('rv-map');container.dataset.tiles=tiles();container.dataset.tileKey=tileKey();map.rvTiles=tiles;map.rvTileKey=tileKey;map.rvPlain=plain;map.rvGrey=isGrey;map.rvOwn=!!(labels||grey);maps.add(map);
   // The style is set after the map exists (not as an option) so that every load, the first and each theme change,
   // goes through transformStyle: it hides the symbol layers right in the style while 글자 숨기기 is on. Leaflet adds
@@ -138,7 +141,8 @@
    button.href='#';button.setAttribute('role','button');button.setAttribute('aria-haspopup','true');button.setAttribute('aria-expanded','false');button.title='지도 표시';button.setAttribute('aria-label','지도 표시');
    button.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="m12 3.5 8.5 4.5-8.5 4.5L3.5 8Z"/><path d="m3.5 12.5 8.5 4.5 8.5-4.5" stroke-linecap="round"/><path d="m3.5 16.5 8.5 4.5 8.5-4.5" stroke-linecap="round" opacity=".55"/></svg>';
    const pop=L.DomUtil.create('div','rv-map-options',wrap);pop.hidden=true;pop.setAttribute('role','group');pop.setAttribute('aria-label','지도 표시');
-   pop.innerHTML='<p class="rv-map-options-title">지도 표시</p>'+[['labels','글자 숨기기','지명·도로 이름·아이콘·화살표를 숨깁니다. 지도 색은 그대로입니다.'],['grey','회색 지도','차분한 회색 지도로 바꾸고 3D 건물·아이콘을 뺍니다.']]
+   pop.innerHTML='<p class="rv-map-options-title">지도 표시</p><div class="rv-map-tone"><span>지도 테마</span><div class="view-switch view-switch-3" role="group" aria-label="지도 테마">'
+    +[['auto','자동'],['light','라이트'],['dark','다크']].map(([tone,text])=>`<button type="button" data-tone="${tone}" aria-pressed="false">${text}</button>`).join('')+'</div></div>'+[['labels','글자 숨기기','지명·도로 이름·아이콘·화살표를 숨깁니다. 지도 색은 그대로입니다.'],['grey','회색 지도','차분한 회색 지도로 바꾸고 3D 건물·아이콘을 뺍니다.']]
     .map(([kind,title,note])=>`<label><input type="checkbox" data-kind="${kind}"><span><b>${title}</b><small>${note}</small></span></label>`).join('');
    L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(pop);
    const outside=event=>{if(!wrap.contains(event.target))setOpen(false)},key=event=>{if(event.key==='Escape'){event.stopPropagation();event.preventDefault();setOpen(false);button.focus()}};  // only the popover, not the drive map under it
@@ -149,6 +153,7 @@
    };
    L.DomEvent.on(button,'click',event=>{L.DomEvent.preventDefault(event);setOpen(pop.hidden)});
    for(const box of pop.querySelectorAll('input'))box.addEventListener('change',()=>setSimple(box.dataset.kind,box.checked));
+   for(const choice of pop.querySelectorAll('button[data-tone]'))choice.addEventListener('click',()=>setMapTone(choice.dataset.tone));
    simpleButtons.add(wrap);showSimple(wrap);return wrap;
   };
   control.onRemove=()=>{for(const button of simpleButtons)if(!button.isConnected)simpleButtons.delete(button)};
@@ -156,13 +161,18 @@
  }
  function showSimple(wrap){
   for(const box of wrap.querySelectorAll('input[data-kind]'))box.checked=box.dataset.kind==='grey'?simple:bare;
-  wrap.querySelector('.rv-map-options-button').classList.toggle('is-on',simple||bare);
+  for(const choice of wrap.querySelectorAll('button[data-tone]'))choice.setAttribute('aria-pressed',String(choice.dataset.tone===mapTone));
+  wrap.querySelector('.rv-map-options-button').classList.toggle('is-on',simple||bare||mapTone!=='auto');
  }
+ const syncSimple=()=>{
+  for(const button of simpleButtons){if(!button.isConnected){simpleButtons.delete(button);continue}showSimple(button)}
+  for(const map of maps){if(!map.getContainer().isConnected){maps.delete(map);continue}if(!map.rvOwn)applyTiles(map)}
+ };
+ function setMapTone(tone){if(tone===mapTone)return;mapTone=tone;try{localStorage.setItem(TONE_KEY,tone)}catch{}syncSimple()}
  // Only the basemap's style changes: the view, the route lines and any selection stay as they are.
  function setSimple(kind,on){
   if(kind==='grey')simple=on;else bare=on;try{localStorage.setItem(kind==='grey'?SIMPLE_KEY:BARE_KEY,on?'1':'0')}catch{}
-  for(const button of simpleButtons){if(!button.isConnected){simpleButtons.delete(button);continue}showSimple(button)}
-  for(const map of maps){if(!map.getContainer().isConnected){maps.delete(map);continue}if(!map.rvOwn)applyTiles(map)}
+  syncSimple();
  }
  function setStyle(map){
   // 회색 지도: the calm style without the busy layers; 글자 숨기기: below, every symbol layer hidden.

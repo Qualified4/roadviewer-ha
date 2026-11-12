@@ -241,8 +241,9 @@ class GdriveCrashTests(unittest.TestCase):
              video_chunk(lambda start, length, total: start == MIB), both, ('resumed', 2 * MIB)),
             ('last chunk stored, completion answer lost', ab.DriveClient, 'put_chunk', 'after',
              video_chunk(lambda start, length, total: start + length == total), both, ('adopted',)),
-            ('before verify', ab.DriveBackend, 'verify', 'before',
-             lambda backend, ref, sha256, size, md5=None: size == len(VIDEO), both, ('adopted',)),
+            # The archiver's verification (a fresh upload is checked against its completion answer, else Drive is asked).
+            ('before verify', media_store.Archiver, '_verify', 'before',
+             lambda archiver, ref, sha256, size, md5=None: size == len(VIDEO), both, ('adopted',)),
             ('verified, before the index commit', media_store, 'atomic_json', 'before', video_commit, both, ('adopted',)),
             ('after the index commit', media_store, 'atomic_json', 'after', video_commit, both, ('committed',)),
             ('committed, before the local unlink', media_store.Path, 'unlink', 'before', local, move_only, ('committed',)),
@@ -347,7 +348,9 @@ class GdriveCrashTests(unittest.TestCase):
             self.assertNotEqual(e2['file_id'], e['file_id']); self.assertFalse((p / 'fcamera.mp4').exists())
             self.assertEqual(self.drive_content(e['file_id']), damaged)  # The damaged file is untouched.
             self.assertEqual(set(self.drive_files(ID, 'fcamera.mp4')), {e['file_id'], e2['file_id']})
-            self.assertEqual(sorted(name for name, _, _ in unlinks), ['fcamera.mp4', 'rlog.zst'])
+            # rlog.zst was in flight next to fcamera.mp4 (UPLOAD_WORKERS) when moved_with_local's cycle stopped: the
+            # pass let it finish (verified, committed, then unlinked) before the crash went up, so only fcamera.mp4 is left.
+            self.assertEqual(sorted(name for name, _, _ in unlinks), ['fcamera.mp4'])
             for name, where, verified in unlinks: self.assertEqual((where, verified), ('gdrive', True), name)
             self.assert_never_removed(writes, 'corrupt copy')
 

@@ -2,12 +2,14 @@
 (()=>{
  const panel=$('panel-logs'),list=$('list'),dock=$('bulkDock'),bar=$('bulkBar'),all=$('bulkAll'),convert=$('bulkConvert'),remove=$('bulkRemove'),del=$('bulkDelete'),close=$('bulkClose'),includePinned=$('bulkIncludePinned'),download=$('bulkDownload'),downloadMenu=$('bulkDownloadMenu');
  const selected=new Set();let active=false,running=false,returnFocus=null,press=null,suppressClick=null,resultMessage='';
- const rows=()=>[...logRows.values()].filter(row=>row.row.isConnected),chosen=()=>rows().filter(row=>selected.has(row.log.id)),visible=()=>rows().filter(row=>!row.row.hidden);
+ // Selection works on every row: folded cards' rows not built yet (library.js) are built when it starts.
+ const rows=()=>[...logRows.values()].filter(row=>row.row?.isConnected),chosen=()=>rows().filter(row=>selected.has(row.log.id)),visible=()=>rows().filter(row=>!row.row.hidden);
  function setText(element,text){if(element.textContent!==text)element.textContent=text}
  function checkbox(className,name,value,onchange){
   const label=document.createElement('label'),input=document.createElement('input'),text=document.createElement('span');label.className=className;input.type='checkbox';input.value=value;input.onchange=onchange;text.className='selection-sr';text.textContent=name;label.append(input,text);return {label,input,text};
  }
  function sync(){
+  if(active)buildAllRows();
   const current=rows(),ids=new Set(current.map(row=>row.log.id));for(const id of selected)if(!ids.has(id))selected.delete(id);
   const picked=chosen(),shown=visible(),shownCount=shown.filter(row=>selected.has(row.log.id)).length,pinned=picked.filter(row=>row.log.pinned).length,hidden=picked.length-shownCount;
   all.checked=shown.length>0&&shownCount===shown.length;all.indeterminate=shownCount>0&&shownCount<shown.length;all.disabled=running||!shown.length;

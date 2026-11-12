@@ -152,6 +152,8 @@ jobs:
         if: matrix.group == 'g6'
       - run: node tests/long_drive.cjs
         if: matrix.group == 'g2'
+      - run: node tests/lazy_rows.cjs
+        if: matrix.group == 'g2'
       - run: node tests/ripple.cjs
         if: matrix.group == 'g2'
       - run: node tests/replay_glass_capture.cjs

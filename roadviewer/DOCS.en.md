@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.2.21**.
+This guide describes **1.2.22**.
 
 [한국어](DOCS.md) · English
 
@@ -186,7 +186,7 @@ The replay page has a compact app bar, controls over the video, a floating playb
 | Date · log name | One line with the date, log name (copy button), **태그** button, tags and the **고정** badge. The title (segment chooser) sits at the top left of the video. |
 | Previous / next | **이전 구간 / 다음 구간** within the same route, otherwise **이전 로그 / 다음 로그**. They are the ‹ › buttons beside the title at the top left of the video. |
 | Pin | Pins/unpins the current segment, shared with the library; yellow when pinned. |
-| 보기 (View) | **좌우 분할**, **상하 분리**, **화면 폭…**. On phones it sits inside the ⋯ menu. |
+| 보기 (View) | **좌우 분할**, **상하 분리**, **화면 폭…**, and under **재생** (playback) two switches kept in this browser: **끝나면 다음 구간 재생** (off by default: when a segment plays to its end, the drive's next playable segment plays on) and **구간을 옮기면 일시정지** (on by default: off, moving to another segment while playing keeps playing). On phones it sits inside the ⋯ menu. |
 | ⋯ | **제거**, **다운로드**, **카메라 설치 정보**, **화면 모드**, log details/version, **완전 삭제** |
 
 **Over the video**
@@ -326,7 +326,7 @@ Converting a log also keeps its route at one point per second: the device GPS (`
 
   ![Small map over the video](../docs/images/roadviewer-video-minimap.png)
 
-The basemap is OpenFreeMap's vector tiles made from OpenStreetMap data (Liberty light, Dark dark; the layers button under the zoom buttons opens a "지도 표시" (map display) popover, closed by Escape or a tap elsewhere, with two switches: "글자 숨기기" (hide labels) keeps the style and its colours, such as Liberty's yellow main roads, and hides every symbol layer: place and road names, place icons, road shields, one-way arrows and house numbers, at once without loading another style; "회색 지도" (grey map) switches to Positron light / Dark without 3D buildings, POI icons, road shields, one-way arrows and house numbers, keeping the names (in dark mode the change is small, the normal map being dark grey already); the two are independent, both on give a grey map without text, they apply to every map but the small map, are remembered in this browser and are off by default), fetched by the browser without an API key or account and drawn with MapLibre; an internet connection is needed and tile requests for the viewed area go to OpenFreeMap (tiles.openfreemap.org). The map library is fetched the first time a map opens and then served from the browser cache for the same app version. The map credit always sits in the map's bottom-right corner; on every map it starts folded into an ⓘ button (tap ⓘ to show it). Coordinates are served only by the map APIs behind Ingress, never in the log list, download archives, exports, the device API or archives (original rlogs always contained GPS).
+The basemap is OpenFreeMap's vector tiles made from OpenStreetMap data (Liberty light, Dark dark; the layers button under the zoom buttons opens a "지도 표시" (map display) popover, closed by Escape or a tap elsewhere, with two switches: "글자 숨기기" (hide labels) keeps the style and its colours, such as Liberty's yellow main roads, and hides every symbol layer: place and road names, place icons, road shields, one-way arrows and house numbers, at once without loading another style; "회색 지도" (grey map) switches to Positron light / Dark without 3D buildings, POI icons, road shields, one-way arrows and house numbers, keeping the names (in dark mode the change is small, the normal map being dark grey already); the two are independent, both on give a grey map without text; the popover's "지도 테마" (map theme: 자동 automatic, 라이트 light, 다크 dark) fixes the basemap apart from the screen theme, they apply to every map but the small map, are remembered in this browser and are off by default), fetched by the browser without an API key or account and drawn with MapLibre; an internet connection is needed and tile requests for the viewed area go to OpenFreeMap (tiles.openfreemap.org). The map library is fetched the first time a map opens and then served from the browser cache for the same app version. The map credit always sits in the map's bottom-right corner; on every map it starts folded into an ⓘ button (tap ⓘ to show it). Coordinates are served only by the map APIs behind Ingress, never in the log list, download archives, exports, the device API or archives (original rlogs always contained GPS).
 
 ## Camera information and steering icon
 

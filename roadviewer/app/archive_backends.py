@@ -3,7 +3,7 @@ Drive/NAS backends behind one interface (standard library only)."""
 import hashlib, http.client, io, json, os, random, re, ssl, threading, time, uuid
 from contextlib import contextmanager
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from storage_policy import atomic_json
 import media_store
@@ -333,6 +333,13 @@ class RemoteRef:  # 1:1 with the index's `remote` block. SMB: file_id is '<id>/<
     bytes: int
     sha256: str | None
     md5: str | None
+    # Drive only, set by upload() when this attempt sent the last chunk: the checksums above are from that chunk's
+    # completion answer (the file Drive just created from what was sent), and sent_md5 is the md5 of the whole file
+    # as read and sent. Archiver._verify takes a match from them without asking Drive again (completion_matches);
+    # neither is part of the index or of equality. A session found already complete when resuming is not `completed`:
+    # its file may have been trashed or changed since, so it is verified with Drive.
+    completed: bool = field(default=False, compare=False, repr=False)
+    sent_md5: str | None = field(default=None, compare=False, repr=False)
 
 @dataclass
 class RemoteStat:
@@ -362,6 +369,15 @@ def _fail(r):
     if r.status == 401 or r.status == 403 and reason in AUTH_REASONS: return BackendError('auth_expired', reason=reason)
     if r.status in (404, 410): return BackendError('not_found', reason=reason)
     return BackendError('io', reason=reason)
+
+def completion_matches(ref, sha256, size, md5=None):
+    # DriveBackend.verify()'s rules applied to a fresh upload's completion answer (ref.completed): the size, then
+    # sha256 when both sides have one, else md5 (the local one, or the md5 of what this attempt sent). True only for
+    # what verify() would call 'ok'; anything else is left to verify(), which asks Drive.
+    if not getattr(ref, 'completed', False) or not ref.file_id or size is None or ref.bytes != size: return False
+    if ref.sha256 and sha256: return ref.sha256 == sha256
+    md5 = md5 or ref.sent_md5
+    return bool(ref.md5 and md5 and ref.md5 == md5)
 
 def _received_end(r):
     # 308 `Range: bytes=0-N` -> N; no header -> nothing received yet.
@@ -674,6 +690,19 @@ class DriveBackend(_Availability):
         return [self._ref(f) for f in self.client.list(q, 'files(%s)' % FILE_FIELDS)
                 if (f.get('appProperties') or {}).get('rv_storage_id') == local]
 
+    def find_all(self):
+        # What find() would answer for every (id, kind) at once, from one listing of the folder (1000 a page): the same
+        # filters (in the folder, not trashed, rv_storage_id ours, rv_id and rv_kind set). {(id, kind): [RemoteRef]}.
+        local, folder_id = self.storage_id(), self.auth.folder_id
+        if not local or not folder_id: return {}
+        q = "appProperties has { key='rv_storage_id' and value='%s' } and trashed=false and '%s' in parents" % (_q(local), _q(folder_id))
+        found = {}
+        for f in self.client.list(q, 'files(%s)' % FILE_FIELDS):
+            props = f.get('appProperties') or {}
+            if props.get('rv_storage_id') != local or not props.get('rv_id') or not props.get('rv_kind'): continue
+            found.setdefault((props['rv_id'], props['rv_kind']), []).append(self._ref(f))
+        return found
+
     def upload(self, local, id, kind, sha256, md5, size, resume=None, on_progress=None):
         """Resumable upload in UPLOAD_CHUNK (16 MiB) pieces. `resume` ({session, bytes_sent, sha256, size} from an earlier attempt,
         or {}) is updated in place before every on_progress(bytes_sent) call so the caller can persist it; a
@@ -689,7 +718,7 @@ class DriveBackend(_Availability):
             resume.update(session=None, bytes_sent=0)
         if session:
             state, value = self.client.session_status(session, size)
-            if state == 'done': return self._completed(value, size, resume, on_progress)
+            if state == 'done': return self._completed(value, size, resume, on_progress, None)
             if state == 'incomplete': offset = value + 1
             else: session = None
         props = {'rv_id': id, 'rv_kind': kind, 'rv_sha256': sha256 or '', 'rv_storage_id': storage_id}
@@ -698,13 +727,13 @@ class DriveBackend(_Availability):
                 session, offset = self.client.start_resumable('%s--%s' % (id, kind), [folder_id], props, size), 0
                 resume.update(session=session, bytes_sent=0, sha256=sha256, size=size)
                 if on_progress: on_progress(0)
-            try: meta = self._send(local, session, offset, size, sha256, md5, resume, on_progress)
+            try: meta, sent_md5 = self._send(local, session, offset, size, sha256, md5, resume, on_progress)
             except _SessionExpired: session = None; continue
             except BackendError as e:
                 # The session carries the old rv_sha256: drop it so a persisted resume cannot complete it later.
                 if e.reason == 'local_changed': resume.update(session=None, bytes_sent=0)
                 raise
-            return self._completed(meta, size, resume, on_progress)
+            return self._completed(meta, size, resume, on_progress, sent_md5)
         raise BackendError('unavailable', retryable=True, reason='session_expired')
 
     def session_status(self, resume):
@@ -714,8 +743,10 @@ class DriveBackend(_Availability):
         if not isinstance(session, str) or not session or type(size) is not int: return 'expired'
         return self.client.session_status(session, size)[0]
 
-    def _completed(self, meta, size, resume, on_progress):
+    def _completed(self, meta, size, resume, on_progress, sent_md5):
+        # `meta` is the completion answer (FILE_FIELDS: id, size, sha256Checksum, md5Checksum, appProperties).
         ref = self._ref(meta)
+        ref.completed, ref.sent_md5 = sent_md5 is not None, sent_md5
         if not ref.file_id: raise BackendError('io', reason='no_file_id')
         if ref.bytes != size: raise BackendError('mismatch', reason='size')
         resume['bytes_sent'] = size
@@ -725,7 +756,8 @@ class DriveBackend(_Availability):
     def _send(self, local, session, offset, size, sha256, md5, resume, on_progress):
         # The file is read once: the part the session already holds is only hashed, the rest hashed and sent.
         # The whole file is read and checked before the last chunk goes out, so a session carrying a wrong
-        # rv_sha256 is never completed: an uncompleted session commits nothing.
+        # rv_sha256 is never completed: an uncompleted session commits nothing. Returns (completion answer, md5 of the
+        # whole file as read, which matched sha256 before the last chunk went out).
         h256, hmd5, checked = hashlib.sha256(), hashlib.md5(), False
         try: f = open(local, 'rb')
         except OSError as e: raise BackendError('io', reason=type(e).__name__) from None
@@ -754,7 +786,7 @@ class DriveBackend(_Availability):
                     # The chunk may or may not have arrived: ask the session rather than resending blindly.
                     state, value = self.client.session_status(session, size)
                 if state == 'expired': raise _SessionExpired()
-                if state == 'done': return value
+                if state == 'done': return value, hmd5.hexdigest() if checked else None
                 end = value + 1
                 if not sent <= end <= sent + len(buf): raise BackendError('io', reason='bad_range')
                 if end == sent:

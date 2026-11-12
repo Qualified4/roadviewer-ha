@@ -374,6 +374,7 @@ details[open]:not(.is-closing)>summary>.icon-more .more-dot{opacity:0}details[op
 .replay-download-menu>.delete{color:var(--danger-text)}
 .replay-download-menu>hr{width:calc(100% - 12px);margin:4px 6px;border:0;border-top:1px solid var(--line)}
 .menu-view{display:grid;gap:2px}.menu-section{padding:6px 12px 2px;font-size:11px;color:var(--muted)}.view-menu .menu-section{display:none}
+.menu-view .menu-section-play{display:block;margin-top:4px;padding-top:9px;border-top:1px solid var(--line)}  /* 재생: its own group under 보기, in both menus */
 .replay-download-menu .menu-view{padding-bottom:4px;border-bottom:1px solid var(--line)}
 .menu-toggle svg{flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;color:var(--muted)}
 .menu-toggle>span:first-of-type{flex:1}
@@ -692,7 +693,7 @@ button.time-toggle:active{background:var(--hover)}
 }
 
 /* Quiet controls; card surfaces keep their depth. */
-@media(pointer:fine){button:not(.segment-block):not(.bookmark-marker):not(.tag-edit):not(.copy-recording):not(.app-title-button):not(.lib-tab):not(.time-toggle):not(.tag-colors>button){min-height:36px;padding-block:6px}select,.rv-choice-trigger{min-height:34px}}
+@media(pointer:fine){button:not(.segment-block):not(.bookmark-marker):not(.tag-edit):not(.copy-recording):not(.app-title-button):not(.lib-tab):not(.time-toggle):not(.tag-colors>button):not(.tag-overflow){min-height:36px;padding-block:6px}select,.rv-choice-trigger{min-height:34px}}
 @media(pointer:coarse){button,select,.rv-choice-trigger{min-height:44px}}
 select,.rv-choice-trigger{font-weight:500}
 .icon-button{background:transparent;border:0;box-shadow:none;color:var(--muted)}
@@ -892,6 +893,7 @@ select,.rv-choice-trigger{font-weight:500}
 .rv-map-options-title{margin:0;padding:6px 10px 4px;font-size:11.5px;font-weight:600;letter-spacing:.02em;color:var(--muted)}
 .rv-map-options label{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:8px 10px;border-radius:10px;cursor:pointer}
 .rv-map-options input{margin:2px 0 0;flex:none;width:16px;height:16px;accent-color:var(--accent)}
+.rv-map-tone{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 6px 6px 10px}.rv-map-tone>span{font-weight:600}.rv-map-tone .view-switch>button{padding:4px 9px}
 .rv-map-options b{display:block;font-weight:600}.rv-map-options small{display:block;margin-top:2px;font-size:11.5px;color:var(--muted)}
 @media(hover:hover) and (pointer:fine){.rv-map-options label:hover{background:var(--map-glass-hover)}}
 @keyframes rv-map-options-in{from{opacity:0;transform:translateY(-4px) scale(.98)}}

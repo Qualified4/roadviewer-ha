@@ -120,8 +120,8 @@ const replay={route:'test',key:'k',duration:1,warnings:[],video:null,frames:[{t:
   await fullDelete('alone','https://rv.test/');
   // The list menu offers the same choices.
   await page.setViewportSize({width:1280,height:800});await page.goto('https://rv.test/');await page.locator('.log-row').first().waitFor();
-  await page.locator('.log-row').first().locator('.recording-more>summary').click();
-  assert.deepEqual(await page.locator('.log-row').first().locator('.recording-menu a.download-original span').allTextContents(),['로그 다운로드','전방 영상','광각 영상','저화질 영상']);
+  await page.locator('.log-row[data-id="multi"] .recording-more>summary').click();
+  assert.deepEqual(await page.locator('.log-row[data-id="multi"] .recording-menu a.download-original span').allTextContents(),['로그 다운로드','전방 영상','광각 영상','저화질 영상']);
   // Where each part is kept: local unless the archive moved it; only stored parts are listed.
   // The list shows one summary line per segment; its tooltip names every stored part (chips appear only when mixed).
   const where=id=>page.locator(`.log-row:has(a.replay[href="view/${id}/"]) .storage-summary`);

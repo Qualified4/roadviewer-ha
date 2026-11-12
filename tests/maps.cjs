@@ -863,6 +863,14 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    await settleLayout(page,'#driveMap');
    // Its 지도 표시 popover: Escape closes the popover only, the drive map stays open.
    {const pop=page.locator('#driveMap .rv-map-options');await page.locator('#driveMap .rv-map-options-button').click();await pop.waitFor();
+    // 지도 테마: 자동 (the app's theme) | 라이트 | 다크, for the page's maps, kept on this browser.
+    {const box=page.locator('#driveMap .drive-map-canvas'),tone=name=>pop.locator(`button[data-tone=${name}]`),other=scheme==='dark'?'light':'dark';
+     assert.equal(await tone('auto').getAttribute('aria-pressed'),'true');assert.equal(await box.getAttribute('data-tiles'),scheme);
+     await tone(other).click();await page.waitForFunction(o=>document.querySelector('#driveMap .drive-map-canvas').dataset.tiles===o,other);
+     assert.equal(await tone(other).getAttribute('aria-pressed'),'true');assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-tone')),other);
+     assert(await page.locator('#driveMap .rv-map-options-button').evaluate(b=>b.classList.contains('is-on')),'the layers button shows a fixed theme');
+     await tone('auto').click();await page.waitForFunction(o=>document.querySelector('#driveMap .drive-map-canvas').dataset.tiles===o,scheme);
+     assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-tone')),'auto')}
     await page.keyboard.press('Escape');await pop.waitFor({state:'hidden'});await page.waitForTimeout(200);assert(await page.evaluate(()=>document.getElementById('driveMap').open),'the drive map stays open')}
    {const g=await page.evaluate(()=>{const d=document.getElementById('driveMap'),r=s=>d.querySelector(s).getBoundingClientRect(),sheet=r('.drive-map-sheet'),button=r('.drive-map-fold'),list=d.querySelector('.drive-map-list');return {scrolls:list.scrollHeight>list.clientHeight+40,bottom:Math.round(innerHeight-sheet.bottom),below:Math.abs(sheet.top-button.top)<=1,button:[innerWidth-button.right].map(Math.round)}});
     assert(g.scrolls&&g.bottom>=16&&g.below&&g.button[0]===16,JSON.stringify(g))}

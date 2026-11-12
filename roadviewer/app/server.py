@@ -1541,13 +1541,29 @@ def simplified_track(p,m):
  coords=gps_track.simplify([[pt[1],pt[2]] for pt in points],SEGMENT_POINTS) if points else []
  value=(coords,(summary or {}).get('track_distance_m') or 0)
  track_cache[p.name]=(signature,*value);return value
+tracks_answer=None  # (signature of every recording's index and track files, the routes): the last full answer.
+def tracks_signature(paths):
+ # What the answer is made from: each recording's meta.json (name, status) and its track files. A few stats per
+ # recording instead of reading and simplifying them all again (2 s for 670 logs on the Home Assistant Green).
+ out=[]
+ for p in paths:
+  try:st=os.stat(p/'meta.json');meta=(st.st_mtime_ns,st.st_size)
+  except OSError:meta=None
+  out.append((p.name,meta,track_signature(p)))
+ return tuple(out)
 @app.route('/api/tracks')
 def tracks():
  # Every drive with GPS, simplified to at most ROUTE_POINTS points, for the list's map and its route thumbnails. The page
- # filters them as it filters the list; ?ids=a,b limits the answer to the drives of those logs.
+ # filters them as it filters the list; ?ids=a,b limits the answer to the drives of those logs. The routes are kept
+ # until a recording or a track file changes (tracks_signature).
+ global tracks_answer
  wanted=set(filter(ID.fullmatch,request.args.get('ids','').split(','))) if request.args.get('ids') else None
+ paths=list(recording_paths());signature=tracks_signature(paths);kept=tracks_answer
+ if kept is None or kept[0]!=signature:kept=tracks_answer=(signature,all_routes(paths))
+ return track_response({'routes':[route for route in kept[1] if wanted is None or wanted.intersection(route['ids'])]})
+def all_routes(paths):
  routes={};seen=set()
- for p in recording_paths():
+ for p in paths:
   try:m=read_meta(p)
   except (OSError,ValueError):continue
   seen.add(p.name)
@@ -1559,11 +1575,11 @@ def tracks():
  for id in set(track_cache)-seen:track_cache.pop(id,None)
  out=[]
  for route in routes.values():
-  if not route['rows'] or wanted is not None and not wanted.intersection(route['ids']):continue
+  if not route['rows']:continue
   rows=sorted(route.pop('rows'));coords=[c for _,_,segment in rows for c in segment]
   out.append(dict(route,segments=[id for _,id,_ in rows],points=gps_track.simplify(coords,ROUTE_POINTS)))
  out.sort(key=lambda route:route['key'])
- return track_response({'routes':out})
+ return out
 
 thumbnail_lock=threading.Lock()  # At most one on-demand thumbnail decode at a time, for all logs.
 THUMBNAIL_FAILED=backfill.THUMBNAIL_FAILED  # In prepared/: removed with it, so "cannot be made" holds per conversion.

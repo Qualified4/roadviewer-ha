@@ -74,6 +74,10 @@ const {showTab}=require('./browser-helpers.cjs');
   assert.equal(await card.locator('.route-meta').textContent(),'주행 41b · 4개 구간');
   assert.equal(await card.locator('.route-duration').textContent(),'6:00');
   assert.deepEqual(await card.locator('.route-seg').evaluateAll(b=>b.map(e=>e.dataset.status)),['ready','ready','processing','error']);
+  // The server lists the newest upload first: the bar still runs from segment 0 on the left.
+  logs.splice(0,4,...logs.slice(0,4).reverse());await page.evaluate(()=>refresh());
+  assert.deepEqual(await card.locator('.route-seg').evaluateAll(b=>b.map(e=>e.title.split(' · ')[0])),['구간 0','구간 1','구간 2','구간 3']);
+  logs.splice(0,4,...logs.slice(0,4).reverse());await page.evaluate(()=>refresh());
   assert.equal(await card.locator('.route-status').textContent(),'재생 가능 2 · 처리 중 1 · 변환 실패 1');
   // Duration-weighted: (100 % × 60 s + 50 % × 180 s) / 240 s = 62.5 % → 63 %; takeovers are summed.
   assert.equal(await card.locator('.route-drive').textContent(),'자동 제어 63% · 개입 3회');
@@ -110,13 +114,13 @@ const {showTab}=require('./browser-helpers.cjs');
   logs[4].uploaded=upload+60;await page.evaluate(()=>refresh());
   assert.equal(await fallback.getAttribute('title'),`첫 구간 0 · 출발 ${new Date(upload*1000).toLocaleString()} · 업로드 ${new Date((upload+60)*1000).toLocaleString()}`);
   delete logs[4].started_at;logs[4].uploaded=upload;
-  // A later segment arriving first must not supply the route date or reorder the server's segment list.
+  // A later segment arriving first must not supply the route date; the card still lists its segments from 0 down.
   const first=logs[0],second=logs[1];logs[0]=second;logs[1]=first;first.started_at=at(2,8,40)+.25;
   await page.evaluate(()=>refresh());
   assert.equal(await card.locator('.route-time').textContent(),clock(first.started_at)+' 출발');
   const firstDay=new Date(first.started_at*1000);
   assert.equal(await card.locator('xpath=../..').getAttribute('data-day'),`${firstDay.getFullYear()}-${firstDay.getMonth()+1}-${firstDay.getDate()}`);
-  assert.deepEqual(await card.locator('.log-row').evaluateAll(rows=>rows.map(row=>row.dataset.id)),['041b1','041b0','041b2','041b3']);
+  assert.deepEqual(await card.locator('.log-row').evaluateAll(rows=>rows.map(row=>row.dataset.id)),['041b0','041b1','041b2','041b3']);
   assert.deepEqual(await page.locator('.log-route').evaluateAll(routes=>routes.map(route=>route.dataset.route)),['0000041b--a1b2c3d4e5','00000395--0d0eda17c5','00000396--0d0eda17c5'],'route order follows the server even when the date is older');
   delete first.started_at;await page.evaluate(()=>refresh());
   assert.equal(await card.locator('.route-time').textContent(),'업로드 '+clock(first.uploaded),'a later segment start cannot replace a missing first-segment start');

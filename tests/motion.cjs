@@ -91,8 +91,9 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    logs=[{id:'two',name:'00000395--0d0eda17c5 / 구간 8',status:'ready',uploaded:3,bytes:1,prepared_bytes:1,video:true},{...logs[0],status:'ready',progress:null}];
    await page.evaluate(()=>refresh());
    const rows=await page.evaluate(()=>[...document.querySelectorAll('.log-row')].map(r=>[r.dataset.id,r.getAnimations().length,r.classList.contains('is-update')]));
-   assert.deepEqual(rows.map(r=>r[0]),['two','one']);
-   assert.equal(rows[0][1]>0,!reduced,'new row enters with motion');assert.equal(rows[1][2],true);
+   // A card lists its segments from 0 down: 구간 7 ('one') above the new 구간 8 ('two').
+   assert.deepEqual(rows.map(r=>r[0]),['one','two']);
+   assert.equal(rows[1][1]>0,!reduced,'new row enters with motion');assert.equal(rows[0][2],true);
    // Deleting reflows the list through a view transition.
    await page.evaluate(()=>{window.transitions=0;const start=document.startViewTransition.bind(document);document.startViewTransition=cb=>{transitions++;return start(cb)}});
    logs=[logs[0]];await page.evaluate(()=>refresh());await page.waitForFunction(()=>document.querySelectorAll('.log-row').length===1);
@@ -229,7 +230,7 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     await page.locator('#previousLog').click();await page.waitForURL('**/view/older/');
     await page.waitForFunction(()=>typeof data!=='undefined'&&data);
     await page.locator('.back').click();await page.waitForURL('https://rv.test/');
-    await page.locator('.log-row a.replay').first().click();await page.waitForURL('**/view/newer/');
+    await page.locator('.log-row a.replay[href="view/newer/"]').click();await page.waitForURL('**/view/newer/');
     await page.waitForFunction(()=>typeof data!=='undefined'&&data);
     assert.equal(await page.evaluate(()=>sessionStorage.getItem('snapshot-navigation')),null,'touch page navigation never uses snapshots');
     // Even before external CSS is available, a newly loaded document has an opaque canvas in the screen mode's colour (light here).
