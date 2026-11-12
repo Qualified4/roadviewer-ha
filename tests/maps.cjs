@@ -824,6 +824,15 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    {await rows.nth(30).locator('.map-list-pick').click();await page.mouse.move(10,400);
     await page.waitForFunction((([list,row])=>{const l=document.querySelector(list),r=l?.querySelector(row);if(!r)return false;const a=l.getBoundingClientRect(),b=r.getBoundingClientRect(),off=(b.top+b.height/2)-(a.top+a.height/2);return Math.abs(off)<6||(off<0&&l.scrollTop<=1)||(off>0&&l.scrollTop>=l.scrollHeight-l.clientHeight-1)}),['#logMapRows','.map-list-row.is-selected']);
     assert(await rows.nth(30).evaluate(r=>r.classList.contains('is-selected')))}
+   // At the end of the list, with the last row selected, a row tapped above it must not make the list jump: the last row
+   // loses its buttons, the list is shorter for a moment and the browser pulled the position up in one step.
+   {await page.emulateMedia({reducedMotion:'no-preference'});const n=await rows.count();
+    await rows.nth(n-1).locator('.map-list-pick').click();await page.mouse.move(10,400);await page.waitForTimeout(900);
+    const from=await page.evaluate(()=>{const l=document.getElementById('logMapRows');window.rvLow=l.scrollTop;l.addEventListener('scroll',()=>{window.rvLow=Math.min(window.rvLow,l.scrollTop)});return {top:l.scrollTop,max:l.scrollHeight-l.clientHeight}});
+    await rows.nth(n-2).locator('.map-list-pick').click();await page.mouse.move(10,400);await page.waitForTimeout(700);
+    const s=await page.evaluate(()=>({low:window.rvLow,top:document.getElementById('logMapRows').scrollTop}));
+    assert(from.top>=from.max-1&&s.low>=from.top-3&&s.top>=from.top-3&&await rows.nth(n-2).evaluate(r=>r.classList.contains('is-selected')),'the list stays at its end '+JSON.stringify({from,s}));
+    await page.emulateMedia({reducedMotion:'reduce'});await rows.nth(30).locator('.map-list-pick').click();await page.mouse.move(10,400);await page.waitForTimeout(400)}
    // With motion, the bottom card waits for the folding cards to leave before it rises in (it used to cross them).
    {await page.emulateMedia({reducedMotion:'no-preference'});await fold.click();
     const early=await page.locator('#logMapCard').evaluate(c=>({hidden:c.hidden,delay:parseFloat(c.style.animationDelay),fill:c.style.animationFillMode,opacity:getComputedStyle(c).opacity}));

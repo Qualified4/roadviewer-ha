@@ -240,7 +240,15 @@
   // Scrolls a list so that the row sits in its middle (as far as the list can scroll).
   // The browser's scroll anchoring is off meanwhile: it moved the list for a card that had just shrunk above the row,
   // after the target was worked out, and the row ended at the top instead of the middle.
-  function centreRow(list,row){list.style.overflowAnchor='none';clearTimeout(list.rvAnchor);list.rvAnchor=setTimeout(()=>{list.style.overflowAnchor=''},700);const box=row.getBoundingClientRect(),area=list.getBoundingClientRect();list.scrollTo({top:list.scrollTop+box.top-area.top-Math.max(0,(area.height-box.height)/2),behavior:reduced()?'auto':'smooth'})}
+  // `from`: where the list stood before the rows changed. At the end of the list, the row that loses its buttons shortens
+  // it for a moment (a layout falls in before the tapped row grows) and the browser pulls the position up in one step;
+  // the scroll starts from `from` again so the list glides instead of jumping.
+  function centreRow(list,row,from=null){
+   list.style.overflowAnchor='none';clearTimeout(list.rvAnchor);list.rvAnchor=setTimeout(()=>{list.style.overflowAnchor=''},700);
+   if(from!==null&&!reduced())list.scrollTop=from;
+   const box=row.getBoundingClientRect(),area=list.getBoundingClientRect();
+   list.scrollTo({top:list.scrollTop+box.top-area.top-Math.max(0,(area.height-box.height)/2),behavior:reduced()?'auto':'smooth'});
+  }
   const groupRoute=group=>{for(const log of group.logs){const route=routeOf.get(log.id);if(route)return route}return null};
   async function fetchTracks(){
    trackRequest?.abort();const request=trackRequest=new AbortController();
@@ -642,6 +650,7 @@
   // the bottom card.
   const overviewWait=listWait();
   function select(group,{fit=false,scroll=false}={}){
+   const from=mapRows.scrollTop;
    selected=group;paintOverview();
    const wait=overviewWait(listShown()),inline=!!group&&listShown(),row=group&&mapRow.get(groupRoute(group)?.key);
    // A redraw (the list polls) keeps the selected row's buttons, and with them the focus.
@@ -651,7 +660,7 @@
    if(row){
     row.classList.add('is-selected');
     if(inline&&!row.querySelector(':scope>.map-card-actions'))row.append(rowActions(group));
-    if(scroll)centreRow(mapRows,row);
+    if(scroll)centreRow(mapRows,row,from);
    }
    if(!group||inline){if(card.hidden)card.querySelector('.map-card-play')?.remove();return}  // else once it has sunk out
    const route=groupRoute(group),date=logDate(group.firstLog),duration=group.logs.reduce((sum,log)=>sum+(Number.isFinite(log.duration)?log.duration:0),0);
