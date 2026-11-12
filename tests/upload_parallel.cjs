@@ -5,7 +5,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
  try{
   const page=await browser.newPage({viewport:{width:1100,height:800}}),errors=[];
   page.on('pageerror',e=>errors.push(e.message));
-  const id='c'.repeat(32);let stored={},active=0,peak=0,finished=0,deletes=0,manifest=null,failFile=null,sessions=0,arrived=0;
+  const id='c'.repeat(32);let stored={},active=0,peak=0,finished=0,deletes=0,manifest=null,failFile=null,sessions=0,arrived=0,delay=60;
   await page.route('https://rv.test/**',async route=>{
    const req=route.request(),url=new URL(req.url()),p=url.pathname;
    if(p==='/api/logs')return route.fulfill({json:{logs:[],max_upload_mb:512,storage_used_bytes:0,concurrency:1}});
@@ -15,7 +15,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     arrived++;const i=Number(p.split('/').pop()),offset=Number(url.searchParams.get('offset')),body=req.postDataBuffer();
     if(i===failFile&&offset>0)return route.fulfill({status:409,json:{error:'offset conflict'}});
     assert.equal(offset,stored[i]||0,'file '+i+' in order');
-    active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,60));active--;
+    active++;peak=Math.max(peak,active);await new Promise(resolve=>setTimeout(resolve,delay));active--;
     stored[i]=offset+body.length;return route.fulfill({json:{received:stored[i]}});
    }
    if(p.endsWith('/finish')){finished++;return route.fulfill({status:201,json:{logs:[{}],duplicates:[],updated:[]}})}
@@ -37,6 +37,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(finished,1);assert.equal(deletes,1);assert((await page.locator('#error').textContent()).includes('offset conflict'));
   const settled=arrived;await page.waitForTimeout(400);assert.equal(arrived,settled,'no chunk is sent after the failure');assert(arrived<16,'the rest (19 chunks in all) was not sent: '+arrived);
   assert(await page.locator('#upload').isEnabled());
+  // A longer upload shows its speed and the time left next to the percentage.
+  failFile=null;delay=450;await pick();await page.locator('#upload').click();
+  await page.waitForFunction(()=>/^업로드 \d+% · 파일 \d+\/7 · \d+(\.\d)? (B|KB|MB)\/s · 1분 미만 남음/.test(document.getElementById('uploadStatus').textContent));
+  await page.waitForFunction(()=>document.getElementById('uploadStatus').textContent.includes('새 로그'));assert.equal(finished,2);
   assert.deepEqual(errors,[]);console.log('PASS: files upload four at a time with ordered chunks; a failed file stops the rest and removes the session');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});
