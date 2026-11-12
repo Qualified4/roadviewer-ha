@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.16
+
+- Fixed the drive list on the log tab's map looking cut off at the bottom after picking drives one after another. The fade at the list's edges stayed where a card had been, so a card in the middle faded out and the cards below it were invisible.
+- On the log tab's map and the drive map, the bottom bar now rises after the folding list has gone instead of crossing it.
+- On both maps, a tapped drive or segment row scrolls to the middle of its list.
+
 ## 1.2.15
 
 - The bottom bar on the map tab and the drive map has slightly more room between the close button and the bar's edge, and before the text on the left.

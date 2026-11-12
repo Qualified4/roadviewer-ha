@@ -150,6 +150,9 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
     await row.evaluate(r=>{r.querySelector('.recording-more').open=false});await page.waitForTimeout(100);assert(g.inside&&g.over,'menu '+id[0]+' '+JSON.stringify(g))};
    for(const k of [0,2,3])await menuClear(logs[k].id);
    await drive.locator('.drive-map-list').evaluate(list=>{list.scrollTop=0});
+   // A row tapped in the sheet comes to the middle of the sheet (as far as the sheet can scroll).
+   {const mid=logs[Math.floor(A/2)].id;await drive.locator(`.log-row[data-id="${mid}"] .log-meta`).tap();
+    await page.waitForFunction((([list,row])=>{const l=document.querySelector(list),r=l?.querySelector(row);if(!r)return false;const a=l.getBoundingClientRect(),b=r.getBoundingClientRect(),off=(b.top+b.height/2)-(a.top+a.height/2);return Math.abs(off)<6||(off<0&&l.scrollTop<=1)||(off>0&&l.scrollTop>=l.scrollHeight-l.clientHeight-1)}),['#driveMap .drive-map-list',`.log-row[data-id="${mid}"]`])}
    // A LOWER row with the sheet scrolled: its segment is marked and fitted on the map, which stays visible above.
    await drive.locator('.drive-map-list').evaluate(list=>{list.scrollTop=list.scrollHeight});
    const last=logs[A-1].id,before=page.url();
@@ -810,6 +813,22 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    // A line tapped on the map selects its row and scrolls the list to it.
    {const last=page.locator('#logMap .leaflet-overlay-pane path.leaflet-interactive').last();await last.evaluate(p=>{const L=window.L;p.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:0,clientY:0}))});
     await page.waitForFunction(()=>{const r=document.querySelector('#logMapRows .map-list-row.is-selected');if(!r)return false;const b=r.getBoundingClientRect(),l=document.getElementById('logMapRows').getBoundingClientRect();return b.top>=l.top-1&&b.bottom<=l.bottom+1})}
+   // Picking rows one after another (each grows with its buttons, the last one shrinks back) leaves no card in the
+   // middle of the list with an edge fade: a fade kept from a card's earlier place cut it off and hid the cards below.
+   {await page.evaluate(()=>{document.getElementById('logMapRows').scrollTop=0});
+    for(const i of [3,2,1,0,1,0,2]){await rows.nth(i).locator('.map-list-pick').click();await page.mouse.move(10,400);await page.waitForTimeout(350);
+     const wrong=await page.evaluate(()=>{const c=document.getElementById('logMapRows'),a=c.getBoundingClientRect();return [...c.children].map((k,j)=>({j,b:k.getBoundingClientRect(),mask:k.style.maskImage})).filter(k=>k.mask&&k.b.top>=a.top+45&&k.b.bottom<=a.bottom-45).map(k=>k.j)});
+     assert.deepEqual(wrong,[],'after picking row '+i)}}
+   // A row tapped in the list comes to the middle of the list, also when it was already in sight.
+   {await rows.nth(30).locator('.map-list-pick').click();await page.mouse.move(10,400);
+    await page.waitForFunction((([list,row])=>{const l=document.querySelector(list),r=l?.querySelector(row);if(!r)return false;const a=l.getBoundingClientRect(),b=r.getBoundingClientRect(),off=(b.top+b.height/2)-(a.top+a.height/2);return Math.abs(off)<6||(off<0&&l.scrollTop<=1)||(off>0&&l.scrollTop>=l.scrollHeight-l.clientHeight-1)}),['#logMapRows','.map-list-row.is-selected']);
+    assert(await rows.nth(30).evaluate(r=>r.classList.contains('is-selected')))}
+   // With motion, the bottom card waits for the folding cards to leave before it rises in (it used to cross them).
+   {await page.emulateMedia({reducedMotion:'no-preference'});await fold.click();
+    const early=await page.locator('#logMapCard').evaluate(c=>({hidden:c.hidden,delay:parseFloat(c.style.animationDelay),fill:c.style.animationFillMode,opacity:getComputedStyle(c).opacity}));
+    assert(!early.hidden&&early.delay>=200&&early.delay<=300&&early.fill==='backwards'&&early.opacity==='0',JSON.stringify(early));
+    await page.waitForFunction(()=>getComputedStyle(document.getElementById('logMapCard')).opacity==='1');
+    await fold.click();await page.locator('#logMapCard').waitFor({state:'hidden'});await page.emulateMedia({reducedMotion:'reduce'});await page.waitForTimeout(500)}
    // Folded: only the button (same place, chevron turned), the bottom card for a selection, no right padding.
    const pane=()=>page.evaluate(()=>getComputedStyle(document.querySelector('#logMap .leaflet-map-pane')).transform+'|'+document.querySelector('#logMap .leaflet-proxy')?.style.transform);
    const view=await pane();
