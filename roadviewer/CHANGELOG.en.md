@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.21
+
+- Drive cards and segment rows in the log list, and the replay title line, show every tag that fits in their one line; only those that do not fit become `+N`. They used to stop at three or four with room to spare.
+
 ## 1.2.20
 
 - The browser upload status shows the transfer speed and the time left.

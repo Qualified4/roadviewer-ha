@@ -1251,15 +1251,15 @@ function populateSegments(logs,current){
   if(target?.status==='ready'&&target.id!==current)goToLog(target);
  };
 }
-// The title line is one row. One tag shows as its chip (the log name gives way to it); several show as their number
-// beside the tag button, or as chips where every one fits whole (wide screens). Either opens the full list. A squeezed
+// The title line is one row. One tag shows as its chip (the log name gives way to it); several show as many chips as
+// fit whole, the rest as "+N" (the full list), or as their number alone where not even one fits (phones). A squeezed
 // chip read as "…".
 let replayTagList=[],replayTagRoom='';
 // What the tags' room depends on: the line and the name beside them (it is drawn after the list answers).
 const replayTagSpace=()=>{const row=$('replayTags').parentElement;return row.clientWidth+'/'+$('routeName').offsetWidth+'/'+$('titleDate').offsetWidth};
 function fitReplayTags(){
  const box=$('replayTags'),all=replayTagList,single=all.length===1;box.hidden=!all.length;box.classList.toggle('single',single);
- for(const shown of single?[1]:[Math.min(4,all.length),0]){
+ for(let shown=single?1:Math.min(12,all.length);;shown--){
   box.replaceChildren(...recordingTagBadges(all,shown).childNodes);
   if(!shown||single||[...box.querySelectorAll('.recording-tag')].every(chip=>chip.scrollWidth<=chip.clientWidth))break;
  }

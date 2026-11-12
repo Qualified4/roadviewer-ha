@@ -414,7 +414,7 @@ function syncRouteCard(group,route){
   group.time.title=`첫 구간${group.firstSegment===null?'':' '+group.firstSegment}${started?' · 출발 '+started.toLocaleString():''} · 업로드 ${uploaded?uploaded.toLocaleString():'일시 없음'}`;
   group.name.textContent=route.segment===null?when||'기타 로그':route.title;
   group.duration.hidden=!duration;group.duration.textContent=durationText(duration);
-  group.tags.replaceWith(group.tags=recordingTagBadges(unionTags(logs),3));group.tags.classList.add('route-tags');
+  group.tags.replaceWith(group.tags=recordingTagBadges(unionTags(logs),'fit'));group.tags.classList.add('route-tags');
   // Up to 20 segments: one block each. Longer drives show their first 20 blocks and a "+" in the colour of the most
   // urgent status among the rest (failed, processing, queued, unconverted, ready), so a long drive never looks like a
   // single segment and work still running further on stays visible. The card's title already gives the exact count.
@@ -516,7 +516,7 @@ function renderRow(m,cached){
  state.className=(m.status==='processing'?'state state-processing':'state')+(cached?' is-update':'');state.dataset.status=m.status;showState(state,m);if(!before)title.append(state);
  // After the name and time: the state, then 고정; the tags take the line below (library.css) however few they are.
  if(m.pinned){const badge=document.createElement('span');badge.className='pin-badge';badge.innerHTML=PIN_ICON;badge.append('고정');badge.title='이 구간을 자동 삭제에서 보호합니다.';title.append(badge)}
- title.append(recordingTagBadges(m.tags));
+ title.append(recordingTagBadges(m.tags,'fit'));
  setThumbnail(thumb,m.status==='ready'?thumbnailUrl(m):null);
  const meta=document.createElement('div');meta.className='log-meta';
  const cameras=(m.video_downloads||[]).length,videoText=m.video?(cameras>1?`영상 ${cameras}종`:'영상 있음'):'영상 없음';
