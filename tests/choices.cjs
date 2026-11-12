@@ -131,6 +131,9 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    await page.evaluate(()=>toggle());await page.waitForURL('**/view/far/',{timeout:8000});await ready();
    await page.waitForFunction(()=>playing||t>0);
    await page.waitForFunction(()=>!playing&&t>=data.duration);await page.waitForTimeout(400);assert(page.url().endsWith('/view/far/'),'the last segment stops');
+   // The video ending first (a moment before the log's clock, as after a pause) is playing to the end too.
+   await page.goto('https://rv.test/view/two/');await ready();
+   await page.evaluate(()=>{data.video={start:0,duration:data.duration,frames:20};playing=true;pendingVideoSeek=null;v.onended()});await page.waitForURL('**/view/one/',{timeout:8000});
    // Seeking to the end does not move on.
    await page.goto('https://rv.test/view/two/');await ready();await page.evaluate(()=>setTime(data.duration));await page.waitForTimeout(400);assert(page.url().endsWith('/view/two/'));
    assert.deepEqual(errors,[]);await page.close()}

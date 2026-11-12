@@ -1,5 +1,5 @@
 const fs=require('fs'),os=require('os'),path=require('path'),assert=require('node:assert/strict'),{spawn}=require('child_process'),{once}=require('events'),{chromium}=require('playwright');
-const {showTab}=require('./browser-helpers.cjs');
+const {showTab,waitForSteadyLayout}=require('./browser-helpers.cjs');
 // Library page: in-page tabs with hash links, header summary, filter chips and search, date sections and route cards.
 (async()=>{
  const browser=await chromium.launch({headless:true});require('./browser-helpers.cjs').openRouteGroups(browser);
@@ -155,10 +155,10 @@ const {showTab}=require('./browser-helpers.cjs');
    await page.setViewportSize({width,height:844});
    await page.evaluate(on=>{const p=document.getElementById('uploadPill');p.hidden=!on;document.getElementById('uploadPillText').textContent='업로드 100%'},pill);
    await page.locator('#uploadPill').waitFor({state:pill?'visible':'hidden'});
-   await page.waitForFunction(()=>document.querySelector('.lib-appbar h1').getAnimations().length===0);
-   // Off-screen cards settle their real heights over the next frames (content-visibility), which can add or remove the
-   // scrollbar and so change the width the header has.
-   await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+   // The wordmark's size follows the brand's width (cqi) and eases over 0.2 s; fitAppBar (ResizeObserver) can then make
+   // the bar tight, and off-screen cards settle their real heights over the next frames (content-visibility), which can
+   // add or remove the scrollbar. The bar is measured once all of that has come to rest.
+   await waitForSteadyLayout(page,'.lib-appbar-inner, .lib-appbar h1, .lib-status');
    const m=await page.evaluate(()=>{
     const h=document.querySelector('.lib-appbar h1').getBoundingClientRect(),st=document.querySelector('.lib-status').getBoundingClientRect(),inner=document.querySelector('.lib-appbar-inner').getBoundingClientRect();
     const t=document.querySelector('.lib-appbar h1');
@@ -179,7 +179,8 @@ const {showTab}=require('./browser-helpers.cjs');
   // the gaps between the buttons do not.
   {const open=()=>card.evaluate(e=>e.open),before=await open();
    // Off-screen cards skip rendering (content-visibility): the card is brought into view and rendered before measuring.
-   await card.scrollIntoViewIfNeeded();await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
+   // The tap goes to measured coordinates, so the row must have stopped moving (cards above settle their heights).
+   await card.scrollIntoViewIfNeeded();await waitForSteadyLayout(page,'.log-route[data-route="0000041b--a1b2c3d4e5"] .log-route-actions');
    const spot=await card.evaluate(e=>{const row=e.querySelector('.log-route-actions').getBoundingClientRect(),buttons=e.querySelector('.log-route-actions .actions').getBoundingClientRect();
     return {x:row.left+8,y:row.top+row.height/2,inside:buttons.left-row.left>40,gap:(()=>{const b=[...e.querySelectorAll('.log-route-actions .actions>*')].map(n=>n.getBoundingClientRect());return {x:(b[0].right+b[1].left)/2,y:b[0].top+b[0].height/2}})()}});
    assert(spot.inside,'the actions row has empty room left of the buttons on a phone');

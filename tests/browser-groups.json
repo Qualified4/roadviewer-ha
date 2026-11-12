@@ -1,0 +1,10 @@
+{
+  "g1": ["replay_coverage.cjs", "display_preferences.cjs", "concurrency.cjs", "info_panels.cjs", "archive_status.cjs", "video_overlay.cjs", "upload_stall.cjs"],
+  "g2": ["navigation.cjs", "replay_play_request.cjs", "recording_names.cjs", "archive_settings.cjs", "fullscreen_landscape.cjs", "long_drive.cjs", "lazy_rows.cjs", "ripple.cjs", "upload_drop.cjs", "upload_parallel.cjs"],
+  "g3": ["video_sources.cjs", "choices.cjs", "conversion_controls.cjs", "gdrive_panel.cjs", "whole_video.cjs", "motion.cjs", "log_export.cjs"],
+  "g4": ["storage_devices.cjs", "pairing_refresh.cjs", "segment_peek.cjs", "replay_rendering.cjs", "replay_glass_capture.cjs", "download_dialog.cjs", "upload_timeout.cjs", "tag_filter_fold.cjs"],
+  "g5": ["replay_end_seek.cjs", "tags.cjs", "bookmarks.cjs", "camera_info.cjs", "replay_layout.cjs", "disclosure_animation.cjs", "lane_marking.cjs"],
+  "g6": ["replay_ready.cjs", "bulk_actions.cjs", "device_test_page.cjs", "telemetry.cjs", "replay_gzip.cjs", "replay_format2.cjs", "library_tabs.cjs", "replay_downloads.cjs", "upload_mobile.cjs"],
+  "g7": [{"file": "maps.cjs", "env": {"RV_MAP_SCHEMES": "dark"}}],
+  "g8": [{"file": "maps.cjs", "env": {"RV_MAP_SCHEMES": "light"}}]
+}

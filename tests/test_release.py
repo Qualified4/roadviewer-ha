@@ -115,5 +115,28 @@ class VersionMarkerTests(unittest.TestCase):
         self.assertTrue((root / "roadviewer/CHANGELOG.md").read_text(encoding="utf-8").startswith(f"## {version}\n"))
 
 
+class BrowserGroupTests(unittest.TestCase):
+    """CI runs the browser tests through tests/run_group.cjs; a file left out of its manifest would never run."""
+
+    def test_every_browser_test_runs_in_ci(self):
+        import json, re
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/build.yaml").read_text(encoding="utf-8")
+        manifest = json.loads((root / "tests/browser-groups.json").read_text(encoding="utf-8"))
+        job = workflow.split("\n  browser-test-groups:\n", 1)[1].split("\n  browser-tests:\n", 1)[0]
+        groups = re.search(r"^        group: \[([^\]]+)\]$", job, re.M)[1].split(", ")
+        self.assertEqual(groups, list(manifest))
+        self.assertIn("run: node tests/run_group.cjs ${{ matrix.group }}", job)
+        self.assertNotIn("node tests/", job.replace("node tests/run_group.cjs", ""))
+        entries = [entry if isinstance(entry, str) else entry["file"] for files in manifest.values() for entry in files]
+        files = {path.name for path in (root / "tests").glob("*.cjs")} - {"browser-helpers.cjs", "run_group.cjs"}
+        for name in entries:
+            self.assertTrue((root / "tests" / name).is_file(), name)
+        # Each file once, except maps.cjs: one group per theme.
+        self.assertEqual(sorted(entries), sorted([*files, "maps.cjs"]))
+        self.assertEqual([entry.get("env") for files in manifest.values() for entry in files if isinstance(entry, dict)],
+                         [{"RV_MAP_SCHEMES": "dark"}, {"RV_MAP_SCHEMES": "light"}])
+
+
 if __name__ == "__main__":
     unittest.main()

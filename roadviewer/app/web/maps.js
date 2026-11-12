@@ -144,27 +144,47 @@
    pop.innerHTML='<p class="rv-map-options-title">지도 표시</p><div class="rv-map-tone"><span>지도 테마</span><div class="view-switch view-switch-3" role="group" aria-label="지도 테마">'
     +[['auto','자동'],['light','라이트'],['dark','다크']].map(([tone,text])=>`<button type="button" data-tone="${tone}" aria-pressed="false">${text}</button>`).join('')+'</div></div>'+[['labels','글자 숨기기','지명·도로 이름·아이콘·화살표를 숨깁니다. 지도 색은 그대로입니다.'],['grey','회색 지도','차분한 회색 지도로 바꾸고 3D 건물·아이콘을 뺍니다.']]
     .map(([kind,title,note])=>`<label><input type="checkbox" data-kind="${kind}"><span><b>${title}</b><small>${note}</small></span></label>`).join('');
-   L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(pop);
-   const outside=event=>{if(!wrap.contains(event.target))setOpen(false)},key=event=>{if(event.key==='Escape'){event.stopPropagation();event.preventDefault();setOpen(false);button.focus()}};  // only the popover, not the drive map under it
+   L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(pop);wrap.rvPop=pop;
+   // Open, the popover leaves the map for the page (the open dialog, or the body) at a fixed place beside the button:
+   // inside the map it was drawn under whatever lies over the map (주행 지도's segment cards on a phone). Closed, it
+   // goes back into the control.
+   const place=()=>{
+    const host=wrap.closest('dialog[open]')||document.body;if(pop.parentNode!==host)host.append(pop);
+    const map=wrap.closest('.leaflet-container')?.getBoundingClientRect(),at=button.getBoundingClientRect(),left=!!map&&at.left+at.width/2>map.left+map.width/2;
+    pop.classList.toggle('to-left',left);
+    const width=pop.offsetWidth,height=pop.offsetHeight;
+    pop.style.left=Math.round(Math.max(8,Math.min(window.innerWidth-width-8,left?at.left-8-width:at.right+8)))+'px';
+    pop.style.top=Math.round(Math.max(8,Math.min(window.innerHeight-height-8,at.top)))+'px';
+   };
+   const resized=()=>setOpen(false);
+   wrap.rvClose=()=>{setOpen(false);pop.remove()};
+   const outside=event=>{if(!wrap.contains(event.target)&&!pop.contains(event.target))setOpen(false)},key=event=>{if(event.key==='Escape'){event.stopPropagation();event.preventDefault();setOpen(false);button.focus()}};  // only the popover, not the drive map under it
    const setOpen=open=>{
-    if(open){const map=wrap.closest('.leaflet-container')?.getBoundingClientRect(),at=button.getBoundingClientRect();pop.classList.toggle('to-left',!!map&&at.left+at.width/2>map.left+map.width/2)}
     pop.hidden=!open;wrap.classList.toggle('is-open',open);button.setAttribute('aria-expanded',String(open));
-    if(open){document.addEventListener('pointerdown',outside,true);document.addEventListener('keydown',key,true)}else{document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',key,true)}
+    if(open)place();else if(pop.parentNode!==wrap)wrap.append(pop);
+    if(open){document.addEventListener('pointerdown',outside,true);document.addEventListener('keydown',key,true);window.addEventListener('resize',resized)}else{document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',key,true);window.removeEventListener('resize',resized)}
    };
    L.DomEvent.on(button,'click',event=>{L.DomEvent.preventDefault(event);setOpen(pop.hidden)});
    for(const box of pop.querySelectorAll('input'))box.addEventListener('change',()=>setSimple(box.dataset.kind,box.checked));
    for(const choice of pop.querySelectorAll('button[data-tone]'))choice.addEventListener('click',()=>setMapTone(choice.dataset.tone));
    simpleButtons.add(wrap);showSimple(wrap);return wrap;
   };
-  control.onRemove=()=>{for(const button of simpleButtons)if(!button.isConnected)simpleButtons.delete(button)};
+  control.onRemove=()=>{control.getContainer()?.rvClose?.();for(const button of simpleButtons)if(!button.isConnected)simpleButtons.delete(button)};
   return control;
  }
  function showSimple(wrap){
-  for(const box of wrap.querySelectorAll('input[data-kind]'))box.checked=box.dataset.kind==='grey'?simple:bare;
-  for(const choice of wrap.querySelectorAll('button[data-tone]'))choice.setAttribute('aria-pressed',String(choice.dataset.tone===mapTone));
+  const pop=wrap.rvPop;
+  for(const box of pop.querySelectorAll('input[data-kind]'))box.checked=box.dataset.kind==='grey'?simple:bare;
+  for(const choice of pop.querySelectorAll('button[data-tone]'))choice.setAttribute('aria-pressed',String(choice.dataset.tone===mapTone));
   wrap.querySelector('.rv-map-options-button').classList.toggle('is-on',simple||bare||mapTone!=='auto');
  }
+ // 지도 테마 fixed against the app's theme: the root says so (data-map-contrast: the map's tone), and the glass over
+ // the maps turns nearly solid in the app's own theme (style.css). See-through, a dark card over a light map read as a
+ // light card with its light text lost: only the map is to change.
+ const markContrast=()=>{const root=document.documentElement;if(mapTone!=='auto'&&mapTone!==theme())root.dataset.mapContrast=mapTone;else delete root.dataset.mapContrast};
+ markContrast();
  const syncSimple=()=>{
+  markContrast();
   for(const button of simpleButtons){if(!button.isConnected){simpleButtons.delete(button);continue}showSimple(button)}
   for(const map of maps){if(!map.getContainer().isConnected){maps.delete(map);continue}if(!map.rvOwn)applyTiles(map)}
  };
@@ -196,7 +216,7 @@
   const layers=map.rvSymbols.map(id=>gl.getLayer(id)).filter(Boolean);
   if(layers.length)map.getContainer().dataset.labels=layers.some(layer=>layer.getLayoutProperty('visibility')!=='none')?'shown':'hidden';
  }
- window.addEventListener('rv:themechange',()=>{for(const map of maps){const box=map.getContainer();if(!box.isConnected){maps.delete(map);continue}applyTiles(map)}redrawColours()});
+ window.addEventListener('rv:themechange',()=>{markContrast();for(const map of maps){const box=map.getContainer();if(!box.isConnected){maps.delete(map);continue}applyTiles(map)}redrawColours()});
  // The theme (or the small map's tone) and 회색 지도 load another style; 글자 숨기기 only switches the symbol layers.
  function applyTiles(map){
   const box=map.getContainer(),key=map.rvTileKey(),tiles=map.rvTiles(),styleChanged=box.dataset.tiles!==tiles||box.dataset.grey!==String(map.rvGrey());box.dataset.tiles=tiles;
@@ -256,18 +276,43 @@
   function centreRow(list,row,from=null){
    list.style.overflowAnchor='none';clearTimeout(list.rvAnchor);list.rvAnchor=setTimeout(()=>{list.style.overflowAnchor=''},700);
    if(from!==null&&!reduced())list.scrollTop=from;
-   const box=row.getBoundingClientRect(),area=list.getBoundingClientRect();
-   list.scrollTo({top:list.scrollTop+box.top-area.top-Math.max(0,(area.height-box.height)/2),behavior:reduced()?'auto':'smooth'});
+   const ticket=list.rvCentre=(list.rvCentre||0)+1;
+   const target=()=>{const box=row.getBoundingClientRect(),area=list.getBoundingClientRect();return list.scrollTop+box.top-area.top-Math.max(0,(area.height-box.height)/2)};
+   const go=()=>list.scrollTo({top:target(),behavior:reduced()?'auto':'smooth'});
+   go();
+   // The rows out of sight hold a placeholder's height (content-visibility), which their drawn height need not match:
+   // the rows the scroll brings into view then move the row away from the middle under way (with the anchoring off,
+   // nothing makes up for it). Once the list has come to rest the row is centred again, three times at most, unless the
+   // list was touched meanwhile or another row was asked for.
+   let touched=false,left=3;const touch=()=>{touched=true};
+   for(const type of ['pointerdown','wheel','touchstart','keydown'])list.addEventListener(type,touch,{once:true,passive:true});
+   const rest=()=>{
+    let last=list.scrollTop,still=0;
+    const frame=()=>{
+     if(list.rvCentre!==ticket||touched||!row.isConnected)return;
+     if(Math.abs(list.scrollTop-last)<.5)still++;else{still=0;last=list.scrollTop}
+     if(still<8){requestAnimationFrame(frame);return}
+     const top=Math.max(0,Math.min(list.scrollHeight-list.clientHeight,target()));
+     if(Math.abs(top-list.scrollTop)>=2&&left-->0){go();rest()}
+    };
+    requestAnimationFrame(frame);
+   };
+   rest();
   }
   const groupRoute=group=>{for(const log of group.logs){const route=routeOf.get(log.id);if(route)return route}return null};
+  // tracksPending: the routes are on their way. wantDrive: a 지도 button pressed meanwhile; its map opens when they arrive.
+  let tracksPending=false,wantDrive=null;
   async function fetchTracks(){
    trackRequest?.abort();const request=trackRequest=new AbortController();
+   tracksPending=true;syncCards();
    try{
     const response=await fetch('api/tracks',{cache:'no-store',signal:request.signal,headers:trackTag?{'If-None-Match':trackTag}:{}});
     let text;if(response.status===304&&trackText)text=trackText;else{if(!response.ok)return;text=await response.text();trackTag=response.headers.get('ETag');trackText=text}
     tracks=JSON.parse(text).routes||[];routeOf.clear();for(const route of tracks)for(const id of route.ids)routeOf.set(id,route);
-    syncCards();if(mode==='map')drawOverview(false);
+    tracksPending=false;syncCards();if(mode==='map')drawOverview(false);
+    if(wantDrive){const {group,button}=wantDrive;wantDrive=null;if(button.isConnected&&logGroups.get(group.route.key)===group&&groupRoute(group))openDrive(group,{opener:button})}
    }catch{}
+   finally{if(trackRequest===request&&tracksPending){tracksPending=false;wantDrive=null;syncCards()}}
   }
   // After every list: the routes are fetched again only when the logs with GPS (or their conversions) changed.
   function listed(logs){
@@ -284,9 +329,12 @@
   function syncCards(){
    for(const group of logGroups.values()){
     const route=groupRoute(group),summary=group.element.querySelector(':scope>summary');
-    if(!route||route.points.length<2){for(const part of group.shape||[])part.remove();group.shape=null;continue}
+    // While the routes are still on their way, a card whose logs have GPS already shows its 지도 button (without the
+    // route's shape yet): it used to pop in beside 재생 seconds after the card.
+    const pending=!route&&tracksPending&&group.logs.some(log=>log.has_track);
+    if(!pending&&(!route||route.points.length<2)){for(const part of group.shape||[])part.remove();group.shape=null;continue}
     if(!group.shape){
-     const open=(button)=>event=>{event.preventDefault();event.stopPropagation();openDrive(group,{opener:button})};
+     const open=(button)=>event=>{event.preventDefault();event.stopPropagation();if(groupRoute(group))openDrive(group,{opener:button});else wantDrive={group,button}};
      const inset=document.createElement('span');inset.className='route-inset';inset.setAttribute('aria-hidden','true');
      const strip=document.createElement('button');strip.type='button';strip.className='route-strip';strip.dataset.noRipple='';
      strip.setAttribute('aria-label','주행 지도 열기');strip.setAttribute('aria-haspopup','dialog');strip.title='주행 지도';strip.onclick=open(strip);
@@ -295,6 +343,7 @@
      group.shape=[inset,strip,map];
     }
     const [inset,strip,map]=group.shape;
+    if(pending){if(map.parentNode!==group.actions)group.actions.prepend(map);continue}
     if(inset.parentNode!==group.thumb)group.thumb.append(inset);
     if(strip.parentNode!==summary)group.thumb.after(strip);
     if(map.parentNode!==group.actions)group.actions.prepend(map);
