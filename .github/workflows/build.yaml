@@ -168,6 +168,8 @@ jobs:
         if: matrix.group == 'g6'
       - run: node tests/upload_drop.cjs
         if: matrix.group == 'g2'
+      - run: node tests/upload_parallel.cjs
+        if: matrix.group == 'g2'
       - run: node tests/log_export.cjs
         if: matrix.group == 'g3'
       - run: node tests/tag_filter_fold.cjs

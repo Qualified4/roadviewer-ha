@@ -1,7 +1,7 @@
 """The archiver with Google Drive (tests/fake_drive.py): copy mode by default, move only when deleting the local
 file is explicitly allowed, resumable uploads across restarts, adoption of copies whose answer was lost, and
 failures that stop the cycle without touching the index or any file."""
-import hashlib, json, os, random, sys, tempfile, unittest
+import hashlib, json, os, random, sys, tempfile, threading, unittest
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -99,6 +99,17 @@ class GdriveArchiverTests(unittest.TestCase):
         with patch.object(self.backend, 'snapshot', return_value={}):
             restarted._recover_remote = recover; restarted.recover_startup()
         self.assertEqual(restarted.status()['missing_archived'], 0)
+
+    def test_cycle_waits_for_a_probe_in_flight(self):
+        # Another request (the settings panel's status poll) is probing when the cycle asks: the cycle waits for the
+        # answer. It used to take 'checking' for a failure, and a manual run ended as storage_unavailable.
+        a = self.archiver(); self.backend.invalidate()
+        self.backend.lock.acquire(); timer = threading.Timer(0.3, self.backend.lock.release); timer.start(); self.addCleanup(timer.join)
+        self.assertEqual(self.backend.probe(), ('checking', 'probe_pending'))
+        self.assertIsNone(a._remote_state())
+        self.backend.invalidate()
+        self.backend.lock.acquire(); timer = threading.Timer(0.3, self.backend.lock.release); timer.start(); self.addCleanup(timer.join)
+        self.assertTrue(a._connected())
 
     def test_copy_mode_uploads_verifies_and_keeps_local(self):
         p = self.log('a' * 32)

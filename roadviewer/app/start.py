@@ -75,7 +75,7 @@ def main():
             Path('/tmp/roadviewer-nginx.conf').write_text(nginx_config(options))
             subprocess.run(['nginx', '-t', '-c', '/tmp/roadviewer-nginx.conf'], check=True)
             children.append(subprocess.Popen(['nginx', '-c', '/tmp/roadviewer-nginx.conf', '-g', 'daemon off;']))
-        children.append(subprocess.Popen(['gunicorn', '--bind', '0.0.0.0:8099', '--bind', '127.0.0.1:8098', '--workers', '1', '--threads', '4', '--timeout', '180', 'server:app'], env=child_env))
+        children.append(subprocess.Popen(['gunicorn', '--bind', '0.0.0.0:8099', '--bind', '127.0.0.1:8098', '--workers', '1', '--threads', '8', '--timeout', '180', 'server:app'], env=child_env))
         last_check = 0; cert_stamp = None
         while not stopped and all(child.poll() is None for child in children):
             if port is not None and time.monotonic() - last_check > 60:

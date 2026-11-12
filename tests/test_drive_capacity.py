@@ -18,7 +18,7 @@ class MemoryDrive:
         self.started=threading.Event();self.release=None;self.verified=set()
     def last_state(self):return self.state
     def last_result(self):return (self.state,None)
-    def probe(self):return self.state,None
+    def probe(self,wait=False):return self.state,None
     def invalidate(self):pass
     def find(self,id,kind):return [value[0] for value in self.files.values() if value[2:]==(id,kind)]
     def upload(self,path,id,kind,sha256,md5,size,**kwargs):

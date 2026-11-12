@@ -749,6 +749,7 @@ async function uploadPart(url,part,signal,onState=message=>$('uploadStatus').tex
   }
  }
 }
+const UPLOAD_PARALLEL=4;  // the server answers 8 requests at a time (start.py): half stay free for the pages' own requests
 $('upload').onclick=async()=>{
  
  if(busy||cleaning||!selected.length)return;busy=true;document.body.classList.add('uploading');showUploadPill(0);error('');$('upload').disabled=true;pickerIds.forEach(id=>$(id).disabled=true);$('clearSelection').disabled=true;$('progress').hidden=false;$('progress').value=0;
@@ -757,16 +758,25 @@ $('upload').onclick=async()=>{
  try{
   $('uploadStatus').textContent='업로드 준비 중…';
   session=await api('api/uploads',{signal,method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({files:selected.map(f=>({name:f.webkitRelativePath||f.name,size:f.size}))})});
-  for(let i=0;i<selected.length;i++){
-   const file=selected[i];
-   for(let offset=0;offset<file.size;offset+=session.chunk_size){
-    const part=file.slice(offset,offset+session.chunk_size);
-    await uploadPart(`api/uploads/${session.id}/files/${i}?offset=${offset}`,part,signal,message=>{
-     $('uploadStatus').textContent=`업로드 ${Math.round(sent/total*100)}% · 파일 ${i+1}/${selected.length} · ${message}`;
-    });
-    sent+=part.size;const pct=Math.round(sent/total*100);$('progress').value=pct;showUploadPill(pct);$('uploadStatus').textContent=`업로드 ${pct}% · 파일 ${i+1}/${selected.length}`;
+  // Several files at once (each file's chunks stay in order: the server appends at the offset it expects). One chunk at a
+  // time spent most of its time waiting for the server's answer.
+  const files=selected,notes=new Map(),stop=new AbortController(),halt=()=>stop.abort(signal.reason);let next=0,failure=null;
+  signal.addEventListener('abort',halt,{once:true});
+  const show=()=>{const pct=Math.round(sent/total*100),note=[...notes.values()].find(Boolean);$('progress').value=pct;showUploadPill(pct);$('uploadStatus').textContent=`업로드 ${pct}% · 파일 ${Math.min(next,files.length)}/${files.length}`+(note?` · ${note}`:'')};
+  const worker=async()=>{
+   while(next<files.length&&!stop.signal.aborted){
+    const i=next++,file=files[i];
+    try{
+     for(let offset=0;offset<file.size;offset+=session.chunk_size){
+      const part=file.slice(offset,offset+session.chunk_size);
+      await uploadPart(`api/uploads/${session.id}/files/${i}?offset=${offset}`,part,stop.signal,message=>{notes.set(i,message);show()});
+      sent+=part.size;notes.delete(i);show();
+     }
+    }catch(e){if(!failure)failure=e;stop.abort(e);return}
    }
-  }
+  };
+  try{await Promise.all(Array.from({length:Math.min(UPLOAD_PARALLEL,files.length)},worker))}finally{signal.removeEventListener('abort',halt)}
+  signal.throwIfAborted();if(failure)throw failure;
   $('uploadStatus').textContent='서버에서 파일을 등록하는 중…';
   const result=await api(`api/uploads/${session.id}/finish`,{method:'POST',signal});session=null;
   const duplicates=result.duplicates||[],updated=result.updated||[],restored=updated.filter(m=>m.original_restored).length,added=updated.length-restored;
