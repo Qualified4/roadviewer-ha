@@ -284,11 +284,6 @@ $('archiveAllConfirm').onclick=async()=>{
 };
 // Bytes processed so far, the file being uploaded included (older runs record only files).
 function archiveJobBytes(job){return Math.min(Number(job.total_bytes)||0,(Number(job.processed_bytes ?? job.bytes_done)||0)+(Number(job.current_bytes)||0))}
-function archiveEta(seconds){
- const m=Math.round(seconds/60);
- if(m<1)return '1분 미만 남음';
- return m<60?`약 ${m}분 남음`:`약 ${Math.floor(m/60)}시간${m%60?` ${m%60}분`:''} 남음`;
-}
 // When a finished job ended, for its status line: '오늘 오후 9:30', '11월 10일 오후 9:30' (another year: with the year).
 const jobDayFormat=new Intl.DateTimeFormat('ko-KR',{month:'long',day:'numeric'}),jobYearFormat=new Intl.DateTimeFormat('ko-KR',{year:'numeric',month:'long',day:'numeric'}),jobClockFormat=new Intl.DateTimeFormat('ko-KR',{hour:'numeric',minute:'2-digit'});
 function jobFinishedText(seconds){

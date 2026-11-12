@@ -44,6 +44,12 @@ function processingText(m,overallPercent=null){
  }
 }
 function storageSize(bytes){if(!Number.isFinite(bytes))return '—';const units=['B','KB','MB','GB','TB'];let i=0;while(bytes>=1024&&i<units.length-1){bytes/=1024;i++}return `${bytes.toFixed(i?1:0)} ${units[i]}`}
+// Time left of a transfer (an upload here, an archive run in storage-devices.js).
+function archiveEta(seconds){
+ const m=Math.round(seconds/60);
+ if(m<1)return '1분 미만 남음';
+ return m<60?`약 ${m}분 남음`:`약 ${Math.floor(m/60)}시간${m%60?` ${m%60}분`:''} 남음`;
+}
 function error(message){$('error').textContent=message;$('error').hidden=!message}
 const pickerIds=['files'];
 function selectionChanged(){
@@ -762,7 +768,10 @@ $('upload').onclick=async()=>{
   // time spent most of its time waiting for the server's answer.
   const files=selected,notes=new Map(),stop=new AbortController(),halt=()=>stop.abort(signal.reason);let next=0,failure=null;
   signal.addEventListener('abort',halt,{once:true});
-  const show=()=>{const pct=Math.round(sent/total*100),note=[...notes.values()].find(Boolean);$('progress').value=pct;showUploadPill(pct);$('uploadStatus').textContent=`업로드 ${pct}% · 파일 ${Math.min(next,files.length)}/${files.length}`+(note?` · ${note}`:'')};
+  // Speed over the last 10 s of acknowledged bytes (shown once 1.5 s of them exist), and the time left at that speed.
+  const pace=[[performance.now(),0]];
+  const speed=()=>{const now=performance.now();pace.push([now,sent]);while(pace.length>2&&now-pace[0][0]>10000)pace.shift();const [since,from]=pace[0],seconds=(now-since)/1000,rate=seconds>=1.5&&sent>from?(sent-from)/seconds:0;return rate?` · ${storageSize(rate)}/s · ${archiveEta((total-sent)/rate)}`:''};
+  const show=()=>{const pct=Math.round(sent/total*100),note=[...notes.values()].find(Boolean);$('progress').value=pct;showUploadPill(pct);$('uploadStatus').textContent=`업로드 ${pct}% · 파일 ${Math.min(next,files.length)}/${files.length}`+speed()+(note?` · ${note}`:'')};
   const worker=async()=>{
    while(next<files.length&&!stop.signal.aborted){
     const i=next++,file=files[i];

@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.20
+
+- The browser upload status shows the transfer speed and the time left.
+
 ## 1.2.19
 
 - Browser uploads send four files at a time. The server now answers eight requests at a time instead of four, so the pages keep responding during an upload.
