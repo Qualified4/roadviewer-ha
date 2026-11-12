@@ -1409,7 +1409,7 @@ class Archiver:
 
     def _connected(self):
         # The active backend answers: the share's sentinel check for the NAS, the backend's probe otherwise.
-        return self.backend.probe()[0] == 'connected' if self.remote else self.store.available()
+        return self._probe()[0] == 'connected' if self.remote else self.store.available()
 
     def recheck_held(self):
         # requeue_startup cannot check the share, so it keeps the results of recordings with archived files. Once
@@ -1570,9 +1570,14 @@ class Archiver:
         try: self.backend.usage()
         except BackendError: pass  # The panel keeps the last figure; the cycle's own calls report the failure.
 
+    def _probe(self):
+        # A probe another request is running (the panel's status poll, an upload's admission) is waited for. Its
+        # 'checking' is not a failure: taken for one, it ended a manual run as "cannot connect" while Drive was fine.
+        return self.backend.probe(wait=True)
+
     def _remote_state(self):
         # None when the backend is connected, else the cycle's failure.
-        state, reason = self.backend.probe()
+        state, reason = self._probe()
         if state == 'connected':
             self.last_auth_error = None
             return None

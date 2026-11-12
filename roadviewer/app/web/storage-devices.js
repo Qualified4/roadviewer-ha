@@ -442,7 +442,7 @@ function updateEditor(changed=false){
  const manual=manualActive(),a=storageSnapshotState?.archive;
  // While a manual run works from the saved settings, they cannot be changed.
  $('storageEditorFields').disabled=editorSaving||manual;
- const run=$('archiveRun');if(run)run.disabled=editorSaving||dirty||manual||archivePlanBusy||!!a?.running;
+ const run=$('archiveRun');if(run){run.disabled=editorSaving||dirty||manual||archivePlanBusy||!!a?.running;run.title=dirty&&!manual?'바꾼 설정을 저장하거나 되돌린 뒤 실행할 수 있습니다.':''}
  $('archiveRunHint').textContent=manual?'수동 아카이빙이 진행 중입니다. 끝날 때까지 설정을 바꿀 수 없습니다.':dirty?'미저장 변경사항을 저장하거나 취소한 뒤 실행하세요.':a?.enabled?`저장된 설정으로 배치 개수·시작 기준과 관계없이 ${archiveMoves(a)?'이동':'복사'} 가능한 데이터를 모두 처리합니다. 실행 전에 확인합니다.`:'자동 아카이빙이 꺼져 있습니다. 설정을 저장해 켠 뒤 실행할 수 있습니다.';
 }
 async function loadStorageEditor(){

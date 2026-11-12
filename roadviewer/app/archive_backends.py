@@ -921,7 +921,7 @@ class SmbBackend:
     def __init__(self, store): self.store = store
     def __repr__(self): return 'SmbBackend()'
 
-    def probe(self): return self.store._check()
+    def probe(self, wait=False): return self.store._check()
     def last_state(self): return self.store.last_state()
     def invalidate(self): self.store.invalidate()
     def storage_id(self): return self.store.local_id()

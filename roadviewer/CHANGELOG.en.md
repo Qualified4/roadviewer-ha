@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.19
+
+- Browser uploads send four files at a time. The server now answers eight requests at a time instead of four, so the pages keep responding during an upload.
+- "Move all eligible data" no longer ends at once with "Cannot connect to Google Drive" while Drive is connected: when its connection check meets another request's check, it waits for that answer.
+- The "move all" button says why it is disabled while settings are changed but not saved.
+
 ## 1.2.18
 
 - All-drives map list: with the last drive selected, tapping a drive above it made the list jump in one step. It now scrolls smoothly.
