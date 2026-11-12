@@ -7,19 +7,38 @@ function updateTagCatalog(logs){
  const tags=new Map();for(const log of logs)for(const tag of log.tags||[])if(!tags.has(tagKey(tag.name)))tags.set(tagKey(tag.name),tag);
  recordingTagCatalog=[...tags.values()].sort((a,b)=>a.name.localeCompare(b.name,'ko'));
 }
+// limit: that many chips, the rest as "+N". limit 'fit' (the library's cards and rows): every chip that fits in the one
+// line the group has, and "+N" only for those that do not (fitTagGroup, again whenever the line's width changes).
 function recordingTagBadges(tags=[],limit=4){
+ const fit=limit==='fit';if(fit)limit=tags.length;
  const group=document.createElement('span');group.className='recording-tags';group.hidden=!tags.length;
  for(const tag of tags.slice(0,limit)){
   const badge=document.createElement('span');badge.className='recording-tag';badge.dataset.color=Object.hasOwn(TAG_PALETTE,tag.color)?tag.color:'mint';badge.textContent=tag.name;badge.title=tag.name;group.append(badge);
  }
- if(tags.length>limit){
-  const more=document.createElement('button');more.type='button';more.className='tag-overflow';more.dataset.noRipple='';more.textContent=(limit?'+':'')+(tags.length-limit);more.title=tags.slice(limit).map(tag=>tag.name).join(', ');
+ if(tags.length>limit||fit&&tags.length>1){
+  const more=document.createElement('button');more.type='button';more.className='tag-overflow';more.dataset.noRipple='';more.textContent=(limit?'+':'')+(tags.length-limit);more.title=tags.slice(fit?0:limit).map(tag=>tag.name).join(', ');
   more.setAttribute('aria-label',`태그 ${tags.length}개 모두 보기`);more.setAttribute('aria-haspopup','dialog');more.setAttribute('aria-expanded','false');
   // Inside a card header or a row: the press shows the tags and does nothing else (no fold, no playback).
   more.addEventListener('click',event=>{event.preventDefault();event.stopPropagation();toggleTagPopover(more,tags)});group.append(more);
+  if(fit){more.hidden=true;group.classList.add('is-fit');tagFit.observe(group)}
  }
  return group;
 }
+// One measurement per group: the chips' own widths (unsqueezed while .is-measuring) against the line's width. At least
+// one chip stays; it alone may be cut short with "…".
+function fitTagGroup(group){
+ const chips=[...group.querySelectorAll(':scope>.recording-tag')],more=group.querySelector(':scope>.tag-overflow');
+ if(!more||!group.clientWidth)return;
+ const key=group.clientWidth+'/'+chips.length;if(group.dataset.fit===key)return;
+ for(const chip of chips)chip.hidden=false;more.hidden=false;more.textContent='+'+chips.length;group.classList.add('is-measuring');
+ const room=group.clientWidth,gap=parseFloat(getComputedStyle(group).columnGap)||0,widths=chips.map(chip=>chip.getBoundingClientRect().width),spare=more.getBoundingClientRect().width+gap;
+ group.classList.remove('is-measuring');
+ let shown=chips.length,used=widths.reduce((sum,width)=>sum+width,0)+gap*(chips.length-1);
+ if(used>room+.5){used=spare;shown=0;while(shown<chips.length&&used+widths[shown]+(shown?gap:0)<=room+.5){used+=widths[shown]+(shown?gap:0);shown++}shown=Math.max(1,shown)}
+ chips.forEach((chip,i)=>{chip.hidden=i>=shown});more.hidden=shown===chips.length;more.textContent='+'+(chips.length-shown);more.title=chips.slice(shown).map(chip=>chip.textContent).join(', ');
+ group.dataset.fit=key;
+}
+const tagFit=new ResizeObserver(entries=>{for(const entry of entries)fitTagGroup(entry.target)});
 // +N: every tag of the log (or route) in a small popup beside the button. It opens downwards, or upwards when it does
 // not fit above the bottom tabs; a press outside, Escape, scrolling or resizing closes it. The list replaces its tag
 // chips on every poll, so the popup stands on its own once shown.

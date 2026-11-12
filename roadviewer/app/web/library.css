@@ -593,7 +593,7 @@ body.uploading,body:has(.library-page.uploading) { overscroll-behavior-y: contai
 .log-info{flex:1 1 300px;min-width:0}
 .log-name{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-weight:600;overflow-wrap:anywhere}
 .log-name .recording-name{display:inline-flex;align-items:center;gap:2px;min-width:0}
-.log-name>.recording-tags{flex:0 0 100%;flex-wrap:wrap}
+.log-name>.recording-tags{flex:0 0 100%}
 .log-name .copy-recording{width:28px;height:28px}
 .log-time{color:var(--muted);font-size:13px;font-weight:400;font-variant-numeric:tabular-nums}
 .log-name .pin-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 7px 1px 5px;font-size:11px}

@@ -76,9 +76,16 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    await page.setViewportSize({width:390,height:844})}
   // +N shows every tag in a popup: the card neither folds nor plays, the popup stays on screen, and an outside touch or
   // Escape closes it without activating what is underneath.
-  {const five=['하나','둘','셋','넷','다섯'].map(name=>({name,color:'cyan'})),set=tags=>page.request.post(base+'api/logs/'+ids[1]+'/tags',{headers:{'X-RoadViewer-Request':'1'},data:{tags}});
+  {const five=['하나하나하나','둘둘둘둘둘','셋셋셋셋셋','넷넷넷넷넷','다섯다섯다섯','여섯여섯여섯','일곱일곱일곱','여덟여덟여덟','아홉아홉아홉'].map(name=>({name,color:'cyan'})),set=tags=>page.request.post(base+'api/logs/'+ids[1]+'/tags',{headers:{'X-RoadViewer-Request':'1'},data:{tags}});
    assert((await set(five)).ok());const rowMore=row(ids[1]).locator('.tag-overflow'),headMore=page.locator('.log-route .route-heading .tag-overflow').first(),pop=page.locator('.tag-popover');
-   await rowMore.waitFor();assert.equal(await rowMore.textContent(),'+1');await headMore.waitFor();
+   await rowMore.waitFor();await headMore.waitFor();
+   // Chips fill the one line they have; "+N" stands only for those that do not fit (it used to hide all past a fixed count).
+   const fitted=()=>row(ids[1]).locator('.recording-tags').evaluate(g=>{const chips=[...g.querySelectorAll('.recording-tag')].filter(c=>!c.hidden),more=g.querySelector('.tag-overflow'),a=g.getBoundingClientRect();
+    return {shown:chips.length,more:more&&!more.hidden?more.textContent:null,cut:chips.filter(c=>c.scrollWidth>c.clientWidth).length,lines:new Set(chips.map(c=>Math.round(c.getBoundingClientRect().top))).size,inside:chips.every(c=>c.getBoundingClientRect().right<=a.right+1)&&(!more||more.hidden||more.getBoundingClientRect().right<=a.right+1)}});
+   {const f=await fitted();assert(f.shown>=2&&f.shown<five.length&&f.more==='+'+(five.length-f.shown)&&!f.cut&&f.lines===1&&f.inside,'phone: as many as fit, the rest counted '+JSON.stringify(f));
+    await page.setViewportSize({width:1280,height:800});await page.waitForFunction(n=>{const g=document.querySelectorAll('.log-row .recording-tags.is-fit');return [...g].some(x=>x.querySelectorAll('.recording-tag:not([hidden])').length===n)},five.length);
+    const wide=await fitted();assert(wide.shown===five.length&&wide.more===null&&!wide.cut&&wide.lines===1,'wide: every tag, no count '+JSON.stringify(wide));
+    await page.setViewportSize({width:390,height:844});await page.waitForFunction(n=>{const m=document.querySelector('.log-row .recording-tags.is-fit .tag-overflow:not([hidden])');return !!m&&m.textContent===n},f.more)}
    const union=await page.evaluate(async()=>{const logs=(await (await fetch('api/logs')).json()).logs;return new Set(logs.flatMap(log=>(log.tags||[]).map(tag=>tag.name.toLowerCase()))).size});
    const group=page.locator('.log-route').first(),url=page.url();assert(await group.evaluate(g=>g.open));
    await headMore.tap();await pop.waitFor();await settleLayout(page,'.tag-popover');
@@ -109,7 +116,13 @@ http.serve_forever()`],{env:{...process.env,RV_DATA:dir,RV_INGRESS_ONLY:'0'},std
    const total=read(ids[0]).tags.length;assert.deepEqual([line.cut,line.inside,line.pin],[0,true,0],JSON.stringify(line));assert.equal(line.label,(line.shown?'+':'')+(total-line.shown));
    const url=page.url();await more.tap();await pop.waitFor();assert.equal(await pop.locator('.recording-tag').count(),total);await pop.getByText('급제동',{exact:true}).waitFor();
    assert(await pop.evaluate(p=>{const b=p.getBoundingClientRect();return b.left>=8&&b.right<=innerWidth-8&&b.top>=0}));
-   await page.keyboard.press('Escape');await pop.waitFor({state:'detached'});assert.equal(page.url(),url)}
+   await page.keyboard.press('Escape');await pop.waitFor({state:'detached'});assert.equal(page.url(),url);
+   // With room (a wide screen) every tag shows as a chip and there is no number: it used to stop at four.
+   const size=page.viewportSize(),original=read(ids[0]).tags,put=tags=>page.request.post(base+'api/logs/'+ids[0]+'/tags',{headers:{'X-RoadViewer-Request':'1'},data:{tags}});
+   const six=['종방향분석','수정후','추종지연','정차짧음','야간','급제동'].map(name=>({name,color:'cyan'}));assert((await put(six)).ok());
+   await page.setViewportSize({width:1600,height:900});await page.reload();
+   await page.waitForFunction(n=>{const box=document.getElementById('replayTags'),chips=box?[...box.querySelectorAll('.recording-tag')]:[];return chips.length===n&&!box.querySelector('.tag-overflow')&&chips.every(chip=>chip.scrollWidth<=chip.clientWidth)},six.length);
+   assert((await put(original)).ok());await page.setViewportSize(size);await page.reload();await more.waitFor()}
   await page.locator('.back').click();await row(ids[0]).waitFor();
   await page.locator('#bulkOpen').click();await page.locator('.segment-select').first().waitFor();await page.locator('#bulkAll').check();await page.locator('#bulkTags').click();
   await add('인식 오류','보라');
