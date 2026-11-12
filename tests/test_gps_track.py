@@ -170,6 +170,11 @@ class ApiTests(Case):
   self.assertEqual(len(routes),1);self.assertEqual(routes[0]['segments'],[a0.name,a1.name]);self.assertEqual(sorted(routes[0]['ids']),[a0.name,a1.name])
   self.assertLessEqual(len(routes[0]['points']),server.ROUTE_POINTS);self.assertGreater(routes[0]['distance_m'],0)
   self.assertEqual(self.get('/api/tracks',headers={'If-None-Match':response.headers['ETag']}).status_code,304)
+  # The routes are kept between requests (no recording read again) until a recording or a track file changes.
+  with patch.object(server,'all_routes',side_effect=AssertionError('built again')):self.assertEqual(self.get('/api/tracks').json['routes'],routes)
+  meta=server.read_meta(a1);server.save_meta(a1,{**meta,'tags':[{'name':'t','color':'mint'}]})
+  with patch.object(server,'all_routes',wraps=server.all_routes) as built:
+   self.assertEqual(self.get('/api/tracks').json['routes'],routes);self.assertEqual(built.call_count,1)
   self.assertEqual(self.get('/api/tracks?ids='+other.name).json['routes'],[])
   self.assertEqual(len(self.get('/api/tracks?ids='+a1.name).json['routes']),1)
   # Only through Ingress, as every other page API.

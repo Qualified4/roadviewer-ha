@@ -97,6 +97,12 @@ async function waitForStorageRefresh(page,action){
   assert.match(await page.locator('#trackFillHelp').textContent(),/13 MB/);
   assert.equal(await page.locator('#trackFillStatus').textContent(),'Drive 로그 지도 채우기: 0 / 0');
   assert.equal(await page.locator('#trackFillRun').textContent(),'한 번 실행');assert(await page.locator('#trackFillRun').isDisabled(),'nothing to fill');
+  // Everything filled and nothing running: the line says so and the bar (a full one looked unfinished) goes.
+  await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();Object.assign(body.archive.track_fill,{total:598,done:598,pending:0,failed:0,last_error:null,running:false,manual:false,finished_at:null});await route.fulfill({response,json:body})});
+  await openPanel(page);
+  assert.equal(await page.locator('#trackFillStatus').textContent(),'Drive 로그 지도 채우기: 모두 채움 · 598개');
+  assert(await page.locator('#trackFillMeter').isHidden(),'no bar once everything is filled');assert(await page.locator('#trackFillRun').isDisabled());
+  await page.unroute('**/api/settings/storage');
   await page.route('**/api/settings/storage',async route=>{const response=await route.fetch(),body=await response.json();Object.assign(body.archive.track_fill,{total:406,done:120,pending:286,failed:0,last_error:'auth_expired'});await route.fulfill({response,json:body})});
   await openPanel(page);
   assert.equal(await page.locator('#trackFillStatus').textContent(),'Drive 로그 지도 채우기: 120 / 406\nGoogle Drive 인증이 만료되어 멈췄습니다. 다시 연결하면 이어서 채웁니다.');

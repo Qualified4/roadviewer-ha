@@ -4,6 +4,18 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.22
+
+- The replay's 보기 (View) menu (the ⋯ menu on phones) has two playback settings: "끝나면 다음 구간 재생" (off by default) plays the drive's next playable segment when one plays to its end, and with "구간을 옮기면 일시정지" (on by default, the behaviour so far) turned off, moving to another segment while playing keeps playing. Remembered in this browser.
+- The map display popover has a map theme (자동 | 라이트 | 다크: automatic, light, dark) for every map on the page but the small map over the video; remembered in this browser.
+- Faster moves to Google Drive: three files upload at once and fewer checks are asked of Google per file (one folder listing for a large run, the upload's own completion checksums for verification). A local file is still deleted only after its Drive copy is verified and the index is saved.
+- The "move everything" run no longer shows more files than its total (301/294): files that become eligible during the run are added to the total.
+- The log list shows the drive cards first and builds the segment rows of folded cards in the background, so a long list appears sooner and freezes less. The all-drives map's routes are kept by the server and recalculated only when a recording changes.
+- A drive card's segment bar and its unfolded segment list start from segment 0 (left, top). The light on a converting segment's block flows left to right.
+- Opening a replay while the log list could not be read left the title at "로그 재생" with the previous/next buttons off; it now retries and shows the drive and segment meanwhile.
+- Tags on a drive card no longer end in "…" or make the card taller ("+N") when the route map unfolds on hover.
+- When filling maps from Drive logs has nothing left, the line says so instead of showing a full progress bar.
+
 ## 1.2.21
 
 - Drive cards and segment rows in the log list, and the replay title line, show every tag that fits in their one line; only those that do not fit become `+N`. They used to stop at three or four with room to spare.

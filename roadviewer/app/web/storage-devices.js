@@ -198,8 +198,16 @@ async function gdriveRequest(action){
 const TRACK_FILL_ERRORS={auth_expired:'Google Drive 인증이 만료되어 멈췄습니다. 다시 연결하면 이어서 채웁니다.',not_connected:'Google Drive에 연결되어 있지 않아 멈췄습니다.',archive_disabled:'아카이빙이 꺼져 있어 Drive의 로그를 읽을 수 없습니다.',gdrive_not_selected:GDRIVE_NOT_SELECTED,folder_missing:'Drive 보관 폴더를 찾을 수 없어 멈췄습니다.',folder_trashed:'Drive 보관 폴더가 휴지통에 있어 멈췄습니다.',storage_id_mismatch:'Drive 보관 폴더를 확인할 수 없어 멈췄습니다.',network:'Google Drive에 연결할 수 없어 잠시 후 다시 시도합니다.',rate_limited:'Google Drive 요청 한도를 넘어 잠시 후 다시 시도합니다.',checking:'Google Drive 연결을 확인하는 중입니다.'};
 const TRACK_FILL_REQUEST_ERRORS={track_fill_running:'Drive 로그 지도 채우기가 이미 실행 중입니다.',gdrive_not_selected:GDRIVE_NOT_SELECTED};
 let trackFillBusy=false,trackFillTimer=null;
+// Nothing left to fill and nothing running: the line says so (no progress bar at 100 % that looks unfinished).
+const trackFillDone=t=>t.total>0&&t.pending===0&&!t.running&&!t.manual&&!t.stopping&&!t.last_error;
 function trackFillText(t){
  if(t.total===null||t.total===undefined)return 'Drive 로그 지도 채우기: 확인 중';
+ if(trackFillDone(t)){
+  let text=`Drive 로그 지도 채우기: 모두 채움 · ${t.total}개`;
+  if(t.failed)text+=` · ${t.failed}개 건너뜀`;
+  const when=t.finished_at?jobFinishedText(Number(t.finished_at)):'';if(when)text+=` · ${when} 완료`;
+  return text;
+ }
  let text=`Drive 로그 지도 채우기: ${t.done} / ${t.total}`;
  if(t.failed)text+=` · ${t.failed}개 건너뜀`;
  if(t.stopping)text+=' · 지금 로그를 마치고 중지';
@@ -213,7 +221,7 @@ function trackFillText(t){
 function showTrackFill(a){
  const t=a?.backend==='gdrive'?a.track_fill:null,status=$('trackFillStatus'),run=$('trackFillRun');
  const meter=$('trackFillMeter');status.hidden=!t;
- meter.hidden=!t||!(t.total>0);
+ meter.hidden=!t||!(t.total>0)||trackFillDone(t);
  if(t&&t.total>0){meter.style.setProperty('--fill',Math.min(100,100*t.done/t.total).toFixed(1)+'%');meter.dataset.state=t.last_error?'error':'ok';meter.setAttribute('role','progressbar');meter.setAttribute('aria-valuemin','0');meter.setAttribute('aria-valuemax',String(t.total));meter.setAttribute('aria-valuenow',String(t.done));meter.setAttribute('aria-label','Drive 로그 지도 채우기 진행')}
  if(!t){run.textContent='한 번 실행';run.dataset.action='run';run.disabled=true;trackFillPoll(false);return}
  status.textContent=trackFillText(t);status.dataset.state=t.last_error?'error':t.running||t.manual?'running':'idle';

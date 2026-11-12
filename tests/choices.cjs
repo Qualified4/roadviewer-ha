@@ -76,6 +76,64 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    await page.waitForFunction(()=>document.getElementById('titleText')?.textContent==='주행 356 · 구간 13');
    assert.deepEqual(errors,[]);await page.close();
   }
+  // The log list failing for a moment (the app restarting): the title shows the replay data's name meanwhile, and the
+  // list is asked again until it answers (then the segment count, the strip and the neighbours appear).
+  {const page=await browser.newPage({viewport:{width:1280,height:844}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+   const logs=[{id:'one',name:'00000356--148eb5e823 / 구간 13',status:'ready'},{id:'two',name:'00000356--148eb5e823 / 구간 12',status:'ready'}];let asked=0;
+   await page.route('https://rv.test/**',route=>{
+    const p=new URL(route.request().url()).pathname;
+    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
+    if(p==='/api/logs')return ++asked<=2?route.fulfill({status:502,body:'Bad Gateway'}):route.fulfill({json:{logs}});
+    if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
+    if(p.endsWith('/data'))return route.fulfill({json:{route:'00000356--148eb5e823 / 구간 13',key:'test',duration:2,warnings:[],video:null,frames:[{t:0,id:0,valid:false,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}]}});
+    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
+    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.svg')?'image/svg+xml':name.endsWith('.png')?'image/png':'text/html'});
+   });
+   await page.goto('https://rv.test/view/one/');
+   await page.waitForFunction(()=>document.getElementById('titleText')?.textContent==='주행 356 · 구간 13');
+   assert.equal(await page.locator('#titleCount').textContent(),'','no list yet: no count');assert(await page.locator('#previousLog').isDisabled());
+   await page.waitForFunction(()=>document.getElementById('titleCount').textContent===' (2/2)',null,{timeout:8000});
+   assert.equal(asked,3,'asked again until it answered');assert.equal(await page.locator('#segmentStrip .segment-block').count(),2);
+   assert(await page.locator('#nextLog').isEnabled()||await page.locator('#previousLog').isEnabled(),'a neighbour to go to');
+   assert.deepEqual(errors,[]);await page.close()}
+  // 보기 › 재생: 끝나면 다음 구간 재생 (off by default) and 구간을 옮기면 일시정지 (on by default), kept on this browser.
+  {const page=await browser.newPage({viewport:{width:1280,height:844}}),errors=[];page.on('pageerror',e=>errors.push(e.message));
+   const logs=[{id:'one',name:'00000356--148eb5e823 / 구간 13',status:'ready'},{id:'two',name:'00000356--148eb5e823 / 구간 12',status:'ready'},{id:'pending',name:'00000356--148eb5e823 / 구간 14',status:'processing'},{id:'far',name:'00000356--148eb5e823 / 구간 15',status:'ready'}];
+   await page.route('https://rv.test/**',route=>{
+    const p=new URL(route.request().url()).pathname;
+    if(p.endsWith('/bookmarks'))return route.fulfill({json:{bookmarks:[]}});
+    if(p==='/api/logs')return route.fulfill({json:{logs}});
+    if(p.endsWith('/telemetry'))return route.fulfill({status:404,json:{error:'차량 정보 없음'}});
+    if(p.endsWith('/data'))return route.fulfill({json:{route:'test',key:'test',duration:1,warnings:[],video:null,frames:[{t:0,id:0,valid:false,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}]}});
+    const name=p.startsWith('/view/')?'index.html':p.replace('/assets/','');
+    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.svg')?'image/svg+xml':name.endsWith('.png')?'image/png':'text/html'});
+   });
+   const ready=()=>page.waitForFunction(()=>typeof data!=='undefined'&&data&&!loading&&document.getElementById('titleCount').textContent!=='');
+   await page.goto('https://rv.test/view/two/');await ready();
+   assert.equal(await page.locator('#autoNext').getAttribute('aria-pressed'),'false');assert.equal(await page.locator('#pauseOnJump').getAttribute('aria-pressed'),'true');
+   // Defaults: moving while playing pauses; the end of a segment stops there.
+   await page.evaluate(()=>toggle());await page.locator('#segmentStrip [aria-label="구간 13"]').click();await page.waitForURL('**/view/one/');await ready();await page.waitForTimeout(200);
+   assert.equal(await page.evaluate(()=>playing),false,'a move pauses by default');
+   await page.evaluate(()=>toggle());await page.waitForFunction(()=>!playing&&t>=data.duration);await page.waitForTimeout(300);assert(page.url().endsWith('/view/one/'),'the end stops by default');
+   // 구간을 옮기면 일시정지 off: a move made while playing plays on; one made while paused stays paused.
+   await page.locator('#viewMenu>summary').click();await page.locator('#pauseOnJump').click();
+   assert.equal(await page.locator('#pauseOnJump').getAttribute('aria-pressed'),'false');assert(await page.locator('#viewMenu').evaluate(d=>d.open),'the menu stays open for the switches');
+   await page.locator('#viewMenu>summary').click();
+   await page.locator('#segmentStrip [aria-label="구간 12"]').click();await page.waitForURL('**/view/two/');await ready();await page.waitForTimeout(200);
+   assert.equal(await page.evaluate(()=>playing),false,'paused before the move: paused after it');
+   assert.equal(await page.locator('#pauseOnJump').getAttribute('aria-pressed'),'false','kept on this browser');
+   await page.evaluate(()=>{setTime(0);toggle()});await page.locator('#segmentStrip [aria-label="구간 13"]').click();await page.waitForURL('**/view/one/');await ready();
+   await page.waitForFunction(()=>playing||t>0);
+   // 끝나면 다음 구간 재생: the next playable segment of the drive (구간 14 is still converting: skipped), playing; the
+   // drive's last segment stops at its end.
+   await page.waitForFunction(()=>!playing&&t>=data.duration);
+   await page.locator('#viewMenu>summary').click();await page.locator('#autoNext').click();assert.equal(await page.locator('#autoNext').getAttribute('aria-pressed'),'true');await page.locator('#viewMenu>summary').click();
+   await page.evaluate(()=>toggle());await page.waitForURL('**/view/far/',{timeout:8000});await ready();
+   await page.waitForFunction(()=>playing||t>0);
+   await page.waitForFunction(()=>!playing&&t>=data.duration);await page.waitForTimeout(400);assert(page.url().endsWith('/view/far/'),'the last segment stops');
+   // Seeking to the end does not move on.
+   await page.goto('https://rv.test/view/two/');await ready();await page.evaluate(()=>setTime(data.duration));await page.waitForTimeout(400);assert(page.url().endsWith('/view/two/'));
+   assert.deepEqual(errors,[]);await page.close()}
   console.log('PASS: mobile sheet and desktop menu, speed/range changes, keyboard, focus, disabled options and segment navigation');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

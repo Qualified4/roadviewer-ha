@@ -225,7 +225,7 @@ function recordingActions(m){
  if(m.download_options)menuButton(menu,'다운로드',()=>openRecordingDownload([m]));
  menuButton(menu,'태그 편집',()=>editRecordingTags([m],()=>refresh()),'tag-edit');
  if(m.has_track)menuButton(menu,'지도에서 보기',()=>window.rvMaps?.showSegment(m.id),'map-segment');
- menuButton(menu,'로그 이름 복사',()=>logRows.get(m.id)?.row.querySelector('.log-name .copy-recording')?.click(),'copy-name');
+ menuButton(menu,'로그 이름 복사',()=>ensureRow(m.id)?.row.querySelector('.log-name .copy-recording')?.click(),'copy-name');
  const pin=menuButton(menu,m.pinned?'구간 고정 해제':'구간 고정',()=>pinRecording(m,pin),'pin-recording');pin.setAttribute('aria-pressed',String(!!m.pinned));
  if(!m.download_options)for(const item of recordingDownloads(m,''))menu.append(downloadLink(item));
  const del=document.createElement('button');del.type='button';del.className='delete';del.textContent='완전 삭제';
@@ -259,8 +259,11 @@ function recordingChanged(m){
  listRequest?.abort();listRevision++;refreshing=false;
  const cached=logRows.get(m.id);if(!cached)return;
  cached.signature=null;cached.status=m.status;cached.log={...cached.log,...m};
- cached.state.className=m.status==='processing'?'state state-processing':'state';cached.state.dataset.status=m.status;showState(cached.state,m);
- const actions=recordingActions(m);cached.actions.replaceWith(actions);cached.actions=actions;
+ // A row not built yet keeps only the data: it is built from cached.log.
+ if(cached.row){
+  cached.state.className=m.status==='processing'?'state state-processing':'state';cached.state.dataset.status=m.status;showState(cached.state,m);
+  const actions=recordingActions(m);cached.actions.replaceWith(actions);cached.actions=actions;
+ }
  for(const group of logGroups.values()){const index=group.logs.findIndex(log=>log.id===m.id);if(index<0)continue;group.logs[index]={...group.logs[index],...m};if(group.firstLog.id===m.id)group.firstLog=group.logs[index];syncGroupActions(group)}
 }
 document.addEventListener('click',e=>document.querySelectorAll('.recording-more[open]').forEach(more=>{if(!more.contains(e.target))more.open=false}));
@@ -335,7 +338,12 @@ function archiveRetry(m){
  box.append(text,retry);return box;
 }
 // Group by the complete route, never the shortened display name (route hashes can differ).
+// Memoized per log object (each list read gives new ones): sorting a card's segments asks for it many times.
+const routeCache=new WeakMap();
 function logRoute(log){
+ let route=routeCache.get(log);if(!route){route=readLogRoute(log);routeCache.set(log,route)}return route;
+}
+function readLogRoute(log){
  const identity=recordingIdentity(log.name,log.files),source=(log.files?.['rlog.zst']||'').replaceAll('\\','/').split('/').pop().replace(/--rlog\.zst$/,''),pattern=/^(.*?)(?:--|\s*\/\s*구간\s*)(\d+)$/,match=pattern.exec(source)||pattern.exec(identity.original);
  return match?{key:match[1],segment:Number(match[2]),title:'주행 '+match[1].split('--')[0].replace(/^0+(?=.)/,'')}:{key:'log:'+log.id,segment:null,title:identity.display};
 }
@@ -398,7 +406,7 @@ function driveLine(drive){
  line.append('자동 제어 ',percent,' · 개입 ',count,'회');return line;
 }
 function unionTags(logs){const tags=new Map();for(const log of logs)for(const tag of log.tags||[])if(!tags.has(tagKey(tag.name)))tags.set(tagKey(tag.name),tag);return [...tags.values()]}
-const segmentProgress=id=>logRows.get(id)?.state.querySelector('.state-progress>span')?.style.getPropertyValue('--progress')||'0';
+const segmentProgress=id=>logRows.get(id)?.state?.querySelector('.state-progress>span')?.style.getPropertyValue('--progress')||'0';
 function syncRouteBar(group){
  for(const block of group.bar.children)if(block.dataset.status==='processing'&&block.dataset.id)block.style.setProperty('--progress',segmentProgress(block.dataset.id));
 }
@@ -418,8 +426,10 @@ function syncRouteCard(group,route){
   // Up to 20 segments: one block each. Longer drives show their first 20 blocks and a "+" in the colour of the most
   // urgent status among the rest (failed, processing, queued, unconverted, ready), so a long drive never looks like a
   // single segment and work still running further on stays visible. The card's title already gives the exact count.
-  const more=logs.length>ROUTE_BAR_BLOCKS,rest=logs.slice(ROUTE_BAR_BLOCKS);group.bar.classList.toggle('has-more',more);
-  const blocks=logs.slice(0,ROUTE_BAR_BLOCKS).map(log=>{
+  // Left to right in segment order (0 first), whatever order the server lists them in (newest upload first).
+  const ordered=[...logs].sort((a,b)=>(logRoute(a).segment??Infinity)-(logRoute(b).segment??Infinity));
+  const more=ordered.length>ROUTE_BAR_BLOCKS,rest=ordered.slice(ROUTE_BAR_BLOCKS);group.bar.classList.toggle('has-more',more);
+  const blocks=ordered.slice(0,ROUTE_BAR_BLOCKS).map(log=>{
    const block=document.createElement('span'),k=logRoute(log).segment;block.className='route-seg';block.dataset.status=log.status;block.dataset.id=log.id;
    block.title=`${k===null?recordingIdentity(log.name,log.files).display:'구간 '+k} · ${processingText(log)}`;return block;
   });
@@ -465,8 +475,7 @@ function createLogGroup(route){
  const tags=document.createElement('span');heading.className='route-heading';heading.append(time,meta,tags);
  bar.className='route-bar';bar.setAttribute('role','img');facts.className='route-facts';main.className='route-main';main.append(heading,bar,facts);
  chevron.className='log-route-chevron';chevron.type='button';chevron.setAttribute('aria-label','구간 펼치기');chevron.setAttribute('aria-expanded',String(element.open));chevron.innerHTML='<svg aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>';
- // Rows shown by unfolding are not new: they skip the new-row entrance (motion.css) and only follow the fold.
- chevron.onclick=event=>{event.preventDefault();event.stopPropagation();group.rows?.forEach(row=>row.classList.add('is-update'));window.rvDisclosure.animate(element)};
+ chevron.onclick=event=>{event.preventDefault();event.stopPropagation();prepareUnfold(group);window.rvDisclosure.animate(element)};
  element.addEventListener('toggle',()=>{chevron.setAttribute('aria-expanded',String(element.open));chevron.setAttribute('aria-label',element.open?'구간 접기':'구간 펼치기')});
  actions.className='log-route-actions';summary.append(thumb,main,actions,chevron);body.className='log-route-segments';element.append(summary,body);
  const group={element,body,count,actions,thumb,duration,time,name,tags,bar,facts};
@@ -475,21 +484,28 @@ function createLogGroup(route){
   // rest of the actions row (beside the buttons, e.g. under the thumbnail on phones) folds it like the rest of the card.
   const onActions=event.target.closest('.log-route-actions .actions');
   if(onActions&&event.target.closest('a,button,summary,input,label')===summary){event.preventDefault();return}
-  if(!onActions)group.rows.forEach(row=>row.classList.add('is-update'));
+  prepareUnfold(group);
  });
  return group;
 }
 const listDays=new Map();
-function arrangeLogGroups(logs,rows){
+function arrangeLogGroups(logs,entries){
  const groups=new Map();
  logs.forEach((log,i)=>{
   const route=logRoute(log);let group=groups.get(route.key);
   if(!group){group=logGroups.get(route.key);if(!group){group=createLogGroup(route);logGroups.set(route.key,group)}
-   group.logs=[];group.rows=[];group.firstLog=log;group.firstSegment=route.segment;group.route=route;groups.set(route.key,group)}
+   group.logs=[];group.entries=[];group.firstLog=log;group.firstSegment=route.segment;group.route=route;groups.set(route.key,group)}
   if(route.segment!==null&&(group.firstSegment===null||route.segment<group.firstSegment)){group.firstLog=log;group.firstSegment=route.segment}
-  group.logs.push(log);group.rows.push(rows[i]);
+  group.logs.push(log);group.entries.push(entries[i]);
  });
- for(const group of groups.values()){reconcileLogs(group.body,group.rows);syncRouteCard(group,group.route);syncGroupActions(group)}
+ // A card lists its segments from 0 down, whatever order the server gives (newest upload first); unnumbered logs last,
+ // in the server's order.
+ const segmentOf=log=>logRoute(log).segment??Infinity;
+ for(const group of groups.values()){
+  const order=group.logs.map((_,i)=>i).sort((a,b)=>segmentOf(group.logs[a])-segmentOf(group.logs[b])||a-b);
+  group.logs=order.map(i=>group.logs[i]);group.entries=order.map(i=>group.entries[i]);
+  placeRows(group);syncRouteCard(group,group.route);syncGroupActions(group);
+ }
  // Date sections in the server's order (newest routes first); a day collects its routes where it first appears.
  const days=new Map();
  for(const group of groups.values()){const date=logDate(group.firstLog),key=dayKey(date);if(!days.has(key))days.set(key,{date,groups:[]});days.get(key).groups.push(group.element)}
@@ -503,6 +519,7 @@ function arrangeLogGroups(logs,rows){
  reconcileLogs($('list'),sections);
  for(const key of listDays.keys())if(!days.has(key))listDays.delete(key);
  for(const key of logGroups.keys())if(!groups.has(key))logGroups.delete(key);
+ groupOrder=[...days.values()].flatMap(day=>day.groups.map(element=>logGroups.get(element.dataset.route)));
  $('logCounts').textContent=`주행 ${groups.size}번 · 구간 ${logs.length}개 · 재생 가능 ${logs.filter(log=>log.status==='ready').length}개`;
 }
 function renderRow(m,cached){
@@ -531,6 +548,51 @@ function renderRow(m,cached){
  const actions=recordingActions(m);if(cached)cached.actions.replaceWith(actions);else row.append(thumb,info,actions);
  return {row,thumb,info,title,state,actions,selection:cached?.selection};
 }
+// Rows built later. Every log has a logRows entry, but its DOM (entry.row and the other parts renderRow returns) may not
+// exist yet: what the list needs without it (log, status, tags, search, display, hidden) is on the entry either way.
+// Folded cards get their rows in the background, a few at a time (slices of about 8 ms in idle periods) from the top of
+// the list down; a card that opens first builds its own rows right then (prepareUnfold, before the fold measures them,
+// or the observer below for [open] set by code), and selection mode, which works on every row, builds the rest at once
+// (buildAllRows).
+let groupOrder=[],rowBuild=null;
+// update: the row is not new (a folded card's): it skips the new-row entrance (motion.css) when its card unfolds.
+function buildRow(entry,update=true){
+ if(entry.row)return entry;
+ Object.assign(entry,renderRow(entry.log,null));if(update)entry.row.classList.add('is-update');entry.row.hidden=!!entry.hidden;return entry;
+}
+// A card's body holds its rows in the card's segment order. A folded card whose rows are only partly built keeps the
+// ones already shown (minus removed logs) and takes the new ones once all are built: every change to the list costs a
+// frame's paint of the whole page (about 40 ms at phone speed), so the background adds each card at once.
+function placeRows(group){
+ const complete=group.element.open||group.entries.every(entry=>entry.row);
+ reconcileLogs(group.body,group.entries.filter(entry=>entry.row&&(complete||entry.row.parentNode===group.body)).map(entry=>entry.row));
+}
+function buildGroupRows(group){
+ if(!group||group.entries.every(entry=>entry.row))return;
+ group.entries.forEach(entry=>buildRow(entry));placeRows(group);
+}
+// Rows shown by unfolding are not new: they skip the new-row entrance (motion.css) and only follow the fold.
+function prepareUnfold(group){
+ if(group.element.open&&group.element._foldTarget!==false)return;
+ buildGroupRows(group);group.entries.forEach(entry=>entry.row.classList.add('is-update'));
+}
+function buildAllRows(){for(const group of logGroups.values())buildGroupRows(group)}
+function ensureRow(id){const entry=logRows.get(id);if(entry&&!entry.row)buildGroupRows(groupOrder.find(group=>group.entries.includes(entry)));return entry}
+function scheduleRowBuild(){
+ if(rowBuild||!groupOrder.some(group=>group.entries.some(entry=>!entry.row)))return;
+ rowBuild=window.requestIdleCallback?{idle:requestIdleCallback(buildSlice,{timeout:400})}:{timer:setTimeout(()=>buildSlice(null),16)};
+}
+function buildSlice(deadline){
+ rowBuild=null;const start=performance.now(),budget=deadline&&!deadline.didTimeout?Math.max(2,Math.min(8,deadline.timeRemaining())):6,touched=new Set();
+ outer:for(const group of groupOrder)for(const entry of group.entries){
+  if(entry.row)continue;
+  if(touched.size&&performance.now()-start>=budget)break outer;
+  buildRow(entry);touched.add(group);
+ }
+ touched.forEach(placeRows);scheduleRowBuild();
+}
+// A card opened by code (or anything else that sets [open]) gets its rows before the next paint.
+new MutationObserver(records=>{for(const {target} of records)if(target.open&&target.matches('details.log-route'))buildGroupRows(logGroups.get(target.dataset.route))}).observe($('list'),{subtree:true,attributes:true,attributeFilter:['open']});
 // Keep the row/title/state connected when metadata changes so CSS animations retain their live timeline.
 const listError='로그 목록을 읽을 수 없습니다.';let listFailures=0,listErrorShown=null,listBody=null;
 async function refresh({poll=false}={}){
@@ -552,17 +614,25 @@ async function refresh({poll=false}={}){
   // Uploads from a device or another browser show in the header chip too (this page's own upload drives it itself).
   if(!busy){const u=data.uploads;showUploadPill(u&&u.total_bytes>0?Math.min(100,Math.floor(u.received_bytes/u.total_bytes*100)):null)}
   $('uploadLimit').textContent=`한 번에 업로드할 파일 합계 최대 ${data.max_upload_mb} MB`;$('empty').hidden=!!data.logs.length;
-  const rows=data.logs.map(m=>{
-   const {progress,...details}=m,signature=JSON.stringify(details),cached=logRows.get(m.id),identity=recordingIdentity(m.name,m.files);
-   if(cached?.signature===signature){showState(cached.state,m);cached.log=m;return cached.row}
-   const parts=renderRow(m,cached);
-   logRows.set(m.id,{...parts,signature,status:m.status,tags:m.tags||[],video:m.video,conversion_revision:m.conversion_revision,log:m,display:identity.display,search:searchText(m,identity)});
-   return parts.row;
+  // Rows of folded cards are not built here: the cards show first and their rows follow in the background (buildSlice).
+  // Built rows that changed are updated in place; a new row of an open card, one being processed (its progress shows in
+  // the card's bar) and every row during selection mode are built right away.
+  const entries=data.logs.map(m=>{
+   const {progress,...details}=m,signature=JSON.stringify(details);let cached=logRows.get(m.id);
+   if(cached?.signature===signature){if(cached.row)showState(cached.state,m);cached.log=m;return cached}
+   const identity=recordingIdentity(m.name,m.files),fields={signature,status:m.status,tags:m.tags||[],video:m.video,conversion_revision:m.conversion_revision,log:m,display:identity.display,search:searchText(m,identity)};
+   if(cached?.row)cached={...renderRow(m,cached),...fields,hidden:cached.hidden};
+   else{
+    const open=!!logGroups.get(logRoute(m).key)?.element.open;cached=Object.assign(cached||{row:null},fields);
+    if(open||m.status==='processing'||bulkSelection?.active)buildRow(cached,!open);
+   }
+   logRows.set(m.id,cached);return cached;
   });
   // Only rows in an open card can move on screen; rows of folded cards (most of a long list) are not measured.
-  const motion=window.RoadViewerMotion,before=new Map([...logRows].filter(([,cached])=>cached.row.parentNode?.parentNode?.open).map(([id,cached])=>[id,motion.capture(cached.row)]));
+  const motion=window.RoadViewerMotion,before=new Map([...logRows].filter(([,cached])=>cached.row?.parentNode?.parentNode?.open).map(([id,cached])=>[id,motion.capture(cached.row)]));
   const ids=new Set(data.logs.map(m=>m.id));for(const id of logRows.keys())if(!ids.has(id))logRows.delete(id);
-  arrangeLogGroups(data.logs,rows);renderChips();applyFilters();window.rvMaps?.listed(data.logs);if(motion.allowed())rows.forEach(row=>before.has(row.dataset.id)&&motion.play(row,before.get(row.dataset.id)));
+  arrangeLogGroups(data.logs,entries);renderChips();applyFilters();window.rvMaps?.listed(data.logs);if(motion.allowed())entries.forEach(entry=>entry.row&&before.has(entry.log.id)&&motion.play(entry.row,before.get(entry.log.id)));
+  scheduleRowBuild();
  }catch(e){
   // Back from a long time in the background, the first request can fail before Home Assistant renews the ingress
   // session or the connection wakes up: one failure retries in a second, only a repeated one is shown.
@@ -580,7 +650,7 @@ async function refreshProgress(){
   if(refreshing||revision!==listRevision)return;
   for(const [id,progress] of Object.entries(data.progress||{})){
    const cached=logRows.get(id);
-   if(cached?.status==='processing')showState(cached.state,{status:'processing',progress,video:cached.video,conversion_revision:cached.conversion_revision});
+   if(cached?.status==='processing'&&cached.state)showState(cached.state,{status:'processing',progress,video:cached.video,conversion_revision:cached.conversion_revision});
   }
   for(const group of logGroups.values())syncRouteBar(group);
  }catch{}finally{progressRefreshing=false}
@@ -654,9 +724,9 @@ function applyFilters(){
  const test=FILTERS.find(([value])=>value===logFilter)?.[2]||(()=>true),query=logQuery.replace(/\s+/g,' '),active=logFilter!=='all'||!!tagFilter||!!query;let shown=0;
  for(const cached of logRows.values()){
   const matches=test(cached.log||{})&&tagMatches(cached.tags||[],tagFilter)&&(!query||!!cached.search?.includes(query));
-  cached.row.hidden=!matches;if(matches&&cached.row.isConnected)shown++;
+  cached.hidden=!matches;if(cached.row)cached.row.hidden=!matches;if(matches&&(!cached.row||cached.row.isConnected))shown++;
  }
- for(const group of logGroups.values()){const visible=group.rows.filter(row=>!row.hidden).length;group.element.hidden=!visible;group.count.textContent=active?`${visible} / ${group.rows.length}개 구간`:`${group.rows.length}개 구간`}
+ for(const group of logGroups.values()){const visible=group.entries.filter(entry=>!entry.hidden).length;group.element.hidden=!visible;group.count.textContent=active?`${visible} / ${group.entries.length}개 구간`:`${group.entries.length}개 구간`}
  for(const day of listDays.values())day.element.hidden=![...day.list.children].some(route=>!route.hidden);
  $('tagFilterStatus').hidden=!active;$('tagFilterStatus').textContent=shown?`${shown}개 로그 표시 중`:tagFilter&&logFilter==='all'&&!query?'선택한 태그에 해당하는 로그가 없습니다.':'조건에 맞는 로그가 없습니다.';
  bulkSelection?.sync();window.rvMaps?.filtered();

@@ -1,5 +1,5 @@
 """Archive (NAS) settings, availability via a sentinel file, per-recording media resolution and the archiver."""
-import collections, hashlib, json, logging, os, re, shutil, threading, time, uuid
+import collections, hashlib, json, logging, os, queue, re, shutil, threading, time, uuid
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -565,15 +565,26 @@ PROGRESS_BYTES, PROGRESS_SECONDS = 8 * MB, 30
 
 # A manual run's speed is measured over about this many seconds of the latest transfer, once it spans RATE_MIN.
 RATE_WINDOW, RATE_MIN = 30, 5
+# Drive uploads in flight at once (scheduled and manual runs). Each file pays a few fixed round trips (session start,
+# the stop-and-wait chunks' answers, the index commit's fsync) that leave the line idle; three files overlap them.
+UPLOAD_WORKERS = 3
+# A pass that would upload at least this many files (and at least twice the listing's pages) answers find() from one
+# listing of the folder instead of a search per file (Archiver._find_plan).
+LISTING_MIN_FILES = 8
 
 class _Transfer:
-    """Bytes a manual run has actually sent, for its speed and remaining time (memory only). The file being uploaded
-    counts as it goes, so a large video does not freeze the numbers; copies adopted without uploading add nothing."""
+    """Bytes a manual run has actually sent, for its speed and remaining time (memory only). The files being uploaded
+    count as they go, so a large video does not freeze the numbers; copies adopted without uploading add nothing.
+    Several files may be in flight (UPLOAD_WORKERS), each under its own key; `file` is their sum."""
 
     def __init__(self, clock=time.monotonic):
         self.clock, self.lock = clock, threading.Lock()
-        self.sent = self.file = 0  # All bytes sent; bytes of the file in progress.
+        self.sent = 0  # All bytes sent.
+        self.files = {}  # Bytes of each file in progress, by key.
         self.samples = collections.deque()
+
+    @property
+    def file(self): return sum(self.files.values())
 
     def _sample(self, now):
         # At most a sample a second; those older than the window go (the latest stays as the speed's start).
@@ -581,29 +592,44 @@ class _Transfer:
         if not s or now - s[-1][0] >= 1: s.append((now, self.sent))
         while len(s) > 1 and s[0][0] < now - RATE_WINDOW: s.popleft()
 
-    def begin(self, offset=0):
+    def begin(self, offset=0, key=None):
         # A file starts; a resumed upload starts at its offset (those bytes were sent by an earlier attempt).
-        with self.lock: self.file = offset; self._sample(self.clock())
+        with self.lock: self.files[key] = offset; self._sample(self.clock())
 
-    def progress(self, sent):
+    def progress(self, sent, key=None):
         with self.lock:
-            if sent > self.file: self.sent += sent - self.file
-            self.file = sent
+            before = self.files.get(key, 0)
+            if sent > before: self.sent += sent - before
+            self.files[key] = sent
             self._sample(self.clock())
 
-    def end(self, size=0):
+    def end(self, size=0, key=None):
         # The file is done (or failed); `size` adds a file copied in one piece (the NAS).
         with self.lock:
-            self.sent += size; self.file = 0
+            self.sent += size; self.files.pop(key, None)
             if size: self._sample(self.clock())
 
     def snapshot(self):
-        # (bytes of the file in progress, bytes/s or None while too little has been measured).
+        # (bytes of the files in progress, bytes/s or None while too little has been measured).
         with self.lock:
-            if not self.samples: return self.file, None
+            current = sum(self.files.values())
+            if not self.samples: return current, None
             now = self.clock(); self._sample(now)
             t, sent = self.samples[0]
-            return self.file, (self.sent - sent) / (now - t) if now - t >= RATE_MIN else None
+            return current, (self.sent - sent) / (now - t) if now - t >= RATE_MIN else None
+
+class _Listing:
+    """One pass's answers to find() from a single listing of the folder (backend.find_all), taken the first time it is
+    needed (by whichever upload worker asks first; the others wait for it). `started`: (id, kind) this pass began
+    uploading, which the listing may not show."""
+
+    def __init__(self, find_all):
+        self.find_all, self.lock, self.found, self.started = find_all, threading.Lock(), None, set()
+
+    def get(self, id, kind):
+        with self.lock:
+            if self.found is None: self.found = self.find_all()  # A failure raises in the asking file, as find() would.
+            return list(self.found.get((id, kind), ()))
 
 class _Changed(Exception):
     """The recording changed while its file was being uploaded: the upload stops, nothing is committed."""
@@ -658,14 +684,22 @@ class Archiver:
         self.missing = set()
         self.empty = set()  # (recording path, kind) of empty local files the remote path skipped (warned once each).
         self.cycle_failed = False  # A failure was counted for the current cycle (counted once per cycle).
-        # Why the last archive_file returned False; None when the recording changed meanwhile.
-        # Shared state: archive_file must only be called from run_cycle (which holds self.cycle).
+        # Why the last archive_file/archive_remote returned False; None when the recording changed meanwhile. Kept per
+        # thread (the property below): Drive uploads run on several worker threads at once (_archive_remote_files).
+        self._local = threading.local()
         self.reason = None
+        self.listing = None  # This pass's _Listing (find() from one folder listing), or None.
         # The latest 'archive everything eligible' run (start_manual), persisted so a reload or restart shows it.
         self.manual_active, self.job = False, self._load_job()
         self.checking = None  # {'done', 'total'} while the startup checks run (_startup).
         self.transfer = None  # The running manual run's _Transfer.
         self.startup_failure = None  # The remote error that stopped the startup checks' folder listing.
+
+    @property
+    def reason(self): return getattr(self._local, 'reason', None)
+
+    @reason.setter
+    def reason(self, value): self._local.reason = value
 
     def status(self):
         return {'last_cycle_at': self.last_cycle_at, 'last_error': self.last_error, 'consecutive_failures': self.consecutive_failures,
@@ -678,8 +712,9 @@ class Archiver:
                 'checking': self.checking}
 
     def _job_status(self):
-        # The run as persisted, with the startup checks and, while it runs, its transfer: bytes of the file in
-        # progress, speed (bytes/s) and the remaining time (seconds); speed and time are None until measured.
+        # The run as persisted, with the startup checks and, while it runs, its transfer: bytes of the files in
+        # progress (current_bytes: the sum over the uploads in flight, up to UPLOAD_WORKERS), speed (bytes/s) and the
+        # remaining time (seconds); speed and time are None until measured.
         job, transfer = dict(self.job, checking=self.checking), self.transfer
         if self.manual_active and transfer and job.get('state') == 'running':
             current, rate = transfer.snapshot()
@@ -776,8 +811,20 @@ class Archiver:
                 self.job['waiting'] = reason; self._save_job()
                 if self.server.cleanup_stop.wait(MANUAL_WAIT_SECONDS): reason = 'shutdown'; break
                 self.job['waiting'] = None
+                self._replan_job()
             return reason
         finally: self._finish_job(reason)
+
+    def _replan_job(self):
+        # The totals were counted when the run started; while it waited (an upload, a conversion) more became eligible
+        # (new recordings converted, the minimum age reached) and the next pass archives those too. Counted again:
+        # what is done plus what is left now, so the run never shows more files than its total.
+        try: plan = self.manual_plan()
+        except Exception: return
+        job = self.job
+        job['total_files'] = max(job['total_files'], job['processed'] + plan['files'])
+        job['total_bytes'] = max(job['total_bytes'], job.get('processed_bytes', 0) + plan['bytes'])
+        self._save_job()
 
     def _finish_job(self, reason):
         if not self.manual_active: return
@@ -789,15 +836,18 @@ class Archiver:
         self.manual_active = False
         self._save_job()
 
-    def _job_file(self, p, kind, size, ok):
+    def _job_file(self, p, kind, size, ok, reason=None):
+        # Counted by the thread running the pass (never by an upload worker), after the file settled.
         job = self.job; job['processed'] += 1; job['processed_bytes'] = job.get('processed_bytes', 0) + size
-        if self.transfer: self.transfer.end(size if ok and not self.remote else 0)
+        # A file that became eligible during a pass (counted by neither the start nor _replan_job) still fits the total.
+        job['total_files'] = max(job['total_files'], job['processed']); job['total_bytes'] = max(job['total_bytes'], job['processed_bytes'])
+        if self.transfer: self.transfer.end(size if ok and not self.remote else 0, key=(p.name, kind))
         if ok:
             job['succeeded'] += 1; job['bytes_done'] += size
             try: moved = location(self.server.read_meta(p), kind) != 'local' and not (p / kind).exists()
             except (OSError, ValueError): moved = False
             if moved: job['freed_bytes'] += size
-        else: job['failed'] += 1; job['last_failure'] = self.reason
+        else: job['failed'] += 1; job['last_failure'] = reason if reason is not None else self.reason
         self._save_job()
 
     def start(self):
@@ -953,6 +1003,8 @@ class Archiver:
     def _archive(self, result):
         # A manual run (manual_active) has no batch limit, counts each file in its job and goes on after a copy that
         # did not verify (that file stays local, marked or retried). Pinned recordings are archived like the others.
+        # Drive uploads several files at once (_archive_remote_files); the NAS copies one file at a time.
+        if self.remote: return self._archive_remote_files(result)
         s, manual = self.server, self.manual_active
         for p, meta in self.candidates():
             for kind in ARCHIVE_ORDER:
@@ -982,6 +1034,139 @@ class Archiver:
                 if s.upload_receiving(): return 'uploading'
                 if s.cleanup_stop.is_set(): return 'shutdown'
         return None
+
+    def _archive_remote_files(self, result):
+        # _archive for Drive with up to UPLOAD_WORKERS files in flight. This thread (holding self.cycle) picks the files
+        # in the same order and with the same tests, hands each to a worker thread running archive_remote, and settles
+        # every result itself: counters, the job and the stop decision are only touched here, one result at a time.
+        # Each archive_remote is unchanged and self-contained: its index writes (session record, commit, dropped
+        # session) re-read meta.json under the server lock and change only their own kind, so two files of one
+        # recording settling together never lose each other's entry, and a local file still goes only after its own
+        # verified copy is committed (fsync'd). The pass never returns while a worker runs: whatever stops it (a
+        # failure, an upload arriving, shutdown, an exception) stops new files and waits for those in flight.
+        #
+        # Settling, as the sequential loop did per file:
+        #   success: counted (result, archived_files_total, the job); an upload arriving or shutdown stops new files.
+        #   recording changed (no reason): its later files wait for the next cycle (not counted, as before).
+        #   hash_mismatch in a manual run: counted as failed, that recording's later files wait, the run goes on.
+        #   any other failure: counted as failed (manual run) and the pass ends with it once the files in flight
+        #   settle. A file in flight that then fails for the same kind of reason is not counted: like the files not
+        #   started yet it was stopped by the same cause (an outage fails them all). Successes are always counted.
+        # The batch limit counts files in flight as archived until they settle (a failed one frees its place).
+        s, manual = self.server, self.manual_active
+        rows = self.candidates()
+        self.listing = self._find_plan(rows, manual)
+        work, done = queue.Queue(), queue.Queue()
+        workers, flight, held, state = [], {}, set(), {'stop': None, 'error': None}
+
+        def worker():
+            while True:
+                item = work.get()
+                if item is None: return
+                key, p, meta, kind = item
+                try: out = (self.archive_remote(p, meta, kind), self.reason, None)
+                except BaseException as e: out = (False, None, e)
+                done.put((key, out))
+
+        def settle():
+            key, (ok, reason, error) = done.get()
+            p, kind, size = flight.pop(key)
+            if error is not None:
+                if self.transfer: self.transfer.end(key=key)
+                if state['error'] is None: state['error'] = error
+                return
+            if ok:
+                result['archived'] += 1; result['bytes'] += size
+                self.archived_files_total += 1
+                if manual: self._job_file(p, kind, size, True)
+                # Uploads come first: the files in progress are finished, then the cycle ends.
+                if state['stop'] is None and s.upload_receiving(): state['stop'] = 'uploading'
+                if state['stop'] is None and s.cleanup_stop.is_set(): state['stop'] = 'shutdown'
+                return
+            if reason is None or state['stop'] is not None and not (manual and reason == 'hash_mismatch'):
+                if self.transfer: self.transfer.end(key=key)
+                if reason is None: held.add(p)  # The recording changed meanwhile: its other files wait.
+                return
+            if manual: self._job_file(p, kind, size, False, reason)
+            if reason == 'hash_mismatch' and manual: held.add(p); return
+            state['stop'] = reason
+
+        def stopped():
+            return state['stop'] is not None or state['error'] is not None
+
+        try:
+            for p, meta in rows:
+                for kind in ARCHIVE_ORDER:
+                    if stopped() or p in held: break
+                    if location(meta, kind) != 'local' or self._done_remotely(meta, kind): continue
+                    while not manual and flight and result['archived'] + len(flight) >= self.settings.batch: settle()
+                    if stopped() or p in held: break
+                    if not manual and result['archived'] >= self.settings.batch: return None
+                    try: size = (p / kind).stat().st_size
+                    except FileNotFoundError: continue
+                    except OSError: state['stop'] = 'os_error'; break
+                    if size == 0:
+                        # Drive takes an empty upload as a status query and never completes it: the cycle would stop
+                        # here every time. The file stays local and unchanged; the next files go on.
+                        if (p, kind) not in self.empty:
+                            self.empty.add((p, kind))
+                            s.app.logger.warning('%s/%s is empty; it is not archived to the remote archive', p.name, kind)
+                        continue
+                    if flight:
+                        # Uploads come first and shutdown waits for nothing new: no further file starts.
+                        if s.upload_receiving(): state['stop'] = 'uploading'; break
+                        if s.cleanup_stop.is_set(): state['stop'] = 'shutdown'; break
+                    key = (p.name, kind)
+                    flight[key] = (p, kind, size)
+                    if len(workers) < UPLOAD_WORKERS and len(workers) < len(flight):
+                        t = threading.Thread(target=worker, name='archive-upload', daemon=True); t.start(); workers.append(t)
+                    work.put((key, p, meta, kind))
+                    while len(flight) >= UPLOAD_WORKERS: settle()
+                if stopped(): break
+        finally:
+            # Nothing is left in flight when the pass returns (or raises): the next cycle must not race a worker.
+            try:
+                while flight: settle()
+            finally:
+                for _ in workers: work.put(None)
+                self.listing = None
+        if state['error'] is not None: raise state['error']
+        return state['stop']
+
+    def _find_plan(self, rows, manual):
+        # Whether this pass answers find() from one listing (a _Listing) instead of a search per file. Only a cost
+        # choice: both give the same answer (see _find). Worth it when the pass uploads clearly more files than the
+        # listing has pages (1000 files each; the folder holds about the files the index points at).
+        find_all = getattr(self.backend, 'find_all', None)
+        if find_all is None: return None
+        planned = sum(1 for p, m in rows for kind in ARCHIVE_ORDER if location(m, kind) == 'local' and not self._done_remotely(m, kind))
+        if not manual: planned = min(planned, self.settings.batch)
+        if planned < LISTING_MIN_FILES: return None
+        archived = 0
+        for p in self.server.recording_paths():
+            try: m = self.server.read_meta(p)
+            except (OSError, ValueError): continue
+            if isinstance(m, dict): archived += len(remote_refs(m))
+        return _Listing(find_all) if planned >= 2 * (archived // 1000 + 1) else None
+
+    def _find(self, id, kind, pending, adopt_only):
+        # find(): the Drive copies of (id, kind) carrying our storage id, for adopting a copy whose completion answer
+        # or index commit was lost. A pass with a listing (_find_plan) answers from it, taken once, when it gives
+        # what the search itself would: the same filters (find_all), and nothing could have been added since it was
+        # taken except by this process, whose every upload since is in listing.started (asked by itself). The search
+        # runs as before:
+        #   - with an upload session recorded (remote_pending): it may have completed just before a crash, maybe
+        #     after the listing; recovery's adopt_only asks too (never a listing: recovery has none).
+        #   - when this pass started an upload of it (listing.started): that file may be newer than the listing.
+        # Why not simply skip the search when the index shows no session (the session is recorded, fsync'd, before
+        # the first chunk, so a copy cannot complete without one being written)? Because the record can go while the
+        # copy stays: a session found expired at startup (Drive forgets a completed session after about a week) is
+        # cleared; a conversion or a re-upload of the same content drops the record (drop_remote); an export/import
+        # never carries it; an index restored from a backup predates it; and in copy mode switched to move the remote
+        # block is the only trace. Nothing in meta.json proves that no copy exists, so the listing is the proof.
+        listing = self.listing
+        if listing is None or adopt_only or pending is not None or (id, kind) in listing.started: return self.backend.find(id, kind)
+        return listing.get(id, kind)
 
     def _over(self, used, free):
         if self.settings.nas_max_bytes and used > self.settings.nas_max_bytes: return 'nas_max'
@@ -1611,6 +1796,12 @@ class Archiver:
 
     def _verify(self, ref, sha256, size, md5):
         # ('ok' | 'mismatch', verified_by). Without a checksum from the backend the copy is read back and hashed.
+        # A file this attempt just uploaded is checked against the checksums in the upload's completion answer, the
+        # ones the GET below would return for the file Drive just created; only a match is taken from it (no request).
+        # Anything else (a checksum missing, a difference, a resumed session found complete) asks Drive as before,
+        # so a mismatch or an unverifiable copy is decided exactly as it was.
+        from archive_backends import completion_matches  # archive_backends imports this module.
+        if completion_matches(ref, sha256, size, md5): return 'ok', 'sha256' if sha256 and ref.sha256 else 'md5'
         verdict = self.backend.verify(ref, sha256, size, md5)
         if verdict == 'ok': return 'ok', 'sha256' if sha256 and ref.sha256 else 'md5'
         if verdict == 'mismatch' or not sha256: return 'mismatch', None
@@ -1634,13 +1825,13 @@ class Archiver:
     def _progress(self, p, kind, revision, resume, pending):
         # on_progress for backend.upload: the session is recorded in the index (fsync'd) as soon as it exists,
         # before its first chunk, and its progress at most every PROGRESS_BYTES or PROGRESS_SECONDS.
-        s = self.server
+        s, key = self.server, (p.name, kind)
         last = {'session': resume.get('session'), 'bytes': resume.get('bytes_sent') or 0, 'at': time.monotonic()}
         started = {'session': resume.get('session'), 'at': (pending or {}).get('started_at') or time.time()}
         transfer = self.transfer if self.manual_active else None
-        if transfer: transfer.begin(last['bytes'] if last['session'] else 0)
+        if transfer: transfer.begin(last['bytes'] if last['session'] else 0, key=key)
         def on_progress(sent):
-            if transfer: transfer.progress(sent)
+            if transfer: transfer.progress(sent, key=key)
             session = resume.get('session')
             if not session or sent >= (resume.get('size') or 0) > 0: return  # Complete: the commit follows.
             if session == last['session'] and sent - last['bytes'] < PROGRESS_BYTES and time.monotonic() - last['at'] < PROGRESS_SECONDS: return
@@ -1669,16 +1860,19 @@ class Archiver:
             known = hashes.get(kind) if isinstance(hashes, dict) else None
             known = known.get('sha256') if isinstance(known, dict) and known.get('size') == size and known.get('mtime_ns') == stat.st_mtime_ns else None
             sha256, md5 = (known, None) if isinstance(known, str) else _digests(source)
-            # 2. A copy whose completion answer or index commit was lost is adopted instead of uploaded again.
-            ref = next((r for r in b.find(p.name, kind) if r.sha256 == sha256 and r.bytes == size), None)
+            # 2. A copy whose completion answer or index commit was lost is adopted instead of uploaded again (_find:
+            #    from this pass's folder listing when it gives the same answer).
+            recorded = remote_pending(meta, kind)
+            ref = next((r for r in self._find(p.name, kind, recorded, adopt_only) if r.sha256 == sha256 and r.bytes == size), None)
             if ref is None and adopt_only: return False
             if ref is None:
                 # 3. Resumable upload; the session is in the index before the first chunk (on_progress).
-                pending = remote_pending(meta, kind)
-                pending = pending if pending and pending.get('backend') == b.caps.kind else None
+                pending = recorded if recorded and recorded.get('backend') == b.caps.kind else None
                 resume = dict(pending) if pending else {}
+                listing = self.listing
+                if listing is not None: listing.started.add((p.name, kind))
                 ref = b.upload(source, p.name, kind, sha256, md5, size, resume=resume, on_progress=self._progress(p, kind, revision, resume, pending))
-            # 4. The copy must be the local file's content.
+            # 4. The copy must be the local file's content (a fresh upload's completion answer can tell; else Drive is asked).
             verdict, verified_by = self._verify(ref, sha256, size, md5)
         except _Changed: return False
         except BackendError as e:

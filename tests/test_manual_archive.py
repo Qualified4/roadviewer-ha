@@ -57,6 +57,22 @@ class ManualArchiveTests(unittest.TestCase):
         # Persisted: a reload reads the finished run.
         self.assertEqual(json.loads((self.root / media_store.MANUAL_JOB).read_text())['state'], 'done')
 
+    def test_totals_grow_with_what_became_eligible_while_the_run_waited(self):
+        # The run waits for an upload; a recording that arrived meanwhile is archived by the next pass and counted in
+        # the totals (the run showed 301/294 files).
+        self.log('a' * 32)
+        archiver = self.archiver(mode='move', allow_local_delete=True)
+        cycle, passes = archiver._cycle, []
+        def waited(result):
+            reason = cycle(result); passes.append(reason)
+            if len(passes) == 1: self.log('b' * 32); return 'uploading'
+            return reason
+        with patch.object(archiver, '_cycle', waited), patch.object(media_store, 'MANUAL_WAIT_SECONDS', .01):
+            job = self.run_manual(archiver)
+        files = 2 * len(KINDS)
+        self.assertEqual((job['state'], job['processed'], job['succeeded'], job['total_files']), ('done', files, files, files))
+        self.assertEqual(job['total_bytes'], job['processed_bytes'])
+
     def test_copy_mode_keeps_local_and_never_uploads_twice(self):
         logs = [self.log(c * 32) for c in 'ab']
         archiver = self.archiver(mode='copy', batch=1, local_threshold_bytes=10**15)

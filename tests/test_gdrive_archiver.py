@@ -1,7 +1,8 @@
 """The archiver with Google Drive (tests/fake_drive.py): copy mode by default, move only when deleting the local
 file is explicitly allowed, resumable uploads across restarts, adoption of copies whose answer was lost, and
 failures that stop the cycle without touching the index or any file."""
-import hashlib, json, os, random, sys, tempfile, threading, unittest
+import contextlib, hashlib, json, os, random, shutil, sys, tempfile, threading, time, unittest
+from urllib.parse import parse_qs, urlsplit
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -266,7 +267,8 @@ class GdriveArchiverTests(unittest.TestCase):
     def test_mismatch_marks_error_keeps_both(self):
         p = self.log('a' * 32, ['fcamera.mp4'])
         archiver = self.archiver()
-        with patch.object(archiver.backend, 'verify', return_value='mismatch'):
+        # Drive's own answer decides: the upload's completion answer is not taken (it would match here).
+        with patch.object(archiver.backend, 'verify', return_value='mismatch'), patch.object(ab, 'completion_matches', return_value=False):
             self.assertEqual(archiver.run_cycle()['stopped'], 'hash_mismatch')
         m = server.read_meta(p); e = media_store.entry(m, 'fcamera.mp4')
         self.assertEqual((e['location'], e['error']), ('local', 'remote_mismatch'))
@@ -467,10 +469,12 @@ class GdriveArchiverTests(unittest.TestCase):
         ref = self.completed_pending(a)
         with self.drive.lock: self.drive.files[ref.file_id]['trashed'] = True
         archiver = self.cycling()
-        self.assertEqual(archiver.run_cycle()['stopped'], 'os_error')
+        first = archiver.run_cycle()
+        self.assertEqual(first['stopped'], 'os_error')
         m = server.read_meta(a); self.assertIsNone(media_store.remote_pending(m, 'fcamera.mp4')); self.assertNotIn('error', media_store.entry(m, 'fcamera.mp4'))
         result = archiver.run_cycle()
-        self.assertEqual((result['archived'], result['stopped']), (2, None))
+        # b was in flight next to a (UPLOAD_WORKERS): it finished in the first cycle or goes in the next one.
+        self.assertEqual((first['archived'] + result['archived'], result['stopped']), (2, None))
         self.assert_copied(a, 'fcamera.mp4'); self.assert_copied(b, 'fcamera.mp4')
 
     def test_completed_session_with_wrong_size_marks_error_and_moves_on(self):
@@ -478,12 +482,14 @@ class GdriveArchiverTests(unittest.TestCase):
         ref = self.completed_pending(a)
         with self.drive.lock: self.drive.files[ref.file_id]['content'] = b'short'
         archiver = self.cycling()
-        self.assertEqual(archiver.run_cycle()['stopped'], 'hash_mismatch')
+        first = archiver.run_cycle()
+        self.assertEqual(first['stopped'], 'hash_mismatch')
         m = server.read_meta(a); e = media_store.entry(m, 'fcamera.mp4')
         self.assertIsNone(media_store.remote_pending(m, 'fcamera.mp4')); self.assertEqual(e['error'], 'remote_mismatch')
         self.assertTrue((a / 'fcamera.mp4').is_file())
         result = archiver.run_cycle()
-        self.assertEqual((result['archived'], result['stopped']), (1, None)); self.assert_copied(b, 'fcamera.mp4')
+        # b was in flight next to a (UPLOAD_WORKERS): it finished in the first cycle or goes in the next one.
+        self.assertEqual((first['archived'] + result['archived'], result['stopped']), (1, None)); self.assert_copied(b, 'fcamera.mp4')
 
     def test_recovery_of_completed_session_never_uploads(self):
         p = self.log('a' * 32, ['fcamera.mp4'])
@@ -565,5 +571,343 @@ class GdriveArchiverTests(unittest.TestCase):
         self.archiver(mode='move', allow_local_delete=True).run_cycle()
         with server.registration_lock, server.lock, self.assertRaises(server.StorageError): server.delete_recording(c.name)
         self.assertTrue(c.exists()); self.assertEqual(pending.count(), 0)
+
+
+class Crashed(Exception): pass
+
+class ConcurrentUploadTests(unittest.TestCase):
+    """Several Drive uploads at once (media_store.UPLOAD_WORKERS), find() answered from one folder listing in a large
+    pass, and verification from the upload's completion answer, against the fake Drive."""
+    setUp, auth, make_backend, archiver, files, requests, sessions_started, assert_copied, completed_pending = (
+        getattr(GdriveArchiverTests, n) for n in ('setUp', 'auth', 'make_backend', 'archiver', 'files', 'requests', 'sessions_started',
+                                                  'assert_copied', 'completed_pending'))
+
+    def log(self, id, kinds=KINDS, size=3000):
+        p = make_log(self.root, id, kinds, [])
+        for kind in kinds: (p / kind).write_bytes(((id + kind).encode() * (size // 40 + 1))[:size])  # Distinct per file.
+        m = server.read_meta(p); m['uploaded'] = 1; server.save_meta(p, m)
+        return p
+
+    def logs(self, n, prefix='1', **kw): return [self.log(prefix + '%031x' % (i + 1), **kw) for i in range(n)]
+
+    def cycling(self, **fields):
+        archiver = self.archiver(**fields); archiver.recovered = archiver.held_checked = True  # The cycle's own path.
+        return archiver
+
+    def run_manual(self, archiver):
+        self.assertIsNotNone(archiver.start_manual())
+        archiver.manual.join(20); self.assertFalse(archiver.manual.is_alive())
+        return archiver.job
+
+    def queries(self, since=0):
+        # The q of every files.list since `since`.
+        out = []
+        for r in self.requests()[since:]:
+            url = urlsplit(r['path'])
+            if r['method'] == 'GET' and url.path == '/drive/v3/files': out.append(parse_qs(url.query).get('q', [''])[0])
+        return out
+
+    def searches(self, since=0): return [q for q in self.queries(since) if "key='rv_id'" in q]  # find() per file.
+
+    def listings(self, since=0): return [q for q in self.queries(since) if "key='rv_storage_id'" in q and 'rv_id' not in q and 'mimeType' not in q]
+
+    def verify_gets(self, since=0):
+        out = []
+        for r in self.requests()[since:]:
+            url = urlsplit(r['path'])
+            if (r['method'] == 'GET' and url.path.startswith('/drive/v3/files/')
+                    and parse_qs(url.query).get('fields') == ['size,sha256Checksum,md5Checksum,trashed']): out.append(url.path)
+        return out
+
+    def assert_consistent(self, paths, kinds=KINDS):
+        # Every local file that is gone was moved: its committed index points at a Drive copy of its content.
+        for p in paths:
+            m = server.read_meta(p)
+            for kind in kinds:
+                e = media_store.entry(m, kind)
+                if (p / kind).exists(): self.assertEqual(e['location'], 'local', (p.name, kind)); continue
+                self.assertEqual(e['location'], 'gdrive', (p.name, kind))
+                self.assertEqual(hashlib.sha256(self.files()[e['file_id']]['content']).hexdigest(), e['sha256'])
+
+    def watch_unlinks(self, stack):
+        # At each unlink of a media file: the index on disk must already say gdrive with a verified Drive copy.
+        seen, real = [], Path.unlink
+        def unlink(path, *args, **kwargs):
+            if path.name in media_store.MEDIA_KINDS and (path.parent / 'meta.json').is_file():
+                e = media_store.entry(json.loads((path.parent / 'meta.json').read_text()), path.name)
+                with self.drive.lock: f = self.drive.files.get(e.get('file_id'))
+                seen.append((path.parent.name, path.name, e['location'] == 'gdrive' and f is not None and f['content'] == path.read_bytes()))
+            return real(path, *args, **kwargs)
+        stack.enter_context(patch.object(Path, 'unlink', unlink))
+        return seen
+
+    def tracked_upload(self, before=None):
+        # Wraps DriveBackend.upload: counts uploads in flight (the most at once in state['max']); `before(id, kind)`
+        # runs first in the worker.
+        real, lock, state = ab.DriveBackend.upload, threading.Lock(), {'now': 0, 'max': 0, 'calls': []}
+        def upload(backend, local, id, kind, *args, **kwargs):
+            with lock: state['now'] += 1; state['max'] = max(state['max'], state['now']); state['calls'].append((id, kind))
+            try:
+                if before: before(id, kind)
+                return real(backend, local, id, kind, *args, **kwargs)
+            finally:
+                with lock: state['now'] -= 1
+        return patch.object(ab.DriveBackend, 'upload', upload), state
+
+    def no_workers_left(self):
+        deadline = time.monotonic() + 5
+        while any(t.name == 'archive-upload' and t.is_alive() for t in threading.enumerate()) and time.monotonic() < deadline: time.sleep(0.01)
+        self.assertFalse([t for t in threading.enumerate() if t.name == 'archive-upload' and t.is_alive()])
+
+    # --- find(): one listing in a large pass; the search kept for recorded sessions and small passes.
+
+    def test_large_pass_answers_find_from_one_listing_and_searches_recorded_sessions(self):
+        paths = self.logs(5)
+        recorded, orphan = paths[0], paths[1]
+        self.completed_pending(recorded)  # Completed at Drive, its session still recorded: the search adopts it.
+        # A completed copy whose record went (an expired session cleared, a re-upload of the same content, an index
+        # restored from a backup): only Drive knows. The listing finds it as the search would.
+        content = (orphan / 'rlog.zst').read_bytes()
+        self.backend.upload(orphan / 'rlog.zst', orphan.name, 'rlog.zst', hashlib.sha256(content).hexdigest(), None, len(content), resume={})
+        self.assertIsNone(media_store.remote_pending(server.read_meta(orphan), 'rlog.zst'))
+        archiver = self.cycling(mode='copy')
+        since, sessions = len(self.requests()), len(self.sessions_started())
+        job = self.run_manual(archiver)
+        self.assertEqual((job['state'], job['succeeded'], job['failed']), ('done', 10, 0))
+        self.assertEqual(len(self.listings(since)), 1, 'one listing for the pass')
+        searches = self.searches(since)
+        self.assertEqual(len(searches), 1, searches)  # Only the recorded session's file is searched for.
+        self.assertIn(recorded.name, searches[0]); self.assertIn('fcamera.mp4', searches[0])
+        self.assertEqual(len(self.sessions_started()) - sessions, 8)  # Both existing copies adopted, nothing uploaded twice.
+        for p in paths:
+            for kind in KINDS: self.assert_copied(p, kind)
+        self.assertEqual(len(self.files()), 10)
+
+    def test_small_pass_searches_per_file(self):
+        paths = self.logs(2)
+        archiver = self.cycling(local_threshold_bytes=0)
+        since = len(self.requests())
+        self.assertEqual(archiver.run_cycle()['archived'], 4)
+        self.assertEqual(self.listings(since), []); self.assertEqual(len(self.searches(since)), 4)
+        for p in paths:
+            for kind in KINDS: self.assert_copied(p, kind)
+
+    def test_listing_failure_stops_like_a_search_failure(self):
+        paths = self.logs(5)
+        archiver = self.cycling(mode='move', allow_local_delete=True)
+        with patch.object(ab.DriveBackend, 'find_all', side_effect=ab.BackendError('rate_limited')):
+            job = self.run_manual(archiver)
+        self.assertEqual((job['state'], job['error'], job['succeeded']), ('failed', 'rate_limited', 0))
+        self.assertEqual(self.files(), {})
+        for p in paths:
+            for kind in KINDS: self.assertTrue((p / kind).is_file())
+
+    # --- Verification from the completion answer, else Drive.
+
+    def completion(self, change):
+        # put_chunk's completion answer as `change` makes it (what Drive would have answered).
+        real = ab.DriveClient.put_chunk
+        def put_chunk(client, session, data, start, total):
+            state, value = real(client, session, data, start, total)
+            return (state, change(dict(value))) if state == 'done' else (state, value)
+        return patch.object(ab.DriveClient, 'put_chunk', put_chunk)
+
+    def test_fresh_upload_is_verified_from_its_completion_answer(self):
+        paths = self.logs(2)
+        archiver = self.cycling(local_threshold_bytes=0)
+        since = len(self.requests())
+        self.assertEqual(archiver.run_cycle()['archived'], 4)
+        self.assertEqual(self.verify_gets(since), [], 'no metadata request after the upload')
+        for p in paths:
+            for kind in KINDS: self.assert_copied(p, kind)  # verified_by sha256, md5 recorded.
+
+    def test_completion_without_checksums_or_with_a_difference_asks_drive(self):
+        for label, change in (('no checksums', lambda v: {k: x for k, x in v.items() if k not in ('sha256Checksum', 'md5Checksum')}),
+                              ('different sha256', lambda v: dict(v, sha256Checksum='0' * 64))):
+            with self.subTest(label):
+                p = self.log(('2' if label == 'no checksums' else '3') * 32)
+                archiver = self.cycling(local_threshold_bytes=0)
+                since = len(self.requests())
+                with self.completion(change): self.assertEqual(archiver.run_cycle()['archived'], 2)
+                self.assertEqual(len(self.verify_gets(since)), 2, label)
+                # Drive's own answer decides: the content is right, so the copies verify (never a mismatch from the answer).
+                m = server.read_meta(p)
+                for kind in KINDS:
+                    block, data = media_store.remote(m, kind), (p / kind).read_bytes()
+                    self.assertEqual((block['sha256'], self.files()[block['file_id']]['content']), (hashlib.sha256(data).hexdigest(), data))
+                    self.assertIn(block['verified_by'], ('sha256', 'md5')); self.assertIsNone(media_store.remote_pending(m, kind))
+
+    def test_completion_difference_confirmed_by_drive_is_a_mismatch(self):
+        p = self.log('4' * 32, ['fcamera.mp4'])
+        def damage(value):
+            with self.drive.lock:
+                f = self.drive.files[value['id']]
+                f['content'] = bad = b'x' + f['content'][1:]
+                f['sha256'], f['md5'] = hashlib.sha256(bad).hexdigest(), hashlib.md5(bad).hexdigest()
+            return dict(value, sha256Checksum=f['sha256'], md5Checksum=f['md5'])
+        archiver = self.cycling(mode='move', allow_local_delete=True, local_threshold_bytes=0)
+        since = len(self.requests())
+        with self.completion(damage): self.assertEqual(archiver.run_cycle()['stopped'], 'hash_mismatch')
+        self.assertEqual(len(self.verify_gets(since)), 1)
+        e = media_store.entry(server.read_meta(p), 'fcamera.mp4')
+        self.assertEqual((e['location'], e['error']), ('local', 'remote_mismatch')); self.assertTrue((p / 'fcamera.mp4').is_file())
+
+    def test_completion_md5_matches_what_was_sent_when_the_local_md5_is_not_known(self):
+        # The sha256 is known from content_hashes (no local md5 read); Drive's answer has only md5: the md5 of the bytes
+        # this upload read (and checked against the sha256 before the last chunk) is compared, with no request.
+        p = self.log('5' * 32, ['fcamera.mp4'])
+        st = (p / 'fcamera.mp4').stat(); content = (p / 'fcamera.mp4').read_bytes()
+        m = server.read_meta(p)
+        m['content_hashes'] = {'fcamera.mp4': {'size': st.st_size, 'mtime_ns': st.st_mtime_ns, 'sha256': hashlib.sha256(content).hexdigest()}}
+        server.save_meta(p, m)
+        archiver = self.cycling(local_threshold_bytes=0)
+        since = len(self.requests())
+        with self.completion(lambda v: {k: x for k, x in v.items() if k != 'sha256Checksum'}), patch.object(media_store, '_digests', side_effect=AssertionError('read again')):
+            self.assertEqual(archiver.run_cycle()['archived'], 1)
+        self.assertEqual(self.verify_gets(since), [])
+        block = media_store.remote(server.read_meta(p), 'fcamera.mp4')
+        self.assertEqual((block['verified_by'], block['md5']), ('md5', hashlib.md5(content).hexdigest()))
+
+    def test_resumed_session_found_complete_is_verified_with_drive(self):
+        # Its file may have been trashed or changed since it completed: the session's answer is not taken.
+        p = self.log('6' * 32, ['fcamera.mp4'])
+        self.completed_pending(p)
+        archiver = self.cycling(local_threshold_bytes=0)
+        since = len(self.requests())
+        with patch.object(ab.DriveBackend, 'find', return_value=[]):  # The search misses it (a lagging listing).
+            self.assertEqual(archiver.run_cycle()['archived'], 1)
+        self.assertEqual(len(self.verify_gets(since)), 1)
+        self.assert_copied(p, 'fcamera.mp4')
+
+    # --- Several files in flight.
+
+    def test_three_files_in_flight_all_committed(self):
+        paths = self.logs(4)
+        archiver = self.cycling(mode='move', allow_local_delete=True)
+        tracked, state = self.tracked_upload(lambda id, kind: time.sleep(0.1))
+        with contextlib.ExitStack() as stack:
+            seen = self.watch_unlinks(stack); stack.enter_context(tracked)
+            job = self.run_manual(archiver)
+        self.assertEqual(state['max'], media_store.UPLOAD_WORKERS)
+        self.assertEqual((job['state'], job['processed'], job['succeeded'], job['failed'], job['processed_bytes'], job['freed_bytes']),
+                         ('done', 8, 8, 0, job['total_bytes'], job['total_bytes']))
+        self.assertEqual(len(seen), 8); self.assertTrue(all(ok for _, _, ok in seen), seen)
+        self.assert_consistent(paths)
+        self.assertEqual(archiver.status()['archived_files_total'], 8)
+        self.assertEqual(archiver.transfer.files, {})  # Nothing left counted as in progress.
+        self.no_workers_left()
+
+    def test_a_failure_in_one_file_stops_the_run_after_the_files_in_flight(self):
+        paths = self.logs(4)
+        failing = (paths[0].name, 'rlog.zst')
+        def before(id, kind):
+            if (id, kind) == failing: time.sleep(0.05); raise ab.BackendError('unavailable')
+            time.sleep(0.15)
+        archiver = self.cycling(mode='move', allow_local_delete=True)
+        tracked, state = self.tracked_upload(before)
+        with contextlib.ExitStack() as stack:
+            seen = self.watch_unlinks(stack); stack.enter_context(tracked)
+            job = self.run_manual(archiver)
+        self.assertEqual((job['state'], job['error'], job['failed'], job['last_failure']), ('failed', 'storage_unavailable', 1, 'storage_unavailable'))
+        moved = [(p.name, k) for p in paths for k in KINDS if not (p / k).exists()]
+        # The files in flight with the failing one finished and count; nothing started after the failure settled.
+        self.assertEqual(job['succeeded'], len(moved)); self.assertEqual(job['processed'], len(moved) + 1)
+        self.assertGreaterEqual(len(moved), 1); self.assertLess(len(state['calls']), 8)
+        self.assertTrue((paths[0] / 'rlog.zst').is_file())
+        self.assertTrue(all(ok for _, _, ok in seen), seen); self.assert_consistent(paths)
+        self.assertIsNone(media_store.remote_pending(server.read_meta(paths[0]), 'rlog.zst'))
+        self.no_workers_left()
+
+    def test_a_crash_in_one_worker_leaves_no_local_file_without_its_committed_copy(self):
+        paths = self.logs(3)
+        gate = threading.Barrier(3, timeout=5)
+        def before(id, kind):
+            gate.wait()  # Three in flight together; the first recording's video crashes, the others go on.
+            if (id, kind) == (paths[0].name, 'fcamera.mp4'): raise Crashed()
+        archiver = self.cycling(mode='move', allow_local_delete=True, local_threshold_bytes=0)
+        tracked, state = self.tracked_upload(before)
+        with contextlib.ExitStack() as stack:
+            seen = self.watch_unlinks(stack); stack.enter_context(tracked)
+            with self.assertRaises(Crashed): archiver.run_cycle()
+        self.assertFalse(archiver.cycle.locked())
+        self.assertEqual(len(state['calls']), 3)  # Nothing started after the crash.
+        self.assertTrue((paths[0] / 'fcamera.mp4').is_file())
+        self.assertEqual(len(seen), 2); self.assertTrue(all(ok for _, _, ok in seen), seen)
+        self.assert_consistent(paths)
+        self.no_workers_left()
+        # The next cycle moves the rest.
+        self.assertIsNone(self.cycling(mode='move', allow_local_delete=True, local_threshold_bytes=0).run_cycle()['stopped'])
+        for p in paths:
+            for kind in KINDS: self.assertFalse((p / kind).exists())
+        self.assert_consistent(paths)
+
+    def test_shutdown_or_an_upload_stops_new_files_and_finishes_those_in_flight(self):
+        for label in ('shutdown', 'uploading'):
+            with self.subTest(label):
+                for p in self.root.iterdir():  # Only this subtest's recordings.
+                    if (p / 'meta.json').is_file(): shutil.rmtree(p)
+                paths = self.logs(4, prefix='7' if label == 'shutdown' else '8')
+                stop, receiving = threading.Event(), threading.Event()
+                def before(id, kind):
+                    (stop if label == 'shutdown' else receiving).set(); time.sleep(0.1)
+                archiver = self.cycling(mode='move', allow_local_delete=True, batch=64)
+                tracked, state = self.tracked_upload(before)
+                with contextlib.ExitStack() as stack:
+                    seen = self.watch_unlinks(stack); stack.enter_context(tracked)
+                    stack.enter_context(patch.object(server, 'cleanup_stop', stop))
+                    stack.enter_context(patch.object(server, 'upload_receiving', side_effect=receiving.is_set))
+                    if label == 'shutdown':  # A manual run ends as interrupted.
+                        job = self.run_manual(archiver)
+                        self.assertEqual(job['state'], 'interrupted')
+                        archived = job['succeeded']; self.assertEqual(job['failed'], 0)
+                    else:  # The scheduled cycle ends for the upload (a manual run would wait and go on).
+                        result = archiver.run_cycle()
+                        self.assertEqual(result['stopped'], 'uploading'); archived = result['archived']
+                started = state['calls']
+                self.assertLessEqual(len(started), media_store.UPLOAD_WORKERS); self.assertEqual(archived, len(started))
+                moved = [(p.name, k) for p in paths for k in KINDS if not (p / k).exists()]
+                self.assertEqual(sorted(moved), sorted(started)); self.assertTrue(all(ok for _, _, ok in seen), seen)
+                self.assert_consistent(paths)
+                for p in paths:  # Files never started are untouched.
+                    m = server.read_meta(p)
+                    for kind in KINDS:
+                        if (p / kind).exists(): self.assertIsNone(media_store.remote_pending(m, kind)); self.assertIsNone(media_store.remote(m, kind))
+                self.no_workers_left()
+
+    def test_two_files_of_one_recording_commit_together_without_losing_either(self):
+        p = self.log('9' * 32)
+        archiver = self.cycling(mode='move', allow_local_delete=True, local_threshold_bytes=0)
+        gate, real = threading.Barrier(2, timeout=5), media_store.Archiver._verify
+        def verify(self_, *args):
+            out = real(self_, *args); gate.wait(); return out  # Both verified, then both commit at once.
+        writes, real_json = [], media_store.atomic_json
+        def atomic_json(path, value):
+            if Path(path) == p / 'meta.json': writes.append(threading.current_thread().name)
+            return real_json(path, value)
+        with patch.object(media_store.Archiver, '_verify', verify), patch.object(media_store, 'atomic_json', atomic_json):
+            self.assertEqual(archiver.run_cycle()['archived'], 2)
+        self.assertEqual(set(writes), {'archive-upload'})
+        m = server.read_meta(p)
+        for kind in KINDS:
+            e = media_store.entry(m, kind)
+            self.assertEqual(e['location'], 'gdrive', kind); self.assertFalse((p / kind).exists())
+            self.assertIsNone(media_store.remote_pending(m, kind)); self.assertIn(kind, m['content_hashes'])
+        self.assert_consistent([p])
+
+    def test_uploads_in_parallel_take_clearly_less_time(self):
+        # Every request waits (the round trip to Google); three files in flight overlap those waits.
+        def timed(prefix, workers):
+            paths = self.logs(12, prefix=prefix, kinds=['fcamera.mp4'])
+            archiver = self.cycling(mode='copy')
+            with patch.object(media_store, 'UPLOAD_WORKERS', workers):
+                self.drive.scenario.delay_seconds = 0.03
+                start = time.monotonic(); job = self.run_manual(archiver); took = time.monotonic() - start
+                self.drive.scenario.delay_seconds = 0
+            self.assertEqual((job['state'], job['succeeded']), ('done', 12))
+            for p in paths: self.assert_copied(p, 'fcamera.mp4')
+            return took
+        one, three = timed('a', 1), timed('b', 3)
+        print('\nsequential %.2fs, %d in flight %.2fs, ratio %.2f' % (one, media_store.UPLOAD_WORKERS, three, three / one))
+        self.assertLess(three / one, 0.6)
 
 if __name__ == '__main__': unittest.main()
