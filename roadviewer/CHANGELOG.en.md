@@ -4,6 +4,15 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.23
+
+- The overlay settings dialog is laid out again: each group is a card, every on/off item is a switch on the right, a slider has its name, value and a reset icon (↺) on one line, and options that hang on another item are indented. Two columns on wide screens; shorter help texts.
+- A map theme different from the screen theme no longer recolours the cards and buttons over the map (their text was lost): only the map changes.
+- The map display popover is drawn above the drive map's segment cards instead of under them.
+- "끝나면 다음 구간 재생" (play the next segment at the end) now also works after a pause and resume (when the video ends a moment before the log).
+- A drive card's 지도 (map) button shows with the card instead of popping in seconds later; pressed before the routes arrive, the map opens when they do.
+- A row tapped in the all-drives map's list no longer stops slightly off the middle.
+
 ## 1.2.22
 
 - The replay's 보기 (View) menu (the ⋯ menu on phones) has two playback settings: "끝나면 다음 구간 재생" (off by default) plays the drive's next playable segment when one plays to its end, and with "구간을 옮기면 일시정지" (on by default, the behaviour so far) turned off, moving to another segment while playing keeps playing. Remembered in this browser.

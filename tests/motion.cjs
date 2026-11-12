@@ -75,8 +75,18 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),forward,'late progress never moves backwards');
    logs=[{...logs[0],conversion_revision:101,video:false,progress:{stage:'log_analysis',frames:10,total_frames:20}}];await page.evaluate(()=>refresh());
    assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.65','log-only recordings redistribute video work');
-   logs[0].progress={stage:'log_analysis',frames:15,total_frames:20};await page.evaluate(()=>refreshProgress());
-   assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7','lightweight polls preserve log-only weights and conversion revision');
+   // The page's own polls (progress every 1 s, the list every 3 s) can be in flight: refreshProgress() then returns at
+   // once, or a list arriving meanwhile wins. The lightweight poll is run once the page is idle, again if a list came in.
+   logs[0].progress={stage:'log_analysis',frames:15,total_frames:20};
+   const light=await page.evaluate(async()=>{
+    for(let i=0;i<20;i++){
+     await new Promise(idle=>{const check=()=>progressRefreshing||refreshing?setTimeout(check,10):idle();check()});
+     const revision=listRevision;await refreshProgress();
+     if(revision===listRevision)return document.querySelector('.state-progress>span').style.getPropertyValue('--progress');
+    }
+    return 'no idle lightweight poll';
+   });
+   assert.equal(light,'0.7','lightweight polls preserve log-only weights and conversion revision');
    await page.evaluate(()=>refresh());assert.equal(await page.locator('.state-progress>span').evaluate(e=>e.style.getPropertyValue('--progress')),'0.7','full refresh matches lightweight progress');
    await page.evaluate(()=>addFiles([new File(['x'],'unsupported.txt')]));
    assert(await page.locator('#error').evaluate(e=>e.getBoundingClientRect().top-document.querySelector('.lib-appbar').getBoundingClientRect().bottom>=12),'unsupported-file message has top spacing below the app bar');
@@ -148,9 +158,12 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
    const icon=()=>page.locator('#play .icon-playpause').evaluate(e=>[...e.querySelectorAll('path')].map(p=>p.getAttribute('d')).join(' '));
    const PLAY='M7 4L13.5 8L13.5 16L7 20Z M13.5 8L20 12L20 12L13.5 16Z',PAUSE='M6 4L10 4L10 20L6 20Z M14 4L18 4L18 20L14 20Z';
    assert.equal(await icon(),PLAY);
-   const mid=await page.evaluate(()=>new Promise(done=>{document.getElementById('play').click();setTimeout(()=>done([...document.querySelectorAll('#play .icon-playpause path')].map(p=>p.getAttribute('d')).join(' ')),110)}));
-   if(reduced)assert.equal(mid,PAUSE,'reduced motion swaps the icon at once');
-   else assert(mid!==PLAY&&mid!==PAUSE,'the icon morphs between play and pause: '+mid);
+   // Every shape drawn is recorded (a sample after a fixed 110 ms could already see the end on a loaded machine).
+   const drawn=await page.evaluate(()=>new Promise(done=>{const read=()=>[...document.querySelectorAll('#play .icon-playpause path')].map(p=>p.getAttribute('d')).join(' '),shapes=[];
+    const o=new MutationObserver(()=>shapes.push(read()));o.observe(document.querySelector('#play .icon-playpause'),{subtree:true,attributes:true,attributeFilter:['d']});
+    document.getElementById('play').click();shapes.push(read());setTimeout(()=>{o.disconnect();done(shapes)},600)}));
+   if(reduced)assert(drawn.at(-1)===PAUSE&&drawn.every(shape=>shape===PLAY||shape===PAUSE),'reduced motion swaps the icon at once: '+JSON.stringify(drawn));
+   else assert(drawn.some(shape=>shape!==PLAY&&shape!==PAUSE),'the icon morphs between play and pause: '+JSON.stringify(drawn));
    await page.waitForFunction(p=>[...document.querySelectorAll('#play .icon-playpause path')].map(x=>x.getAttribute('d')).join(' ')===p,PAUSE,{timeout:2000});
    await page.locator('#play').click();
    await page.waitForFunction(p=>[...document.querySelectorAll('#play .icon-playpause path')].map(x=>x.getAttribute('d')).join(' ')===p,PLAY,{timeout:2000});
@@ -162,19 +175,29 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
     return {fill:+fill.opacity,clip:fill.clipPath,fillRuns,open:d.open,shown:m.checkVisibility(),menu:+getComputedStyle(m).opacity,x:+getComputedStyle(x).opacity,dot:+getComputedStyle(dot).opacity,menuRuns:running(m),xRuns:running(x)+'|'+running(line),dotRuns:running(dot)}});
    const frames=()=>page.evaluate(()=>new Promise(done=>requestAnimationFrame(()=>requestAnimationFrame(done))));
    const settled=()=>page.waitForFunction(()=>!document.querySelector('#replayDownload').getAnimations({subtree:true}).some(a=>a.transitionProperty),null,{timeout:2000});
-   await page.locator('#replayDownload>summary').click({position:{x:10,y:10}});await frames();
+   // Which properties transition is read from transitionrun events, not from what still runs a few frames later: on a
+   // loaded machine the menu's 120 ms fade (75 ms when closing) had already ended when it was sampled. The state while
+   // closing is taken as the menu's first transition starts. Each runs() call reads and clears the log.
+   await page.evaluate(()=>{
+    window.rvRuns={log:[],first:null};
+    document.addEventListener('transitionrun',e=>{if(!rvRuns.first&&e.target.id==='replayDownloadMenu')rvRuns.first=rvMoreState();rvRuns.log.push([e.target,e.pseudoElement,e.propertyName])});
+    window.rvRunsOf=(target,pseudo='')=>[...new Set(rvRuns.log.filter(r=>r[0]===target&&r[1]===pseudo).map(r=>r[2]))].sort().join();
+    window.rvMoreState=()=>{const d=document.getElementById('replayDownload'),m=document.getElementById('replayDownloadMenu'),summary=d.querySelector('summary'),fill=getComputedStyle(summary,'::before');return {fill:+fill.opacity,shown:m.checkVisibility()}};
+   });
+   const runs=()=>page.evaluate(()=>{const d=document.getElementById('replayDownload'),m=document.getElementById('replayDownloadMenu'),summary=d.querySelector('summary'),of=rvRunsOf;
+    const result={fillRuns:of(summary,'::before'),menuRuns:of(m),xRuns:of(d.querySelector('.more-x'))+'|'+of(d.querySelector('.more-x line')),dotRuns:of(d.querySelector('.more-dot-l')),first:rvRuns.first};
+    rvRuns.log=[];rvRuns.first=null;return result});
+   await runs();await page.locator('#replayDownload>summary').click({position:{x:10,y:10}});await frames();
    const opening=await more();
    if(reduced)assert.deepEqual([opening.menu,opening.x,opening.dot,opening.menuRuns],[1,1,0,''],'reduced motion opens at once');
-   else assert.deepEqual([opening.fillRuns,opening.menuRuns,opening.dotRuns,opening.xRuns],['clip-path','opacity,transform','opacity,transform','opacity|stroke-dashoffset'],'opening: the button fill ripples from the tap, the menu grows in, the dots gather, then the ✕ grows: '+JSON.stringify(opening));
    await settled();
+   if(!reduced){const opening=await runs();assert.deepEqual([opening.fillRuns,opening.menuRuns,opening.dotRuns,opening.xRuns],['clip-path','opacity,transform','opacity,transform','opacity|stroke-dashoffset'],'opening: the button fill ripples from the tap, the menu grows in, the dots gather, then the ✕ grows: '+JSON.stringify(opening))}
    const opened=await more();
    assert.deepEqual({...opened,clip:undefined},{fill:1,clip:undefined,fillRuns:'',open:true,shown:true,menu:1,x:1,dot:0,menuRuns:'',xRuns:'|',dotRuns:''},'open: filled button, ✕ and the full menu');
    if(!reduced)assert.match(opened.clip,/^circle\((3[0-9]|4[0-9])px at 10px 10px\)$/,'the fill covers the button from the tap point: '+opened.clip);
    assert(await page.locator('#replayDownloadMenu').evaluate(m=>{const o=m.style.transformOrigin,b=document.querySelector('#replayDownload').getBoundingClientRect(),r=m.getBoundingClientRect();return Math.abs(r.left+parseFloat(o)-(b.left+b.width/2))<2}),'it grows from the button');
-   await page.keyboard.press('Escape');await frames();
-   const closing=await more();
-   if(!reduced)assert(closing.shown&&closing.menuRuns==='opacity,transform'&&closing.xRuns==='opacity|stroke-dashoffset'&&closing.dotRuns==='opacity,transform'&&closing.fillRuns.includes('opacity')&&closing.fill>0,'closing: the fill fades out, the menu fades out while still shown, the ✕ shrinks and the dots spread: '+JSON.stringify(closing));
-   await settled();
+   await runs();await page.keyboard.press('Escape');await settled();
+   if(!reduced){const closing=await runs();assert(closing.first?.shown&&closing.menuRuns==='opacity,transform'&&closing.xRuns==='opacity|stroke-dashoffset'&&closing.dotRuns==='opacity,transform'&&closing.fillRuns.includes('opacity')&&closing.first.fill>0,'closing: the fill fades out, the menu fades out while still shown, the ✕ shrinks and the dots spread: '+JSON.stringify(closing))}
    assert.deepEqual(await more(),{fill:0,clip:(await more()).clip,fillRuns:'',open:false,shown:false,menu:reduced?1:0,x:0,dot:1,menuRuns:'',xRuns:'|',dotRuns:''},'closed: ⋯ again');
    // Layers: the road toolbar's button fills from the tap like the other menus, and its icon spreads into three layers
    // while the menu is open (the middle one drawn in, lighter); closing folds it back.
@@ -182,9 +205,11 @@ const running=page=>page.evaluate(()=>document.getAnimations().filter(a=>a.playS
      return {open:d.open,fill:getComputedStyle(s,'::before').content!=='none'&&+getComputedStyle(s,'::before').opacity,top:y(q('layer-top')),low:y(q('layer-low')),mid:+getComputedStyle(q('layer-mid')).opacity,runs:[...s.querySelectorAll('.icon-layers path')].map(e=>e.getAnimations().map(a=>a.transitionProperty).sort().join()).join('|')}});
     await page.locator('#roadTab').click();const summary=page.locator('#layerMenu>summary');await summary.scrollIntoViewIfNeeded();
     assert.deepEqual(await layer(),{open:false,fill:0,top:0,low:0,mid:0,runs:'||'},'closed: two layers');
-    await summary.click();await frames();const spreading=await layer();
-    if(!reduced)assert.equal(spreading.runs,'transform|opacity,transform|transform','opening: the layers part and the middle one draws in: '+JSON.stringify(spreading));
+    await runs();await summary.click();
     await page.waitForFunction(()=>!document.querySelector('#layerMenu>summary').getAnimations({subtree:true}).some(a=>a.transitionProperty),null,{timeout:2000});
+    // As for the ⋯ menu: the transitions are read from their transitionrun events (the middle layer's fade is 120 ms).
+    if(!reduced){const spreading=await page.evaluate(()=>{const r=[...document.querySelectorAll('#layerMenu>summary .icon-layers path')].map(e=>rvRunsOf(e)).join('|');rvRuns.log=[];return r});
+     assert.equal(spreading,'transform|opacity,transform|transform','opening: the layers part and the middle one draws in: '+spreading)}
     assert.deepEqual(await layer(),{open:true,fill:1,top:-1.5,low:3.5,mid:1,runs:'||'},'open: filled button, three layers');
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.getElementById('layerMenu').open&&!document.querySelector('#layerMenu>summary').getAnimations({subtree:true}).some(a=>a.transitionProperty),null,{timeout:2000});
     assert.deepEqual(await layer(),{open:false,fill:0,top:0,low:0,mid:0,runs:'||'},'closed again');

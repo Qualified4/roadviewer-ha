@@ -410,6 +410,8 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
     await touch('touchStart',[{x:cx+150,y:cy,id:1}]);
     for(let k=1;k<=60;k++){await touch('touchMove',[{x:cx+150-5*k,y:cy+k/3,id:1}]);await page.waitForTimeout(16);if(k===40)mid=await state()}
     const held=await state();await page.waitForTimeout(150);await touch('touchEnd',[]);await page.waitForTimeout(400);
+    // The redraw at rest can come later than that on a loaded machine: wait for the basemap to stand where the drag left it.
+    for(let k=0;k<50;k++){const at=await onScreen();if(Math.abs(at.x-from.x+300)<=2&&Math.abs(at.y-from.y-20)<=2)break;await page.waitForTimeout(100)}
     const dragged=await state(),moved=await onScreen();
     assert.equal(await page.locator('#mapFollow').getAttribute('aria-pressed'),'false','a drag turns 따라가기 off');
     // From the drag's start: redrawn once past RECENTRE of the margin and once at rest; the other renders are
@@ -630,14 +632,17 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    // centred in the moving frame (so the frame is always covered), and follows the frame again once the motion has ended
    // (a redraw per frame made the animation stutter).
    {await page.emulateMedia({reducedMotion:'no-preference'});
-    const state=()=>page.evaluate(()=>{const m=document.getElementById('videoMap'),box=m.querySelector('.video-map-canvas'),a=m.getBoundingClientRect(),b=box.getBoundingClientRect();
-     return {held:!!box.style.width,box:[Math.round(b.width),Math.round(b.height)],frame:[Math.round(a.width),Math.round(a.height)],centred:Math.abs((a.left+a.right)-(b.left+b.right))<2&&Math.abs((a.top+a.bottom)-(b.top+b.bottom))<2,large:m.classList.contains('is-large')}});
+    await page.evaluate(()=>{window.rvVideoMapState=()=>{const m=document.getElementById('videoMap'),box=m.querySelector('.video-map-canvas'),a=m.getBoundingClientRect(),b=box.getBoundingClientRect();
+     return {held:!!box.style.width,box:[Math.round(b.width),Math.round(b.height)],frame:[Math.round(a.width),Math.round(a.height)],centred:Math.abs((a.left+a.right)-(b.left+b.right))<2&&Math.abs((a.top+a.bottom)-(b.top+b.bottom))<2,large:m.classList.contains('is-large')}}});
+    const state=()=>page.evaluate(()=>rvVideoMapState());
     for(const large of [true,false]){
      const before=await state();assert(!before.held&&before.large!==large&&before.box.join()===before.frame.join(),'at rest the map fills its frame '+JSON.stringify(before));
-     await page.evaluate(()=>document.getElementById('videoMap').click());await page.waitForTimeout(120);
-     const during=await state();assert(during.held&&during.centred&&during.frame.join()!==before.frame.join()&&during.box[0]>=during.frame[0]&&during.box[1]>=during.frame[1]&&(large||during.box.join()===before.box.join()),'held, centred and covering the moving frame '+JSON.stringify({before,during}));
-     await page.waitForTimeout(600);
-     const after=await state();assert(!after.held&&after.large===large&&after.box.join()===after.frame.join()&&after.frame.join()!==before.frame.join()&&(!large||Math.abs(during.box[0]-after.frame[0])<2&&Math.abs(during.box[1]-after.frame[1])<2),'released at the new size (growing: the size it was held at) '+JSON.stringify({during,after}))}
+     // The motion is sampled in the page on the first frame the frame has moved (a sample 120 ms after the tap could
+     // still see it unmoved on a loaded machine).
+     const during=await page.evaluate(before=>new Promise(done=>{const start=performance.now();document.getElementById('videoMap').click();
+      const look=()=>{const s=rvVideoMapState();if(s.frame.join()!==before.frame.join()||performance.now()-start>3000)done(s);else requestAnimationFrame(look)};requestAnimationFrame(look)}),before);assert(during.held&&during.centred&&during.frame.join()!==before.frame.join()&&during.box[0]>=during.frame[0]&&during.box[1]>=during.frame[1]&&(large||during.box.join()===before.box.join()),'held, centred and covering the moving frame '+JSON.stringify({before,during}));
+     await page.waitForFunction(large=>{const s=rvVideoMapState();return !s.held&&s.large===large&&s.box.join()===s.frame.join()},large,{timeout:5000}).catch(()=>{});
+     const after=await state();assert(!after.held&&after.large===large&&after.box.join()===after.frame.join()&&after.frame.join()!==before.frame.join()&&(!large||[0,1].every(k=>during.box[k]>=after.frame[k]-2&&during.box[k]-after.frame[k]<12)),'released at the new size (growing: held at that size, or a few px over it when the room for the map was measured again meanwhile: still covering) '+JSON.stringify({during,after}))}
     await page.emulateMedia({reducedMotion:'reduce'});await settleLayout(page)}
    // A phone held upright turns the fullscreen picture a quarter (CSS): the small map is still there, measured in the
    // picture's own frame (it was hidden: its room, taken from sideways screen rectangles, came out negative).
@@ -771,7 +776,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    // elsewhere closes it) with two switches. 글자 숨기기 hides every name and symbol in the style's own colours (no other
    // style); 회색 지도 switches to the calm style (Positron light / Dark) without 3D buildings and points of interest,
    // names kept. Both keep the view and are kept on this browser (off by default).
-   {const button=page.locator('#logMap .rv-map-options-button'),pop=page.locator('#logMap .rv-map-options');
+   {const button=page.locator('#logMap .rv-map-options-button'),pop=page.locator('.rv-map-options:not([hidden])');  // open, it sits on the page (above whatever lies over the map)
     const box=kind=>pop.locator(`input[data-kind=${kind}]`),open=async()=>{if(await pop.isHidden()){await button.click();await pop.waitFor()}};
     {const z=await page.locator('#logMap .leaflet-control-zoom').boundingBox(),b=await button.boundingBox();assert(Math.abs(b.x-z.x)<2&&b.y>=z.y+z.height-1&&b.y<z.y+z.height+16&&Math.abs(b.width-z.width)<3,JSON.stringify({z,b}))}
     assert(await pop.isHidden());assert.equal(await button.getAttribute('aria-expanded'),'false');
@@ -862,15 +867,20 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    await page.waitForFunction(()=>{const d=document.getElementById('driveMap');return d.open&&d.querySelectorAll('.drive-map-list>.log-row').length===40&&d.querySelectorAll('.leaflet-overlay-pane path.leaflet-interactive').length===40},null,{timeout:20000});
    await settleLayout(page,'#driveMap');
    // Its 지도 표시 popover: Escape closes the popover only, the drive map stays open.
-   {const pop=page.locator('#driveMap .rv-map-options');await page.locator('#driveMap .rv-map-options-button').click();await pop.waitFor();
+   {const pop=page.locator('#driveMap>.rv-map-options:not([hidden])');await page.locator('#driveMap .rv-map-options-button').click();await pop.waitFor();
+    // Drawn above the segment cards: the popover's own middle is what a tap there reaches.
+    assert(await pop.evaluate(p=>{const r=p.getBoundingClientRect();return p.contains(document.elementFromPoint(r.left+r.width/2,r.top+r.height-6))}),'the popover is drawn above the segment cards');
     // 지도 테마: 자동 (the app's theme) | 라이트 | 다크, for the page's maps, kept on this browser.
     {const box=page.locator('#driveMap .drive-map-canvas'),tone=name=>pop.locator(`button[data-tone=${name}]`),other=scheme==='dark'?'light':'dark';
      assert.equal(await tone('auto').getAttribute('aria-pressed'),'true');assert.equal(await box.getAttribute('data-tiles'),scheme);
      await tone(other).click();await page.waitForFunction(o=>document.querySelector('#driveMap .drive-map-canvas').dataset.tiles===o,other);
      assert.equal(await tone(other).getAttribute('aria-pressed'),'true');assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-tone')),other);
      assert(await page.locator('#driveMap .rv-map-options-button').evaluate(b=>b.classList.contains('is-on')),'the layers button shows a fixed theme');
+     // Only the map changes: the cards over it stay in the app's theme (nearly solid glass, so the other map does not show through as theirs).
+     assert.equal(await page.evaluate(()=>document.documentElement.dataset.mapContrast),other);
+     {const alpha=await page.locator('#driveMap .drive-map-list>.log-row').first().evaluate(row=>Number(getComputedStyle(row).backgroundColor.match(/[\d.]+(?=\))/)?.[0]??1));assert(alpha>.8,'solid cards over the other theme\'s map '+alpha)}
      await tone('auto').click();await page.waitForFunction(o=>document.querySelector('#driveMap .drive-map-canvas').dataset.tiles===o,scheme);
-     assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-tone')),'auto')}
+     assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-tone')),'auto');assert.equal(await page.evaluate(()=>document.documentElement.dataset.mapContrast),undefined)}
     await page.keyboard.press('Escape');await pop.waitFor({state:'hidden'});await page.waitForTimeout(200);assert(await page.evaluate(()=>document.getElementById('driveMap').open),'the drive map stays open')}
    {const g=await page.evaluate(()=>{const d=document.getElementById('driveMap'),r=s=>d.querySelector(s).getBoundingClientRect(),sheet=r('.drive-map-sheet'),button=r('.drive-map-fold'),list=d.querySelector('.drive-map-list');return {scrolls:list.scrollHeight>list.clientHeight+40,bottom:Math.round(innerHeight-sheet.bottom),below:Math.abs(sheet.top-button.top)<=1,button:[innerWidth-button.right].map(Math.round)}});
     assert(g.scrolls&&g.bottom>=16&&g.below&&g.button[0]===16,JSON.stringify(g))}

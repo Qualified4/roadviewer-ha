@@ -51,11 +51,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   });
   assert.equal(clockSteps[0],.75,'a stale animation frame must not rewind playback');
   assert(Math.abs(clockSteps[1]-.77)<1e-9,'the next frame must count only time since resume');
+  // Which source the app's loadedmetadata handler (it seeks to the replay time) has run for: this listener comes after it.
+  await page.evaluate(()=>{v.addEventListener('loadedmetadata',()=>{window.metadataSrc=v.src})});
   await page.evaluate(()=>{pause();setTime(.75)});
   await page.locator('#videoSourceChoice').click();await page.getByRole('option',{name:'와이드',exact:true}).click();
-  // A paused source can immediately reload from its background whole-video copy. The app's loading flag
-  // alone does not mean the media element has finished that reload and its pending seek.
-  await page.waitForFunction(()=>!loading&&videoSource==='wide'&&!v.seeking&&v.readyState>=3);
+  // A paused source reloads from its background whole-video copy (a blob: URL) as soon as that has been read. The app's
+  // loading flag alone does not mean the media element has finished that reload and its pending seek; nor do
+  // readyState and seeking: the swap can land after a wait on those (CI read time 0), and the local copy can read as
+  // ready at time 0 before loadedmetadata is handled and the seek starts. So the swap is waited for, then its seek.
+  await page.waitForFunction(()=>!loading&&videoSource==='wide'&&v.src.startsWith('blob:')&&window.metadataSrc===v.src&&!v.seeking&&v.readyState>=3);
   let state=await page.evaluate(()=>({t,playing,time:v.currentTime,overlay:$('videoOverlay').hidden}));
   assert.equal(state.t,.75);assert.equal(state.playing,false);assert(Math.abs(state.time-.55)<.02,JSON.stringify(state));
   assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true');assert.doesNotMatch(await page.locator('#overlayStatus').textContent(),/없습니다|표시할 수 없습니다|재분석/);

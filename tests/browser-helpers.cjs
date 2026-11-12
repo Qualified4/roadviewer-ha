@@ -13,6 +13,21 @@ async function settleLayout(page,selector='html'){
    &&root.getAnimations({subtree:true}).every(animation=>animation.playState!=='running'||animation.effect.getTiming().iterations===Infinity);
  },selector);
 }
+// Wait until the elements matching `selector` keep the same boxes, font sizes and classes over consecutive frames with
+// no finite animation or transition on them. Each check reads the boxes first: that runs layout, so styles that depend
+// on it (container query units, a scrollbar coming or going) are resolved and their transitions exist before
+// getAnimations() is asked. A fixed number of frames was not enough on a loaded machine: a transition that had not
+// started yet read as its start value.
+async function waitForSteadyLayout(page,selector,frames=3){
+ await page.evaluate(()=>{window.rvSteady=null});
+ await page.waitForFunction(([selector,frames])=>{
+  const elements=[...document.querySelectorAll(selector)];
+  const key=JSON.stringify([innerWidth,document.documentElement.clientWidth,elements.map(e=>{const r=e.getBoundingClientRect();return [r.x,r.y,r.width,r.height,getComputedStyle(e).fontSize,e.className]})]);
+  const moving=elements.some(e=>e.getAnimations().some(a=>a.playState!=='finished'&&a.playState!=='idle'&&a.effect?.getTiming().iterations!==Infinity));
+  const last=window.rvSteady;window.rvSteady={key,count:!moving&&last?.key===key?last.count+1:0};
+  return elements.length>0&&window.rvSteady.count>=frames;
+ },[selector,frames],{polling:'raf'});
+}
 // Saved logs start with their route groups folded. Tests about the rows themselves (not folding) open every
 // group as it is created, in every page of this browser; recording_names.cjs covers the folded default.
 function openRouteGroups(browser){
@@ -34,4 +49,4 @@ async function showTab(page,tab){
 }
 // Leaving a tab and coming back reloads it, like folding and unfolding the old panels did.
 async function reopenTab(page,tab){await showTab(page,'logs');await showTab(page,tab)}
-module.exports={settleLayout,openRouteGroups,showTab,reopenTab};
+module.exports={settleLayout,waitForSteadyLayout,openRouteGroups,showTab,reopenTab};
