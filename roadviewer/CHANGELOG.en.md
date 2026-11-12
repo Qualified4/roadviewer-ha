@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.18
+
+- All-drives map list: with the last drive selected, tapping a drive above it made the list jump in one step. It now scrolls smoothly.
+
 ## 1.2.17
 
 - Folding and unfolding the list on the all-drives map and the drive map stutters less on phones. The list now slides down as a whole instead of shrinking, and only the cards in sight fade and move. The stutter grew with the number of drives.
