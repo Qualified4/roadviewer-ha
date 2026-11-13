@@ -132,10 +132,11 @@ class BrowserGroupTests(unittest.TestCase):
         files = {path.name for path in (root / "tests").glob("*.cjs")} - {"browser-helpers.cjs", "run_group.cjs"}
         for name in entries:
             self.assertTrue((root / "tests" / name).is_file(), name)
-        # Each file once, except maps.cjs: one group per theme.
-        self.assertEqual(sorted(entries), sorted([*files, "maps.cjs"]))
+        # Each file once, except maps.cjs: its main section once per theme, and the remaining sections in a third group.
+        self.assertEqual(sorted(entries), sorted([*files, "maps.cjs", "maps.cjs"]))
         self.assertEqual([entry.get("env") for files in manifest.values() for entry in files if isinstance(entry, dict)],
-                         [{"RV_MAP_SCHEMES": "dark"}, {"RV_MAP_SCHEMES": "light"}])
+                         [{"RV_MAP_SCHEMES": "dark", "RV_MAP_PARTS": "main"}, {"RV_MAP_SCHEMES": "light", "RV_MAP_PARTS": "main"},
+                          {"RV_MAP_PARTS": "many,leak"}])
 
 
 if __name__ == "__main__":

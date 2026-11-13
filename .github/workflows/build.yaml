@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [g1, g2, g3, g4, g5, g6, g7, g8]
+        group: [g1, g2, g3, g4, g5, g6, g7, g8, g9]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

@@ -162,18 +162,15 @@ const {showTab,waitForSteadyLayout}=require('./browser-helpers.cjs');
   // upload pill (widest label). It keeps full size wherever there is room and shrinks only when the free width runs out.
   for(const width of [320,360,390,430])for(const pill of [false,true]){
    await page.setViewportSize({width,height:844});
-   await page.evaluate(on=>{const p=document.getElementById('uploadPill');p.hidden=!on;document.getElementById('uploadPillText').textContent='업로드 100%'},pill);
+   // The pill is shown the way the app shows it, through the list response: set on the element by hand, the page's own
+   // poll (every 3 s) hid it again, and a measure taken just then failed (as did one taken while the wordmark was easing
+   // back). Which run met the poll depended on how fast the machine was, so it failed in loaded CI runs only.
+   uploads=pill?{received_bytes:100,total_bytes:100}:null;await page.evaluate(()=>refresh({poll:true}));
    await page.locator('#uploadPill').waitFor({state:pill?'visible':'hidden'});
    // The wordmark's size follows the brand's width (cqi) and eases over 0.2 s; fitAppBar (ResizeObserver) can then make
    // the bar tight, and off-screen cards settle their real heights over the next frames (content-visibility), which can
    // add or remove the scrollbar. The bar is measured once all of that has come to rest.
    await waitForSteadyLayout(page,'.lib-appbar-inner, .lib-appbar h1, .lib-status');
-   // The page's own poll (every 3 s) hides the pill this test showed, and the wordmark is fitted a few frames after the
-   // pill appears: measured in between (seen when the eight groups run at once), the narrow widths failed. Wait for the
-   // fitted state, showing the pill again if the poll took it away.
-   if(pill&&width<=360)await page.waitForFunction(()=>{
-    const p=document.getElementById('uploadPill');if(p.hidden){p.hidden=false;document.getElementById('uploadPillText').textContent='업로드 100%';return false}
-    return parseFloat(getComputedStyle(document.querySelector('.lib-appbar h1')).fontSize)<16||getComputedStyle(document.getElementById('headerStorageText')).display==='none'},null,{timeout:5000}).catch(()=>{});
    const m=await page.evaluate(()=>{
     const h=document.querySelector('.lib-appbar h1').getBoundingClientRect(),st=document.querySelector('.lib-status').getBoundingClientRect(),inner=document.querySelector('.lib-appbar-inner').getBoundingClientRect();
     const t=document.querySelector('.lib-appbar h1');
