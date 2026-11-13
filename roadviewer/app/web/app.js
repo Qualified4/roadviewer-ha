@@ -190,7 +190,8 @@ function buildReplayOverlay(frame,g){
  const band=(points,confidence)=>{const width=.15*Math.max(0,Math.min(1,Number.isFinite(confidence)?confidence:0));return [-1,1].map(sign=>points.map((p,i)=>{const n=normal(points,i);return screen(p.map((v,k)=>v+n[k]*width*sign))}))};
  const inner=g.lanes.slice(1,3),path=g.position,height=g.height;
  const ground=x=>{if(!path.length)return height;const p=sample(path,x);return (p||path.reduce((a,b)=>Math.abs(a[0]-x)<=Math.abs(b[0]-x)?a:b))[2]+height};
- const blindspotPaths=inner.map(points=>{if(points.length<2||!points.every(p=>Number.isFinite(p[0])))return [];const start=Math.max(0,points[0][0]),end=Math.min(40,points.at(-1)[0]);if(end<=start)return [];const xs=[start];for(let x=2;x<40;x+=2)if(start<x&&x<end)xs.push(x);xs.push(end);return xs.map(x=>project(sample(points,x)))});
+ const blindspotX=inner.map(points=>{if(points.length<2||!points.every(p=>Number.isFinite(p[0])))return [];const start=Math.max(0,points[0][0]),end=Math.min(40,points.at(-1)[0]);if(end<=start)return [];const xs=[start];for(let x=2;x<40;x+=2)if(start<x&&x<end)xs.push(x);xs.push(end);return xs});
+ const blindspotPaths=inner.map((points,i)=>blindspotX[i].map(x=>project(sample(points,x))));
  let targetLine=[];const targetSections=[],road=frame.ccncRoad||{},distance=road.distance||0;
  if([1,3].includes(road.target)&&distance>0&&distance<204.6)targetLine=inner.map(points=>screen(sample(points,distance)));
  if(targetLine.length===2&&targetLine.every(Boolean))for(let i=0;i<17;i++){
@@ -227,7 +228,7 @@ function buildReplayOverlay(frame,g){
  });
  return {lanes:g.lanes.map(line=>line.map(screen)),laneDashBands,edges:g.edges.map(line=>line.map(screen)),path:path.map(([x,y,z])=>screen([x,y,z+height])),
   laneBands:g.lanes.map((line,i)=>band(line,Math.min(.75,frame.lp?.[i]))),edgeBands:g.edges.map((line,i)=>band(line,edgeConfidence(frame.es?.[i]))),
-  blindspotPaths,pathX:path.map(p=>p[0]),pathProjection:path.map(([x,y,z])=>project([x,y,z+height])),pathSides:path.map((p,i)=>project(normal(path,i))),
+  blindspotPaths,blindspotX,pathX:path.map(p=>p[0]),pathProjection:path.map(([x,y,z])=>project([x,y,z+height])),pathSides:path.map((p,i)=>project(normal(path,i))),
   targetLine,targetSections,heightDirection:project([0,0,-1]),markers};
 }
 function frameOverlay(frame,source){
@@ -499,29 +500,44 @@ function drawBlinkers(ctx,road,time,left,right,centerY,anchors=null,glow=false){
   });
  }ctx.restore();
 }
-// Progress (0..1, linear in log time so pause, seeks and replays agree) of one side's path chevrons turning into its
-// blinker arrows: it runs up over `duration` s after the blinker comes on and back down over `settle` s after it goes off
-// (longer: the arrows travel back to chevron places that are themselves moving towards the car).
-// Samples off for under BLINKER_HOLD s still count as on. Without motion: 0 or 1 at once. The drawing eases it per arrow.
-const BLINKER_MORPH=.9,BLINKER_SETTLE=1.2,BLINKER_HOLD=.25;
-// The same with which way it is going (settling: the blinker is off) and when that movement started (log time).
+// Progress (0..1, from log time so pause, seeks and replays agree) of one side's path chevrons turning into its blinker
+// arrows: it rises at 1/`duration` per second while the blinker is on and falls at 1/`settle` while it is off (longer: the
+// arrows travel back to chevron places that are themselves moving towards the car). It is summed along the log, so a
+// blinker switched back mid-way turns the arrows round where they are. Samples off for under BLINKER_HOLD s still count
+// as on. Without motion: 0 or 1 at once. The drawing eases it per arrow.
+const BLINKER_MORPH=.9,BLINKER_SETTLE=1.2,BLINKER_HOLD=.25,BLINKER_WINDOW=12;
+// The same with the movement it belongs to: settling (it began from the formed arrows: the blinker went off) or forming,
+// and when it began (log time; the arrows' chevrons are picked then). A movement turned round mid-way keeps both, so the
+// arrows go back the way they came; a new one begins only from rest (all chevrons, or all arrows).
 function blinkerMorphState(frames,index,time,key,duration=BLINKER_MORPH,settle=BLINKER_SETTLE){
  const current=frames[index];if(!current)return {progress:0,settling:false,start:null};
  const lit=f=>!!(f?.roadSignals??f?.ccncRoad)?.[key];
  if(!motionAllowed())return {progress:lit(current)?1:0,settling:false,start:current.t};
- const clamp=v=>Math.max(0,Math.min(1,v));
- let first=null,last=null;
- for(let i=index;i>=0;i--){
-  const f=frames[i],age=time-f.t;if(age>10)break;
-  if(lit(f)){if(last===null)last=f.t;first=f.t}
-  else if(last!==null?last-f.t>BLINKER_HOLD:age>settle+BLINKER_HOLD+.2)break;
- }
- if(last===null)return {progress:0,settling:false,start:null};
- if(time-last<=BLINKER_HOLD)return {progress:clamp((time-first)/duration),settling:false,start:first};
- return {progress:clamp(clamp((last-first)/duration)-(time-last-BLINKER_HOLD)/settle),settling:true,start:last+BLINKER_HOLD};
+ let i=index;while(i>0&&time-frames[i-1].t<=BLINKER_WINDOW)i--;
+ // Before the window: at rest as the signal was then (at the log's start: nothing formed yet).
+ let progress=i>0&&lit(frames[i])?1:0,settling=false,start=null,last=-Infinity,at=frames[i].t;
+ // One stretch of log time at a time, at a fixed rate: on or off by the sample at its start (a sample holds until the
+ // next), the hold counted from the last lit sample. So a sample arriving never changes the stretch before it.
+ const run=(to,on)=>{
+  const dt=to-at;if(!(dt>0))return;
+  const before=progress;progress=Math.max(0,Math.min(1,progress+(on?dt/duration:-dt/settle)));
+  if(progress!==before&&(before===0||before===1)){settling=before===1;start=at}  // a movement begins from rest
+  at=to;
+ };
+ const advance=(f,to)=>{if(lit(f))last=f.t;const until=lit(f)?to:Math.min(to,Math.max(at,last+BLINKER_HOLD));run(until,true);run(to,false)};
+ for(let j=i+1;j<=index;j++)advance(frames[j-1],frames[j].t);
+ advance(current,time);
+ return {progress,settling:progress>0&&progress<1?settling:false,start:progress>0?start:null};
 }
 function blinkerMorph(frames,index,time,key,duration=BLINKER_MORPH,settle=BLINKER_SETTLE){return blinkerMorphState(frames,index,time,key,duration,settle).progress}
 // Derive easing from log time, so pause, reverse seeks and repeated playback are deterministic.
+// The model path past the lead (video-overlay.js): ground dashes [from, to, alpha] from 1 m behind the lead's distance to
+// the path's end, 3 m drawn every 6 m (fixed on the road, so they stay put as the lead moves), fading with distance.
+function pathBeyondLead(cut,far,on=3,period=6){
+ const start=cut+1,out=[];if(!(far>start+on))return out;
+ for(let d=Math.ceil(start/period)*period;d<far-.5;d+=period)out.push([d,Math.min(d+on,far-.5),Math.max(.12,1-(d-start)/Math.max(1,far-start))]);
+ return out;
+}
 function blindspotLevels(frames,index,time){
  const current=frames[index];if(!current?.valid||!current.roadSignals)return [0,0];
  return ['blindspotLeft','blindspotRight'].map(key=>{

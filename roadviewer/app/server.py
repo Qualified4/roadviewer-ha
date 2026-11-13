@@ -13,7 +13,7 @@ from device_api import DeviceAPI
 from log_transfer import LogTransfer
 from device_network import DeviceNetwork
 from telemetry import drive_summary
-import wall_clock,backfill,gps_track
+import wall_clock,backfill,gps_track,gap_backfill
 from video_sources import SOURCES,ORIGINALS,DERIVED,VIDEO_KINDS,CAMERA_KINDS,UPLOAD_KINDS,STORED_KINDS,validate_hevc,validate_mp4
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
@@ -248,6 +248,7 @@ def upload_receiving():
 # Conversion runs below uploads and the web UI: on a small host (HA Green) a full-priority decoder and
 # H.264 encoder took the CPU and disk from the receiving side and slowed or broke device uploads.
 LOW_PRIORITY=(['ionice','-c2','-n7','-t'] if shutil.which('ionice') else [])
+DECODER_VERSION='v28-runtime-geometry'  # Recorded in meta.json by each conversion; a ready log made by another one is converted again.
 def run_job(id):
  p=ROOT/id
  proc=None;revision=None;staged=[]
@@ -343,7 +344,7 @@ def run_job(id):
      m['video_codecs']={**m.get('video_codecs',{}),**{key:info['codec'] for key,info in available.items() if info and info.get('codec')}}
      m['video_origins']={**m.get('video_origins',{}),**{key:info['sourcePts'] for key,info in available.items() if info and 'sourcePts' in info}}
      m['bytes']=original_bytes(p,m)
-     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p,m),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version='v28-runtime-geometry');save_meta(p,m)
+     m.update(status='ready',manual_conversion=False,duration=summary['duration'],video=has_video(p,m),warnings=summary['warnings'],model_frames=summary['model_frames'],error=None,decoder_version=DECODER_VERSION);save_meta(p,m)
     list_backfill.wake()  # A thumbnail the decoder could not make from staged inputs may come from the archive.
    except Exception:
     if proc.poll() is None:proc.kill();proc.communicate()
@@ -1656,7 +1657,7 @@ def stale_recording(p,m):
  # A ready result made by an older decoder, without its replay data, or recorded with other videos than stored now.
  # Videos removed by NAS cleanup are gone for good: the result recorded with them is not stale for it.
  removed=not has_video(p,m) and any(media_store.location(m,kind)=='removed' for kind in VIDEO_KINDS)
- return m['status']=='ready' and (m.get('decoder_version')!='v28-runtime-geometry' or bool(m.get('video'))!=has_video(p,m) and not removed or prepared_file(p,'data.json')[0] is None)
+ return m['status']=='ready' and (m.get('decoder_version')!=DECODER_VERSION or bool(m.get('video'))!=has_video(p,m) and not removed or prepared_file(p,'data.json')[0] is None)
 
 def invalidate_recording(p,m,states):
  # Marks the recording for conversion again; the caller saves it. Archived inputs count only by states resolved
@@ -1729,6 +1730,7 @@ if archive_settings_error:app.logger.warning('Video archive is disabled: %s',arc
 archiver=media_store.Archiver(sys.modules[__name__],store,archive_settings,backend=backend)
 list_backfill=backfill.Backfill(sys.modules[__name__])  # Thumbnails and start times of older and archived logs.
 track_backfill=gps_track.TrackBackfill(sys.modules[__name__],list_backfill)  # GPS routes of logs converted before maps.
+gap_fill=gap_backfill.GapBackfill(sys.modules[__name__])  # Following-distance values of logs converted before 1.3.0.
 def archive_preferences():
  result=dict(archive_config.values(archive_settings),effective_mode=archive_settings.effective_mode,
              client_configured=bool(archive_settings.gdrive_client_id))
@@ -1883,4 +1885,5 @@ if os.environ.get('RV_MIGRATE_PREPARED')=='1':
  archiver.start()  # Wait a full interval before activation/recovery; disabled archives only wait for settings changes.
  list_backfill.start()
  track_backfill.start()
+ gap_fill.start()
 if __name__=='__main__':app.run('127.0.0.1',8099,threaded=True)

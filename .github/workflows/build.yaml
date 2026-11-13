@@ -191,6 +191,8 @@ jobs:
         if: matrix.group == 'p2'
       - run: python tests/test_gps_track.py
         if: matrix.group == 'p1'
+      - run: python tests/test_gap_backfill.py
+        if: matrix.group == 'p2'
   upload-tests:
     if: ${{ always() && github.event_name == 'pull_request' }}
     needs: [python-test-groups]

@@ -2,7 +2,7 @@
 //  library: ① 목록 | 지도 (every drive the filters show, one colour each), ② the route on each card (an SVG, no
 //           tiles) that opens 주행 지도: the drive full screen, its map above (or beside) a sheet of its
 //           segment rows;
-//  replay:  ③ 주행 상황 | 지도 (the drive, travelled part solid, a car marker following playback, tap to seek) and
+//  replay:  ③ 주행 상황 | 지도 (the drive, this log's segment solid, a car marker following playback, tap to seek) and
 //           ④ the small map in the video's top-right corner, under the speed and the wheel
 //           (겹쳐 보기 설정 › 지도).
 // Leaflet (vendor/, BSD-2) draws the routes, markers and controls; the basemap under them is OpenFreeMap's vector
@@ -818,20 +818,19 @@
    return {latlng:[lat,lon],bearing:Number.isFinite(bearing)?(bearing%360+360)%360:0,index:i,k,from,to};
   }
   const carIcon=L=>L.divIcon({className:'map-car',html:'<span class="map-car-body"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3 19 20 12 16 5 20Z"/></svg></span>',iconSize:[28,28],iconAnchor:[14,14]});
-  // The drive's lines: travelled solid, the rest faded. Only the large map seeks on a tap (interactive).
+  // The drive's lines: this log's segment solid, the drive's other segments faded. Only the large map seeks on a tap
+  // (interactive).
   function layers(L,map,interactive=true){
-   const done=css('--accent')||'#3DCB92',rest=css('--muted')||'#9AA0A9',lines={before:[],after:[]};
+   const shown=css('--accent')||'#3DCB92',rest=css('--muted')||'#9AA0A9',lines={others:[]};
    route.forEach((segment,i)=>{
     if(i===current)return;
-    const line=L.polyline(latlngs(segment.points),{color:i<current?done:rest,weight:5,opacity:i<current?.95:.45,lineCap:'round',lineJoin:'round',interactive}).addTo(map);
-    if(interactive)line.on('click',e=>seekTo(e.latlng));(i<current?lines.before:lines.after).push(line);
+    const line=L.polyline(latlngs(segment.points),{color:rest,weight:5,opacity:.45,lineCap:'round',lineJoin:'round',interactive}).addTo(map);
+    if(interactive)line.on('click',e=>seekTo(e.latlng));lines.others.push(line);
    });
-   // The current segment, drawn whole once: faded, and over it solid, its stroke dashed up to the car (draw). Kept
-   // unclipped and unsimplified, so the drawn points are the samples (the dash is measured along them) and never change.
-   const whole={noClip:true,smoothFactor:0,lineCap:'round',lineJoin:'round',interactive};
-   lines.ahead=L.polyline([],{...whole,color:rest,weight:5,opacity:.45,className:'map-current'}).addTo(map);
-   lines.behind=L.polyline([],{...whole,color:done,weight:6,opacity:.95,className:'map-current map-travelled'}).addTo(map);
-   if(interactive)for(const line of [lines.ahead,lines.behind])line.on('click',e=>seekTo(e.latlng));
+   // The current segment, drawn whole once (draw), on top of the others. Kept unclipped and unsimplified, so the drawn
+   // points are the samples and never change under the car.
+   lines.current=L.polyline([],{noClip:true,smoothFactor:0,lineCap:'round',lineJoin:'round',interactive,color:shown,weight:6,opacity:.95,className:'map-current'}).addTo(map);
+   if(interactive)lines.current.on('click',e=>seekTo(e.latlng));
    lines.car=L.marker([0,0],{icon:carIcon(L),interactive:false,keyboard:false}).addTo(map);
    return lines;
   }
@@ -953,15 +952,9 @@
   follow.onclick=()=>setFollow(!following);
   function draw(target,pos,force){
    const {lines,map}=target,points=route[current].points,now=pos.latlng;
-   // The current segment is drawn once; as the car moves only the travelled line's dash grows (to the car's place
-   // along the drawn samples), so the line is never projected, rounded or simplified again under the car.
-   if(force||lines.points!==points){lines.points=points;const path=latlngs(points);lines.ahead.setLatLngs(path);lines.behind.setLatLngs(path)}
-   const parts=lines.behind._parts?.[0],el=lines.behind.getElement?.();
-   if(el&&parts?.length===points.length){
-    if(lines.cum?.parts!==parts){const cum=[0];for(let i=1;i<parts.length;i++)cum.push(cum[i-1]+parts[i].distanceTo(parts[i-1]));lines.cum={parts,cum}}
-    const cum=lines.cum.cum,dash=(cum[pos.from]+(cum[pos.to]-cum[pos.from])*pos.k).toFixed(2)+' 1000000';
-    if(lines.dash!==dash||el.style.strokeDasharray===''){lines.dash=dash;el.style.strokeDasharray=dash}
-   }
+   // The current segment is drawn once; as the car moves only the marker moves, so the line is never projected,
+   // rounded or simplified again under the car.
+   if(force||lines.points!==points){lines.points=points;lines.current.setLatLngs(latlngs(points))}
    // The marker sits on Leaflet's whole pixel; its body takes the remaining fraction and the heading.
    lines.car.setLatLng(now);const body=lines.car.getElement()?.querySelector('.map-car-body');
    if(body){const p=map.project(now,map.getZoom()),transform=`translate(${(p.x-Math.round(p.x)).toFixed(3)}px,${(p.y-Math.round(p.y)).toFixed(3)}px) rotate(${pos.bearing.toFixed(2)}deg)`;if(lines.transform!==transform){lines.transform=transform;body.style.transform=transform}}
@@ -1068,6 +1061,6 @@
   const resize=()=>setLarge(!mini.classList.contains('is-large'));
   mini.addEventListener('click',e=>{if(e.target.closest('a,.rv-credit-toggle'))return;resize()});
   mini.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();resize()}});
-  redrawColours=()=>{for(const target of [big,small]){if(!target)continue;const done=css('--accent'),rest=css('--muted');target.lines.before.forEach(l=>l.setStyle({color:done}));target.lines.after.forEach(l=>l.setStyle({color:rest}));target.lines.behind.setStyle({color:done});target.lines.ahead.setStyle({color:rest})}};
+  redrawColours=()=>{for(const target of [big,small]){if(!target)continue;const done=css('--accent'),rest=css('--muted');target.lines.others.forEach(l=>l.setStyle({color:rest}));target.lines.current.setStyle({color:done})}};
  }
 })();

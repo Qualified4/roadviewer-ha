@@ -894,20 +894,22 @@ class ConcurrentUploadTests(unittest.TestCase):
             self.assertIsNone(media_store.remote_pending(m, kind)); self.assertIn(kind, m['content_hashes'])
         self.assert_consistent([p])
 
-    def test_uploads_in_parallel_take_clearly_less_time(self):
-        # Every request waits (the round trip to Google); three files in flight overlap those waits.
-        def timed(prefix, workers):
+    def test_uploads_in_parallel_overlap_their_round_trips(self):
+        # Every request waits (the round trip to Google); with three files in flight those waits overlap at the
+        # server, so nothing in the backend serialises the HTTP calls. Counted at the fake server, not timed:
+        # wall-clock ratios failed on a loaded CI runner.
+        def overlap(prefix, workers):
             paths = self.logs(12, prefix=prefix, kinds=['fcamera.mp4'])
             archiver = self.cycling(mode='copy')
             with patch.object(media_store, 'UPLOAD_WORKERS', workers):
-                self.drive.scenario.delay_seconds = 0.03
-                start = time.monotonic(); job = self.run_manual(archiver); took = time.monotonic() - start
-                self.drive.scenario.delay_seconds = 0
+                with self.drive.lock: self.drive.most_waiting = 0; self.drive.scenario.delay_seconds = 0.05
+                try: job = self.run_manual(archiver)
+                finally:
+                    with self.drive.lock: self.drive.scenario.delay_seconds = 0
             self.assertEqual((job['state'], job['succeeded']), ('done', 12))
             for p in paths: self.assert_copied(p, 'fcamera.mp4')
-            return took
-        one, three = timed('a', 1), timed('b', 3)
-        print('\nsequential %.2fs, %d in flight %.2fs, ratio %.2f' % (one, media_store.UPLOAD_WORKERS, three, three / one))
-        self.assertLess(three / one, 0.6)
+            return self.drive.most_waiting
+        self.assertEqual(overlap('a', 1), 1)
+        self.assertEqual(overlap('b', 3), 3)
 
 if __name__ == '__main__': unittest.main()

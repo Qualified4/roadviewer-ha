@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.3.0**.
+This guide describes **1.3.1**.
 
 [한국어](DOCS.md) · English
 
@@ -263,7 +263,7 @@ TARGET uses the configured path width (default 1.86m), with softly fading ends. 
 
 `LANE_HIGHLIGHT`, `LANE_LEFT` and `LANE_RIGHT` control lane highlighting to the valid end of the lanes. `LANE_HIGHLIGHT_DISTANCE` is not used. Mint turn arrows float at a fixed place ahead of the car (see below); they do not reproduce the physical bulb's exact flash phase.
 
-BSD uses `carState.leftBlindspot/rightBlindspot`. Video walls rise/fade in and lower/fade out, extend at most 40m, and default to 0.80m high. Ten vertical yellow lines move irregularly along each wall, five with stronger glow. The road panel uses a yellow glow on the detected side's border rather than a wall stripe. Walls are independent of marker height and the cluster-road toggle.
+BSD uses `carState.leftBlindspot/rightBlindspot`. Video walls rise/fade in and lower/fade out, extend at most 40m (only up to the lead when there is one), and default to 0.80m high. Ten vertical yellow lines move irregularly along each wall, five with stronger glow. The road panel uses a yellow glow on the detected side's border rather than a wall stripe. Walls are independent of marker height and the cluster-road toggle.
 
 Over the video, the ⚙ button beside **겹쳐 보기** opens **겹쳐 보기 설정** (overlay settings); **카메라 설치 정보** is in the app bar's ⋯ menu. Settings include:
 
@@ -279,7 +279,7 @@ Over the video, the ⚙ button beside **겹쳐 보기** opens **겹쳐 보기 �
 
 Every slider has an individual reset button. Settings are remembered. The path width affects video model paths and TARGET, not the road panel's mint ribbon. Rendering preferences do not require log reconversion.
 
-**Road projection.** Video graphics are drawn as light on the road, brighter near the car. The model path ends at the lead (cluster TARGET) when there is one and otherwise runs to the end of the model path. Chevrons on it flow towards the car at 40% of its speed, up to 17m and 3m short of the lead. They turn amber with deceleration (`carState.aEgo`), dim beyond the target following distance, and are not drawn when the lead is closer than 85% of the target or longitudinal control (`carControl.longActive`, read from the vehicle data) is off. While stopped they brighten and dim over 2.4s.
+**Road projection.** Video graphics are drawn as light on the road, brighter near the car. The model path ends at the lead (cluster TARGET) when there is one and otherwise runs to the end of the model path. Chevrons on it flow towards the car at 40% of its speed, up to 17m and 3m short of the lead when there is one, otherwise up to 30m (fading from 20m). They turn amber with deceleration (`carState.aEgo`), dim beyond the target following distance, and are not drawn when the lead is closer than 85% of the target or longitudinal control (`carControl.longActive`, read from the vehicle data) is off. While stopped they brighten and dim over 2.4s.
 
 | Setting | Default / range |
 |---|---|
@@ -288,7 +288,7 @@ Every slider has an individual reset button. Settings are remembered. The path w
 | 차량 박스 (vehicle boxes) | Off; a 3D box of light on the ground ring; the box height and fill sliders apply only when on |
 | 차간 거리 단계 (following-distance setting) | On; `carControl.hudControl.leadDistanceBars` (1–4) as four cells at the bottom left |
 
-The deceleration glow follows the chosen lead mark's shape. The following-distance setting and target distance exist only in logs converted with 1.3.0 or later.
+The deceleration glow follows the chosen lead mark's shape. Past the lead, the model path continues to its end as dashed edges (3 m dashes every 6 m) that fade with distance; where they cross the lead car, the road is hidden behind it and they are drawn faint. Logs converted with 1.3.0 or later carry the following-distance setting and target distance. For logs converted earlier, the app fills them in the background after the update, one log at a time, reading only the original log (`rlog.zst`); no reconversion is needed. A log stored only on Google Drive is downloaded to a temporary copy that is deleted after reading; a log whose storage is unreachable or that cannot be read is tried again at the next app start. The fill waits while conversions, uploads, playback or archive moves are running.
 
 Turning a blinker on lifts the path chevrons one by one into three arrows at a fixed place ahead of the car over 0.9s (the nearest chevron to the outermost arrow); turning it off returns them over 1.2s, innermost first, to the nearest places on the road. Without chevrons they curve out of and back into the car. Hazard lights split them to both sides. Off for under 0.25s counts as on.
 
@@ -332,7 +332,7 @@ Converting a log also keeps its route at one point per second: the device GPS (`
   ![Drive map](../docs/images/roadviewer-drive-map.png)
 
   <img src="../docs/images/roadviewer-drive-map-mobile.png" alt="Drive map on a phone" width="320">
-- **Replay Map tab**: segments with GPS get a Map tab among the analysis tabs. The travelled part is solid, the rest faded, and a car marker follows playback; Follow turns off when you move the map. Tapping the route seeks there, opening another segment if needed.
+- **Replay Map tab**: segments with GPS get a Map tab among the analysis tabs. The segment being played is solid as a whole, the drive's other segments faded, and a car marker follows playback; Follow turns off when you move the map. Tapping the route seeks there, opening another segment if needed.
 
   ![Replay Map tab](../docs/images/roadviewer-replay-map.png)
 - **Small map over the video**: Overlay settings › Map (off by default). It shows a small map in the video's top-right corner, under the unchanged speed and wheel, at street zoom with the car centred across and a little below the middle (60% down), showing more road ahead. Its credit is folded into an ⓘ in the bottom-right corner; tapping the ⓘ shows it (without enlarging the map). Colours: automatic (follows the screen theme), light or dark; its own options 글자 숨기기 (hide labels) and 회색으로 (grey) apply the map display popover's two switches to the small map only (the popover does not change the small map). Drag its bottom-left corner (mouse or finger) to resize it, kept 4:3, never narrower than the speed and no lower than the bottom controls; the size is remembered in this browser and a double tap on the corner restores the default. Tapping it fills the picture and hides the quality and overlay controls meanwhile. It does not show for segments without video or GPS, nor while the Map tab is shown.
