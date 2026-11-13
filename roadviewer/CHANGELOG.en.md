@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.24
+
+- The log list's tag filter takes several tags at once: only logs carrying every selected tag are shown, and pressing a selected tag again clears just that one. "태그 없음" (untagged) is not combined with other tags.
+- In the replay's lane and road-edge panel the cluster lane line type is drawn as a line instead of a text chip: the right edge of the lane 1 card and the left edge of the lane 2 card show the line's colour and whether it is solid or dashed (hover for the name). The four lane cards now centre their text.
+
 ## 1.2.23
 
 - The overlay settings dialog is laid out again: each group is a card, every on/off item is a switch on the right, a slider has its name, value and a reset icon (↺) on one line, and options that hang on another item are indented. Two columns on wide screens; shorter help texts.
