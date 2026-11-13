@@ -32,6 +32,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.equal(await page.locator('#overlayHeightDialog #ccncBoxHelp').textContent(),'LF · FF · RF 박스는 지면에 고정됩니다. 크기는 추정값입니다.');
   assert.equal(await page.locator('#overlayStatus').textContent(),'');
   await page.locator('#overlayHeightSettings').click();
+  await page.locator('#vehicleBoxes').check();// the box sliders are disabled while 차량 박스 is off
   for(const [id,changed,expected,key,saved] of [
    ['ccncBoxHeight',250,'130','roadviewer-ccnc-box-height','1.3'],
    ['ccncOpacity',80,'30','roadviewer-ccnc-opacity','0.3'],
@@ -42,6 +43,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.locator('#'+id+'Reset').click();assert.equal(await page.locator('#'+id).inputValue(),expected);
    assert.equal(await page.evaluate(key=>localStorage.getItem(key),key),saved,'reset saves default');
   }
+  await page.locator('#vehicleBoxes').uncheck();
   await page.locator('#overlayHeightClose').click();await page.locator('#overlayHeightDialog').waitFor({state:'hidden'});
 
   assert.equal(await page.locator('#videoOverlayToggle').getAttribute('aria-pressed'),'true','overlay enabled by default');
@@ -88,7 +90,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert.deepEqual(labels.map(v=>v.canvas).sort(),['road','videoOverlay']);
    assert(labels.every(v=>v.color===(slot==='FF'?'#8deeff':'#4aaaff')),'slot determines color independently of detect');
   }
-  const boxLabelPosition=()=>page.evaluate(()=>{const calls=[],original=hudLabel;hudLabel=function(...args){if(args[1].startsWith('RF ·'))calls.push({canvas:args[0].canvas.id,y:args[3],plain:args[7]===false});return original(...args)};try{render()}finally{hudLabel=original}return calls.find(c=>c.canvas==='videoOverlay')});
+  // 차량 박스: off by default (ground mark and label only); the box height and opacity sliders stay visible but disabled.
+  assert.equal(await page.locator('#vehicleBoxes').isChecked(),false,'vehicle boxes are off by default');
+  assert.deepEqual(await page.evaluate(()=>['ccncBoxHeight','ccncOpacity','ccncBoxHeightReset','ccncOpacityReset'].map(id=>document.getElementById(id).disabled)),[true,true,true,true],'box sliders disabled while boxes are off');
+  {const plain=await page.evaluate(()=>{const plates=[],texts=[],original=hudLabel,context=document.getElementById('videoOverlay').getContext('2d'),fill=context.fillText;hudLabel=function(...args){if(args[0].canvas.id==='videoOverlay'&&args[1].startsWith('RF ·'))plates.push(args[7]);return original(...args)};context.fillText=function(text,...rest){if(String(text).startsWith('RF ·'))texts.push([context.globalCompositeOperation,context.globalCompositeOperation==='lighter']);return fill.call(this,text,...rest)};try{render()}finally{hudLabel=original;context.fillText=fill}return [plates,texts]});
+   assert.deepEqual(plain,[[],[['lighter',true]]],'without boxes the label is light on the ground: no plate, added to the picture')}
+  const markOnly=await page.locator('#videoOverlay').evaluate(c=>c.toDataURL());
+  await settingAction('#vehicleBoxes','check');assert.notEqual(await page.locator('#videoOverlay').evaluate(c=>c.toDataURL()),markOnly,'the box switch draws the box');
+  assert.deepEqual(await page.evaluate(()=>['ccncBoxHeight','ccncOpacity'].map(id=>document.getElementById(id).disabled)),[false,false],'box sliders enabled with boxes');
+  const boxLabelPosition=()=>page.evaluate(()=>{const calls=[],original=hudLabel,context=document.getElementById('videoOverlay').getContext('2d'),fill=context.fillText;hudLabel=function(...args){if(args[1].startsWith('RF ·'))calls.push({canvas:args[0].canvas.id,y:args[3],plain:args[7]===false});return original(...args)};/* Ground labels are written as light straight on the canvas (additive, laid on the road plane), without hudLabel's plate. */context.fillText=function(text,x,y,...rest){if(String(text).startsWith('RF ·')&&context.globalCompositeOperation==='lighter')calls.push({canvas:'videoOverlay',y,plain:true});return fill.call(this,text,x,y,...rest)};try{render()}finally{hudLabel=original;context.fillText=fill}return calls.find(c=>c.canvas==='videoOverlay')});
   const aboveLabel=await boxLabelPosition();
   assert(!(await page.locator('#boxLabelsBelow').isChecked()));
   await settingAction('#boxLabelsBelow','check');
@@ -110,9 +120,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await settingAction('#overlayHeight','click');assert.equal(await overlayImage(),beforeHeight,'3D box ignores height toggle');
   await settingAction('#overlayHeight','click');
   const setOpacity=async value=>page.locator('#ccncOpacity').evaluate((e,v)=>{e.value=v;e.dispatchEvent(new Event('input'))},value);
-  const boxEdges=()=>page.evaluate(()=>{const edges=[],original=CanvasRenderingContext2D.prototype.stroke;CanvasRenderingContext2D.prototype.stroke=function(){if(this.canvas.id==='videoOverlay'&&this.strokeStyle==='#8deeff')edges.push(this.globalAlpha);return original.call(this)};try{render()}finally{CanvasRenderingContext2D.prototype.stroke=original}return edges});
-  await setOpacity(0);assert.equal((await boxEdges()).filter(a=>a>0).length,12,'transparent cube shows all twelve edges');const wireframe=await overlayImage();assert(await pixels(),'zero fill keeps outlines');
-  await setOpacity(100);assert((await boxEdges()).some(a=>a===0),'opaque cube hides far edges');assert.notEqual(await overlayImage(),wireframe,'opacity changes filled faces');
+  // Box edges are 1 px lines of light, added to the picture; the far face and depth edges are dimmer.
+  const boxEdges=()=>page.evaluate(()=>{const edges=[],original=CanvasRenderingContext2D.prototype.stroke;CanvasRenderingContext2D.prototype.stroke=function(){if(this.canvas.id==='videoOverlay'&&this.lineWidth===1)edges.push([this.globalAlpha,this.globalCompositeOperation,this.shadowBlur]);return original.call(this)};try{render()}finally{CanvasRenderingContext2D.prototype.stroke=original}return edges});
+  await setOpacity(0);{const e=await boxEdges();assert.equal(e.filter(([a])=>a>0).length,12,'all twelve edges drawn');assert(e.every(([,mode,blur])=>mode==='lighter'&&blur===0),'additive, no shadow blur')}
+  const wireframe=await overlayImage();assert(await pixels(),'zero fill keeps outlines');
+  await setOpacity(100);{const a=(await boxEdges()).map(([v])=>v);assert(Math.min(...a)>0&&Math.min(...a)<Math.max(...a)*.5,'far edges dimmer, not hidden')}assert.notEqual(await overlayImage(),wireframe,'opacity changes filled faces');
   await setOpacity(45);assert.equal(await page.locator('#ccncOpacityValue').textContent(),'45%');
   await page.evaluate(()=>{data.frames[0].overlay.markers[0].box[0][2]=-.1;render()});assert(!(await pixels()),'box crossing camera near plane is omitted');
   await page.evaluate(()=>{data.frames[0].overlay.markers[0].box[0][2]=1;render()});
@@ -210,11 +222,15 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await page.locator('#modelPathWidth').evaluate(e=>{e.value=200;e.dispatchEvent(new Event('input'))});
   await settingAction('#boxLabels','uncheck');
   await settingAction('#bsdWalls','uncheck');await page.locator('#bsdHeight').evaluate(e=>{e.value=240;e.dispatchEvent(new Event('input'))});
+  await page.evaluate(()=>{document.querySelector('#leadMark [data-mark=line]').click();document.getElementById('gapTarget').click()});
+  assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('roadviewer-display-preferences')).leadMark),'line','앞차거리 choice saved with the display preferences');
   await page.reload();await page.waitForFunction(()=>!document.getElementById('play').disabled);
   assert(!(await page.locator('#bsdWalls').isChecked()));assert.equal(await page.locator('#bsdHeight').inputValue(),'240');
   await settingAction('#bsdWalls','check');await page.locator('#bsdHeight').evaluate(e=>{e.value=120;e.dispatchEvent(new Event('input'))});
 
   assert(!(await page.locator('#boxLabels').isChecked()),'box label preference survives reload');await settingAction('#boxLabels','check');
+  assert.deepEqual(await page.evaluate(()=>[[...document.querySelectorAll('#leadMark button')].map(b=>b.getAttribute('aria-pressed')),document.getElementById('gapTarget').checked,document.getElementById('vehicleBoxes').checked,document.getElementById('ccncOpacity').disabled]),[['false','true','false'],false,true,false],'앞차거리, 목표 차간 거리 and 차량 박스 survive reload');
+  await page.evaluate(()=>{document.querySelector('#leadMark [data-mark=arc]').click();document.getElementById('gapTarget').click()});
   assert.equal(await page.locator('#modelPathWidth').inputValue(),'200','path width survives reload');
   assert.equal(await page.locator('#ccncBoxHeight').inputValue(),'200','box height survives reload');
   assert.equal(await page.locator('#ccncOpacity').inputValue(),'45','box opacity survives reload');
@@ -233,9 +249,17 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   const roadLines=laneStyles.filter(s=>s.canvas==='road');assert.equal(roadLines.length,2);
   assert(roadLines.every(s=>s.glow===0),'plan-view lanes do not glow');
   for(const [i,p] of [.2,.8].entries()){assert(Math.abs(roadLines[i].width-(.6+.8*p))<1e-6);assert(Math.abs(roadLines[i].alpha-p*.65)<1e-6);assert.deepEqual(roadLines[i].dash,p<.5?[6,5]:[])}
-  const videoLines=laneStyles.filter(s=>s.canvas==='videoOverlay');assert.equal(videoLines.length,4);
-  assert(videoLines.every(s=>s.glow>0&&s.width===1&&s.dash.length===0),'video keeps luminous solid ribbon outlines');
-  assert(videoLines[0].alpha<videoLines[2].alpha,'video confidence still controls outline visibility');
+  const videoLanes=await page.evaluate(()=>{
+   const f=data.frames[0],modes=[],original=CanvasRenderingContext2D.prototype.fill;CanvasRenderingContext2D.prototype.fill=function(...args){if(this.canvas.id==='videoOverlay')modes.push([this.globalCompositeOperation,this.shadowBlur]);return original.apply(this,args)};
+   f.lanes=[[[10,-1],[30,-1]],[[10,1],[30,1]]];f.lp=[.2,.8];f.overlay.lanes=[[[.3,.8],[.4,.5]],[[.7,.8],[.6,.5]]];f.overlay.laneBands=[[[[.29,.8],[.398,.5]],[[.31,.8],[.402,.5]]],[[[.69,.8],[.598,.5]],[[.71,.8],[.602,.5]]]];
+   try{render()}finally{CanvasRenderingContext2D.prototype.fill=original}
+   const c=document.getElementById('videoOverlay'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data,sum=[0,0];
+   for(let i=0;i<d.length;i+=4)sum[(i/4)%c.width<c.width/2?0:1]+=d[i+3];
+   f.lanes=[];f.lp=[];f.overlay.lanes=[];render();return {modes,sum};
+  });
+  assert(videoLanes.modes.length&&videoLanes.modes.every(([mode,blur])=>mode==='lighter'&&blur===0),'video lanes are additive light without shadow blur');
+  assert(videoLanes.sum[0]>0&&videoLanes.sum[0]<videoLanes.sum[1],'video confidence still controls how bright the line is');
+  assert.equal(await page.evaluate(()=>getComputedStyle(document.getElementById('videoOverlay')).mixBlendMode),'screen','the overlay only brightens the video');
 
   const shared=await page.evaluate(()=>({full:laneAppearance(1),threshold:laneAppearance(.75),upper:laneAppearance(.875),edge:laneAppearance(1,false),zero:laneAppearance(0),half:laneAppearance(.5),left:highlightBands({highlight:0,left:1,right:0}),both:highlightBands({highlight:3,left:0,right:1}),ribbon:ribbonEdges([[0,0],[10,0]],1.8)}));
   assert.deepEqual(shared.full,{width:11.25,alpha:.2,edge:1});assert.equal(shared.threshold.width,shared.full.width);assert(Math.abs(shared.threshold.alpha-.075)<1e-9);assert.equal(shared.upper.width,shared.full.width);assert(Math.abs(shared.upper.alpha-.1375)<1e-9);assert.deepEqual(shared.edge,{width:15,alpha:.1,edge:1});assert.equal(shared.zero.width,0);assert.equal(shared.half.width,7.5);assert.equal(shared.half.alpha,.05);
@@ -267,6 +291,23 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   for(let i=0;i<3;i++)assert(Math.abs(targetWidths[i]-[.2,.36,.6][i])<1e-9,'target width uses car width');
   const levelTarget=await page.evaluate(()=>({projected:targetSectionPoints([[.5,.7,1],[.2,.12,.08]],1.8),legacy:horizontalTargetLine([[.3,.6],[.7,.8]]),invalid:horizontalTargetLine([null,[1,2]])}));
   assert.equal(levelTarget.projected[0][1],levelTarget.projected[1][1],'camera roll/depth cannot tilt TARGET');assert.deepEqual(levelTarget.legacy,[[.3,.7],[.7,.7]]);assert.equal(levelTarget.invalid,null);
+  {const mark=async m=>{await page.evaluate(m=>{document.querySelector('#leadMark [data-mark='+m+']').click();render()},m);return page.evaluate(()=>{const c=document.getElementById('videoOverlay'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0;for(let i=3;i<d.length;i+=4)if(d[i])n++;return n})};
+   const labelsOf=()=>renderedLabels().then(rows=>rows.filter(row=>row.canvas==='videoOverlay'&&row.text.startsWith('TARGET')));
+   const arc=await mark('arc'),line=await mark('line');assert(arc>0&&line>0&&arc!==line,'호 and 선 both draw, differently');
+   assert.equal((await labelsOf()).length,1);
+   await page.evaluate(()=>{data.frames[0].roadSignals.acceleration=-3});const off=await mark('off');assert.equal(off,0,'끄기 draws neither the mark nor the deceleration glow');assert.deepEqual(await labelsOf(),[],'nor its text');
+   await page.evaluate(()=>{data.frames[0].roadSignals.acceleration=0});
+   assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('#leadMark button')].map(b=>b.getAttribute('aria-pressed'))),['true','false','false']);await mark('arc');
+   // Target following distance: amber marks at the path edges while the lead is drawn; red lead when closer than 85 %.
+   const amber=()=>page.evaluate(()=>{const c=document.getElementById('videoOverlay'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0,red=0;for(let i=0;i<d.length;i+=4){if(d[i+3]>40&&d[i]>200&&d[i+1]>150&&d[i+2]<d[i+1]-40)n++;if(d[i+3]>40&&d[i]>200&&d[i+1]<150&&d[i+2]<150)red++}return {n,red}});
+   const color=()=>renderedLabels().then(rows=>rows.find(row=>row.canvas==='videoOverlay'&&row.text.startsWith('TARGET'))?.color);
+   await page.evaluate(()=>{const f=data.frames[0];f.overlay.pathX=[0,10,20,30,40];f.overlay.pathProjection=f.overlay.pathX.map(x=>[.5,.7+.3*10/(x+10),1]);f.overlay.pathSides=f.overlay.pathX.map(x=>[.06*10/(x+10),0,0]);f.gapTarget=15;render()});
+   const shown=await amber();assert(shown.n>0,'amber target marks drawn');assert.equal(shown.red,0);assert.equal(await color(),'#7be5ff');
+   await page.evaluate(()=>document.getElementById('gapTarget').click());assert.equal((await amber()).n,0,'목표 차간 거리 switch hides them');await page.evaluate(()=>document.getElementById('gapTarget').click());
+   await page.evaluate(()=>{data.frames[0].gapTarget=null;render()});assert.equal((await amber()).n,0,'no value (older logs): no marks');
+   await page.evaluate(()=>{data.frames[0].gapTarget=30;render()});const close=await amber();assert.equal(close.n,0,'too close: amber marks not drawn');assert(close.red>0,'too close: the lead mark turns red');assert.equal(await color(),'#ff5f5f','and its text');
+   await mark('off');assert.deepEqual(await amber(),{n:0,red:0},'target marks only with the lead mark');await mark('arc');
+   await page.evaluate(()=>{const f=data.frames[0];f.gapTarget=null;delete f.overlay.pathX;delete f.overlay.pathProjection;delete f.overlay.pathSides;render()});}
   const noBrake=await targetStats();
   await page.evaluate(()=>{data.frames[0].roadSignals.acceleration=-1.5});const lightBrake=await targetStats();
   await page.evaluate(()=>{data.frames[0].roadSignals.acceleration=-3});const heavyBrake=await targetStats();
@@ -302,13 +343,6 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const tracks=Array.from({length:10},(_,i)=>Array.from({length:301},(_,j)=>blindspotStreakPosition(i,j*.1)));
    return {bounded:tracks.flat().every(v=>v>0&&v<1),reverse:tracks.every(row=>row.some((v,i)=>i&&v>row[i-1])&&row.some((v,i)=>i&&v<row[i-1])),smooth:tracks.every(row=>row.every((v,i)=>!i||Math.abs(v-row[i-1])<.02)),repeat:blindspotStreakPosition(3,2.5)===blindspotStreakPosition(3,2.5)};
   });assert.deepEqual(streaks,{bounded:true,reverse:true,smooth:true,repeat:true},'vertical streaks move smoothly back and forth without wrap jumps');
-  const anchors=await page.evaluate(()=>({
-   straight:blinkerLaneAnchors([[],[[.2,.9],[.45,.5]],[[.8,.9],[.55,.5]]]),
-   curved:blinkerLaneAnchors([[],[[.3,.9],[.55,.5]],[[.9,.9],[.65,.5]]]),
-   missing:blinkerLaneAnchors([]),gaps:blinkerLaneAnchors([[],[null,[.4,.5]],[]])
-  }));
-  for(let i=0;i<2;i++)assert(Math.abs(anchors.curved[i][0]-anchors.straight[i][0]-.1)<1e-6,'AR arrows follow curved lane positions');
-  assert.deepEqual(anchors.missing,[[.32,.72],[.68,.72]]);assert.deepEqual(anchors.gaps,anchors.missing,'missing geometry falls back to central AR positions');
   const chevrons=await page.evaluate(()=>{
    const c=document.createElement('canvas');c.width=400;c.height=100;const x=c.getContext('2d');let strokes=0;const stroke=x.stroke.bind(x);x.stroke=()=>{strokes++;stroke()};
    drawBlinkers(x,{blinkerLeft:true,blinkerRight:true},0,10,390,50);const rows=[];const pixels=x.getImageData(0,0,400,100).data;for(let y=0;y<100;y++)for(let px=0;px<400;px++)if(pixels[(y*400+px)*4+3]>5){rows.push(y);break}return {strokes,center:(Math.min(...rows)+Math.max(...rows))/2};

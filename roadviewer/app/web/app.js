@@ -227,7 +227,7 @@ function buildReplayOverlay(frame,g){
  });
  return {lanes:g.lanes.map(line=>line.map(screen)),laneDashBands,edges:g.edges.map(line=>line.map(screen)),path:path.map(([x,y,z])=>screen([x,y,z+height])),
   laneBands:g.lanes.map((line,i)=>band(line,Math.min(.75,frame.lp?.[i]))),edgeBands:g.edges.map((line,i)=>band(line,edgeConfidence(frame.es?.[i]))),
-  blindspotPaths,pathProjection:path.map(([x,y,z])=>project([x,y,z+height])),pathSides:path.map((p,i)=>project(normal(path,i))),
+  blindspotPaths,pathX:path.map(p=>p[0]),pathProjection:path.map(([x,y,z])=>project([x,y,z+height])),pathSides:path.map((p,i)=>project(normal(path,i))),
   targetLine,targetSections,heightDirection:project([0,0,-1]),markers};
 }
 function frameOverlay(frame,source){
@@ -425,7 +425,7 @@ window.addEventListener('blur',finishSeekDrag);
 v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error)startWholeVideo();if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();playLabel(true);syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration){pause();playedToEnd()}}};v.onerror=videoError;  // the video can end a moment before the log's clock (after a pause, say): that is playing to the end too
-for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','ccncRoad','laneMarking','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
+for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','vehicleBoxes','ccncRoad','laneMarking','gapLevel','gapTarget','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Space and arrows keep their own meaning on focused controls, links and menus.
 document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();flash($('play'));toggle()}if(e.code==='ArrowLeft'){e.preventDefault();flash($('prev'));step(-1)}if(e.code==='ArrowRight'){e.preventDefault();flash($('next'));step(1)}};
 // The road map is not on the video, so its colours follow the screen mode. Dark values equal the original palette;
@@ -477,32 +477,50 @@ function limitRoadPoints(points,limit=40){const result=(points||[]).filter(p=>p&
 const highlightColors=[null,'#62ed9e','#edf7ff','#55b9ff','#ffa65a','#ff6175'];
 function highlightBands(road){return [road?.left===1?'#62ed9e':null,highlightColors[road?.highlight]||null,road?.right===1?'#62ed9e':null]}
 function targetAt(points,x){for(let i=1;i<(points?.length||0);i++){const a=points[i-1],b=points[i];if(a[0]<=x&&x<=b[0]&&b[0]>a[0])return [x,a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0])]}return null}
-function blinkerLaneAnchors(lanes){
- // Sample the visible road at a common image depth; float just outside the ego lane.
- return [1,2].map((lane,side)=>{
-  const points=lanes?.[lane]||[];let x=side?.68:.32;
-  for(let i=1;i<points.length;i++){
-   const a=points[i-1],b=points[i];if(!a||!b||!a.every(Number.isFinite)||!b.every(Number.isFinite))continue;
-   if((a[1]-.74)*(b[1]-.74)<=0&&a[1]!==b[1]){x=a[0]+(b[0]-a[0])*(.74-a[1])/(b[1]-a[1])+(side?.045:-.045);break}
-  }
-  return [Math.max(.15,Math.min(.85,x)),.72];
- });
+// Blinker arrows (>>> / <<<): three per side, each a 6-point outline (back top, top front, tip, bottom front, back bottom,
+// notch). The path chevrons on the video morph into these same outlines (video-overlay.js).
+const BLINKER_SHAPE=[[0,-1],[.65,-1],[1.5,0],[.65,1],[0,1],[.85,0]];
+function blinkerArrows(side,left,right,centerY,anchors=null){
+ const size=Math.max(10,Math.min(24,(right-left)/18)),direction=side?1:-1,anchor=anchors?.[side];
+ const origin=anchor?anchor[0]-direction*size*1.85:side?right-size*3.8:left+size*3.8,y=anchor?anchor[1]:centerY;
+ return [0,1,2].map(i=>{const x=origin+direction*i*size*1.1;return BLINKER_SHAPE.map(([px,py])=>[x+direction*px*size,y+py*size])});
 }
+// The light running along the three arrows: arrow i is brightest at its moment of a 1.2 s cycle.
+function blinkerPulse(time,i){if(!motionAllowed())return 1;const phase=((time%1.2)+1.2)%1.2;return .25+.75*Math.max(0,1-Math.abs(phase-(.2+i*.25))/.35)}
 function drawBlinkers(ctx,road,time,left,right,centerY,anchors=null,glow=false){
  if(!road)return;
- const size=Math.max(10,Math.min(24,(right-left)/18)),phase=motionAllowed()?((time%1.2)+1.2)%1.2:0;
  ctx.save();ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.strokeStyle='#a0ffe1';ctx.fillStyle='#62edb9';
- for(const [side,active,direction,fallback] of [[0,road.blinkerLeft,-1,left+size*3.8],[1,road.blinkerRight,1,right-size*3.8]]){
-  const anchor=anchors?.[side],origin=anchor?anchor[0]-direction*size*1.85:fallback;
+ for(const [side,active] of [[0,road.blinkerLeft],[1,road.blinkerRight]]){
   if(!active)continue;
-  for(let i=0;i<3;i++){
-   const pulse=motionAllowed()?.25+.75*Math.max(0,1-Math.abs(phase-(.2+i*.25))/.35):1;
-   const x=origin+direction*i*size*1.1,y=anchor?anchor[1]:centerY;
-   ctx.beginPath();[[0,-1],[.65,-1],[1.5,0],[.65,1],[0,1],[.85,0]].forEach(([px,py],j)=>j?ctx.lineTo(x+direction*px*size,y+py*size):ctx.moveTo(x+direction*px*size,y+py*size));ctx.closePath();
+  blinkerArrows(side,left,right,centerY,anchors).forEach((points,i)=>{
+   const pulse=blinkerPulse(time,i);
+   ctx.beginPath();points.forEach((p,j)=>j?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();
    ctx.shadowBlur=0;ctx.globalAlpha=.24*pulse;ctx.fill();ctx.shadowColor='#a0ffe1';ctx.shadowBlur=glow?4:0;ctx.globalAlpha=pulse;ctx.stroke();
-  }
+  });
  }ctx.restore();
 }
+// Progress (0..1, linear in log time so pause, seeks and replays agree) of one side's path chevrons turning into its
+// blinker arrows: it runs up over `duration` s after the blinker comes on and back down over `settle` s after it goes off
+// (longer: the arrows travel back to chevron places that are themselves moving towards the car).
+// Samples off for under BLINKER_HOLD s still count as on. Without motion: 0 or 1 at once. The drawing eases it per arrow.
+const BLINKER_MORPH=.9,BLINKER_SETTLE=1.2,BLINKER_HOLD=.25;
+// The same with which way it is going (settling: the blinker is off) and when that movement started (log time).
+function blinkerMorphState(frames,index,time,key,duration=BLINKER_MORPH,settle=BLINKER_SETTLE){
+ const current=frames[index];if(!current)return {progress:0,settling:false,start:null};
+ const lit=f=>!!(f?.roadSignals??f?.ccncRoad)?.[key];
+ if(!motionAllowed())return {progress:lit(current)?1:0,settling:false,start:current.t};
+ const clamp=v=>Math.max(0,Math.min(1,v));
+ let first=null,last=null;
+ for(let i=index;i>=0;i--){
+  const f=frames[i],age=time-f.t;if(age>10)break;
+  if(lit(f)){if(last===null)last=f.t;first=f.t}
+  else if(last!==null?last-f.t>BLINKER_HOLD:age>settle+BLINKER_HOLD+.2)break;
+ }
+ if(last===null)return {progress:0,settling:false,start:null};
+ if(time-last<=BLINKER_HOLD)return {progress:clamp((time-first)/duration),settling:false,start:first};
+ return {progress:clamp(clamp((last-first)/duration)-(time-last-BLINKER_HOLD)/settle),settling:true,start:last+BLINKER_HOLD};
+}
+function blinkerMorph(frames,index,time,key,duration=BLINKER_MORPH,settle=BLINKER_SETTLE){return blinkerMorphState(frames,index,time,key,duration,settle).progress}
 // Derive easing from log time, so pause, reverse seeks and repeated playback are deterministic.
 function blindspotLevels(frames,index,time){
  const current=frames[index];if(!current?.valid||!current.roadSignals)return [0,0];
@@ -595,7 +613,7 @@ function ccncBoxTransitions(frames,index,time){
   // A missing sample is shown at once as a clear dip (40%), then the box fades out.
   const alpha=fading?.4*(1-ease((time-frames[source+1].t)/fade)):1;
   if(alpha<=0)continue;
-  let height=1,marker=entry.marker,color=ccncTargetColor(entry.target),animated=fading;
+  let height=1,marker=entry.marker,color=ccncTargetColor(entry.target),animated=fading,shift=null;
   if(motion){
    const appearTime=fading?frames[source+1].t:time,run=runOf(source,slot,Math.max(rise,slide));
    // Glide between this sample and the next one while playing.
@@ -612,11 +630,11 @@ function ccncBoxTransitions(frames,index,time){
     const since=appearTime-frames[run.start].t,from=run.from;
     if(from.kind==='other'){
      const k=ease(since/slide);
-     if(k<1){marker={...marker,box:lerpBox(from.marker.box,marker.box,k)};color=mixColor(ccncTargetColor(from.target),color,k);animated=true}
+     if(k<1){marker={...marker,box:lerpBox(from.marker.box,marker.box,k)};color=mixColor(ccncTargetColor(from.target),color,k);animated=true;shift={slot:from.slot,k,x:from.target.x,index:from.index}}
     }else{height=ease(since/rise);if(height<1)animated=true}
    }
   }
-  entries.push({...entry,marker,color,height,alpha,animated});
+  entries.push({...entry,marker,color,height,alpha,animated,shift});  // shift: sliding in from another slot (k 0..1)
  }
  return entries;
 }
@@ -873,6 +891,9 @@ function render(lazy){
  renderRadarValues(f,valid,rawTargets,rawVisible);
  renderSteering(f);
  $('egoSpeed').textContent=frameAvailable(f)&&Number.isFinite(f.egoSpeedKph)?f.egoSpeedKph.toFixed(1):'—';
+ // Following-distance setting (frame.gap, 1..4): four cells over the video's bottom-left corner, as many lit as the level.
+ {const chip=$('videoGap'),gap=frameAvailable(f)&&$('gapLevel').checked&&[1,2,3,4].includes(f.gap)?f.gap:0;chip.hidden=!gap;
+  if(gap&&chip.dataset.level!==String(gap)){chip.dataset.level=gap;chip.title=`차간 거리 ${gap}단계 (4단계 중)`;chip.setAttribute('aria-label',chip.title);[...chip.children].forEach((cell,i)=>cell.classList.toggle('is-on',i<gap))}}
  $('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'앞차 미감지';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent=frameAvailable(f)?'FRAME '+f.id:'FRAME —';
 }
 // Folded details keep their rows untouched. Open tables retain row/cell identity across model frames.
@@ -1450,6 +1471,9 @@ const pageReady=loadLogNavigation();
 // Share layer and label preferences between recordings on this browser.
 const displayPreferenceKey='roadviewer-display-preferences';
 const displayControls=[...document.querySelectorAll('.road-panel .layers input, .overlay-settings-body input')];
+// 앞차거리 (the cluster TARGET distance on the video): 'off', 'line' or 'arc' (default), a three-way switch saved with the rest.
+let leadMark='arc';const leadMarkSwitch=$('leadMark');
+const showLeadMark=()=>{for(const b of leadMarkSwitch.querySelectorAll('button'))b.setAttribute('aria-pressed',String(b.dataset.mark===leadMark))};
 try{
  const saved=JSON.parse(localStorage.getItem(displayPreferenceKey)||'null');
  if(saved&&typeof saved==='object'){
@@ -1462,14 +1486,17 @@ try{
   }
   const label=displayControls.find(control=>control.type==='radio'&&control.value===saved.labelMode);
   if(label)label.checked=true;
+  if(['off','line','arc'].includes(saved.leadMark))leadMark=saved.leadMark;
  }
 }catch{}
+showLeadMark();
 function saveDisplayPreferences(){
  const checks=Object.fromEntries(displayControls.filter(control=>control.type==='checkbox').map(control=>[control.id,control.checked]));
  const labelMode=displayControls.find(control=>control.type==='radio'&&control.checked)?.value||'trackId';
- try{localStorage.setItem(displayPreferenceKey,JSON.stringify({checks,labelMode}))}catch{}
+ try{localStorage.setItem(displayPreferenceKey,JSON.stringify({checks,labelMode,leadMark}))}catch{}
 }
 for(const control of displayControls)control.addEventListener('change',saveDisplayPreferences);
+leadMarkSwitch.addEventListener('click',event=>{const b=event.target.closest('button[data-mark]');if(!b||b.dataset.mark===leadMark)return;leadMark=b.dataset.mark;showLeadMark();saveDisplayPreferences();render()});
 $('modelPath').addEventListener('change',render);
 const pathWidthSlider=$('modelPathWidth'),pathWidthValue=$('modelPathWidthValue');
 const syncPathWidth=()=>{pathWidthSlider.value=String(Math.round(modelPathWidth*100));pathWidthValue.textContent=modelPathWidth.toFixed(2)+' m'};

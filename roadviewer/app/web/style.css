@@ -76,7 +76,8 @@ i.model-path{background:var(--map-path)}
 
 #videoSourceControl{display:flex;align-items:center;min-width:0;max-width:100%}
 #overlayStatus{font-size:11px;font-weight:500;color:var(--hud-text)}
-#videoOverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+/* The overlay is light on the road (video-overlay.js): screen-blended, it only ever brightens the picture. */
+#videoOverlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;mix-blend-mode:screen}
 
 .layout-width{display:grid;grid-template-columns:1fr auto;gap:12px;margin:0 0 14px;color:var(--muted);font-size:12px}
 .layout-width input{grid-column:1/-1;width:100%;margin:0;min-height:32px;accent-color:var(--accent)}
@@ -769,6 +770,20 @@ select,.rv-choice-trigger{font-weight:500}
 /* Playing: those controls fade out until the video is touched (app.js); the speed, wheel and messages stay. */
 .video-title,.video-tools,.video-fullscreen{transition:opacity .18s var(--m2-standard,ease)}
 .replay-page.hud-idle :is(.video-title,.video-tools,.video-fullscreen){opacity:0;pointer-events:none;transition-duration:.3s}
+/* Following-distance setting (app.js, frame.gap): four slanted cells, as many lit as the level, in the video's
+   bottom-left corner. While the bottom controls show it rides just above them; when they fade it settles into the
+   corner. --gap-cover lifts it with the controls where the transport bar covers the picture's bottom. */
+.video-gap{--hud-h:36px;position:absolute;left:12px;bottom:12px;z-index:3;display:flex;align-items:center;gap:3px;height:22px;padding:0 10px 0 9px;border-radius:999px;pointer-events:none;translate:0 calc(-1 * (var(--hud-h) + 8px + var(--gap-cover,0px)));transition:translate .3s var(--m2-standard,ease),opacity .18s var(--m2-standard,ease)}
+.video-gap[hidden]{display:none}
+.video-gap i{width:13px;height:8px;border-radius:1.5px;background:var(--hud-text);opacity:.28;transform:skewX(-20deg)}.video-gap i.is-on{opacity:1}
+@media(pointer:coarse){.replay-page .video-gap{--hud-h:46px}}
+.replay-page.media-shrunk .video-gap{--hud-h:40px}
+.replay-page.hud-idle .video-gap{translate:0 calc(-1 * var(--gap-cover,0px))}
+.video-wrap.video-map-large .video-gap{opacity:0}
+@container(max-width:520px){.video-gap{left:8px;bottom:8px}}
+.camera-panel:fullscreen .video-gap{bottom:calc(var(--transport-height,130px) + 12px)}
+.replay-page.compact-media .camera-panel:not(:fullscreen) .video-gap{--gap-cover:var(--video-cover,0px)}
+@media(prefers-reduced-motion:reduce){.video-gap{transition:none}}
 /* Short or touch screens: the app bar also folds up while playing; the content moves up into its place. */
 .replay-page .app-bar{transition:transform .3s var(--m3-emph-decelerate,ease),margin-bottom .3s var(--m3-emph-decelerate,ease)}
 .replay-page.bar-folded .app-bar{transform:translateY(-100%);margin-bottom:calc(-1 * var(--app-bar-height,56px));transition-timing-function:var(--m3-emph-accelerate,ease)}
@@ -886,6 +901,7 @@ select,.rv-choice-trigger{font-weight:500}
 .view-switch::before{content:"";position:absolute;z-index:0;top:3px;bottom:3px;left:3px;width:calc((100% - 8px) / 2);border-radius:9px;background:var(--raised);box-shadow:var(--raised-shadow);transition:transform .28s var(--m2-standard,cubic-bezier(.4,0,.2,1))}
 .view-switch:has(>button:nth-of-type(2)[aria-pressed=true])::before{transform:translateX(calc(100% + 2px))}
 .view-switch-3::before{width:calc((100% - 10px) / 3)}.view-switch-3:has(>button:nth-of-type(3)[aria-pressed=true])::before{transform:translateX(calc(200% + 4px))}
+.set-list>.box-opacity:has(input:disabled){opacity:.45}
 .minimap-tone{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--text-2)}
 .view-switch>button{position:relative;z-index:1;min-width:0;min-height:30px;margin:0;padding:4px 12px;border:0;border-radius:9px;background:transparent;box-shadow:none;color:var(--muted);font-size:12px;font-weight:600}
 .view-switch>button[aria-pressed=true]{color:var(--text)}

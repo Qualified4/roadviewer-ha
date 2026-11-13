@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.2.25**.
+This guide describes **1.3.0**.
 
 [한국어](DOCS.md) · English
 
@@ -261,7 +261,7 @@ LF/FF/RF display is enabled by default, with saved selections respected. Their m
 
 TARGET uses the configured path width (default 1.86m), with softly fading ends. Its video trail length follows smoothed actual deceleration `carState.aEgo`, reaching 8m at 3m/s² over the available lane geometry. It is not measured brake force. No acceleration data means no braking trail.
 
-`LANE_HIGHLIGHT`, `LANE_LEFT` and `LANE_RIGHT` control lane highlighting to the valid end of the lanes. `LANE_HIGHLIGHT_DISTANCE` is not used. Mint turn arrows animate near the corresponding lane; they do not reproduce the physical bulb's exact flash phase.
+`LANE_HIGHLIGHT`, `LANE_LEFT` and `LANE_RIGHT` control lane highlighting to the valid end of the lanes. `LANE_HIGHLIGHT_DISTANCE` is not used. Mint turn arrows float at a fixed place ahead of the car (see below); they do not reproduce the physical bulb's exact flash phase.
 
 BSD uses `carState.leftBlindspot/rightBlindspot`. Video walls rise/fade in and lower/fade out, extend at most 40m, and default to 0.80m high. Ten vertical yellow lines move irregularly along each wall, five with stronger glow. The road panel uses a yellow glow on the detected side's border rather than a wall stripe. Walls are independent of marker height and the cluster-road toggle.
 
@@ -278,6 +278,19 @@ Over the video, the ⚙ button beside **겹쳐 보기** opens **겹쳐 보기 �
 | Labels below boxes | Optional text below the box without background/border |
 
 Every slider has an individual reset button. Settings are remembered. The path width affects video model paths and TARGET, not the road panel's mint ribbon. Rendering preferences do not require log reconversion.
+
+**Road projection.** Video graphics are drawn as light on the road, brighter near the car. The model path ends at the lead (cluster TARGET) when there is one and otherwise runs to the end of the model path. Chevrons on it flow towards the car at 40% of its speed, up to 17m and 3m short of the lead. They turn amber with deceleration (`carState.aEgo`), dim beyond the target following distance, and are not drawn when the lead is closer than 85% of the target or longitudinal control (`carControl.longActive`, read from the vehicle data) is off. While stopped they brighten and dim over 2.4s.
+
+| Setting | Default / range |
+|---|---|
+| 앞차거리 (lead distance) | 호 (arc) / 끄기, 선 (line), 호; the path still ends at the lead when off |
+| 목표 차간 거리 (target following distance) | On; `longitudinalPlan.desiredDistance` as amber marks on the path edges, the lead mark turns red below 85% |
+| 차량 박스 (vehicle boxes) | Off; a 3D box of light on the ground ring; the box height and fill sliders apply only when on |
+| 차간 거리 단계 (following-distance setting) | On; `carControl.hudControl.leadDistanceBars` (1–4) as four cells at the bottom left |
+
+The deceleration glow follows the chosen lead mark's shape. The following-distance setting and target distance exist only in logs converted with 1.3.0 or later.
+
+Turning a blinker on lifts the path chevrons one by one into three arrows at a fixed place ahead of the car over 0.9s (the nearest chevron to the outermost arrow); turning it off returns them over 1.2s, innermost first, to the nearest places on the road. Without chevrons they curve out of and back into the car. Hazard lights split them to both sides. Off for under 0.25s counts as on.
 
 ### Wide-camera overlays
 

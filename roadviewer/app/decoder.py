@@ -168,7 +168,7 @@ def prepare(value,route=None):
  report('log_decompress',100)
  if len(raw)>512*1024*1024:raise ValueError('압축 해제된 로그가 512MB 제한을 초과합니다.')
  streams=collections.defaultdict(list)
- ccnc=[];ccnc_rears=[];ccnc_roads=[];road_signals=[]
+ ccnc=[];ccnc_rears=[];ccnc_roads=[];road_signals=[];gaps=[];gap_targets=[]
  video_indices=collections.defaultdict(list)
  models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter();starts=Starts();track=gps_track.Collector()
  offset=0;report('log_read',0)
@@ -196,6 +196,11 @@ def prepare(value,route=None):
     if msg.address==0x162 and msg.src<128 and len(msg.dat)==32:
      ccnc.append((e.logMonoTime,e.valid,ccnc_targets(msg.dat)))
      ccnc_rears.append((e.logMonoTime,e.valid,ccnc_rear_targets(msg.dat)))
+  # carControl.hudControl.leadDistanceBars: the following-distance setting openpilot shows on the cluster (1 nearest .. 4).
+  elif kind=='carControl':gaps.append((e.logMonoTime,e.valid,int(e.carControl.hudControl.leadDistanceBars)))
+  # longitudinalPlan.desiredDistance: the following distance the planner aims for, in metres (drawn as the target marks).
+  elif kind=='longitudinalPlan':
+   value=float(e.longitudinalPlan.desiredDistance);gap_targets.append((e.logMonoTime,e.valid,round(value,1) if math.isfinite(value) and value>0 else None))
   elif kind=='radarState':radars.append((e.logMonoTime,e.valid,pick(e.radarState,SPECS['radarState'])))
   elif kind=='liveTracks':live_tracks.append((e.logMonoTime,e.valid,pick(e.liveTracks,SPECS['liveTracks'])))
   elif kind=='carState':
@@ -219,6 +224,8 @@ def prepare(value,route=None):
  ccnc.sort(key=lambda row:row[0]);ccnc_times=[row[0] for row in ccnc]
  ccnc_rears.sort(key=lambda row:row[0]);rear_times=[row[0] for row in ccnc_rears]
  road_signals.sort(key=lambda row:row[0]);signal_times=[row[0] for row in road_signals]
+ gaps.sort(key=lambda row:row[0]);gap_times=[row[0] for row in gaps]
+ gap_targets.sort(key=lambda row:row[0]);gap_target_times=[row[0] for row in gap_targets]
  steering=SteeringReplay(streams)
  overlay=OverlayProjector(streams)
  models.sort(key=lambda row:time_of(row[0],row[2]))
@@ -253,6 +260,8 @@ def prepare(value,route=None):
   frames[-1]['ccncRearTargets']=ccnc_at(ccnc_rears,rear_times,time_of(stamp,m)*1e9) if ccnc else None
   frames[-1]['ccncRoad']=ccnc_at(ccnc_roads,ccnc_road_times,time_of(stamp,m)*1e9)
   frames[-1]['roadSignals']=ccnc_at(road_signals,signal_times,time_of(stamp,m)*1e9)
+  gap=ccnc_at(gaps,gap_times,time_of(stamp,m)*1e9);frames[-1]['gap']=gap if gap in (1,2,3,4) else None
+  frames[-1]['gapTarget']=ccnc_at(gap_targets,gap_target_times,time_of(stamp,m)*1e9)
   frames[-1]['cameraInfo']=overlay.camera_info(time_of(stamp,m)*1e9)
   frames[-1]['overlay']=overlay.project(time_of(stamp,m)*1e9,m,frames[-1])
   progress.update('log_analysis',frames=len(frames),total_frames=len(models))
