@@ -4,6 +4,16 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.0
+
+- The video overlay is redrawn in a "road projection" style: lanes, road edges, the path and vehicle marks look like light on the road instead of painted lines. The path is a faint blue floor with thin edge lines that ends at the lead car, with teal chevrons flowing towards you (at 40% of your speed). Lanes are translucent bands with a thin glowing outline; dashed lanes are drawn as real dashes. On a phone's small picture lines and text get thinner and smaller to match.
+- Vehicles (LF, FF, RF) are marked by a ring of light on the ground behind them and their label laid flat on the road. The 3D box is a switch, **차량 박스** (off by default). When a car moves from a side lane to the lead slot or back, its ring and the lead mark blend into each other.
+- New overlay settings: **앞차거리: 끄기 | 선 | 호** (lead distance: off, line or arc; default arc) and **목표 차간 거리** (target following distance, on by default). The arc wraps the lead car's rear, and the glow spreading towards you while slowing down follows its shape. The target distance shows as amber marks on both path edges; when the lead is well inside it, the marks give way and the lead mark turns red.
+- The following-distance setting (four cells) shows at the bottom left of the video, riding above the playback controls while they show. The **차간 거리 단계** switch turns it off.
+- The path chevrons show the drive state: amber while slowing down, dimmer beyond the target distance, not drawn when the lead is well inside the target or longitudinal control is off, and slowly brightening and dimming while stopped.
+- Turning a blinker on lifts the path chevrons one by one into >>> arrows at a fixed place ahead of the car (the nearest chevron to the outermost arrow); turning it off sends them back to the road. Without chevrons on the path they curve out of and back into the car. Hazard lights split them to both sides.
+- The following-distance setting and target distance exist only in logs converted from now on; convert an older log again to see them.
+
 ## 1.2.25
 
 - No change in behaviour: automated tests only (a check that failed now and then is fixed, and the map tests are split so the checks finish sooner).

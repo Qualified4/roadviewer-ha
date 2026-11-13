@@ -118,6 +118,9 @@
  }
  // Event track under the video: green while the system is on, orange where the driver took over (steering, or
  // gas/brake while on) or where the system switched off. Computed from the loaded vehicle data of this segment.
+ // Longitudinal control (자동 가감속) active at a time, for the video overlay: true, false, or null while the vehicle data
+ // is not loaded or has no sample near that time.
+ window.rvControlAt=time=>{if(!payload)return null;const s=series(cc('longActive'));const i=lowerBound(s.times,time+1e-9)-1;return i>=0&&time-s.times[i]<(payload.maxGap||.15)*2?s.values[i]===true:null};
  function renderEvents(){
   const track=$('eventTrack'),duration=data?.duration;track.replaceChildren();
   if(!payload||!(duration>0)){track.title=failedKey?'차량 정보를 불러오지 못해 자동 제어 구간을 표시할 수 없습니다.':'자동 제어와 운전자 개입 구간';track.setAttribute('aria-label',track.title);return}

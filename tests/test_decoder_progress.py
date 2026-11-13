@@ -90,7 +90,7 @@ runpy.run_path(sys.argv[0],run_name='__main__')
      e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
    for i in range(100):
     e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10+i*.01)*1e9);e.valid=True;e.init('carState');e.carState.leftBlindspot=i<20;e.carState.rightBlindspot=i>=20;e.carState.leftBlinker=True;e.carState.vEgo=20;e.carState.aEgo=-1.5;e.carState.engineRpm=1800;e.carState.gas=.25;e.carState.steeringPressed=i==31;messages.append(e.to_bytes())
-   for name,values in [('carControl',{'latActive':True,'longActive':True,'actuators':{'steeringAngleDeg':7,'accel':-1.5,'aTarget':-1.2,'jerk':-.3,'longControlState':'stopping'}}),('carOutput',{'actuatorsOutput':{'gas':.25,'brake':.5,'accel':-1}}),('controlsState',{'lateralControlState':{'torqueState':{'active':True,'actualLateralAccel':.8,'desiredLateralAccel':1.2}}})]:
+   for name,values in [('carControl',{'hudControl':{'leadDistanceBars':3},'latActive':True,'longActive':True,'actuators':{'steeringAngleDeg':7,'accel':-1.5,'aTarget':-1.2,'jerk':-.3,'longControlState':'stopping'}}),('carOutput',{'actuatorsOutput':{'gas':.25,'brake':.5,'accel':-1}}),('controlsState',{'lateralControlState':{'torqueState':{'active':True,'actualLateralAccel':.8,'desiredLateralAccel':1.2}}}),('longitudinalPlan',{'desiredDistance':17.34})]:
     e=decoder.log.Event.new_message();e.logMonoTime=round((pts[0]+10)*1e9);e.valid=True;e.init(name);setattr(e,name,values);messages.append(e.to_bytes())
    stamp=round((pts[0]+10)*1e9)
    e=decoder.log.Event.new_message();e.logMonoTime=stamp;e.valid=True;e.init('carParams');e.carParams.brand='hyundai';messages.append(e.to_bytes())
@@ -129,6 +129,8 @@ runpy.run_path(sys.argv[0],run_name='__main__')
    self.assertEqual(saved['frames'][0]['ccncRoad']['left'],1)
    self.assertEqual((saved['frames'][0]['ccncRoad']['laneLeft'],saved['frames'][0]['ccncRoad']['laneRight']),(8,4))
    self.assertIsNone(saved['frames'][-1]['ccncRoad'])
+   self.assertEqual(saved['frames'][0]['gap'],3,'following-distance setting sent to the cluster')
+   self.assertEqual(saved['frames'][0]['gapTarget'],17.3,'planner target following distance, rounded to 0.1 m')
    self.assertEqual(saved['route'],'Route / segment');self.assertNotIn('path',saved)
    self.assertEqual(json.loads((dest/'summary.json').read_text())['model_frames'],20)
    self.assertEqual(saved['cameraInfos'][0]['calibrationStatus'],'calibrated')
