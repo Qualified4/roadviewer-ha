@@ -37,7 +37,8 @@ Scenario (`drive.scenario`):
         elsewhere) plus any extra `headers` (e.g. a redirect `Location`).
     device_poll_responses  list of 'authorization_pending' | 'slow_down' | 'access_denied' | 'expired_token'
                            | 'granted', consumed one per device-code poll
-    delay_seconds          sleep before handling each request (timeouts)
+    delay_seconds          sleep before handling each request (timeouts); drive.most_waiting counts the most
+                           requests sleeping at once (round trips that overlap)
     quota_limit            None (no limit reported) or bytes; completing an upload past it -> 403 storageQuotaExceeded
     lose_completion_response  store the completed upload, then close the socket without answering (once)
     list_lag               the next N files.list calls answer an empty list (a create not yet visible to search)
@@ -133,7 +134,11 @@ class Handler(BaseHTTPRequestHandler):
             d.requests.append({'method': method, 'path': self.path, 'headers': dict(self.headers)})
             delay = d.scenario.delay_seconds
             rule = d.scenario.take_failure(self.path)
-        if delay: time.sleep(delay)
+        if delay:
+            with d.lock: d.waiting += 1; d.most_waiting = max(d.most_waiting, d.waiting)
+            try: time.sleep(delay)
+            finally:
+                with d.lock: d.waiting -= 1
         if rule:
             return self.send(rule['status'], error_body(self.path, rule['status'], rule['reason']), rule['headers'])
         url = urlsplit(self.path)
@@ -343,6 +348,7 @@ class FakeDrive(ThreadingHTTPServer):
         self.files, self.sessions, self.requests, self.revoked, self.issued = {}, {}, [], [], {}
         self.access_tokens, self.refresh_tokens = set(), set()
         self.file_count = self.session_count = self.token_count = self.device_code_count = 0
+        self.waiting = self.most_waiting = 0  # requests sleeping out delay_seconds now / the most at once
         self.thread = None
 
     def handle_error(self, request, client_address):

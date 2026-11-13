@@ -76,7 +76,19 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
     return [at(0),at(.45),at(.95),at(1.1),at(1.85),at(2.6),+blinkerMorph(frames,3,.75,'blinkerLeft').toFixed(2),blinkerArrows(1,0,900,300).map(a=>a.length).join()]});
    assert.deepEqual(await morphAt(),[1,1,1,1,0,0,0,'6,6,6'],'reduced motion: switches at once');
    await page.emulateMedia({reducedMotion:'no-preference'});
-   try{const moving=await morphAt();assert.deepEqual(moving,[0,.5,1,1,.5,0,0,'6,6,6'],'blinker morph '+JSON.stringify(moving))}finally{await page.emulateMedia({reducedMotion:'reduce'})}
+   try{const moving=await morphAt();assert.deepEqual(moving,[0,.5,1,1,.5,0,0,'6,6,6'],'blinker morph '+JSON.stringify(moving));
+    // Switched back mid-way, the arrows turn round where they are: the progress never jumps between samples (at most one
+    // 50 ms step of rise or fall), and the movement keeps its start and its kind (so the same chevrons and the same curve).
+    const turns=await page.evaluate(()=>{
+     const run=on=>{const frames=Array.from({length:81},(_,k)=>({t:k*.05,valid:true,roadSignals:{blinkerRight:on(k*.05)}}));
+      return frames.map((f,i)=>blinkerMorphState(frames,i,f.t,'blinkerRight'))};
+     const check=states=>{let jump=0,flips=0;for(let i=1;i<states.length;i++){const a=states[i-1],b=states[i];jump=Math.max(jump,Math.abs(b.progress-a.progress));
+      if(a.progress>0&&a.progress<1&&b.progress>0&&b.progress<1&&(a.settling!==b.settling||a.start!==b.start))flips++}return {jump:+jump.toFixed(3),flips}};
+     const quick=run(t=>t<.5||(t>=.85&&t<1.6)),again=run(t=>t<1.5||t>=2.05);
+     return {quick:check(quick),again:check(again),dipped:Math.min(...quick.slice(10,20).map(s=>s.progress))>0,turned:again.slice(36,46).some(s=>s.settling&&s.progress>.6)&&again.slice(36,46).some((s,i,a)=>i&&s.settling&&s.progress>a[i-1].progress)&&again[60].progress===1};
+    });
+    assert(turns.quick.jump<=.06&&turns.quick.flips===0&&turns.dipped,'on, off, on again: arrows turn round '+JSON.stringify(turns));
+    assert(turns.again.jump<=.06&&turns.again.flips===0&&turns.turned,'formed, off, on again: the settling turns back up '+JSON.stringify(turns))}finally{await page.emulateMedia({reducedMotion:'reduce'})}
    if(!wasPath)await page.evaluate(()=>document.getElementById('modelPath').click())}
   await page.evaluate(()=>{document.getElementById('laneMarking').click()});const off=await yellow();assert.deepEqual(off,[0,0],'setting off restores the default lanes');
   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('roadviewer-display-preferences')).checks.laneMarking),false,'setting is remembered');

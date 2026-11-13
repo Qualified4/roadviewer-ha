@@ -343,6 +343,11 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const tracks=Array.from({length:10},(_,i)=>Array.from({length:301},(_,j)=>blindspotStreakPosition(i,j*.1)));
    return {bounded:tracks.flat().every(v=>v>0&&v<1),reverse:tracks.every(row=>row.some((v,i)=>i&&v>row[i-1])&&row.some((v,i)=>i&&v<row[i-1])),smooth:tracks.every(row=>row.every((v,i)=>!i||Math.abs(v-row[i-1])<.02)),repeat:blindspotStreakPosition(3,2.5)===blindspotStreakPosition(3,2.5)};
   });assert.deepEqual(streaks,{bounded:true,reverse:true,smooth:true,repeat:true},'vertical streaks move smoothly back and forth without wrap jumps');
+  {const beyond=await page.evaluate(()=>({near:pathBeyondLead(20,94),none:pathBeyondLead(20,21.5),moved:pathBeyondLead(21,94)}));
+   const n=beyond.near;
+   assert(n.length>10&&n[0][0]>=21&&n.at(-1)[1]<=93.5&&n.every(([a,b])=>b-a<=3+1e-9)&&n.slice(0,-1).every(([a,b])=>Math.abs(b-a-3)<1e-9)&&n.every((d,i)=>!i||d[2]<=n[i-1][2])&&n.at(-1)[2]>=.12,'dashes past the lead to the path end, fading: '+JSON.stringify(n.slice(0,3)));
+   assert.deepEqual(beyond.none,[],'no room past the lead: no dashes');
+   assert.deepEqual(beyond.moved.map(d=>d[0]).slice(1,4),n.map(d=>d[0]).slice(1,4),'dashes stay on the road as the lead moves')}
   const chevrons=await page.evaluate(()=>{
    const c=document.createElement('canvas');c.width=400;c.height=100;const x=c.getContext('2d');let strokes=0;const stroke=x.stroke.bind(x);x.stroke=()=>{strokes++;stroke()};
    drawBlinkers(x,{blinkerLeft:true,blinkerRight:true},0,10,390,50);const rows=[];const pixels=x.getImageData(0,0,400,100).data;for(let y=0;y<100;y++)for(let px=0;px<400;px++)if(pixels[(y*400+px)*4+3]>5){rows.push(y);break}return {strokes,center:(Math.min(...rows)+Math.max(...rows))/2};

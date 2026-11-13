@@ -32,7 +32,9 @@ function fixtureStyle(scheme){
    {id:'poi-hidden',type:'symbol',source:'streets',layout:{visibility:'none','text-field':['get','name'],'text-font':['Noto Sans Regular']}}]};
 }
 // Each Leaflet map of the page (window.rvTestMaps), for the checks against MapLibre's own projection.
-const hookMaps=()=>{let L;Object.defineProperty(window,'L',{configurable:true,get:()=>L,set(v){L=v;try{v.Map.addInitHook(function(){(window.rvTestMaps||=[]).push(this)})}catch{}}})};
+const hookMaps=()=>{window.rvTestNearLine=(root,at)=>Math.min(Infinity,...[...root.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{const M=p.getScreenCTM(),q=[...(p.getAttribute('d')||'').matchAll(/(-?[\d.]+)[ ,](-?[\d.]+)/g)].map(m=>[+m[1]*M.a+ +m[2]*M.c+M.e,+m[1]*M.b+ +m[2]*M.d+M.f]);
+  return q.slice(1).map((b,i)=>{const a=q[i],dx=b[0]-a[0],dy=b[1]-a[1],l=dx*dx+dy*dy,k=l?Math.max(0,Math.min(1,((at[0]-a[0])*dx+(at[1]-a[1])*dy)/l)):0;return Math.hypot(a[0]+dx*k-at[0],a[1]+dy*k-at[1])})}));
+ let L;Object.defineProperty(window,'L',{configurable:true,get:()=>L,set(v){L=v;try{v.Map.addInitHook(function(){(window.rvTestMaps||=[]).push(this)})}catch{}}})};
 (async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'rv-maps-')),shots=process.env.RV_MAP_SHOTS;
  if(shots)fs.mkdirSync(shots,{recursive:true});
@@ -343,7 +345,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    await card.getByRole('button',{name:'목록에서 보기'}).tap();
    await page.locator('#list').waitFor();assert(await page.locator('#logMap').isHidden());
    {const id=shownRoute.split('/').filter(Boolean).at(-1);await page.waitForFunction(id=>{const r=document.querySelector(`#list .log-row[data-id="${id}"]`).closest('.log-route').getBoundingClientRect();return r.top>=0&&r.top<innerHeight},id)}
-   // ③ The replay's 주행 상황 | 지도: the whole drive, travelled part solid, a car marker following playback.
+   // ③ The replay's 주행 상황 | 지도: the whole drive, this log's segment solid and the others faded, a car marker following playback.
    await page.goto(base+`view/${withVideo}/`);await page.waitForFunction(()=>!document.getElementById('play').disabled);
    // The 지도 tab sits right after 주행 상황 and shows only for a segment with a track; the tab row stays one row.
    const mapTab=page.locator('#mapTab');await mapTab.waitFor();
@@ -351,6 +353,9 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    {const tops=await page.locator('.vehicle-tabs [role=tab]').evaluateAll(tabs=>tabs.map(t=>Math.round(t.getBoundingClientRect().top)));assert.equal(new Set(tops).size,1,'one tab row '+tops)}
    assert.equal(await page.locator('#roadMode').count(),0,'no 주행 상황 | 지도 switch any more');
    await mapTab.tap();await page.locator('#mapView').waitFor();await page.locator('#routeMapView .map-car').waitFor();await shot('map-tab');
+   // This log's segment is the one solid line, whole (not only up to the car); the drive's other segments, before and after it, are faded.
+   {const lines=await page.locator('#routeMapView .leaflet-overlay-pane path').evaluateAll(ps=>ps.map(p=>({current:p.classList.contains('map-current'),solid:Number(p.getAttribute('stroke-opacity'))>.5,dash:p.style.strokeDasharray||p.getAttribute('stroke-dasharray')||''})));
+    assert(lines.filter(l=>l.solid).length===1&&lines.find(l=>l.solid)?.current&&!lines.find(l=>l.current).dash&&lines.filter(l=>!l.current).length>=1&&lines.filter(l=>!l.current).every(l=>!l.solid),'only the current segment is highlighted: '+JSON.stringify(lines))}
    await page.locator('#routeMapView .map-car').waitFor();
    // Leaflet's panes and controls (z-index 400–1000) stay inside the map: the floating playback bar is drawn over it.
    assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('#routeMapView .rv-map')).isolation),'isolate');
@@ -378,7 +383,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
      t.state=()=>{
       let car=null;map.eachLayer(l=>{if(l.options?.icon?.options?.className==='map-car')car=l.getLatLng()});
       const box=m.getBoundingClientRect(),c=gl.getCanvas().getBoundingClientRect(),q=gl.project([car.lng,car.lat]),b=m.querySelector('.map-car-body').getBoundingClientRect(),at=[b.left+b.width/2,b.top+b.height/2];
-      const line=Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{if(!p.getTotalLength())return [Infinity];const M=p.getScreenCTM();return (p.style.strokeDasharray?[p.getPointAtLength(parseFloat(p.style.strokeDasharray))]:[p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())]).map(r=>Math.hypot(r.x*M.a+r.y*M.c+M.e-at[0],r.x*M.b+r.y*M.d+M.f-at[1]))}));
+      const line=window.rvTestNearLine(m,at);
       return {base:Math.hypot(c.left+q.x-at[0],c.top+q.y-at[1]),line,layer:map.rvGlLayer.options.padding,lines:map.options.renderer.options.padding,margin:map.rvMargin,
        basemapCovers:inside(c,box),linesCover:inside(m.querySelector('.leaflet-overlay-pane svg').getBoundingClientRect(),box),renders:t.renders,redraws:t.redraws};
      };
@@ -487,7 +492,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
     const hit=(b,box=map)=>!(b.right<=box.left||b.left>=box.right||b.bottom<=box.top||b.top>=box.bottom);
     const title=document.querySelector('.video-title').getBoundingClientRect(),style=getComputedStyle(el);
     const titleClear=!hit(title);
-    // The current segment's two lines (travelled, ahead), marked map-current.
+    // The current segment's line, marked map-current.
     const track=[...el.querySelectorAll('.leaflet-overlay-pane path.map-current')].map(p=>p.getBoundingClientRect()).filter(b=>b.width||b.height);
     const current=track.length?track.reduce((a,b)=>({left:Math.min(a.left,b.left),right:Math.max(a.right,b.right),top:Math.min(a.top,b.top),bottom:Math.max(a.bottom,b.bottom)})):null;
     return {stage:{w:Math.round(stage.width),top:Math.round(stage.top),right:Math.round(stage.right)},map:{w:Math.round(map.width),h:Math.round(map.height),top:Math.round(map.top),right:Math.round(map.right)},
@@ -506,9 +511,9 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
     assert(g.hudOnMap&&g.titleClear&&g.trackInside,label+' '+JSON.stringify(g));assert.deepEqual(g.covers,[],label+' '+JSON.stringify(g));
    };
    await small('portrait');
-   // The car (smaller here than on the big map) sits on the line's end: its body centred on the marker's anchor.
+   // The car (smaller here than on the big map) sits on the current segment's line: its body centred on the marker's anchor.
    {const d=await mini.evaluate(m=>{const b=m.querySelector('.map-car-body').getBoundingClientRect(),c=[b.left+b.width/2,b.top+b.height/2];
-     return Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{const M=p.getScreenCTM();return (p.style.strokeDasharray?[p.getPointAtLength(parseFloat(p.style.strokeDasharray))]:[p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())]).map(q=>Math.hypot(q.x*M.a+q.y*M.c+M.e-c[0],q.x*M.b+q.y*M.d+M.f-c[1]))}))});
+     return window.rvTestNearLine(m,c)});
     assert(d<=1,'car on the line: '+d)}
    // Smooth following. The car's place on the map (car centre minus the map pane's on-screen origin, both including
    // the sub-pixel translates) moves on every frame of playback by a fraction of a pixel, never a whole-pixel jump; the
@@ -531,22 +536,22 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
      const writes={label:0,total:0,note:0,bookmark:0},watch=(target,key,options)=>new MutationObserver(records=>{writes[key]+=records.length}).observe(target,options);
      watch(time,'label',{attributes:true});watch(time.querySelector('.time-total'),'total',{childList:true,characterData:true,subtree:true});
      watch(document.getElementById('noVideo'),'note',{childList:true,characterData:true,subtree:true,attributes:true});watch(document.querySelector('.bookmark-time'),'bookmark',{childList:true,characterData:true,subtree:true});
-     // The current segment's lines are drawn once: only the travelled line's dash moves with the car.
-     const paths=[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')],d0=paths.map(p=>p.getAttribute('d')),dashes=new Set();
+     // The current segment's line is drawn once: only the car moves.
+     const paths=[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')],d0=paths.map(p=>p.getAttribute('d'));
      const out=[],play=document.getElementById('play');play.click();const started=performance.now();
-     const step=()=>{const a=pane.getBoundingClientRect(),b=body.getBoundingClientRect();out.push([b.left+b.width/2-a.left,b.top+b.height/2-a.top]);dashes.add(m.querySelector('path.map-travelled').style.strokeDasharray);
-      if(performance.now()-started<1000)requestAnimationFrame(step);else{play.click();setTimeout(()=>resolve({out,writes,redrawn:paths.filter((p,i)=>!p.isConnected||p.getAttribute('d')!==d0[i]).length,paths:paths.length,dashes:dashes.size}))}};
+     const step=()=>{const a=pane.getBoundingClientRect(),b=body.getBoundingClientRect();out.push([b.left+b.width/2-a.left,b.top+b.height/2-a.top]);
+      if(performance.now()-started<1000)requestAnimationFrame(step);else{play.click();setTimeout(()=>resolve({out,writes,redrawn:paths.filter((p,i)=>!p.isConnected||p.getAttribute('d')!==d0[i]).length,paths:paths.length}))}};
      requestAnimationFrame(step);
     }));
     const steps=run.out.slice(1).map((p,i)=>Math.hypot(p[0]-run.out[i][0],p[1]-run.out[i][1])),moved=steps.filter(d=>d>.001).length,biggest=Math.max(...steps);
     const fractional=run.out.filter(p=>p.some(v=>Math.abs(v-Math.round(v))>.05)).length;
     assert(biggest<1&&moved>=steps.length*.6&&fractional>=run.out.length/3,'smooth: '+JSON.stringify({frames:run.out.length,moved,biggest,fractional}));
-    assert(run.paths===2&&run.redrawn===0&&run.dashes>=run.out.length/3,'the segment drawn once, its dash following: '+JSON.stringify({paths:run.paths,redrawn:run.redrawn,dashes:run.dashes,frames:run.out.length}));
+    assert(run.paths===1&&run.redrawn===0,'the segment drawn once: '+JSON.stringify({paths:run.paths,redrawn:run.redrawn,frames:run.out.length}));
     assert(run.writes.label<=4&&run.writes.total===0&&run.writes.note<=2&&run.writes.bookmark<=2,'per-frame DOM writes: '+JSON.stringify(run.writes))}
    // Following scrolls what is drawn: over 2 s of playback the small map's basemap (MapLibre) draws at most twice (it is
    // panned and redrawn only when the car nears the edge of its drawn margin), and on every frame the basemap, the lines
-   // and the car stay together: the car's centre is where MapLibre places its position, and the current lines end there
-   // (within a pixel: the travelled line is dashed up to the car). Stepping on (paused) until
+   // and the car stay together: the car's centre is where MapLibre places its position, on the current segment's line
+   // (within a pixel). Stepping on (paused) until
    // the basemap is re-centred: together (within a pixel) just before and just after, the car
    // still in its place on the map.
    // The replay maps draw up to their margin (1: a full size) beyond each edge, as much as keeps the basemap canvas within 4000 device
@@ -561,7 +566,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
      window.rvTestAlign=()=>{
       let car=null;map.eachLayer(l=>{if(l.options?.icon?.options?.className==='map-car')car=l.getLatLng()});
       const c=gl.getCanvas().getBoundingClientRect(),q=gl.project([car.lng,car.lat]),b=m.querySelector('.map-car-body').getBoundingClientRect(),at=[b.left+b.width/2,b.top+b.height/2],box=m.getBoundingClientRect();
-      const line=Math.min(...[...m.querySelectorAll('.leaflet-overlay-pane path.map-current')].flatMap(p=>{const M=p.getScreenCTM();return (p.style.strokeDasharray?[p.getPointAtLength(parseFloat(p.style.strokeDasharray))]:[p.getPointAtLength(0),p.getPointAtLength(p.getTotalLength())]).map(r=>Math.hypot(r.x*M.a+r.y*M.c+M.e-at[0],r.x*M.b+r.y*M.d+M.f-at[1]))}));
+      const line=window.rvTestNearLine(m,at);
       return {base:Math.hypot(c.left+q.x-at[0],c.top+q.y-at[1]),line,place:Math.hypot(at[0]-(box.left+box.width/2),at[1]-(box.top+box.height*.6)),drawn:m.querySelector('.leaflet-gl-layer').style.transform};
      };
     });
@@ -644,7 +649,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
      // The motion is sampled in the page on the first frame the frame has moved (a sample 120 ms after the tap could
      // still see it unmoved on a loaded machine).
      const during=await page.evaluate(before=>new Promise(done=>{const start=performance.now();document.getElementById('videoMap').click();
-      const look=()=>{const s=rvVideoMapState();if(s.frame.join()!==before.frame.join()||performance.now()-start>3000)done(s);else requestAnimationFrame(look)};requestAnimationFrame(look)}),before);assert(during.held&&during.centred&&during.frame.join()!==before.frame.join()&&during.box[0]>=during.frame[0]&&during.box[1]>=during.frame[1]&&(large||during.box.join()===before.box.join()),'held, centred and covering the moving frame '+JSON.stringify({before,during}));
+      const look=()=>{const s=rvVideoMapState();if(s.frame.join()!==before.frame.join()||performance.now()-start>3000)done(s);else requestAnimationFrame(look)};requestAnimationFrame(look)}),before);assert(during.held&&during.centred&&during.frame.join()!==before.frame.join()&&during.box[0]>=during.frame[0]&&during.box[1]>=during.frame[1]&&(large||during.box[0]>=before.box[0]&&during.box[1]>=before.box[1]),'held, centred and covering the moving frame (shrinking: at least its larger size, or a few px over it when the room was measured again meanwhile) '+JSON.stringify({before,during}));
      await page.waitForFunction(large=>{const s=rvVideoMapState();return !s.held&&s.large===large&&s.box.join()===s.frame.join()},large,{timeout:5000}).catch(()=>{});
      const after=await state();assert(!after.held&&after.large===large&&after.box.join()===after.frame.join()&&after.frame.join()!==before.frame.join()&&(!large||[0,1].every(k=>during.box[k]>=after.frame[k]-2&&during.box[k]-after.frame[k]<12)),'released at the new size (growing: held at that size, or a few px over it when the room for the map was measured again meanwhile: still covering) '+JSON.stringify({during,after}))}
     await page.emulateMedia({reducedMotion:'reduce'});await settleLayout(page)}

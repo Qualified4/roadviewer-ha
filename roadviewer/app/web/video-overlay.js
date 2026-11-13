@@ -160,7 +160,7 @@
   // off), and when that movement began. The three arrows each belong to one chevron, picked when the movement began and
   // followed as it flows along the road (slots: their 6-point outlines now, same order as BLINKER_SHAPE; null: none).
   const stateAt=(duration,settle)=>['blinkerLeft','blinkerRight'].map(key=>on('ccncRoad')?blinkerMorphState(data.frames,idx,t,key,duration,settle):{progress:0,settling:false,start:null});
-  let states=stateAt(BLINKER_MORPH,BLINKER_SETTLE),morph=states.map(s=>s.progress),settling=states.map(s=>s.settling),slots=[null,null,null];
+  let states=stateAt(BLINKER_MORPH,BLINKER_SETTLE),morph=states.map(s=>s.progress),settling=states.map(s=>s.settling),slots=[[null,null,null],[null,null,null]];
   // Settling back: the innermost arrow goes first, to the nearest chevron, the outermost last, to the farthest. Forming: the
   // nearest chevron goes first, to the outermost arrow. Arrow i (0 innermost) <-> chevron:
   const chevronOf=(i,side)=>settling[side]?i:2-i;
@@ -169,8 +169,20 @@
   // Forming: a sine ease in and out (gentle start and finish, no sharp middle). Settling back: the arrow leaves gently and
   // spends longer slowing down before it lands (an ease that is quick through the middle and long at the landing end).
   const clamp01=v=>Math.max(0,Math.min(1,v)),inOut=v=>.5-.5*Math.cos(Math.PI*clamp01(v)),landing=v=>{const p=clamp01(v);return 1-Math.pow(1-(.5-.5*Math.cos(Math.PI*p)),1.6)};
+  const ARROW_FADE=.35;  // share of an arrow's movement over which it turns from its chevron's look into the arrow's
   const ARROW_STAGGER=.18,arrowEase=(progress,i,back=false)=>{const p=(progress-i*ARROW_STAGGER)/(1-2*ARROW_STAGGER);return back?1-landing(1-p):inOut(p)};
-  let leadMarkAt=null;const sameCar=t=>t?.slot==='FF'&&leadMarkAt!==null&&Math.abs((t.x||0)-leadMarkAt)<3;
+  // paintChevron: set where the path is drawn (also used for the lifting arrows).
+  // Switching straight from one side to the other (its arrows up, its blinker now off, the other side's on): the arrows
+  // cross over at their own height instead of going back to the road while the others rise from it. The side going off is
+  // no longer drawn; the side coming on forms from its arrows (in left-to-right order, so none passes another) and the
+  // path chevrons stay hidden throughout.
+  let transfer=null;
+  {const lit=['blinkerLeft','blinkerRight'].map(k=>!!(frame.roadSignals??frame.ccncRoad)?.[k]);
+   const slow=stateAt(1.3,1.6);  // the side going off may be on either clock (from chevrons, or springing out of the car)
+   for(const to of [0,1]){const from=1-to,still=morph[from]>0||slow[from].progress>0,formed=settling[from]||slow[from].settling||morph[from]>=1;
+    if(on('ccncRoad')&&lit[to]&&!lit[from]&&morph[to]>0&&!settling[to]&&still&&formed){
+     transfer={from,to};states[from]={progress:0,settling:false,start:null};morph[from]=0;settling[from]=false}}}
+  let leadMarkAt=null,paintChevron=null;const sameCar=t=>t?.slot==='FF'&&leadMarkAt!==null&&Math.abs((t.x||0)-leadMarkAt)<3;
   const road=on('ccncRoad')?frame.ccncRoad:null,o=frame.overlay,smooth=v=>{const c=Math.max(0,Math.min(1,v));return c*c*(3-2*c)};
   if(frame.valid){
    context.save();context.globalCompositeOperation='lighter';
@@ -185,7 +197,7 @@
      // Dashes keep a tight halo: a wide one around a short bar reads as a box.
      if(dashes){for(const dash of dashes){const sides=dash.map(side=>side.map(p=>p?xy(p):null));lightBand(sides,middle(sides),color,style.edge,range,{body:.34,slim:.8,glow:0,coreWidth:0,outline:.55})}return}
      const sides=bands?.[i];
-     if(sides?.length===2)lightBand(sides.map(side=>side.map(p=>p?xy(p):null)),screen,color,style.edge,range,{wide:wide*1.4,slim:.6,body:.4,glow:isLane?0:.03,coreWidth:1.2,outline:isLane?.5:0});  // lanes: no light outside the line itself
+     if(sides?.length===2)lightBand(sides.map(side=>side.map(p=>p?xy(p):null)),screen,color,style.edge,range,{wide:wide*1.4,slim:.6,body:.4,glow:0,coreWidth:0,outline:.5});  // lanes and road edges alike: a band with a softly lit rim, no light outside it and no centre line
      else lightLine(screen,color,style.edge,range,[],!isLane);
     });
    }
@@ -211,13 +223,25 @@
       const carpet=fadeStyle(range,'#2f86e8',.2);fillBand(...sides,carpet,.2);
       // Edge: a thin crisp line with a narrow halo; a little of its light spreads inward over the carpet's outer part.
       for(const sign of [-1,1]){const edge=sides[(sign+1)/2];for(let k=1;k<=6;k++)fillBand(edge,samples.map(s=>ground(s,sign*half*(1-.045*k))),carpet,.022);strokeLine(edge,carpet,4.5,.2);strokeLine(edge,fadeStyle(range,'#cfe8ff',.2),1.3,.9)}
+      // Beyond the lead the path goes on as dashed edges to the end of the model's path, fading with distance. Inside the
+      // lead car's outline (2.2 m wide, 1.7 m tall at its distance) the road is hidden by the car: the dashes there are faint.
+      const far=xs?.at(-1)??0,ahead=Number.isFinite(cut)?pathBeyondLead(cut,far):[],at=pathAt(cut),up=o.heightDirection;
+      if(ahead.length){
+       const outline=at&&up?[[-1.1,0],[1.1,0],[1.1,1.7],[-1.1,1.7]].map(([lat,h])=>proj(at.c.map((v,k)=>v+at.n[k]*lat+up[k]*h))):null;
+       const shape=()=>{context.beginPath();outline.forEach((q,i)=>i?context.lineTo(...q):context.moveTo(...q));context.closePath()};
+       const dashes=dim=>{for(const [a,b,alpha] of ahead)for(const lat of [-half,half]){const p=[];for(let d=a;d<=b+1e-6;d+=.2){const s=pathAt(Math.min(d,far));p.push(s?ground(s,lat):null)}strokeLine(p,'#4aa8ff',5,.16*alpha*dim);strokeLine(p,'#cfe8ff',1.3,.8*alpha*dim)}};
+       if(!outline)dashes(1);
+       else{context.save();context.beginPath();context.rect(-1e4,-1e4,3e4,3e4);outline.forEach((q,i)=>i?context.lineTo(...q):context.moveTo(...q));context.closePath();context.clip('evenodd');dashes(1);context.restore();
+        context.save();shape();context.clip();dashes(.3);context.restore()}
+      }
       // Chevrons pointing forward, fixed to the road (distance travelled) so they flow past like lane dashes. They also
       // carry the drive state, each part keyed to data the log has:
       //  - slowing down: the light turns amber from the apex, deeper the harder the car slows (the lead glow's level);
       //  - target following distance: beyond it they are dim; with the lead well inside it they are not drawn at all;
       //  - longitudinal control not active (from the vehicle data, once loaded): not drawn;
       //  - standing still: they breathe slowly instead of flowing.
-      const step=2.5,end=Math.min(Number.isFinite(cut)?cut-3:Infinity,xs?.at(-1)??0,17),phase=motionAllowed()?(((-(frame.odometer||0)*.4)%step)+step)%step:1.5;  // flowing at 40% of the car's own speed: at full speed it raced
+      // With a lead they end 3 m short of it and fade out by 17 m; with none they run to 30 m, fading from 20 m.
+      const farthest=Number.isFinite(cut)?17:30,step=2.5,end=Math.min(Number.isFinite(cut)?cut-3:Infinity,xs?.at(-1)??0,farthest),phase=motionAllowed()?(((-(frame.odometer||0)*.4)%step)+step)%step:1.5;  // flowing at 40% of the car's own speed: at full speed it raced
       const warm=targetBrakeLevel(data.frames,idx),control=window.rvControlAt?.(t)??null,still=Number.isFinite(frame.egoSpeedKph)&&frame.egoSpeedKph<.5;
       const gapAt=on('gapTarget')&&Number.isFinite(frame.gapTarget)&&frame.gapTarget>0?frame.gapTarget:null,crowded=gapAt!==null&&lead!==null&&lead<.85*gapAt;
       const breathe=still&&motionAllowed()?.55+.45*(.5+.5*Math.cos(t*Math.PI*2/2.4)):1;
@@ -228,33 +252,37 @@
       // One chevron at distance d: its outline on the road and how strongly it shows there.
       const chevronAt=d=>{
        const s=pathAt(d);if(!s)return null;
-       let strength=d<end?smooth((d-5.5)/1.2)*smooth(end-d)*smooth((17-d)/6)*breathe:0;if(gapAt!==null&&d>gapAt)strength*=.35;
+       let strength=d<end?smooth((d-5.5)/1.2)*smooth(end-d)*smooth((farthest-d)/(farthest===17?6:10))*breathe:0;if(gapAt!==null&&d>gapAt)strength*=.35;
        // As on the concept board: a band of even thickness in a wide shallow V, about 40% of the path's width.
        const row=back=>[-1,0,1].map(u=>ground(s,u*half*.4,-.52*Math.abs(u)-back)),thick=.4,front=row(0),rear=row(thick);
        if(![...front,...rear].every(Boolean))return null;
        // The wing ends run parallel to the path's edge lines on screen: the lower corner spreads outwards as the edge does.
        for(const k of [0,2]){const a=ground(s,(k-1)*half,-.52),b=ground(s,(k-1)*half,-.52-thick);if(a&&b)rear[k]=[front[k][0]+b[0]-a[0],front[k][1]+b[1]-a[1]]}
-       return {front,rear,strength,fill,edge,reach:Math.max(4,Math.hypot(front[2][0]-front[1][0],front[2][1]-front[1][1])),points:[rear[0],front[0],front[1],front[2],rear[2],rear[1]]};
+       return {front,rear,strength,fill,edge,fillOut,edgeOut,reach:Math.max(4,Math.hypot(front[2][0]-front[1][0],front[2][1]-front[1][1])),points:[rear[0],front[0],front[1],front[2],rear[2],rear[1]]};
       };
       // The arrows' chevrons, picked when the movement began and followed along the road since. Forming: the three nearest
       // chevrons then. Settling back: three chevrons in a row, the first being the one that will be about 7 m ahead when the
       // innermost arrow lands (the road keeps flowing meanwhile; landing time from the easing, distance from the speed then),
       // so the arrows land near, midway and far with no chevron skipped. Beyond the lead there is no place: that arrow comes
-      // from (or goes into) the car instead.
+      // from (or goes into) the car instead. Each side has its own three: on a switch from one side to the other, the side
+      // that began later takes the next three chevrons if its first pick would share one with the other side's.
+      // A chevron is named by its place on the road (road: its distance ahead plus 40% of the odometer, constant as it flows).
       const odometerAt=time=>data.frames[nearest(time)]?.odometer||0,phaseOf=odometer=>motionAllowed()?(((-odometer*.4)%step)+step)%step:1.5;
-      const active=morph[1]>morph[0]?1:0,start=morph[active]>0?states[active].start:null;
-      const startAt=5.5+phaseOf(start===null?frame.odometer||0:odometerAt(start)),moved=start!==null&&motionAllowed()?((frame.odometer||0)-odometerAt(start))*.4:0;
+      const roadAt=odometer=>motionAllowed()?odometer*.4:0,now=roadAt(frame.odometer||0);
       const reachable=Math.min(Number.isFinite(cut)?cut-1:Infinity,xs?.at(-1)??0);
-      const speed=motionAllowed()&&start!==null?Math.max(0,(data.frames[nearest(start)]?.egoSpeedKph||0)/3.6*.4):0;
-      const first=Math.round((7+speed*(1-2*ARROW_STAGGER)*BLINKER_SETTLE-startAt)/step),ids=settling[active]?[first,first+1,first+2]:[0,1,2];
-      if(!crowded&&control!==false)slots=ids.map((id,i)=>{const placed=startAt+id*step,landing=settling[active]?7+2.5*i:placed;return landing<reachable?chevronAt(Math.max(1,placed-moved)):null});
+      const picks=[0,1].map(side=>{
+       if(!(morph[side]>0))return null;
+       const start=states[side].start,odometer=start===null?frame.odometer||0:odometerAt(start),startAt=5.5+phaseOf(odometer);
+       const speed=motionAllowed()&&start!==null?Math.max(0,(data.frames[nearest(start)]?.egoSpeedKph||0)/3.6*.4):0;
+       const first=Math.round((7+speed*(1-2*ARROW_STAGGER)*BLINKER_SETTLE-startAt)/step),ids=settling[side]?[first,first+1,first+2]:[0,1,2];
+       return {start:start??-Infinity,road:ids.map(id=>startAt+id*step+roadAt(odometer)),back:settling[side]};
+      });
+      const same=(a,b)=>Math.abs(a-b)<step/2;
+      if(picks[0]&&picks[1]){const later=picks[1].start>picks[0].start?1:0,other=picks[1-later];
+       if(picks[later].road.some(u=>other.road.some(v=>same(u,v))))picks[later].road=picks[later].road.map(u=>u+3*step)}
+      if(!crowded&&control!==false)slots=picks.map(pick=>pick?pick.road.map((u,i)=>{const d=u-now,landing=pick.back?7+2.5*i:d;return landing<reachable?chevronAt(Math.max(1,d)):null}):[null,null,null]);
       // (landing: roughly where it lands; only used against the lead)
-      for(let d=5.5+phase;!crowded&&control!==false&&d<end;d+=step){
-       const c=chevronAt(d);if(!c||c.strength<=.01)continue;
-       const {front,rear,reach,strength}=c,n=Math.round((d+moved-startAt)/step);  // n: which of the movement's chevrons this is
-       // A chevron whose arrow has set off is no longer on the road (it is that arrow now); chevrons that are not one of the
-       // three go while the arrows are up. The others stay and flow until their turn.
-       const going=morph[active],rank=ids.indexOf(n);if(going>0&&(rank<0?!settling[active]:arrowEase(going,2-chevronOf(rank,active),settling[active])>0))continue;  // settling: the others keep flowing
+      paintChevron=(front,rear,reach,strength,fill,fillOut,edge,edgeOut)=>{
        // Fill: fainter than the edges. It holds its light from the apex over most of the wings (an eased curve, not a
        // straight fall) and eases down near the wing ends (about 0.87 of this radius) to a floor of a third, never clear.
        context.fillStyle=radial(front[1],reach*1.15,[[0,.9,fill],[.35,.87,fill],[.55,.8,fill],[.68,.66,fillOut],[.78,.5,fillOut],[.86,.38,fillOut],[.92,.32,fillOut],[1,.3,fillOut]]);context.globalAlpha=.32*strength;  // clearly fainter than the edges
@@ -263,9 +291,20 @@
        const top=radial(front[1],reach*1.05,[[0,1,edge],[.4,.72,edge],[.76,.22,edgeOut],[1,.22,edgeOut]]);
        // Rear edge: lit at its middle, nearly gone a third of the way out, a faint trace beyond.
        const bottom=radial(rear[1],reach*1.05,[[0,.8,edge],[.33,.16,edgeOut],[1,.1,edgeOut]]);
-       strokeLine(front,top,3.5,.07*strength);strokeLine(front,top,1.6,.17*strength);strokeLine(front,top,.9,.39*strength);
+       strokeLine(front,top,3,.07*strength);strokeLine(front,top,1.4,.17*strength);strokeLine(front,top,.8,.39*strength);
+       // Every edge has the same widths (the rear's original, thinner ones): only the light differs (the rear dimmer), never the thickness.
        strokeLine(rear,bottom,3,.05*strength);strokeLine(rear,bottom,1.4,.12*strength);strokeLine(rear,bottom,.8,.27*strength);
        for(const k of [0,2]){const end=[front[k],rear[k]];strokeLine(end,top,1.4,.1*strength);strokeLine(end,top,.8,.24*strength)}
+      };
+      for(let d=5.5+phase;!crowded&&control!==false&&!transfer&&d<end;d+=step){
+       const c=chevronAt(d);if(!c||c.strength<=.01)continue;
+       // A chevron whose arrow has set off is no longer on the road: it is that arrow now, lifting off in its own light
+       // (below). The chevrons that are not one of a side's three fade out as its arrows form and fade back in as they
+       // settle; the picked ones stay and flow until their turn.
+       const u=d+now,ranks=picks.map(pick=>pick?pick.road.findIndex(v=>same(u,v)):-1);
+       if([0,1].some(side=>ranks[side]>=0&&arrowEase(morph[side],2-chevronOf(ranks[side],side),settling[side])>0))continue;
+       const keep=ranks.some(r=>r>=0)?1:Math.min(1,...[0,1].filter(side=>picks[side]).map(side=>settling[side]?smooth((1-morph[side])/.3):1-smooth(morph[side]/.3)));
+       if(keep>.01)paintChevron(c.front,c.rear,c.reach,c.strength*keep,fill,fillOut,edge,edgeOut);
       }
      }
     }else if(o.path?.length)lightLine(o.path.map(p=>p?xy(p):null),'#58b4ff');
@@ -322,10 +361,23 @@
    context.restore();
   }
   if(frame.valid&&on('bsdWalls')&&bsdHeight>0&&frame.overlay.heightDirection){
+   // A lead car (the cluster TARGET) ends the wall at its distance; without one it runs as far as the lane line is sampled.
+   const leadRoad=frame.ccncRoad,leadAt=[1,3].includes(leadRoad?.target)&&leadRoad.distance>0&&leadRoad.distance<204.6?leadRoad.distance:Infinity;
    blindspotLevels(data.frames,idx,frame.t).forEach((amount,i)=>{
     if(!amount)return;
-    const bottom=[],upper=[],direction=frame.overlay.heightDirection;
-    (frame.overlay.blindspotPaths?.[i]||[]).forEach(p=>{
+    const bottom=[],upper=[],direction=frame.overlay.heightDirection,xs=frame.overlay.blindspotX?.[i];
+    let samples=frame.overlay.blindspotPaths?.[i]||[];
+    if(Number.isFinite(leadAt)&&xs?.length===samples.length){
+     const kept=[];
+     for(let j=0;j<samples.length;j++){
+      if(xs[j]<=leadAt){kept.push(samples[j]);continue}
+      // Projective samples: the point at the lead between two samples is their linear mix.
+      if(j&&samples[j-1]&&samples[j]){const r=(leadAt-xs[j-1])/(xs[j]-xs[j-1]);kept.push(samples[j-1].map((v,k)=>v+(samples[j][k]-v)*r))}
+      break;
+     }
+     samples=kept;
+    }
+    samples.forEach(p=>{
      const q=p?.map((v,k)=>v+direction[k]*bsdHeight*amount);
      const valid=p&&p.every(Number.isFinite)&&p[2]>.1&&q.every(Number.isFinite)&&q[2]>.1;
      bottom.push(valid?xy([p[0]/p[2],p[1]/p[2]]):null);upper.push(valid?xy([q[0]/q[2],q[1]/q[2]]):null);
@@ -363,7 +415,9 @@
   // car; with no chevron at all this runs more slowly.
   // The three arrows go one after another; each eases in and out on a straight path, outline and colour blending.
   {const arrowLeft=left+12,arrowRight=left+vw-12,arrowY=top+vh*.66,cx=left+vw/2,anchors=[[cx-vw*.16,arrowY],[cx+vw*.16,arrowY]];
-   const spring=!slots.some(Boolean);if(spring){states=stateAt(1.3,1.6);morph=states.map(s=>s.progress);settling=states.map(s=>s.settling)}
+   if(transfer)slots[transfer.to]=blinkerArrows(transfer.from,arrowLeft,arrowRight,arrowY,anchors).map(points=>({points,strength:1,fill:'#62edb9',edge:'#a0ffe1',transfer:true}));
+   // A side with no chevron to come from springs out of the car, more slowly.
+   {const slow=stateAt(1.3,1.6);for(const side of [0,1])if(!slots[side].some(Boolean)&&side!==transfer?.from){states[side]=slow[side];morph[side]=slow[side].progress;settling[side]=slow[side].settling}}
    drawBlinkers(context,on('ccncRoad')?{blinkerLeft:morph[0]>=1,blinkerRight:morph[1]>=1}:null,t,arrowLeft,arrowRight,arrowY,anchors,true);
    const springFrom=()=>{const y=top+vh*.985,w=vw*.035;return [[cx-w,y+w*.3],[cx-w,y],[cx,y-w*.45],[cx+w,y],[cx+w,y+w*.3],[cx,y-w*.15]]};
    for(const side of [0,1]){
@@ -371,16 +425,19 @@
     context.save();context.lineWidth=1.5;context.lineJoin='round';
     blinkerArrows(side,arrowLeft,arrowRight,arrowY,anchors).forEach((target,i)=>{
      const order=2-i,e=arrowEase(progress,order,settling[side]),pulse=blinkerPulse(t,i);if(e<=0)return;  // not set off yet: still a chevron on the road (or nothing)
-     const source=slots[chevronOf(i,side)],from=source?.points||springFrom(),start=source?source.strength:0;
+     const source=slots[side][chevronOf(i,side)],from=source?.points||springFrom(),start=source?source.strength:0;
      // From the car the arrow first heads straight ahead and then curves out to its place: its centre follows a quadratic
      // curve whose control point lies straight ahead of the start, at the target's height; the outline blends on the way.
      // From a chevron it moves straight.
      const centre=q=>q.reduce((c,p)=>[c[0]+p[0]/q.length,c[1]+p[1]/q.length],[0,0]),a0=centre(from),a1=centre(target),bend=[a0[0],a1[1]];
      const path=source?[a0[0]+(a1[0]-a0[0])*e,a0[1]+(a1[1]-a0[1])*e]:[0,1].map(k=>(1-e)*(1-e)*a0[k]+2*(1-e)*e*bend[k]+e*e*a1[k]);
-     const points=target.map((p,j)=>[path[0]+(from[j][0]-a0[0])*(1-e)+(p[0]-a1[0])*e,path[1]+(from[j][1]-a0[1])*(1-e)+(p[1]-a1[1])*e]),mix=(a,b)=>a+(b-a)*e;
+     // Off a chevron the arrow is that chevron lifting away: it starts in the chevron's own light (fill and lit edges) and
+     // turns into the arrow's look over the first part of the move (the reverse as it lands), one shape all the way.
+     const points=target.map((p,j)=>[path[0]+(from[j][0]-a0[0])*(1-e)+(p[0]-a1[0])*e,path[1]+(from[j][1]-a0[1])*(1-e)+(p[1]-a1[1])*e]),crossing=!!source?.transfer,look=source&&paintChevron&&!crossing?smooth(e/ARROW_FADE):1,mix=(a,b)=>crossing?b:(a+(b-a)*e)*look;
+     if(look<1){const [r0,f0,f1,f2,r2,r1]=points;context.save();context.globalCompositeOperation='lighter';paintChevron([f0,f1,f2],[r0,r1,r2],Math.max(4,Math.hypot(f2[0]-f1[0],f2[1]-f1[1])),start*(1-look),source.fill,source.fillOut,source.edge,source.edgeOut);context.restore()}
      context.beginPath();points.forEach((p,j)=>j?context.lineTo(...p):context.moveTo(...p));context.closePath();
      context.shadowBlur=0;context.fillStyle=mixColor(source?.fill||'#43e7e0','#62edb9',e);context.globalAlpha=mix(.3*start,.24*pulse);context.fill();
-     context.shadowColor='#a0ffe1';context.shadowBlur=e>=1?4:0;context.strokeStyle=mixColor(source?.edge||'#86fff0','#a0ffe1',e);context.globalAlpha=mix(.4*start,pulse);context.stroke();
+     context.shadowColor='#a0ffe1';context.shadowBlur=e>=1||crossing?4:0;context.strokeStyle=mixColor(source?.edge||'#86fff0','#a0ffe1',e);context.globalAlpha=mix(.4*start,pulse);context.stroke();
     });
     context.restore();
    }}

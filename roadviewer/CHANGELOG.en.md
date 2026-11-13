@@ -4,6 +4,19 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.1
+
+- Logs converted before 1.3.0 now show the following-distance setting and target distance too. After the update the app fills them in the background from the original log (rlog) alone, one log at a time: no reconversion, no video downloaded again, and it waits while conversions, uploads, playback or archive moves run.
+- Past the lead, the driving path continues to its end as dashed edges that fade with distance, drawn faint where they cross the lead car.
+- The blind-spot wall ends at the lead's distance when there is a lead.
+- When a blinker comes on or goes off, the path chevrons and the >>> arrows cross-fade instead of switching at once, and the other path chevrons fade out and back in. A lifting arrow keeps its chevron's light as it rises and turns into the >>> shape.
+- A blinker switched off while its arrows rise, or back on while they settle, turns them round where they are. Switching straight from one side to the other carries the <<< across at their height into >>>.
+- With no lead, the path chevrons run to 30 m, fading from 20 m (with a lead: up to 17 m and 3 m short of it, as before).
+- The path chevrons' front edge is now as thin as the rear edge.
+- Solid lane lines no longer show a line down their middle, and road edges no longer glow over the neighbouring lanes: they are drawn like lanes, a band with a soft rim.
+- The replay map and the small map over the video highlight the whole segment being played instead of the part already driven; the drive's other segments are faded.
+- A Google Drive parallel-upload test that sometimes failed now counts requests in flight instead of timing them.
+
 ## 1.3.0
 
 - The video overlay is redrawn in a "road projection" style: lanes, road edges, the path and vehicle marks look like light on the road instead of painted lines. The path is a faint blue floor with thin edge lines that ends at the lead car, with teal chevrons flowing towards you (at 40% of your speed). Lanes are translucent bands with a thin glowing outline; dashed lanes are drawn as real dashes. On a phone's small picture lines and text get thinner and smaller to match.

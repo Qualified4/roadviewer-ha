@@ -138,6 +138,52 @@ def ccnc_at(rows,times,stamp):
  if i<0 or stamp-times[i]>=150_000_000 or not rows[i][1]:return None
  return rows[i][2]
 
+# The following-distance setting and the planner's target distance, per replay frame. prepare() and the gap backfill
+# (gap_backfill.py, which fills logs converted before 1.3.0 from their rlog alone) share this code, so both give a
+# frame the same values.
+GAP_KINDS=('carControl','longitudinalPlan')
+class Gaps:
+ def __init__(self):self.bars=[];self.targets=[]
+ def add(self,e,kind):
+  # carControl.hudControl.leadDistanceBars: the following-distance setting openpilot shows on the cluster (1 nearest .. 4).
+  if kind=='carControl':self.bars.append((e.logMonoTime,e.valid,int(e.carControl.hudControl.leadDistanceBars)))
+  # longitudinalPlan.desiredDistance: the following distance the planner aims for, in metres (drawn as the target marks).
+  elif kind=='longitudinalPlan':
+   value=float(e.longitudinalPlan.desiredDistance);self.targets.append((e.logMonoTime,e.valid,round(value,1) if math.isfinite(value) and value>0 else None))
+ def finish(self):
+  self.bars.sort(key=lambda row:row[0]);self.bar_times=[row[0] for row in self.bars]
+  self.targets.sort(key=lambda row:row[0]);self.target_times=[row[0] for row in self.targets]
+  return self
+ def at(self,stamp):
+  # (gap, gapTarget) of a frame at camera time stamp (ns): the latest fresh value, as for the CCNC commands.
+  gap=ccnc_at(self.bars,self.bar_times,stamp)
+  return gap if gap in (1,2,3,4) else None,ccnc_at(self.targets,self.target_times,stamp)
+
+def frame_clock(cameras):
+ # A model frame's camera time in seconds: its road camera frame's end of exposure, else the model's own timestamp.
+ camera_by_id={q['frameId']:q['timestampEof'] for q in cameras}
+ return lambda stamp,m:camera_by_id.get(m['frameId'],m.get('timestampEof') or stamp)/1e9
+
+LOG_LIMIT=512*1024*1024  # Decompressed rlog bytes.
+def read_gaps(path):
+ """(frames, Gaps) from the rlog alone: (frameId, camera time in ns) of every model frame in prepare()'s replay order,
+ and the gap rows. Only modelV2, qRoadEncodeIdx, carControl and longitudinalPlan are read; other events are skipped."""
+ with open(path,'rb') as source,zstandard.ZstdDecompressor().stream_reader(source,closefd=False) as reader:raw=reader.read(LOG_LIMIT+1)
+ if len(raw)>LOG_LIMIT:raise ValueError('압축 해제된 로그가 512MB 제한을 초과합니다.')
+ models=[];cameras=[];gaps=Gaps()
+ for e in log.Event.read_multiple_bytes(raw):
+  try:kind=e.which()
+  except capnp.KjException as exc:
+   if 'Attempted to call which on a non-union type' not in str(exc):raise
+   continue
+  if kind=='modelV2':models.append((e.logMonoTime,{'frameId':e.modelV2.frameId,'timestampEof':e.modelV2.timestampEof}))
+  elif kind=='qRoadEncodeIdx':cameras.append({'frameId':e.qRoadEncodeIdx.frameId,'timestampEof':e.qRoadEncodeIdx.timestampEof})
+  elif kind in GAP_KINDS:gaps.add(e,kind)
+ if not models:raise ValueError('이 로그에 modelV2 데이터가 없습니다.')
+ time_of=frame_clock(cameras)
+ models.sort(key=lambda row:time_of(*row))
+ return [(m['frameId'],time_of(stamp,m)*1e9) for stamp,m in models],gaps.finish()
+
 def first_y(line):
  values=line.get('y',[])
  return float(values[0]) if values and math.isfinite(values[0]) else None
@@ -164,11 +210,11 @@ def prepare(value,route=None):
     block=source.read(size);report('log_decompress',100*source.tell()/compressed_size);return block
   report('log_decompress',0)
   with zstandard.ZstdDecompressor().stream_reader(CompressedSource(),closefd=False) as reader:
-   raw=reader.read(512*1024*1024+1)
+   raw=reader.read(LOG_LIMIT+1)
  report('log_decompress',100)
- if len(raw)>512*1024*1024:raise ValueError('압축 해제된 로그가 512MB 제한을 초과합니다.')
+ if len(raw)>LOG_LIMIT:raise ValueError('압축 해제된 로그가 512MB 제한을 초과합니다.')
  streams=collections.defaultdict(list)
- ccnc=[];ccnc_rears=[];ccnc_roads=[];road_signals=[];gaps=[];gap_targets=[]
+ ccnc=[];ccnc_rears=[];ccnc_roads=[];road_signals=[];gaps=Gaps()
  video_indices=collections.defaultdict(list)
  models=[];radars=[];cameras=[];live_tracks=[];car_states=[];counts=collections.Counter();starts=Starts();track=gps_track.Collector()
  offset=0;report('log_read',0)
@@ -196,11 +242,7 @@ def prepare(value,route=None):
     if msg.address==0x162 and msg.src<128 and len(msg.dat)==32:
      ccnc.append((e.logMonoTime,e.valid,ccnc_targets(msg.dat)))
      ccnc_rears.append((e.logMonoTime,e.valid,ccnc_rear_targets(msg.dat)))
-  # carControl.hudControl.leadDistanceBars: the following-distance setting openpilot shows on the cluster (1 nearest .. 4).
-  elif kind=='carControl':gaps.append((e.logMonoTime,e.valid,int(e.carControl.hudControl.leadDistanceBars)))
-  # longitudinalPlan.desiredDistance: the following distance the planner aims for, in metres (drawn as the target marks).
-  elif kind=='longitudinalPlan':
-   value=float(e.longitudinalPlan.desiredDistance);gap_targets.append((e.logMonoTime,e.valid,round(value,1) if math.isfinite(value) and value>0 else None))
+  elif kind in GAP_KINDS:gaps.add(e,kind)
   elif kind=='radarState':radars.append((e.logMonoTime,e.valid,pick(e.radarState,SPECS['radarState'])))
   elif kind=='liveTracks':live_tracks.append((e.logMonoTime,e.valid,pick(e.liveTracks,SPECS['liveTracks'])))
   elif kind=='carState':
@@ -212,8 +254,7 @@ def prepare(value,route=None):
  progress.update('log_read',frames=len(models),percent=100,force=True)
  cameras=video_indices['qRoadEncodeIdx']
  if not models:raise ValueError('이 로그에 modelV2 데이터가 없습니다.')
- camera_by_id={q['frameId']:q['timestampEof'] for q in cameras}
- time_of=lambda stamp,m:camera_by_id.get(m['frameId'],m.get('timestampEof') or stamp)/1e9
+ time_of=frame_clock(cameras)
  origin=min(time_of(stamp,m) for stamp,valid,m in models)
  rt=[r[2].get('mdMonoTime',r[0]) for r in radars]
  ordered=sorted(zip(rt,radars),key=lambda item:item[0]);rt=[a for a,b in ordered];radars=[b for a,b in ordered]
@@ -224,8 +265,7 @@ def prepare(value,route=None):
  ccnc.sort(key=lambda row:row[0]);ccnc_times=[row[0] for row in ccnc]
  ccnc_rears.sort(key=lambda row:row[0]);rear_times=[row[0] for row in ccnc_rears]
  road_signals.sort(key=lambda row:row[0]);signal_times=[row[0] for row in road_signals]
- gaps.sort(key=lambda row:row[0]);gap_times=[row[0] for row in gaps]
- gap_targets.sort(key=lambda row:row[0]);gap_target_times=[row[0] for row in gap_targets]
+ gaps.finish()
  steering=SteeringReplay(streams)
  overlay=OverlayProjector(streams)
  models.sort(key=lambda row:time_of(row[0],row[2]))
@@ -260,8 +300,7 @@ def prepare(value,route=None):
   frames[-1]['ccncRearTargets']=ccnc_at(ccnc_rears,rear_times,time_of(stamp,m)*1e9) if ccnc else None
   frames[-1]['ccncRoad']=ccnc_at(ccnc_roads,ccnc_road_times,time_of(stamp,m)*1e9)
   frames[-1]['roadSignals']=ccnc_at(road_signals,signal_times,time_of(stamp,m)*1e9)
-  gap=ccnc_at(gaps,gap_times,time_of(stamp,m)*1e9);frames[-1]['gap']=gap if gap in (1,2,3,4) else None
-  frames[-1]['gapTarget']=ccnc_at(gap_targets,gap_target_times,time_of(stamp,m)*1e9)
+  frames[-1]['gap'],frames[-1]['gapTarget']=gaps.at(time_of(stamp,m)*1e9)
   frames[-1]['cameraInfo']=overlay.camera_info(time_of(stamp,m)*1e9)
   frames[-1]['overlay']=overlay.project(time_of(stamp,m)*1e9,m,frames[-1])
   progress.update('log_analysis',frames=len(frames),total_frames=len(models))
