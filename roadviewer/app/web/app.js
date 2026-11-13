@@ -865,8 +865,10 @@ function render(lazy){
  const distance=$('boundaryDistance').getAttribute('aria-pressed')==='true';
  const meters=value=>Number.isFinite(value)?(value>0?'+':'')+value.toFixed(3)+' m':'—';
  ['lane0','left','right','lane3'].forEach((id,i)=>{$(id).textContent=valid?(distance?meters(f.laneY0?.[i]):percent(f.lp[i])):'—'});
- // Cluster lane code next to the own-lane lines: LANELINE_LEFT/RIGHT raw value and its meaning.
- [['laneLineLeft',1],['laneLineRight',2]].forEach(([id,i])=>{const code=valid?laneLineCode(f,i):undefined,el=$(id);el.hidden=!Number.isInteger(code);if(!el.hidden)el.textContent=`${i===1?'LANELINE_LEFT':'LANELINE_RIGHT'} ${code} · ${LANE_LINE_CODES[code]?.label||'미정의'}`});
+ // Cluster lane line type inside the own-lane cards: a short piece of the line (colour, solid/dashed) on the inner
+ // edge of 차선 1 and 차선 2, so the two face each other like the lane. Hidden and undocumented codes draw nothing.
+ [['laneLineLeft',1],['laneLineRight',2]].forEach(([id,i])=>{const code=valid?laneLineCode(f,i):undefined,style=LANE_LINE_CODES[code],el=$(id);el.hidden=!style||style.type==='hidden';if(el.hidden||el.dataset.code===String(code))return;
+  el.dataset.code=code;el.dataset.type=style.type;el.style.setProperty('--lane',style.color);el.title=`${i===1?'왼쪽':'오른쪽'} 차선 · ${style.label} (${i===1?'LANELINE_LEFT':'LANELINE_RIGHT'} ${code})`;el.setAttribute('aria-label',`${i===1?'왼쪽':'오른쪽'} 차선 ${style.label}`)});
  ['edge0','edge1'].forEach((id,i)=>{$(id).textContent=valid?(distance?meters(f.edgeY0?.[i]):Number.isFinite(f.es[i])?f.es[i].toFixed(3)+' m':'—'):'—'});
  renderRadarValues(f,valid,rawTargets,rawVisible);
  renderSteering(f);

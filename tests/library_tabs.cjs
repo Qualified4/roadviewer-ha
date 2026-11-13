@@ -139,6 +139,15 @@ const {showTab,waitForSteadyLayout}=require('./browser-helpers.cjs');
   assert(await page.locator('.log-day').first().isHidden(),'empty date sections hide');
   await chip('미변환').click();assert.deepEqual(await shown(),['041b0']);assert.equal(await page.locator('#tagFilterStatus').textContent(),'1개 로그 표시 중');
   await chip('전체').click();assert.equal(await page.locator('#tagFilterStatus').isHidden(),true);assert.equal((await shown()).length,6);
+  // Tags add up (AND): a second tag keeps the first selected and only logs carrying both stay; 태그 없음 stands alone.
+  {const pressed=()=>page.locator('#logChips .filter-chip[aria-pressed=true]').evaluateAll(c=>c.map(e=>e.querySelector('span:not(.chip-count)').textContent));
+   await chip('고속도로').click();const a=await shown();await chip('야간').click();const both=await shown();
+   assert.deepEqual(await pressed(),['고속도로','야간'],'both tags stay selected');
+   await chip('고속도로').click();const b=await shown();assert.deepEqual(await pressed(),['야간'],'pressing a selected tag again clears only that one');
+   assert(a.length===1&&b.length===1,'each tag has one log');assert.deepEqual(both,a.filter(id=>b.includes(id)),'only logs with every selected tag are shown');
+   await chip('고속도로').click();await chip('태그 없음').click();assert.deepEqual(await pressed(),['태그 없음'],'태그 없음 replaces the selected tags');assert.equal((await shown()).length,4);
+   await chip('야간').click();assert.deepEqual(await pressed(),['야간'],'a tag replaces 태그 없음');assert.deepEqual(await shown(),b);
+   await chip('전체').click();assert.equal((await shown()).length,6)}
   // Search: names, route IDs, tags and dates.
   for(const [query,ids] of [['구간 3',['041b3']],['00000395',['03950']],['야간',['03950']],['어제',['03950','03960']],['고속도로',['041b0']],['41B / 구간 0',['041b0']]]){
    await page.locator('#logSearch').fill(query);assert.deepEqual((await shown()).sort(),ids.sort(),query);
@@ -159,6 +168,12 @@ const {showTab,waitForSteadyLayout}=require('./browser-helpers.cjs');
    // the bar tight, and off-screen cards settle their real heights over the next frames (content-visibility), which can
    // add or remove the scrollbar. The bar is measured once all of that has come to rest.
    await waitForSteadyLayout(page,'.lib-appbar-inner, .lib-appbar h1, .lib-status');
+   // The page's own poll (every 3 s) hides the pill this test showed, and the wordmark is fitted a few frames after the
+   // pill appears: measured in between (seen when the eight groups run at once), the narrow widths failed. Wait for the
+   // fitted state, showing the pill again if the poll took it away.
+   if(pill&&width<=360)await page.waitForFunction(()=>{
+    const p=document.getElementById('uploadPill');if(p.hidden){p.hidden=false;document.getElementById('uploadPillText').textContent='업로드 100%';return false}
+    return parseFloat(getComputedStyle(document.querySelector('.lib-appbar h1')).fontSize)<16||getComputedStyle(document.getElementById('headerStorageText')).display==='none'},null,{timeout:5000}).catch(()=>{});
    const m=await page.evaluate(()=>{
     const h=document.querySelector('.lib-appbar h1').getBoundingClientRect(),st=document.querySelector('.lib-status').getBoundingClientRect(),inner=document.querySelector('.lib-appbar-inner').getBoundingClientRect();
     const t=document.querySelector('.lib-appbar h1');

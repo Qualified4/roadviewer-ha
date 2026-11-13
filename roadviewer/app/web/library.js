@@ -656,10 +656,11 @@ async function refreshProgress(){
  }catch{}finally{progressRefreshing=false}
 }
 
-// Filters: one built-in chip, one tag chip (or 태그 없음) and the search text, combined with AND.
+// Filters: one built-in chip, any number of tag chips (a log must carry all of them; 태그 없음 stands alone) and the
+// search text, combined with AND.
 const FILTERS=[['all','전체',()=>true],['pinned','고정',m=>!!m.pinned],['unconverted','미변환',m=>m.status==='unconverted'||m.status==='error'],['processing','처리 중',m=>m.status==='queued'||m.status==='processing'],
  ['gdrive','Drive',m=>Object.values(m.storage_locations||{}).includes('gdrive')],['nas','NAS',m=>Object.values(m.storage_locations||{}).includes('nas')]];
-let logFilter='all',tagFilter='',logQuery='';
+let logFilter='all',logQuery='';const tagFilter=new Set();
 function searchText(m,identity){
  const date=logDate(m),uploaded=uploadDate(m),route=logRoute(m);
  return [identity.display,identity.original,route.key,route.title,...(m.tags||[]).map(tag=>tag.name),...(uploaded?[localeText(uploaded)]:[]),...(date?[localeText(date),fullDay(date),dayLabel(date)[0],localeDate(date),clockText(date)]:[])].join('\n').toLowerCase();
@@ -674,14 +675,14 @@ function chip(value,label,count,pressed,color){
 }
 function renderChips(){
  const logs=[...logRows.values()].map(cached=>cached.log).filter(Boolean),box=$('logChips');
- const items=FILTERS.filter(([value,,test])=>value==='all'||value===logFilter||!['gdrive','nas'].includes(value)||logs.some(test)).map(([value,label,test])=>chip('filter:'+value,label,value==='all'?null:logs.filter(test).length,value==='all'?logFilter==='all'&&!tagFilter:logFilter===value));
+ const items=FILTERS.filter(([value,,test])=>value==='all'||value===logFilter||!['gdrive','nas'].includes(value)||logs.some(test)).map(([value,label,test])=>chip('filter:'+value,label,value==='all'?null:logs.filter(test).length,value==='all'?logFilter==='all'&&!tagFilter.size:logFilter===value));
  const tags=[...recordingTagCatalog];
  // A selected tag that no log carries any more stays visible with (0) so it can be cleared.
- if(tagFilter.startsWith('tag:')&&!tags.some(tag=>'tag:'+tagKey(tag.name)===tagFilter))tags.push({name:tagFilter.slice(4),color:'slate',missing:true});
- const tagChips=[chip('tag:untagged','태그 없음',logs.filter(m=>!(m.tags||[]).length).length,tagFilter==='untagged'),...tags.map(tag=>chip('tag:tag:'+tagKey(tag.name),tag.name,tag.missing?0:logs.filter(m=>tagMatches(m.tags||[],'tag:'+tagKey(tag.name))).length,tagFilter==='tag:'+tagKey(tag.name),Object.hasOwn(TAG_PALETTE,tag.color)?tag.color:'mint'))];
+ for(const value of tagFilter)if(value.startsWith('tag:')&&!tags.some(tag=>'tag:'+tagKey(tag.name)===value))tags.push({name:value.slice(4),color:'slate',missing:true});
+ const tagChips=[chip('tag:untagged','태그 없음',logs.filter(m=>!(m.tags||[]).length).length,tagFilter.has('untagged')),...tags.map(tag=>chip('tag:tag:'+tagKey(tag.name),tag.name,tag.missing?0:logs.filter(m=>tagMatches(m.tags||[],'tag:'+tagKey(tag.name))).length,tagFilter.has('tag:'+tagKey(tag.name)),Object.hasOwn(TAG_PALETTE,tag.color)?tag.color:'mint'))];
  const separator=document.createElement('span');separator.className='chip-separator';separator.setAttribute('aria-hidden','true');
- // Folded to two rows, a selected tag comes first among the tags so it is never folded away.
- if(!chipsExpanded){const picked=tagChips.findIndex(c=>c.getAttribute('aria-pressed')==='true');if(picked>0)tagChips.unshift(...tagChips.splice(picked,1))}
+ // Folded to two rows, the selected tags come first among the tags so they are never folded away.
+ if(!chipsExpanded){const on=c=>c.getAttribute('aria-pressed')==='true';tagChips.sort((a,b)=>on(b)-on(a))}
  const more=document.createElement('button');more.type='button';more.className='filter-chip chip-more';more.dataset.more='';more.setAttribute('aria-expanded',String(chipsExpanded));more.hidden=true;
  const next=[...items,separator,...tagChips,more],signature=JSON.stringify([chipsExpanded,next.map(e=>[e.dataset.filter,e.textContent,e.getAttribute('aria-pressed')])]);
  if(box.dataset.signature===signature)return;
@@ -712,8 +713,9 @@ $('logChips').addEventListener('click',e=>{
  if(e.target.closest('.chip-more')){chipsExpanded=!chipsExpanded;renderChips();return}
  const button=e.target.closest('.filter-chip');if(!button)return;
  const [kind,...rest]=button.dataset.filter.split(':'),value=rest.join(':');
- if(kind==='filter'){if(value==='all'){logFilter='all';tagFilter=''}else logFilter=logFilter===value?'all':value}
- else tagFilter=tagFilter===value?'':value;
+ if(kind==='filter'){if(value==='all'){logFilter='all';tagFilter.clear()}else logFilter=logFilter===value?'all':value}
+ else if(tagFilter.has(value))tagFilter.delete(value);
+ else{if(value==='untagged')tagFilter.clear();else tagFilter.delete('untagged');tagFilter.add(value)}
  renderChips();applyFilters();
  // The chip that just became selected gives a tiny spring pop (motion.css); re-renders do not.
  const picked=$('logChips').querySelector(`[data-filter="${CSS.escape(button.dataset.filter)}"][aria-pressed=true]`);
@@ -721,14 +723,14 @@ $('logChips').addEventListener('click',e=>{
 });
 $('logSearch').addEventListener('input',()=>{logQuery=$('logSearch').value.trim().toLowerCase();applyFilters()});
 function applyFilters(){
- const test=FILTERS.find(([value])=>value===logFilter)?.[2]||(()=>true),query=logQuery.replace(/\s+/g,' '),active=logFilter!=='all'||!!tagFilter||!!query;let shown=0;
+ const test=FILTERS.find(([value])=>value===logFilter)?.[2]||(()=>true),query=logQuery.replace(/\s+/g,' '),active=logFilter!=='all'||!!tagFilter.size||!!query;let shown=0;
  for(const cached of logRows.values()){
-  const matches=test(cached.log||{})&&tagMatches(cached.tags||[],tagFilter)&&(!query||!!cached.search?.includes(query));
+  const matches=test(cached.log||{})&&[...tagFilter].every(value=>tagMatches(cached.tags||[],value))&&(!query||!!cached.search?.includes(query));
   cached.hidden=!matches;if(cached.row)cached.row.hidden=!matches;if(matches&&(!cached.row||cached.row.isConnected))shown++;
  }
  for(const group of logGroups.values()){const visible=group.entries.filter(entry=>!entry.hidden).length;group.element.hidden=!visible;group.count.textContent=active?`${visible} / ${group.entries.length}개 구간`:`${group.entries.length}개 구간`}
  for(const day of listDays.values())day.element.hidden=![...day.list.children].some(route=>!route.hidden);
- $('tagFilterStatus').hidden=!active;$('tagFilterStatus').textContent=shown?`${shown}개 로그 표시 중`:tagFilter&&logFilter==='all'&&!query?'선택한 태그에 해당하는 로그가 없습니다.':'조건에 맞는 로그가 없습니다.';
+ $('tagFilterStatus').hidden=!active;$('tagFilterStatus').textContent=shown?`${shown}개 로그 표시 중`:tagFilter.size&&logFilter==='all'&&!query?'선택한 태그에 해당하는 로그가 없습니다.':'조건에 맞는 로그가 없습니다.';
  bulkSelection?.sync();window.rvMaps?.filtered();
 }
 // Refresh-style buttons turn their arrow once per press (restarted when pressed again mid-turn).

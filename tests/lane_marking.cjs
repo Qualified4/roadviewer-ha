@@ -37,7 +37,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    expandReplayData({frames:[f]});render();
   },fixture);
   const on=await yellow();assert(on[0]>0,'orange line on the video');assert(on[1]>0,'orange line in the road view');
-  assert.deepEqual(await page.evaluate(()=>[laneLineLeft.textContent,laneLineRight.textContent]),['LANELINE_LEFT 8 · 흰색 점선','LANELINE_RIGHT 4 · 주황 실선']);
+  // The own-lane cards carry a piece of the line: dashed white in 차선 1, solid orange in 차선 2, named for screen readers.
+  assert.deepEqual(await page.evaluate(()=>[laneLineLeft,laneLineRight].map(el=>[el.hidden,el.dataset.type,el.style.getPropertyValue('--lane'),getComputedStyle(el,'::before').backgroundImage.startsWith('repeating-linear-gradient'),el.getAttribute('aria-label'),el.parentElement.querySelector('.boundary-index').textContent])),[[false,'dashed','#eef3f8',true,'왼쪽 차선 흰색 점선','차선 1'],[false,'solid','#ff9f43',false,'오른쪽 차선 주황 실선','차선 2']]);
   await page.evaluate(()=>{document.getElementById('laneMarking').click()});const off=await yellow();assert.deepEqual(off,[0,0],'setting off restores the default lanes');
   assert.equal(await page.evaluate(()=>JSON.parse(localStorage.getItem('roadviewer-display-preferences')).checks.laneMarking),false,'setting is remembered');
   assert.deepEqual(errors,[]);
