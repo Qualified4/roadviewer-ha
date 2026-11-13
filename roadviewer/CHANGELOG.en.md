@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.2.25
+
+- No change in behaviour: automated tests only (a check that failed now and then is fixed, and the map tests are split so the checks finish sooner).
+
 ## 1.2.24
 
 - The log list's tag filter takes several tags at once: only logs carrying every selected tag are shown, and pressing a selected tag again clears just that one. "태그 없음" (untagged) is not combined with other tags.

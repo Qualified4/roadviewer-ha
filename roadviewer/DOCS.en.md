@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.2.24**.
+This guide describes **1.2.25**.
 
 [한국어](DOCS.md) · English
 
