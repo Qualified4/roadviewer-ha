@@ -36,6 +36,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    f.overlay={...frame.overlay,geometry:{...frame.overlay.geometry,lanes:frame.overlay.geometry.lanes}};data.frames[0].cameraInfo=frame.cameraInfo;
    expandReplayData({frames:[f]});render();
   },fixture);
+  // The opening frames take a value their messages had not sent yet from the first frame that has it within 0.25 s.
+  {const r=await page.evaluate(()=>{const f=expandReplayData({frames:[{t:.05,ccncRoad:null,gap:null,roadSignals:null},{t:.1,ccncRoad:{laneLeft:4},gap:null,roadSignals:null},{t:.2,ccncRoad:{laneLeft:8},gap:3,roadSignals:null},{t:.4,ccncRoad:null,gap:2,roadSignals:{acceleration:1}}]}).frames;
+    return f.map(x=>[x.ccncRoad?.laneLeft??null,x.gap,x.roadSignals?.acceleration??null])});
+   assert.deepEqual(r,[[4,3,null],[4,3,null],[8,3,null],[null,2,1]],'leading frames filled from the first value within 0.25 s, never later and never inside the log')}
   const on=await yellow();assert(on[0]>0,'orange line on the video');assert(on[1]>0,'orange line in the road view');
   // The own-lane cards carry a piece of the line: dashed white in 차선 1, solid orange in 차선 2, named for screen readers.
   assert.deepEqual(await page.evaluate(()=>[laneLineLeft,laneLineRight].map(el=>[el.hidden,el.dataset.type,el.style.getPropertyValue('--lane'),getComputedStyle(el,'::before').backgroundImage.startsWith('repeating-linear-gradient'),el.getAttribute('aria-label'),el.parentElement.querySelector('.boundary-index').textContent])),[[false,'dashed','#eef3f8',true,'왼쪽 차선 흰색 점선','차선 1'],[false,'solid','#ff9f43',false,'오른쪽 차선 주황 실선','차선 2']]);
@@ -59,9 +63,19 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const wasPath=await page.evaluate(()=>{const box=document.getElementById('modelPath'),was=box.checked;if(!was)box.click();return was});
    let r=await chevrons();assert(r.count>0,'chevrons on the model path');assert(!tinted(r,'255,178,87'),'plain teal by default');
    // Longitudinal control off (vehicle data): no chevrons. Not loaded (404 here): no opinion, drawn.
-   assert.equal(await page.evaluate(()=>window.rvControlAt(0)),null,'no vehicle data: unknown');
-   await page.evaluate(()=>{window.__control=window.rvControlAt;window.rvControlAt=()=>false});r=await chevrons();assert.equal(r.count,0,'no chevrons while longitudinal control is off');
-   await page.evaluate(()=>{window.rvControlAt=window.__control});
+   assert.equal(await page.evaluate(()=>window.rvControlState(0)),null,'no vehicle data: unknown');
+   const withControl=state=>page.evaluate(state=>{window.rvControlState=()=>state},state);
+   await page.evaluate(()=>{window.__control=window.rvControlState});
+   await withControl({on:false,at:null});r=await chevrons();assert.equal(r.count,0,'no chevrons while longitudinal control is off');
+   // Switching on: they appear from the nearest outwards. Switching off: none come in, those on the road stay a while.
+   await withControl({on:true,at:null});const all=(await chevrons()).count;
+   const at=await page.evaluate(()=>document.getElementById('video').currentTime);
+   await withControl({on:true,at:at-.1});const early=(await chevrons()).count;
+   await withControl({on:true,at:at-.4});const later=(await chevrons()).count;
+   assert(early>0&&early<later&&later<=all,`switching on: the nearest first (${early} < ${later} <= ${all})`);
+   await withControl({on:false,at:at-.1});assert((await chevrons()).count>0,'just switched off: the chevrons on the road stay');
+   await withControl({on:false,at:at-5});assert.equal((await chevrons()).count,0,'switched off long ago: gone');
+   await page.evaluate(()=>{window.rvControlState=window.__control});
    // Slowing down: amber from the apex.
    await page.evaluate(()=>{data.frames[0].roadSignals={acceleration:-3}});r=await chevrons();assert(tinted(r,'255,178,87'),'amber at a hard deceleration');
    await page.evaluate(()=>{data.frames[0].roadSignals={acceleration:.5}});r=await chevrons();assert(!tinted(r,'255,178,87'),'no amber while speeding up');

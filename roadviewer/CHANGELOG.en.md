@@ -4,7 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
-## 1.3.4
+## 1.3.5
+
+- Path chevrons no longer pop in and out when longitudinal control switches: switching on, they appear one by one from the nearest; switching off, no new one comes in and those on the road flow out (gone after 4s when standing still).
+- The paused picture before play now matches the first moment of playback: the first frame takes cluster lane codes and road signals that arrive within the first 0.25s, and the overlay is redrawn when the vehicle data arrives.
+
+
 
 - Drive cards show the first segment's thumbnail again (1.3.3 picked the best-looking segment). First segments get the new levelled thumbnails too, and the background remake does each drive's first segment first, so cards change once and stay.
 
