@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.3.6**.
+This guide describes **1.3.7**.
 
 [한국어](DOCS.md) · English
 
@@ -286,7 +286,7 @@ Every slider has an individual reset button. Settings are remembered. The path w
 | Setting | Default / range |
 |---|---|
 | 앞차거리 (lead distance) | 호 (arc) / 끄기, 선 (line), 호; the path still ends at the lead when off |
-| 목표 차간 거리 (target following distance) | On; `longitudinalPlan.desiredDistance` as amber marks on the path edges, the lead mark turns red below 85% |
+| 목표 차간 거리 (target following distance) | On; `longitudinalPlan.desiredDistance` as amber marks on the path edges whenever longitudinal control is on (lead or not; none while off, fading over 0.3s); the lead mark turns red below 85% |
 | 차량 박스 (vehicle boxes) | Off; a 3D box of light on the ground ring; the box height and fill sliders apply only when on |
 | 차간 거리 단계 (following-distance setting) | On; `carControl.hudControl.leadDistanceBars` (1–4) as four cells at the bottom left |
 
