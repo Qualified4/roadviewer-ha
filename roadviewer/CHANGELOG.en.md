@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.6
+
+- When longitudinal control switches off, path chevrons fade one by one from the farthest (about 0.8s) instead of staying until they flow out.
+- With no cluster TARGET (longitudinal control off), the driving path now ends at the cluster's FF car and continues dashed beyond it, instead of running through the car.
+
 ## 1.3.5
 
 - Path chevrons no longer pop in and out when longitudinal control switches: switching on, they appear one by one from the nearest; switching off, no new one comes in and those on the road flow out (gone after 4s when standing still).

@@ -241,8 +241,10 @@
    const ground=(s,lateral,forward=0)=>proj(s.c.map((v,k)=>v+s.n[k]*lateral+(s.f?.[k]||0)*forward));
    if(on('modelPath')){
     if(P?.length){
-     // With a lead shown the carpet stops at it instead of running through the car.
-     const cut=lead!==null&&xs?lead+RADAR_TO_CAMERA:Infinity,samples=[];
+     // With a lead the carpet stops at it instead of running through the car: the cluster TARGET, or without one
+     // (longitudinal control off) the cluster's FF car, so the path still ends at the car ahead.
+     const ff=(frame.ccncTargets||[]).find(c=>c?.slot==='FF'&&c.x>0&&c.x<204.6),pathLead=lead??ff?.x??null;
+     const cut=pathLead!==null&&xs?pathLead+RADAR_TO_CAMERA:Infinity,samples=[];
      P.forEach((c,i)=>{if(c&&N?.[i]&&(!xs||xs[i]<cut))samples.push({c,n:N[i]})});
      if(Number.isFinite(cut)){const s=pathAt(cut);if(s)samples.push(s)}
      const sides=[-1,1].map(sign=>samples.map(s=>ground(s,sign*half))),full=extent(P.map(proj)),range=extent(sides[0].concat(sides[1]));
@@ -277,15 +279,13 @@
       const fill=tint('#43e7e0',warm*1.5),fillOut=tint('#43e7e0',warm*1.15),edge=tint('#86fff0',warm*1.3),edgeOut=tint('#86fff0',warm*1.05);
       // One chevron at distance d: its outline on the road and how strongly it shows there.
       // Longitudinal control switching (unknown: drawn). On: they appear one after another from the nearest outwards (a
-      // front moving out at 30 m/s). Off: no new one comes in at the far end; those already on the road flow on and leave
-      // at the near end, each keeping the far fade it had at the switch; what is left fades out after 4 s (standing still).
-      const controlOn=control===null||control.on,since=control?.at==null?Infinity:t-control.at;
-      const draining=!controlOn&&since<4.5,drawn=controlOn||draining;let offRoad=null;  // road place of the near end at the switch
+      // front moving out from 5.5 m at 30 m/s). Off: they go one after another from the farthest in (a front moving in
+      // from 30 m at the same speed).
+      const controlOn=control===null||control.on,since=control?.at==null?Infinity:t-control.at,drawn=controlOn||since<1;
       const chevronAt=d=>{
        const s=pathAt(d);if(!s)return null;
-       if(draining)offRoad??=roadAt(odometerAt(control.at));
-       const far=smooth((30-(draining?d+now-offRoad:d))/10),reveal=controlOn?smooth((5.5+30*since-d)/3):1-smooth((since-4)/.5);
-       let strength=d<end?smooth((d-5.5)/1.2)*smooth(end-d)*far*reveal*breathe:0;
+       const reveal=controlOn?smooth((5.5+30*since-d)/3):smooth((30-30*since-d)/3);
+       let strength=d<end?smooth((d-5.5)/1.2)*smooth(end-d)*smooth((30-d)/10)*reveal*breathe:0;
        // As on the concept board: a band of even thickness in a wide shallow V, about 40% of the path's width.
        const row=back=>[-1,0,1].map(u=>ground(s,u*half*.4,-.52*Math.abs(u)-back)),thick=.4,front=row(0),rear=row(thick);
        if(![...front,...rear].every(Boolean))return null;
