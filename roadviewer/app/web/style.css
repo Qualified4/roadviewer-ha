@@ -934,11 +934,13 @@ select,.rv-choice-trigger{font-weight:500}
 .sg-note{position:absolute;left:0;right:0;bottom:4px;text-align:center;font-size:13px;font-weight:600;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.4),0 1px 12px rgba(0,0,0,.4)}
 .sg-hint.is-note .sg-words,.sg-hint.is-note .sg-arrow{display:none}
 /* the card: only it follows the finger */
-.sg-card{position:absolute;width:184px;padding:4px;border-radius:12px;background:var(--pop);box-shadow:var(--pop-shadow);color:var(--text);opacity:0;transition:opacity .3s cubic-bezier(.42,0,.58,1),top .18s cubic-bezier(.32,.72,0,1),scale .35s cubic-bezier(.32,.72,0,1),box-shadow .3s cubic-bezier(.42,0,.58,1)}
+.sg-card{position:absolute;left:0;top:0;width:184px;padding:4px;border-radius:12px;background:var(--pop);box-shadow:var(--pop-shadow);color:var(--text);opacity:0;will-change:transform;transition:opacity .3s cubic-bezier(.42,0,.58,1),box-shadow .3s cubic-bezier(.42,0,.58,1)}
+/* while the finger moves the card and the veil follow it directly (no easing, so nothing lags); easing is only for letting go */
 .sg-card.is-shown{opacity:1}
 .sg-card.is-armed{box-shadow:0 0 0 1.5px var(--accent),var(--pop-shadow)}
-.sg-card.is-settle{transition:opacity .3s cubic-bezier(.42,0,.58,1) .15s,top .45s cubic-bezier(.32,.72,0,1),scale .45s cubic-bezier(.32,.72,0,1),box-shadow .3s cubic-bezier(.42,0,.58,1)}
-.sg-card.is-fly{opacity:0;transition:opacity .35s cubic-bezier(.42,0,.58,1),top .45s cubic-bezier(.32,.72,0,1),scale .45s cubic-bezier(.32,.72,0,1)}
+.sg-card.is-settle{transition:opacity .3s cubic-bezier(.42,0,.58,1) .15s,transform .45s cubic-bezier(.32,.72,0,1),box-shadow .3s cubic-bezier(.42,0,.58,1)}
+.sg-card.is-fly{opacity:0;transition:opacity .35s cubic-bezier(.42,0,.58,1),transform .45s cubic-bezier(.32,.72,0,1)}
+.segment-gesture-over.is-drag .sg-dark{transition:none}
 .segment-block.is-target{box-shadow:0 0 0 2px var(--panel),0 0 0 3.5px var(--accent)}
 @media(prefers-reduced-motion:reduce){.is-on .sg-words,.is-on .sg-arrow{animation:none;opacity:1;translate:0 0}.sg-blur,.sg-dark,.sg-title,.sg-swap>span,.sg-card,.sg-bars,.sg-bar,.sg-arrow{transition:none}}
 /* Stacked: the bottom video controls stay above the transport bar where it covers the picture's bottom (app.js --video-cover). */
