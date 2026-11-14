@@ -438,8 +438,30 @@ v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error)startWholeVideo();if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();playLabel(true);syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration){pause();playedToEnd()}}};v.onerror=videoError;  // the video can end a moment before the log's clock (after a pause, say): that is playing to the end too
 for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','vehicleBoxes','ccncRoad','laneMarking','gapLevel','gapTarget','boxLabels','boxLabelsBelow','pointLabels','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
-// Space and arrows keep their own meaning on focused controls, links and menus.
-document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();flash($('play'));toggle()}if(e.code==='ArrowLeft'){e.preventDefault();flash($('prev'));step(-1)}if(e.code==='ArrowRight'){e.preventDefault();flash($('next'));step(1)}};
+// Shortcuts: Space play/pause, ←/→ one frame, F full screen, PageUp/PageDown the previous/next playable segment.
+// They work wherever a click left focus (the play button, the seek bar, a segment block), and step aside only where the
+// key means something else: text fields, an open dialog or replay menu, scrolling tables, the maps, or a widget that
+// already handled it (the telemetry tabs and charts). Space on a control reached by keyboard (focus ring shown) still
+// presses it; focus left there by a mouse click does not. Keys are matched by code, so the Korean layout works too.
+const SHORTCUT_KEYS=new Set(['Space','ArrowLeft','ArrowRight','KeyF','PageUp','PageDown']);
+function goToAdjacentSegment(direction){
+ const blocks=[...$('segmentStrip').querySelectorAll('.segment-block')],here=blocks.findIndex(b=>b.hasAttribute('aria-current'));
+ if(here<0)return;
+ for(let i=here+direction;i>=0&&i<blocks.length;i+=direction)if(!blocks[i].disabled&&blocks[i].onclick){blocks[i].onclick();return}
+}
+document.onkeydown=e=>{
+ if(!SHORTCUT_KEYS.has(e.code)||e.defaultPrevented||e.ctrlKey||e.altKey||e.metaKey)return;
+ const target=e.target instanceof Element?e.target:document.body;
+ if(document.querySelector('dialog[open]')||target.isContentEditable||target.closest('textarea,select,.replay-menu[open],.table-scroll,.leaflet-container,.maplibregl-map'))return;
+ if(target.matches('input')&&target.id!=='seek')return;
+ if(e.code==='Space'&&target.matches('button:focus-visible,summary:focus-visible,a:focus-visible'))return;
+ e.preventDefault();
+ if(e.code==='Space'){flash($('play'));toggle()}
+ else if(e.code==='ArrowLeft'){flash($('prev'));step(-1)}
+ else if(e.code==='ArrowRight'){flash($('next'));step(1)}
+ else if(e.code==='KeyF'){const button=$('fullscreenButton');if(!button.hidden)button.onclick()}
+ else goToAdjacentSegment(e.code==='PageUp'?-1:1);
+};
 // The road map is not on the video, so its colours follow the screen mode. Dark values equal the original palette;
 // literal colours shared with the video overlay are translated here only.
 const MAP_TONES={'#57d9b0':'lane','#ff5c5c':'edge','#c4a5ff':'path','#81b5ff':'lead','#c5daff':'lead-text','#eee7bc':'selected','#78e9fa':'raw','#4aaaff':'ccnc','#8deeff':'ccnc-ff','#d09aff':'center','#ffda76':'left','#ff91b5':'right','#eef3f8':'white','#8b97a6':'gray','#ff9f43':'orange','#4cd964':'green','#62ed9e':'band','#edf7ff':'band-white','#55b9ff':'blue','#ffa65a':'band-orange','#ff6175':'red','#7be5ff':'target'};
@@ -1185,8 +1207,8 @@ function renderSegmentStrip(segments,current,active){
  // A rebuild (the list is polled) keeps a shown preview on its segment's new block.
  if(segmentPeekShown)showSegmentPeek($('segmentStrip').querySelector(`[data-id="${CSS.escape(segmentPeekShown)}"]`));
 }
-// Segment preview: a mouse over a block, or a finger held on one, shows that segment's thumbnail (the log list's
-// picture) above the strip; letting go hides it. Pictures are kept for the page, so each is fetched once.
+// Segment preview: a mouse over a block shows that segment's thumbnail (the log list's picture) above the strip;
+// leaving hides it. Pictures are kept for the page, so each is fetched once. A finger works differently (segmentGesture).
 const segmentPeekItems=new Map(),segmentPeekPictures=new Map();let segmentPeekShown=null;
 const segmentThumbUrl=log=>log.status==='ready'&&(log.thumbnail||log.thumbnail_available)?`../../api/logs/${encodeURIComponent(log.id)}/thumbnail?v=${log.conversion_revision??0}${log.thumbnail_version?'&t='+log.thumbnail_version:''}${log.thumbnail?'':'&pending=1'}`:null;
 function segmentPeekPicture(url){
@@ -1208,38 +1230,124 @@ function showSegmentPeek(button){
  peek.classList.add('is-shown');segmentPeekShown=log.id;
 }
 function hideSegmentPeek(){$('segmentPeek').classList.remove('is-shown');segmentPeekShown=null}
+// Touch: a block held 0.4 s rises out of the strip. The screen behind the controls blurs, the segment's card shows
+// above its block and a looping hint (an arrow pushing 밀어서 구간이동 up) invites pushing it; sliding along the strip
+// changes the segment. Pushed up off the strip, the segment is locked and only the card follows the finger: the rest
+// darkens, the hint fades and the title (구간 n · 밀어서 구간이동) rises at the top; past ARM px 밀어서 turns to 놓으면 and
+// letting go opens it. Coming back down undoes each step; let go short of it and the card settles back and closes. On the
+// segment already playing the arrow flattens and the hint stops; one that is not ready says so.
+const segmentGesture=(()=>{
+ const ARM=56,strip=$('segmentStrip'),panel=document.querySelector('.camera-panel'),bar=panel.querySelector('.playback');
+ const under=document.createElement('div'),over=document.createElement('div');
+ under.className='segment-gesture-under';over.className='segment-gesture-over';under.setAttribute('aria-hidden','true');over.setAttribute('aria-hidden','true');
+ under.innerHTML='<div class="sg-blur"></div>';
+ over.innerHTML='<div class="sg-dark"></div><div class="sg-title"><div class="sg-num"></div><div class="sg-sub"><span class="sg-swap"><span class="sg-push">밀어서</span><span class="sg-drop">놓으면</span></span><span>구간이동</span></div></div>'+
+  '<div class="sg-hint"><div class="sg-words">밀어서 구간이동</div><div class="sg-arrow"><div class="sg-bars"><i class="sg-bar l"></i><i class="sg-bar r"></i></div></div><div class="sg-note"></div></div>'+
+  '<div class="sg-card" id="segmentGestureCard"><div class="segment-peek-pic"></div><div class="segment-peek-label"><b></b><span></span></div></div>';
+ bar.before(under);bar.after(over);
+ const q=s=>over.querySelector(s),card=q('.sg-card'),hint=q('.sg-hint'),title=q('.sg-title');
+ let st=null,flat=false,closing=0;
+ const blockOf=id=>strip.querySelector(`[data-id="${CSS.escape(id)}"]`);
+ const opens=b=>!!(b&&!b.disabled&&b.onclick);
+ function fill(b){
+  const item=segmentPeekItems.get(b.dataset.id);if(!item)return;
+  const {log,info}=item,url=segmentThumbUrl(log),pic=card.querySelector('.segment-peek-pic'),seconds=log.started_at;
+  pic.querySelector('img')?.remove();if(url)pic.append(segmentPeekPicture(url));
+  const name=info?'구간 '+info.number:'이 구간';
+  card.querySelector('b').textContent=name;q('.sg-num').textContent=name;
+  card.querySelector('span').textContent=SEGMENT_STATES[log.status]||(Number.isFinite(seconds)?new Date(seconds*1000).toLocaleTimeString('ko-KR',{hour:'numeric',minute:'2-digit'}):'');
+ }
+ // stop the hint where it is: the arrow eases down from its height while flattening, the words fade from where they are;
+ // leaving the playing segment folds it back and restarts the loop
+ function setFlat(on){
+  if(on===flat)return;flat=on;
+  const arrow=q('.sg-arrow'),words=q('.sg-words');
+  if(on){
+   const ay=getComputedStyle(arrow).translate,wy=getComputedStyle(words).translate,wo=getComputedStyle(words).opacity;
+   arrow.style.animation=words.style.animation='none';arrow.style.translate=ay;words.style.translate=wy;words.style.opacity=wo;
+   void arrow.offsetWidth;
+   arrow.style.transition='translate .45s cubic-bezier(.42,0,.58,1),filter .45s cubic-bezier(.42,0,.58,1)';arrow.style.translate='0px 0px';words.style.opacity='0';
+   hint.classList.add('is-flat');
+  }else{
+   hint.classList.remove('is-flat');
+   for(const el of [arrow,words])el.style.animation=el.style.translate=el.style.opacity=el.style.transition='';
+  }
+ }
+ function place(){
+  const b=blockOf(st.id);if(!b){close();return}
+  const open=opens(b),here=b.hasAttribute('aria-current'),notReady=!open&&!here;
+  const lift=open?st.lift:0,p=Math.min(1,lift/ARM),armed=open&&p>=1,lifting=open&&lift>8;
+  strip.querySelectorAll('.segment-block.is-target').forEach(x=>x!==b&&x.classList.remove('is-target'));b.classList.toggle('is-target',open);
+  q('.sg-dark').style.opacity=open?(.62*p).toFixed(3):'0';
+  const sr=strip.getBoundingClientRect(),br=b.getBoundingClientRect(),w=card.offsetWidth,h=card.offsetHeight,vw=document.documentElement.clientWidth;
+  const left=Math.max(8,Math.min(vw-w-8,br.left+br.width/2-w/2)),rest=sr.top-12-h;
+  const ceiling=title.offsetTop+title.offsetHeight+16,top=rest-Math.min(lift,Math.max(0,rest-ceiling));
+  card.style.left=left+'px';card.style.top=top+'px';card.style.scale=String(1+.04*p);card.classList.toggle('is-armed',armed);
+  hint.style.top=(rest-8-hint.offsetHeight)+'px';
+  setFlat(here);hint.classList.toggle('is-note',notReady);q('.sg-note').textContent=notReady?'준비 중인 구간':'';
+  hint.classList.toggle('is-gone',lifting);
+  title.classList.toggle('is-shown',lifting);q('.sg-sub').classList.toggle('is-armed',armed);
+  st.armed=armed;
+ }
+ function start(b){
+  clearTimeout(closing);card.classList.remove('is-settle','is-fly');
+  st={id:b.dataset.id,lift:0,locked:false,armed:false};fill(b);
+  under.classList.add('is-on');over.classList.add('is-on');card.classList.add('is-shown');place();
+ }
+ // a finger at (x, y): the segment follows x until the finger leaves the strip upward; back on the strip it follows again
+ function move(x,y){
+  if(!st)return;
+  const sr=strip.getBoundingClientRect(),lift=Math.max(0,sr.top-y);
+  if(lift>8)st.locked=true;else if(lift===0)st.locked=false;
+  if(!st.locked){
+   let best=null,gap=Infinity;
+   for(const b of strip.querySelectorAll('.segment-block')){const r=b.getBoundingClientRect(),d=x<r.left?r.left-x:x>r.right?x-r.right:0;if(d<gap){gap=d;best=b}}
+   if(best&&best.dataset.id!==st.id){st.id=best.dataset.id;fill(best)}
+  }
+  st.lift=lift;place();
+ }
+ function close(){
+  st=null;setFlat(false);
+  under.classList.remove('is-on');over.classList.remove('is-on');card.classList.remove('is-shown','is-armed');
+  title.classList.remove('is-shown');q('.sg-sub').classList.remove('is-armed');q('.sg-dark').style.opacity='0';hint.classList.remove('is-gone','is-note');
+  strip.querySelectorAll('.segment-block.is-target').forEach(x=>x.classList.remove('is-target'));
+ }
+ // let go: past the line it opens the segment shown; short of it the card settles back to its block and closes
+ function end(letGo){
+  if(!st)return;
+  const b=blockOf(st.id);
+  if(letGo&&st.armed&&opens(b)){card.classList.add('is-fly');card.style.top=(parseFloat(card.style.top)-30)+'px';const go=b.onclick;close();card.classList.add('is-shown','is-fly');closing=setTimeout(()=>card.classList.remove('is-shown','is-fly'),460);go();return}
+  card.classList.add('is-settle');st.lift=0;st.locked=false;place();
+  closing=setTimeout(()=>{close();setTimeout(()=>card.classList.remove('is-settle'),500)},380);
+ }
+ addEventListener('resize',()=>{if(st)place()});
+ return {start,move,end,locked:()=>!!st?.locked,active:()=>!!st};
+})();
 {
- const strip=$('segmentStrip'),HOLD=400;let hold=null,held=false;
+ const strip=$('segmentStrip'),HOLD=400;let hold=null,held=false,scrubX=0,scrubY=0,edgeFrame=0;
  const block=e=>e.target.closest?.('.segment-block');
  strip.addEventListener('pointerover',e=>{if(e.pointerType==='mouse'&&block(e))showSegmentPeek(block(e))});
  strip.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse')hideSegmentPeek()});
- // Touch: hold still on a block to see it; moving first is a scroll, and the click after a hold does not navigate.
+ // Touch: hold still on a block to start the gesture; moving first is a scroll. The click after a hold is swallowed.
  strip.addEventListener('pointerdown',e=>{
   if(e.pointerType==='mouse'||!block(e))return;
   const target=block(e);held=false;clearTimeout(hold?.timer);
-  hold={x:e.clientX,y:e.clientY,timer:setTimeout(()=>{held=true;scrubX=hold.x;strip.classList.add('is-dragging');showSegmentPeek(target);edgeScroll()},HOLD)};
+  hold={x:e.clientX,y:e.clientY,timer:setTimeout(()=>{held=true;scrubX=hold.x;scrubY=hold.y;strip.classList.add('is-dragging');hideSegmentPeek();segmentGesture.start(target);edgeScroll()},HOLD)};
  });
- // Held, the finger scrubs like a mouse pointer: the preview follows it along the strip, which no longer scrolls under
- // it, and resting near either end of a scrolling strip moves the strip on so every segment can be reached.
- let scrubX=0,edgeFrame=0;
- function scrub(){
-  const blocks=[...strip.querySelectorAll('.segment-block')];let best=null,gap=Infinity;
-  for(const b of blocks){const r=b.getBoundingClientRect(),d=scrubX<r.left?r.left-scrubX:scrubX>r.right?scrubX-r.right:0;if(d<gap){gap=d;best=b}}
-  if(best)showSegmentPeek(best);
- }
+ // Held on a long drive's scrolling strip, resting near either end moves the strip on so every segment can be reached.
  function edgeScroll(){
   edgeFrame=0;if(!held||!hold)return;
-  if(strip.classList.contains('is-scrolling')){
+  if(strip.classList.contains('is-scrolling')&&!segmentGesture.locked()){
    const r=strip.getBoundingClientRect(),edge=32,before=strip.scrollLeft;
    if(scrubX<r.left+edge)strip.scrollLeft-=Math.ceil((r.left+edge-scrubX)/4);else if(scrubX>r.right-edge)strip.scrollLeft+=Math.ceil((scrubX-r.right+edge)/4);
-   if(strip.scrollLeft!==before){segmentStripScrolled=true;scrub()}
+   if(strip.scrollLeft!==before){segmentStripScrolled=true;segmentGesture.move(scrubX,scrubY)}
   }
   edgeFrame=requestAnimationFrame(edgeScroll);
  }
- strip.addEventListener('touchmove',e=>{if(!held||!hold)return;e.preventDefault();scrubX=e.touches[0].clientX;scrub()},{passive:false});
+ strip.addEventListener('touchmove',e=>{if(!held||!hold)return;e.preventDefault();scrubX=e.touches[0].clientX;scrubY=e.touches[0].clientY;segmentGesture.move(scrubX,scrubY)},{passive:false});
  strip.addEventListener('pointermove',e=>{if(hold&&!held&&Math.hypot(e.clientX-hold.x,e.clientY-hold.y)>8){clearTimeout(hold.timer);hold=null}});
- const release=()=>{if(!hold)return;clearTimeout(hold.timer);hold=null;cancelAnimationFrame(edgeFrame);edgeFrame=0;if(held){hideSegmentPeek();strip.classList.remove('is-dragging')}};
- strip.addEventListener('pointerup',release);strip.addEventListener('pointercancel',()=>{release();held=false});
+ const release=letGo=>{if(!hold)return;clearTimeout(hold.timer);hold=null;cancelAnimationFrame(edgeFrame);edgeFrame=0;if(!held)return;strip.classList.remove('is-dragging');segmentGesture.end(letGo)};
+ strip.addEventListener('pointerup',()=>release(true));strip.addEventListener('pointercancel',()=>{release(false);held=false});
  strip.addEventListener('contextmenu',e=>e.preventDefault());
  strip.addEventListener('click',e=>{if(held){e.preventDefault();e.stopPropagation();held=false;return}hideSegmentPeek()},true);
  strip.addEventListener('scroll',()=>{if(!held)hideSegmentPeek()},{passive:true});

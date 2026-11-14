@@ -7,7 +7,14 @@
  const syncOpacity=()=>{opacitySlider.value=String(Math.round(boxOpacity*100));opacityValue.textContent=opacitySlider.value+'%'};
  syncOpacity();
  opacitySlider.oninput=()=>{boxOpacity=Number(opacitySlider.value)/100;syncOpacity();try{localStorage.setItem('roadviewer-ccnc-opacity',String(boxOpacity))}catch{}render()};
- let bsdHeight=.8;
+ // The car ahead in radar metres: the cluster TARGET, or without one (longitudinal control off) the cluster's FF car.
+const carAheadDistance=frame=>{
+ const road=frame.ccncRoad;
+ if([1,3].includes(road?.target)&&road.distance>0&&road.distance<204.6)return road.distance;
+ const ff=(frame.ccncTargets||[]).find(c=>c?.slot==='FF'&&c.x>0&&c.x<204.6);
+ return ff?ff.x:null;
+};
+let bsdHeight=.8;
  const bsdSlider=document.getElementById('bsdHeight'),bsdValue=document.getElementById('bsdHeightValue');
  try{const saved=localStorage.getItem('roadviewer-bsd-height');if(saved!==null&&Number.isFinite(Number(saved)))bsdHeight=Math.max(0,Math.min(3,Number(saved)))}catch{}
  const syncBsdHeight=()=>{bsdSlider.value=String(Math.round(bsdHeight*100));bsdValue.textContent=bsdHeight.toFixed(2)+' m'};
@@ -243,7 +250,7 @@
     if(P?.length){
      // With a lead the carpet stops at it instead of running through the car: the cluster TARGET, or without one
      // (longitudinal control off) the cluster's FF car, so the path still ends at the car ahead.
-     const ff=(frame.ccncTargets||[]).find(c=>c?.slot==='FF'&&c.x>0&&c.x<204.6),pathLead=lead??ff?.x??null;
+     const pathLead=lead??carAheadDistance(frame);
      const cut=pathLead!==null&&xs?pathLead+RADAR_TO_CAMERA:Infinity,samples=[];
      P.forEach((c,i)=>{if(c&&N?.[i]&&(!xs||xs[i]<cut))samples.push({c,n:N[i]})});
      if(Number.isFinite(cut)){const s=pathAt(cut);if(s)samples.push(s)}
@@ -396,8 +403,8 @@
    context.restore();
   }
   if(frame.valid&&on('bsdWalls')&&bsdHeight>0&&frame.overlay.heightDirection){
-   // A lead car (the cluster TARGET) ends the wall at its distance; without one it runs as far as the lane line is sampled.
-   const leadRoad=frame.ccncRoad,leadAt=[1,3].includes(leadRoad?.target)&&leadRoad.distance>0&&leadRoad.distance<204.6?leadRoad.distance+RADAR_TO_CAMERA:Infinity;
+   // The car ahead ends the wall at its distance, as it ends the model path; without one it runs as far as the lane line is sampled.
+   const ahead=carAheadDistance(frame),leadAt=ahead===null?Infinity:ahead+RADAR_TO_CAMERA;
    blindspotLevels(data.frames,idx,frame.t).forEach((amount,i)=>{
     if(!amount)return;
     const bottom=[],upper=[],direction=frame.overlay.heightDirection,xs=frame.overlay.blindspotX?.[i];

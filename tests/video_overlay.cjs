@@ -373,6 +373,19 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   assert.deepEqual(await page.evaluate(()=>blindspotLevels([{t:0,valid:true,roadSignals:{blindspotLeft:true}}],0,0)),[1,0]);
   await page.evaluate(()=>{const f=data.frames[0];f.ccncRoad.blinkerLeft=false;f.roadSignals={blindspotLeft:true};f.overlay.lanes=[[],[[.2,.9],[.4,.55]],[[.8,.9],[.6,.55]],[]];f.overlay.blindspotPaths=[[[1,4.5,5],[16,22,40]],[[4,4.5,5],[24,22,40]]];f.overlay.heightDirection=[0,-1,0];render()});
   assert(await pixels(),'blindspot renders without a CCNC command or radar detection');
+  const wallEnds=await page.evaluate(()=>{
+   // The left wall, sampled at 1 m and 40 m: where does its far end land for no car, an FF car only, and a TARGET?
+   const f=data.frames[0],saved={x:f.overlay.blindspotX,road:f.ccncRoad,targets:f.ccncTargets},original=paintBlindspotWall,ends=[];let end=null;
+   paintBlindspotWall=(ctx,bottom,...rest)=>{if(ctx.canvas.id==='videoOverlay'&&end===null)end=bottom.at(-1)?.[1]??null;return original(ctx,bottom,...rest)};
+   try{
+    f.overlay.blindspotX=[[1,40],[4,40]];
+    for(const [road,targets] of [[{target:0,distance:0},[]],[{target:0,distance:0},[{slot:'FF',x:12,y:0}]],[{target:1,distance:12},[]]]){f.ccncRoad={...saved.road,...road};f.ccncTargets=targets;end=null;render();ends.push(end)}
+   }finally{paintBlindspotWall=original;Object.assign(f.overlay,{blindspotX:saved.x});f.ccncRoad=saved.road;f.ccncTargets=saved.targets;render()}
+   return ends;
+  });
+  assert(wallEnds.every(Number.isFinite),'wall drawn in every case');
+  assert(wallEnds[1]>wallEnds[0]+1,'without a TARGET the FF car ends the wall short of the sampled lane');
+  assert(Math.abs(wallEnds[1]-wallEnds[2])<.5,'an FF car and a TARGET at the same distance end the wall at the same place');
   const labelMotion=await page.evaluate(()=>{
    const f=data.frames[0],saved=f.overlay.blindspotPaths,original=hudLabel,positions=[];
    hudLabel=(ctx,text,x,y,...rest)=>{if(ctx.canvas.id==='videoOverlay'&&text==='좌측 사각지대 감지')positions.push([x,y]);return original(ctx,text,x,y,...rest)};

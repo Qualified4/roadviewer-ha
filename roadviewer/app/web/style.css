@@ -892,6 +892,55 @@ select,.rv-choice-trigger{font-weight:500}
 .segment-peek-label b{font-weight:600}.segment-peek-label span{color:var(--muted);font-variant-numeric:tabular-nums}
 .segment-block{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 @media(prefers-reduced-motion:reduce){.segment-peek{transition:none}}
+/* Touch: a segment held on the strip rises out of it (app.js segmentGesture). Layers, bottom to top: video, the blur
+   (whole screen) under the controls, the controls (z-index 90) kept sharp, then over them the darkening veil, the hint
+   and the title, and the card. */
+.segment-gesture-under,.segment-gesture-over{position:fixed;inset:0;pointer-events:none;visibility:hidden}
+.segment-gesture-under{z-index:89}.segment-gesture-over{z-index:91}
+.segment-gesture-under.is-on,.segment-gesture-over.is-on{visibility:visible}
+.sg-blur{position:absolute;inset:0;opacity:0;background:rgba(10,14,20,.30);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);transition:opacity .35s cubic-bezier(.42,0,.58,1)}
+:root:not([data-theme=light]) .sg-blur{background:rgba(0,0,0,.24)}
+@media(prefers-color-scheme:light){:root:not([data-theme=dark]) .sg-blur{background:rgba(10,14,20,.30)}}
+:root[data-theme=light] .sg-blur{background:rgba(10,14,20,.30)}
+.is-on .sg-blur{opacity:1}
+.sg-dark{position:absolute;inset:0;background:#05070A;opacity:0;transition:opacity .25s cubic-bezier(.32,.72,0,1)}
+/* title at the top of the screen while the segment is pushed: 구간 n, then 밀어서 ⇄ 놓으면 구간이동 */
+.sg-title{position:absolute;left:16px;right:16px;top:calc(env(safe-area-inset-top,0px) + 56px);display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;opacity:0;translate:0 14px;transition:opacity .45s cubic-bezier(.42,0,.58,1),translate .45s cubic-bezier(.42,0,.58,1)}
+.sg-title.is-shown{opacity:1;translate:0 0}
+.sg-num{font-size:30px;font-weight:700;line-height:1.15;letter-spacing:-.01em;color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.45);font-variant-numeric:tabular-nums}
+.sg-sub{display:flex;justify-content:center;gap:.3em;font-size:15px;font-weight:600;color:rgba(255,255,255,.82);text-shadow:0 1px 8px rgba(0,0,0,.45)}
+.sg-swap{display:inline-grid}
+.sg-swap>span{grid-area:1/1;text-align:center;transition:opacity .38s cubic-bezier(.65,0,.35,1),translate .38s cubic-bezier(.65,0,.35,1)}
+.sg-drop{opacity:0;translate:0 .8em;color:#8EEBC2}
+.sg-sub.is-armed .sg-push{opacity:0;translate:0 -.8em}.sg-sub.is-armed .sg-drop{opacity:1;translate:0 0}
+/* the hint, centred on the screen above where the card rests (5 s loop): the arrow eases up 12 px over 1.2 s and back
+   down over 1.6 s; the words start 0.15 s later from 26 px below and come to rest with it at 1.2 s, fading in over
+   0.85 s; they fade out in place once the arrow is back (2.8-3.5 s); 1.5 s rest. Nothing overshoots. */
+.sg-hint{position:absolute;left:50%;width:240px;margin-left:-120px;height:72px;transition:opacity .25s cubic-bezier(.2,0,0,1)}
+.sg-hint.is-gone{opacity:0}
+.sg-words{position:absolute;left:0;right:0;top:6px;text-align:center;font-size:15px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;color:rgba(255,255,255,.96);text-shadow:0 0 4px rgba(255,255,255,.55),0 0 9px rgba(255,255,255,.2),0 1px 3px rgba(0,0,0,.3),0 1px 12px rgba(0,0,0,.35);transition:opacity .35s cubic-bezier(.42,0,.58,1)}
+.sg-arrow{position:absolute;left:50%;top:46px;width:68px;height:12px;margin-left:-34px;opacity:.94;filter:drop-shadow(0 0 3px rgba(255,255,255,.6)) drop-shadow(0 0 6px rgba(255,255,255,.22)) drop-shadow(0 1px 2px rgba(0,0,0,.28));transition:filter .45s cubic-bezier(.42,0,.58,1)}
+.sg-words,.sg-arrow{will-change:translate,opacity;backface-visibility:hidden;transform:translateZ(0)}
+.is-on .sg-words{animation:sg-glide 5s linear infinite,sg-fade 5s linear infinite}
+.is-on .sg-arrow{animation:sg-arrow 5s linear infinite}
+@keyframes sg-glide{0%{translate:0 26px}3%{translate:0 26px;animation-timing-function:cubic-bezier(.2,.3,.63,1)}24%{translate:0 0}100%{translate:0 0}}
+@keyframes sg-fade{0%{opacity:0}3%{opacity:0;animation-timing-function:cubic-bezier(.33,0,.4,1)}20%{opacity:1}56%{opacity:1;animation-timing-function:cubic-bezier(.37,0,.63,1)}70%{opacity:0}100%{opacity:0}}
+@keyframes sg-arrow{0%{translate:0 0;animation-timing-function:cubic-bezier(.37,0,.63,1)}24%{translate:0 -12px;animation-timing-function:cubic-bezier(.37,0,.63,1)}56%{translate:0 0}100%{translate:0 0}}
+/* two rounded bars meeting at the top; level, they flatten ^ onto the line of its ends (the playing segment) */
+.sg-bars{position:absolute;inset:0;transition:translate .45s cubic-bezier(.42,0,.58,1)}
+.sg-bar{position:absolute;top:1px;width:34.6px;height:4px;border-radius:2px;background:#fff;transition:rotate .45s cubic-bezier(.42,0,.58,1)}
+.sg-bar.l{left:1.4px;transform-origin:32.6px 2px;rotate:-11.3deg}.sg-bar.r{left:32px;transform-origin:2px 2px;rotate:11.3deg}
+.sg-hint.is-flat .sg-bar{rotate:0deg}.sg-hint.is-flat .sg-bars{translate:0 6px}.sg-hint.is-flat .sg-arrow{filter:drop-shadow(0 0 3px rgba(255,255,255,0)) drop-shadow(0 0 6px rgba(255,255,255,0)) drop-shadow(0 1px 2px rgba(0,0,0,0))}
+.sg-note{position:absolute;left:0;right:0;bottom:4px;text-align:center;font-size:13px;font-weight:600;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.4),0 1px 12px rgba(0,0,0,.4)}
+.sg-hint.is-note .sg-words,.sg-hint.is-note .sg-arrow{display:none}
+/* the card: only it follows the finger */
+.sg-card{position:absolute;width:184px;padding:4px;border-radius:12px;background:var(--pop);box-shadow:var(--pop-shadow);color:var(--text);opacity:0;transition:opacity .3s cubic-bezier(.42,0,.58,1),top .18s cubic-bezier(.32,.72,0,1),scale .35s cubic-bezier(.32,.72,0,1),box-shadow .3s cubic-bezier(.42,0,.58,1)}
+.sg-card.is-shown{opacity:1}
+.sg-card.is-armed{box-shadow:0 0 0 1.5px var(--accent),var(--pop-shadow)}
+.sg-card.is-settle{transition:opacity .3s cubic-bezier(.42,0,.58,1) .15s,top .45s cubic-bezier(.32,.72,0,1),scale .45s cubic-bezier(.32,.72,0,1),box-shadow .3s cubic-bezier(.42,0,.58,1)}
+.sg-card.is-fly{opacity:0;transition:opacity .35s cubic-bezier(.42,0,.58,1),top .45s cubic-bezier(.32,.72,0,1),scale .45s cubic-bezier(.32,.72,0,1)}
+.segment-block.is-target{box-shadow:0 0 0 2px var(--panel),0 0 0 3.5px var(--accent)}
+@media(prefers-reduced-motion:reduce){.is-on .sg-words,.is-on .sg-arrow{animation:none;opacity:1;translate:0 0}.sg-blur,.sg-dark,.sg-title,.sg-swap>span,.sg-card,.sg-bars,.sg-bar,.sg-arrow{transition:none}}
 /* Stacked: the bottom video controls stay above the transport bar where it covers the picture's bottom (app.js --video-cover). */
 .replay-page.compact-media .camera-panel:not(:fullscreen) :is(.video-tools,.video-fullscreen,.video-messages){translate:0 calc(-1 * var(--video-cover,0px))}
 /* Maps (maps.js): the 목록 | 지도 and 주행 상황 | 지도 switches, Leaflet in this app's look, the replay's route map, its car

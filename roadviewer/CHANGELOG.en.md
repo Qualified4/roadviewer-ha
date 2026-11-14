@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.8
+
+- Mobile segment switching, redesigned: hold a block on the segment strip and its card rises, the screen behind the controls blurs and a looping hint (an arrow pushing "밀어서 구간이동" up) shows. Pushing up locks the segment; only the card follows the finger, the rest darkens and "구간 n" appears at the top. Letting go once it reads "놓으면 구간이동" opens the segment; letting go short of it, on the strip or below it does not. On the playing segment the arrow flattens and the hint stops.
+- Keyboard shortcuts now work after clicking the play button or the seek bar (before, focus left on a button ignored them all). Added F (full screen) and PageUp/PageDown (previous/next segment).
+- The blind-spot wall now also ends at the cluster FF car when there is no TARGET, as the model path does; before, it ran past the car to 40m.
+
 ## 1.3.7
 
 - The target following distance bars are drawn whenever longitudinal control is on (with no lead, a lead nearer than the target, or the lead mark off), not while it is off, fading over 0.3s as it switches.
