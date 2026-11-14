@@ -203,8 +203,10 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
     assert(xs.every(p=>Math.abs(p.x-xs[0].x)<.5),'북마크 never moves: '+JSON.stringify(xs.map(p=>p.x)));
     assert(xs.filter((p,i)=>i<8).every(p=>p.frame),'FRAME stays visible while playing: '+JSON.stringify(xs));
    }
-   // A focused time button keeps the global shortcuts out of the way, like other buttons.
-   await time.focus();const before=await page.evaluate(()=>t);await page.keyboard.press('ArrowRight');assert.equal(await page.evaluate(()=>t),before,'arrow keys do not step while the time button is focused');
+   // Focus left on the time button does not block the shortcuts: the arrows still step a frame.
+   // (This replay has one frame, so the step itself is watched.)
+   await time.focus();await page.evaluate(()=>{window.steps=[];const original=step;step=n=>{steps.push(n);original(n)}});
+   await page.keyboard.press('ArrowRight');assert.deepEqual(await page.evaluate(()=>steps),[1],'arrow keys step while the time button is focused');
    await page.evaluate(()=>document.activeElement.blur());
   }
   await page.setViewportSize({width:390,height:844});

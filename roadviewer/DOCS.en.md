@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.3.7**.
+This guide describes **1.3.8**.
 
 [한국어](DOCS.md) · English
 
@@ -200,10 +200,11 @@ While playing, the title, the bottom-left controls and fullscreen fade out; touc
 
 The **playback bar** floats at the bottom while scrolling.
 
-- **Segment strip:** one block per segment of the route, in the same colours as the library (playable green, processing yellow, error red, unconverted grey); the playing segment is outlined. Clicking another playable segment opens it. On long drives the strip scrolls horizontally and keeps the current segment centred. Hovering a block (or holding a finger on it) shows that segment's thumbnail and start time above the strip until released. Sliding the held finger scrubs through the other segments like a mouse pointer; on long drives, resting it near an end of the strip moves the strip on. In phone and tablet fullscreen the strip is hidden; the title menu at the top left still changes segments.
+- **Segment strip:** one block per segment of the route, in the same colours as the library (playable green, processing yellow, error red, unconverted grey); the playing segment is outlined. Clicking another playable segment opens it. On long drives the strip scrolls horizontally and keeps the current segment centred. Hovering a block shows that segment's thumbnail and start time above the strip. Holding a finger on a block raises that segment's card above the strip, blurs the screen behind the controls and loops a hint (an arrow pushing "밀어서 구간이동" up). Sliding along the strip picks another segment; on long drives, resting near an end moves the strip on. Pushing the finger up off the strip locks the segment: only the card follows the finger, the rest darkens and "구간 n · 밀어서 구간이동" appears at the top; far enough up it turns to "놓으면 구간이동" and letting go opens that segment. Coming back down undoes each step, and letting go short of it settles the card back and closes it. On the segment already playing the arrow flattens and the hint stops; a segment not ready shows "준비 중인 구간" and does not open. In phone and tablet fullscreen the strip is hidden; the title menu at the top left still changes segments.
 - **Event track:** automatic-control spans (자동 제어) and driver takeovers (운전자 개입), with a legend for the current segment, control, takeover and bookmarks.
 - **Seek bar:** buffered video ranges and bookmark markers. Seeking preserves the playing/paused state.
 - **Play/pause** (Space), **frame step** (← / →), **time** (tap to toggle between current time and total length), **북마크**, **speed** (0.25–4×).
+- **Keyboard shortcuts:** Space play/pause, ← / → one frame, F full screen, PageUp / PageDown previous/next playable segment. They work after clicking the play button or the seek bar. Text fields, open dialogs and menus, tables, maps and telemetry charts keep their own keys, and Space presses a button reached with Tab. They also work with the Korean keyboard layout.
 
 Short boundary mismatches are tolerated; real gaps or missing tails are not invented.
 
@@ -263,7 +264,7 @@ TARGET uses the configured path width (default 1.86m), with softly fading ends. 
 
 `LANE_HIGHLIGHT`, `LANE_LEFT` and `LANE_RIGHT` control lane highlighting to the valid end of the lanes. `LANE_HIGHLIGHT_DISTANCE` is not used. Mint turn arrows float at a fixed place ahead of the car (see below); they do not reproduce the physical bulb's exact flash phase.
 
-BSD uses `carState.leftBlindspot/rightBlindspot`. Video walls rise/fade in and lower/fade out, extend at most 40m (only up to the lead when there is one), and default to 0.80m high. Ten vertical yellow lines move irregularly along each wall, five with stronger glow. The road panel uses a yellow glow on the detected side's border rather than a wall stripe. Walls are independent of marker height and the cluster-road toggle.
+BSD uses `carState.leftBlindspot/rightBlindspot`. Video walls rise/fade in and lower/fade out, extend at most 40m (only up to the car ahead when there is one: the cluster TARGET, or without it the cluster FF car, as for the model path), and default to 0.80m high. Ten vertical yellow lines move irregularly along each wall, five with stronger glow. The road panel uses a yellow glow on the detected side's border rather than a wall stripe. Walls are independent of marker height and the cluster-road toggle.
 
 Over the video, the ⚙ button beside **겹쳐 보기** opens **겹쳐 보기 설정** (overlay settings); **카메라 설치 정보** is in the app bar's ⋯ menu. Settings include:
 

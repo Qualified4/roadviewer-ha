@@ -1,12 +1,13 @@
 const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('playwright');
 const {settleLayout}=require('./browser-helpers.cjs');
 // Segment preview: a mouse over a segment block, or a finger held on one, shows that segment's thumbnail and start time
-// above the strip; leaving or letting go hides it, a held finger does not navigate, and each picture is fetched once.
+// above the strip and leaving hides it; a finger held on a block raises it out of the strip (segmentGesture), and
+// pushed up past the line and let go it opens. Each picture is fetched once.
 const asset=name=>({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':'image/svg+xml'});
 const start=Date.UTC(2026,10,7,23,2)/1000,status=['ready','ready','ready','unconverted'];
 const makeLogs=status=>status.map((s,i)=>({id:'s'+i,name:`0000041b--a1b2c3d4e5 / 구간 ${i}`,status:s,uploaded:start,started_at:start+i*60,duration:60,bytes:1e7,prepared_bytes:3e7,video:true,pinned:false,tags:[],
  thumbnail:i===1,thumbnail_available:i===2,conversion_revision:2}));
-const replay={route:'0000041b--a1b2c3d4e5',key:'peek',duration:2,warnings:[],video:null,frames:[{t:0,id:0,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}]};
+const replay={route:'0000041b--a1b2c3d4e5',key:'peek',duration:2,warnings:[],video:null,frames:Array.from({length:20},(_,i)=>({t:i*.1,id:i,valid:true,lanes:[],edges:[],lp:[],es:[],leads:[],liveTracksValid:false}))};
 const clock=i=>new Date((start+i*60)*1000).toLocaleTimeString('ko-KR',{hour:'numeric',minute:'2-digit'});
 const logs=makeLogs(status);
 async function open(browser,options,list=logs){
@@ -52,25 +53,73 @@ const block=(page,i)=>page.locator('#segmentStrip .segment-block').nth(i).boundi
   await p.mouse.move(b.x,b.y-200);await p.waitForTimeout(250);assert(!(await peek(p)).visible,'leaving the strip hides it');
   b=await block(p,1);await p.mouse.move(b.x+b.width/2,b.y+b.height/2);await p.waitForTimeout(200);
   assert.equal(desk.pictures.filter(u=>u.includes('/s1/')).length,1,'a picture seen before is not fetched again');
+  // Keyboard shortcuts work with focus left on the controls by a mouse click: Space plays/pauses, ←/→ step a frame,
+  // F asks for full screen, PageUp/PageDown open the previous/next playable segment.
+  await p.locator('#play').click();await p.waitForTimeout(100);assert(await p.evaluate(()=>playing),'the play button plays');
+  await p.keyboard.press('Space');assert(!(await p.evaluate(()=>playing)),'Space pauses with focus on the play button');
+  await p.keyboard.press('Space');assert(await p.evaluate(()=>playing),'and plays again');await p.keyboard.press('Space');
+  const sk=await p.locator('#seek').boundingBox();await p.mouse.click(sk.x+sk.width*.5,sk.y+sk.height/2);await p.waitForTimeout(100);
+  assert.equal(await p.evaluate(()=>document.activeElement.id),'seek');
+  let frame=await p.evaluate(()=>idx);await p.keyboard.press('ArrowRight');assert.equal(await p.evaluate(()=>idx),frame+1,'→ steps a frame from the seek bar');
+  await p.keyboard.press('ArrowLeft');assert.equal(await p.evaluate(()=>idx),frame,'← steps back');
+  assert(!(await p.evaluate(()=>playing)),'stepping leaves it paused');
+  const asked=await p.evaluate(()=>{const b=document.getElementById('fullscreenButton');b.hidden=false;window.fullscreenAsked=0;b.onclick=()=>window.fullscreenAsked++;return true});
+  await p.keyboard.press('f');assert.equal(await p.evaluate(()=>window.fullscreenAsked),1,'F asks for full screen');
+  await p.keyboard.press('PageUp');await p.waitForTimeout(200);assert(p.url().endsWith('/view/s0/'),'PageUp on the first segment stays');
+  await p.keyboard.press('PageDown');await p.waitForURL(/\/view\/s1\/$/);await p.locator('#play:enabled').waitFor();
+  await p.waitForFunction(()=>document.querySelectorAll('#segmentStrip .segment-block').length===4);
+  await p.keyboard.press('PageUp');await p.waitForURL(/\/view\/s0\/$/);
   assert.deepEqual(desk.errors,[]);await desk.context.close();
 
-  // Touch: holding shows it and letting go hides it without navigating; moving first is a scroll; a tap navigates.
+  // Touch: a held block rises out of the strip (segmentGesture). Holding shows its card, the blurred screen and the
+  // looping hint; sliding along the strip changes the segment; pushed up off the strip the segment locks, only the card
+  // follows, the title shows and, far enough up, 밀어서 turns to 놓으면 and letting go opens it. Short of that, on the strip
+  // or below it, nothing opens. The playing segment flattens the arrow; one not ready says so.
   const phone=await open(browser,{viewport:{width:390,height:844},hasTouch:true,isMobile:true});p=phone.page;
   const cdp=await phone.context.newCDPSession(p),touch=(type,x,y)=>cdp.send('Input.dispatchTouchEvent',{type,touchPoints:type==='touchEnd'?[]:[{x,y}]});
+  const g=()=>p.evaluate(()=>{const q=s=>document.querySelector(s),c=q('#segmentGestureCard'),r=c.getBoundingClientRect(),hint=q('.sg-hint'),title=q('.sg-title');
+   return {on:q('.segment-gesture-over').classList.contains('is-on'),blur:q('.segment-gesture-under').classList.contains('is-on'),shown:c.classList.contains('is-shown'),label:c.querySelector('b').textContent,top:r.top,
+    hintGone:hint.classList.contains('is-gone'),flat:hint.classList.contains('is-flat'),note:q('.sg-note').textContent,title:title.classList.contains('is-shown'),num:q('.sg-num').textContent,armed:q('.sg-sub').classList.contains('is-armed'),
+    dark:+getComputedStyle(q('.sg-dark')).opacity,target:[...document.querySelectorAll('#segmentStrip .segment-block.is-target')].map(b=>b.dataset.id)}});
   b=await block(p,1);const x=b.x+b.width/2,y=b.y+b.height/2;
-  await touch('touchStart',x,y);await p.waitForTimeout(200);assert(!(await peek(p)).shown,'not before the hold time');
-  await p.waitForTimeout(350);s=await peek(p);assert(s.shown,'a held finger shows the preview');assert.equal(s.label,'구간 1');
+  await touch('touchStart',x,y);await p.waitForTimeout(200);assert(!(await g()).shown,'not before the hold time');
+  await p.waitForTimeout(350);s=await g();assert(s.shown&&s.on&&s.blur,'a held finger raises the card over a blurred screen');assert.equal(s.label,'구간 1');
+  assert(!s.hintGone&&!s.flat&&!s.title,'the hint loops; no title yet');assert.deepEqual(s.target,['s1'],'its block is marked');
+  assert(!(await peek(p)).visible,'the mouse preview stays hidden');
   assert(await p.evaluate(()=>!document.getElementById('segmentStrip').querySelector('.segment-block').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true}))),'no long-press menu on the strip');
-  await touch('touchEnd');await p.waitForTimeout(300);
-  assert(!(await peek(p)).visible,'letting go hides it');assert(p.url().endsWith('/view/s0/'),'a hold does not navigate');
+  const rest=s.top;
+  await touch('touchMove',x,y+60);await p.waitForTimeout(60);s=await g();assert(s.shown&&!s.title&&s.dark===0,'below the strip nothing changes');
+  await touch('touchEnd');await p.waitForTimeout(500);
+  assert(!(await g()).on,'letting go closes it');assert(p.url().endsWith('/view/s0/'),'letting go below the strip does not navigate');
+  await touch('touchStart',x,y);await p.waitForTimeout(550);await touch('touchEnd');await p.waitForTimeout(500);
+  assert(p.url().endsWith('/view/s0/'),'letting go on the strip does not navigate');
   await touch('touchStart',x,y);await p.waitForTimeout(60);await touch('touchMove',x+30,y);await p.waitForTimeout(550);
-  assert(!(await peek(p)).shown,'moving before the hold time does not show it');await touch('touchEnd');
-  // Held, sliding the finger scrubs through the segments like a mouse pointer, without scrolling the page or strip.
-  await touch('touchStart',x,y);await p.waitForTimeout(550);assert.equal((await peek(p)).label,'구간 1');
-  for(const [i,label] of [[2,'구간 2'],[3,'구간 3'],[0,'구간 0']]){const t=await block(p,i);await touch('touchMove',t.x+t.width/2,y+6);await p.waitForTimeout(60);
-   const now=await peek(p);assert(now.shown,'still shown while scrubbing');assert.equal(now.label,label,'the preview follows the finger');}
-  await touch('touchEnd');await p.waitForTimeout(300);assert(!(await peek(p)).visible,'letting go after scrubbing hides it');assert(p.url().endsWith('/view/s0/'),'scrubbing does not navigate');
-  await p.locator('#segmentStrip .segment-block').nth(2).tap();await p.waitForURL(/\/view\/s2\/$/);
+  assert(!(await g()).shown,'moving before the hold time does not start it');await touch('touchEnd');
+  // Held on the strip, sliding scrubs through the segments; on the playing one the arrow flattens, on one not ready a note.
+  await touch('touchStart',x,y);await p.waitForTimeout(550);assert.equal((await g()).label,'구간 1');
+  for(const [i,label] of [[2,'구간 2'],[3,'구간 3'],[0,'구간 0']]){const t=await block(p,i);await touch('touchMove',t.x+t.width/2,y+4);await p.waitForTimeout(80);
+   const now=await g();assert(now.shown,'still shown while scrubbing');assert.equal(now.label,label,'the card follows the finger');
+   if(i===3)assert.equal(now.note,'준비 중인 구간','a segment not ready says so');
+   if(i===0)assert(now.flat&&now.note==='','on the playing segment the arrow flattens, no words');}
+  await touch('touchEnd');await p.waitForTimeout(500);assert(p.url().endsWith('/view/s0/'),'letting go on the playing segment stays');
+  // Pushed up: the segment locks, only the card rises, the rest darkens, the title shows 구간 1 · 밀어서 구간이동.
+  await touch('touchStart',x,y);await p.waitForTimeout(550);
+  await touch('touchMove',x,y-30);await p.waitForTimeout(250);s=await g();
+  assert(s.title&&s.num==='구간 1'&&!s.armed,'the title rises with 밀어서');assert(s.hintGone,'the hint fades');assert(s.dark>0,'the screen darkens');assert(s.top<rest-20,'the card follows the finger up');
+  {const t=await block(p,2);await touch('touchMove',t.x+t.width/2,y-34);await p.waitForTimeout(80);assert.equal((await g()).label,'구간 1','pushed up, sliding sideways keeps the segment');}
+  await touch('touchMove',x,y-100);await p.waitForTimeout(250);s=await g();assert(s.armed,'far enough up: 놓으면 구간이동');assert(s.dark>.5,'darker');
+  await touch('touchMove',x,y-30);await p.waitForTimeout(150);assert(!(await g()).armed,'back down: 밀어서 again');
+  await touch('touchMove',x,y);await p.waitForTimeout(150);s=await g();assert(!s.title&&!s.hintGone,'back on the strip: the hint returns, the title goes');
+  {const t=await block(p,2);await touch('touchMove',t.x+t.width/2,y);await p.waitForTimeout(80);assert.equal((await g()).label,'구간 2','back on the strip it scrubs again');}
+  await touch('touchMove',x,y-40);await p.waitForTimeout(80);await touch('touchEnd');await p.waitForTimeout(600);
+  s=await g();assert(!s.on&&p.url().endsWith('/view/s0/'),'let go short of the line: it settles back and nothing opens');
+  // An unconverted segment cannot be pushed; segment 2 pushed past the line opens.
+  {const t=await block(p,3);await touch('touchStart',t.x+t.width/2,y);await p.waitForTimeout(550);await touch('touchMove',t.x+t.width/2,y-100);await p.waitForTimeout(150);
+   s=await g();assert(!s.title&&!s.armed&&s.dark===0,'a segment not ready does not rise');await touch('touchEnd');await p.waitForTimeout(500);assert(p.url().endsWith('/view/s0/'),'an unconverted segment does not open');}
+  {const t=await block(p,2);await touch('touchStart',t.x+t.width/2,y);await p.waitForTimeout(550);await touch('touchMove',t.x+t.width/2,y-100);await p.waitForTimeout(150);
+   assert((await g()).armed,'segment 2 pushed past the line');await touch('touchEnd');await p.waitForURL(/\/view\/s2\/$/);}
+  await p.locator('#play:enabled').waitFor();await p.waitForFunction(()=>document.querySelectorAll('#segmentStrip .segment-block').length===4);await settleLayout(p);
+  await p.locator('#segmentStrip .segment-block').nth(1).tap();await p.waitForURL(/\/view\/s1\/$/);
   assert.deepEqual(phone.errors,[]);await phone.context.close();
 
   // A long drive's scrolling strip: resting the held finger near its right end moves the strip on to later segments.
@@ -80,11 +129,11 @@ const block=(page,i)=>page.locator('#segmentStrip .segment-block').nth(i).boundi
   b=await block(p,0);const strip=await p.locator('#segmentStrip').boundingBox(),left=await p.evaluate(()=>document.getElementById('segmentStrip').scrollLeft);
   await ltouch('touchStart',b.x+b.width/2,b.y+b.height/2);await p.waitForTimeout(550);
   await ltouch('touchMove',strip.x+strip.width-6,b.y+b.height/2);await p.waitForTimeout(800);
-  const moved=await p.evaluate(()=>document.getElementById('segmentStrip').scrollLeft),label=(await peek(p)).label;
+  const moved=await p.evaluate(()=>document.getElementById('segmentStrip').scrollLeft),label=await p.evaluate(()=>document.querySelector('#segmentGestureCard b').textContent);
   assert(moved>left+40,`the strip moves on at its end: ${left} -> ${moved}`);assert(Number(label.split(' ')[1])>6,'the preview shows a later segment: '+label);
   await ltouch('touchEnd');await p.waitForTimeout(200);const settled=await p.evaluate(()=>document.getElementById('segmentStrip').scrollLeft);await p.waitForTimeout(300);
   assert.equal(await p.evaluate(()=>document.getElementById('segmentStrip').scrollLeft),settled,'it stops when the finger lifts');
   assert.deepEqual(long.errors,[]);await long.context.close();
-  console.log('PASS: segment preview on hover (thumbnail, start time, state, placement, fetched once) and on a touch hold (scrubbing along the strip, edge scrolling on long drives, no navigation, movement cancels, taps still navigate)');
+  console.log('PASS: segment preview on hover (thumbnail, start time, state, placement, fetched once) and on a touch hold (scrubbing along the strip, edge scrolling on long drives, pushing the segment up locks it, raises the title and opens it past the line, short of it or below the strip cancels, the playing segment flattens the arrow, taps still navigate), and the keyboard shortcuts (Space, arrows, F, PageUp/PageDown) with focus left on the controls');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exit(1)});
