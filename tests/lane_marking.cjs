@@ -65,8 +65,8 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    // Slowing down: amber from the apex.
    await page.evaluate(()=>{data.frames[0].roadSignals={acceleration:-3}});r=await chevrons();assert(tinted(r,'255,178,87'),'amber at a hard deceleration');
    await page.evaluate(()=>{data.frames[0].roadSignals={acceleration:.5}});r=await chevrons();assert(!tinted(r,'255,178,87'),'no amber while speeding up');
-   // Lead well inside the target following distance: no chevrons; outside it: drawn.
-   await page.evaluate(()=>{const f=data.frames[0];f.ccncRoad={...f.ccncRoad,target:1,distance:20};f.gapTarget=40;overlayGeometryCache.clear()});  // the lead's distance mark is part of the cached geometryr=await chevrons();assert.equal(r.count,0,'lead inside the target: no chevrons');
+   // Lead well inside the target following distance: still drawn (up to 1 m short of the lead).
+   await page.evaluate(()=>{const f=data.frames[0];f.ccncRoad={...f.ccncRoad,target:1,distance:20};f.gapTarget=40;overlayGeometryCache.clear()});  // the lead's distance mark is part of the cached geometryr=await chevrons();assert(r.count>0,'lead inside the target: chevrons');
    await page.evaluate(()=>{data.frames[0].gapTarget=12});r=await chevrons();assert(r.count>0,'lead beyond the target: chevrons');
    await page.evaluate(()=>{const f=data.frames[0];f.ccncRoad={laneLeft:8,laneRight:4};delete f.gapTarget;delete f.roadSignals;overlayGeometryCache.clear();render()});
    // Blinker morph progress: up over 0.9 s after the blinker comes on, back down over 1.2 s after it goes off (a gap under

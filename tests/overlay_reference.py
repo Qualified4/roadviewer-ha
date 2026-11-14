@@ -1,4 +1,7 @@
-"""Frozen 0.4.4 projection oracle for browser geometry regression tests."""
+"""Frozen 0.4.4 projection oracle for browser geometry regression tests, plus 1.3.2's radar-to-camera offset: radar and
+cluster distances (the TARGET distance, radar points, raw tracks, the radar lead, CCNC cars) are from the front radar,
+RADAR_TO_CAMERA behind which the road coordinates start (the model's leads are already in road coordinates)."""
+RADAR_TO_CAMERA=1.52
 from overlay import *
 from overlay import OverlayProjector as BaseProjector
 
@@ -44,8 +47,8 @@ class OverlayProjector(BaseProjector):
    nx,ny=(-dy/length,dx/length) if length else (0,1)
    path_projection.append(projection_coordinates((x,y,z+height),rpy,config))
    path_sides.append(projection_coordinates((nx,ny,0),rpy,config))
-  target_line=[];road=frame.get('ccncRoad') or {};distance=road.get('distance',0)
-  if road.get('target') in (1,3) and 0<distance<204.6:
+  target_line=[];road=frame.get('ccncRoad') or {};distance=road.get('distance',0)+RADAR_TO_CAMERA
+  if road.get('target') in (1,3) and 0<road.get('distance',0)<204.6:
    for lane in model.get('laneLines',[])[1:3]:
     points=points3(lane);point=None
     for a,b in zip(points,points[1:]):
@@ -76,7 +79,7 @@ class OverlayProjector(BaseProjector):
   groups=[('model',frame.get('leads',[])),('selected',[frame['selected']] if frame.get('selected') else []),('radar',frame.get('radarTargets',[])),('raw',frame.get('liveTracks',[])),('ccnc',frame.get('ccncTargets') or [])]
   for kind,targets in groups:
    for i,target in enumerate(targets):
-    x,y=target['x'],target['y']
+    x,y=target['x']+(0 if kind=='model' else RADAR_TO_CAMERA),target['y']
     point=project_point((x,y,ground_z(x)),rpy,config) if x>0 else None
     if point:
      marker={'kind':kind,'index':i,'point':point,'projection':projection_coordinates((x,y,ground_z(x)),rpy,config)}

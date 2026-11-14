@@ -4,6 +4,16 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.2
+
+- The lead arc, target following distance, path end, chevron end and blind-spot wall end are drawn 1.52 m further on, the gap between the radar (front bumper) and the camera: until now they sat short of a near lead. The LF/FF/RF boxes, radar points and raw tracks are corrected the same way. The distances shown on screen are unchanged.
+- Path chevrons run from 5.5 m ahead up to 30 m (fading from 20 m), or to 1 m short of a nearer lead, with or without a lead; they are no longer hidden when the lead is inside the target distance.
+- The target following distance is two short bars at the path edges without the dotted arc, with a smooth glow.
+- A radar or model point on a drawn vehicle box is only a short tick on the ground. Point values beside markers show only with the new **감지점 라벨** (point labels) setting, off by default.
+- With the TARGET label on, the lead shows it and the same car's FF label is hidden; before, the TARGET label setting did nothing while FF labels were shown.
+- Ground labels (TARGET; LF/FF/RF under their boxes) lie on the road out to 18 m, each letter leaning to the vanishing point, then stand up gradually, upright from 23 m.
+- The following-distance level in the bottom-left corner has no background: white bars in every theme.
+
 ## 1.3.1
 
 - Logs converted before 1.3.0 now show the following-distance setting and target distance too. After the update the app fills them in the background from the original log (rlog) alone, one log at a time: no reconversion, no video downloaded again, and it waits while conversions, uploads, playback or archive moves run.

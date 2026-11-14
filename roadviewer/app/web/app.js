@@ -170,6 +170,10 @@ async function readReplayJson(response){
 // Undo compact.py: shared camera info, values derivable from others, and marker points.
 // Derived geometry is bounded to recent frames (box fade needs short history).
 const overlayGeometryCache=new Map(),wideBasisCache=new WeakMap();
+// Radar and cluster distances (the lead, the target following distance) are measured from the front radar; the model's
+// road coordinates from the camera, this far behind it (openpilot's RADAR_TO_CAMERA). Without it a near lead's mark sat
+// well short of the car.
+const RADAR_TO_CAMERA=1.52;
 function wideProjectionBasis(info){
  if(!info||!['calibrated','recalibrating'].includes(info.calibrationStatus)||![info.rpy,info.wideRpy].every(a=>Array.isArray(a)&&a.length===3&&a.every(Number.isFinite)))return null;
  if(wideBasisCache.has(info))return wideBasisCache.get(info);
@@ -192,8 +196,8 @@ function buildReplayOverlay(frame,g){
  const ground=x=>{if(!path.length)return height;const p=sample(path,x);return (p||path.reduce((a,b)=>Math.abs(a[0]-x)<=Math.abs(b[0]-x)?a:b))[2]+height};
  const blindspotX=inner.map(points=>{if(points.length<2||!points.every(p=>Number.isFinite(p[0])))return [];const start=Math.max(0,points[0][0]),end=Math.min(40,points.at(-1)[0]);if(end<=start)return [];const xs=[start];for(let x=2;x<40;x+=2)if(start<x&&x<end)xs.push(x);xs.push(end);return xs});
  const blindspotPaths=inner.map((points,i)=>blindspotX[i].map(x=>project(sample(points,x))));
- let targetLine=[];const targetSections=[],road=frame.ccncRoad||{},distance=road.distance||0;
- if([1,3].includes(road.target)&&distance>0&&distance<204.6)targetLine=inner.map(points=>screen(sample(points,distance)));
+ let targetLine=[];const targetSections=[],road=frame.ccncRoad||{},distance=(road.distance||0)+RADAR_TO_CAMERA;
+ if([1,3].includes(road.target)&&road.distance>0&&road.distance<204.6)targetLine=inner.map(points=>screen(sample(points,distance)));
  if(targetLine.length===2&&targetLine.every(Boolean))for(let i=0;i<17;i++){
   const a=sample(inner[0],distance-i*.5),b=sample(inner[1],distance-i*.5);if(!a||!b||a[0]<=0)break;
   const width=Math.hypot(...a.map((v,k)=>v-b[k]));if(width<.1)break;
@@ -204,7 +208,8 @@ function buildReplayOverlay(frame,g){
  if(targetSections.length){const [center,side]=targetSections[0];targetLine=[-1,1].map(sign=>{const p=center.map((v,k)=>v+sign*.9*side[k]);return [p[0]/p[2],p[1]/p[2]]})}
  const markers=[];
  for(const [kind,targets] of [['model',frame.leads||[]],['selected',frame.selected?[frame.selected]:[]],['radar',frame.radarTargets||[]],['raw',frame.liveTracks||[]],['ccnc',frame.ccncTargets||[]]])targets.forEach((target,index)=>{
-  const x=target.x,y=target.y??-target.yRel,p=[x,y,ground(x)],point=x>0?screen(p):null;if(!point)return;
+  // The model's leads are already in road coordinates; radar tracks, the radar lead and the CCNC cars are from the radar.
+  const x=target.x+(kind==='model'?0:RADAR_TO_CAMERA),y=target.y??-target.yRel,p=[x,y,ground(x)],point=x>0?screen(p):null;if(!point)return;
   const marker={kind,index,point,projection:project(p)};
   if(kind==='ccnc'){
    let fx=1,fy=0;
@@ -426,7 +431,7 @@ window.addEventListener('blur',finishSeekDrag);
 v.addEventListener('seeked',()=>{last=performance.now();if(data)syncVideo()});
 v.addEventListener('canplay',()=>{last=performance.now()});
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error)startWholeVideo();if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();playLabel(true);syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration){pause();playedToEnd()}}};v.onerror=videoError;  // the video can end a moment before the log's clock (after a pause, say): that is playing to the end too
-for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','vehicleBoxes','ccncRoad','laneMarking','gapLevel','gapTarget','boxLabels','boxLabelsBelow','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
+for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','vehicleBoxes','ccncRoad','laneMarking','gapLevel','gapTarget','boxLabels','boxLabelsBelow','pointLabels','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Space and arrows keep their own meaning on focused controls, links and menus.
 document.onkeydown=e=>{if(document.querySelector('dialog[open]')||['INPUT','TEXTAREA','SELECT','BUTTON','SUMMARY','A'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();flash($('play'));toggle()}if(e.code==='ArrowLeft'){e.preventDefault();flash($('prev'));step(-1)}if(e.code==='ArrowRight'){e.preventDefault();flash($('next'));step(1)}};
 // The road map is not on the video, so its colours follow the screen mode. Dark values equal the original palette;

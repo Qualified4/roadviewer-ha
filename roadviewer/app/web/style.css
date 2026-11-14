@@ -775,7 +775,8 @@ select,.rv-choice-trigger{font-weight:500}
    corner. --gap-cover lifts it with the controls where the transport bar covers the picture's bottom. */
 .video-gap{--hud-h:36px;position:absolute;left:12px;bottom:12px;z-index:3;display:flex;align-items:center;gap:3px;height:22px;padding:0 10px 0 9px;border-radius:999px;pointer-events:none;translate:0 calc(-1 * (var(--hud-h) + 8px + var(--gap-cover,0px)));transition:translate .3s var(--m2-standard,ease),opacity .18s var(--m2-standard,ease)}
 .video-gap[hidden]{display:none}
-.video-gap i{width:13px;height:8px;border-radius:1.5px;background:var(--hud-text);opacity:.28;transform:skewX(-20deg)}.video-gap i.is-on{opacity:1}
+/* No chip behind it: white bars in every theme (as dark mode), a soft dark edge keeps them readable on a bright road. */
+.video-gap i{width:13px;height:8px;border-radius:1.5px;background:#fff;opacity:.35;box-shadow:0 0 3px rgba(0,0,0,.55);transform:skewX(-20deg)}.video-gap i.is-on{opacity:1}
 @media(pointer:coarse){.replay-page .video-gap{--hud-h:46px}}
 .replay-page.media-shrunk .video-gap{--hud-h:40px}
 .replay-page.hud-idle .video-gap{translate:0 calc(-1 * var(--gap-cover,0px))}

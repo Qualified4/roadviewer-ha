@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.3.1**.
+This guide describes **1.3.2**.
 
 [한국어](DOCS.md) · English
 
@@ -274,12 +274,14 @@ Over the video, the ⚙ button beside **겹쳐 보기** opens **겹쳐 보기 �
 | Model path width | 1.86m / 1–3m |
 | BSD wall height | 0.80m / 0–3m; zero hides the video wall |
 | Marker height | 60cm / 0–200cm; connects markers to ground |
-| Box, BSD and TARGET labels | Independently enabled |
+| Box, BSD and TARGET labels | Independently enabled; with the TARGET label on, the lead shows it and its FF box label is hidden (off: the FF label shows) |
+| Ground labels (TARGET; LF/FF/RF under their boxes) | Near, they lie on the road like a decal (60% height, each letter leaning to the vanishing point) out to 18m; further away they stand up, upright from 23m |
+| 감지점 라벨 (point labels) | Off; radar and model points show their value (the 정보 표시 mode) small beside them. A point on a drawn LF/FF/RF car is only a short tick on the ground |
 | Labels below boxes | Optional text below the box without background/border |
 
 Every slider has an individual reset button. Settings are remembered. The path width affects video model paths and TARGET, not the road panel's mint ribbon. Rendering preferences do not require log reconversion.
 
-**Road projection.** Video graphics are drawn as light on the road, brighter near the car. The model path ends at the lead (cluster TARGET) when there is one and otherwise runs to the end of the model path. Chevrons on it flow towards the car at 40% of its speed, up to 17m and 3m short of the lead when there is one, otherwise up to 30m (fading from 20m). They turn amber with deceleration (`carState.aEgo`), dim beyond the target following distance, and are not drawn when the lead is closer than 85% of the target or longitudinal control (`carControl.longActive`, read from the vehicle data) is off. While stopped they brighten and dim over 2.4s.
+**Road projection.** Video graphics are drawn as light on the road, brighter near the car. Cluster and radar-plan distances (the lead, the target following distance, the LF/FF/RF cars, radar tracks and the radar lead; not the model's leads) are measured from the front radar; they are drawn 1.52m further on (openpilot `RADAR_TO_CAMERA`), since the road coordinates start at the camera. The model path ends at the lead (cluster TARGET) when there is one and otherwise runs to the end of the model path. Chevrons on it flow towards the car at 40% of its speed, from 5.5m ahead up to 30m (fading from 20m), or to 1m short of a nearer lead. They turn amber with deceleration (`carState.aEgo`), dim beyond the target following distance, and are not drawn when longitudinal control (`carControl.longActive`, read from the vehicle data) is off. While stopped they brighten and dim over 2.4s.
 
 | Setting | Default / range |
 |---|---|
