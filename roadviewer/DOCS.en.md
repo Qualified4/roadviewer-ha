@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.3.10**.
+This guide describes **1.3.11**.
 
 [한국어](DOCS.md) · English
 
@@ -204,7 +204,7 @@ The **playback bar** floats at the bottom while scrolling.
 - **Event track:** automatic-control spans (자동 제어) and driver takeovers (운전자 개입), with a legend for the current segment, control, takeover and bookmarks.
 - **Seek bar:** buffered video ranges and bookmark markers. Seeking preserves the playing/paused state.
 - **Play/pause** (Space), **frame step** (← / →), **time** (tap to toggle between current time and total length), **북마크**, **speed** (0.25–4×).
-- **Keyboard shortcuts:** Space play/pause, ← / → one frame, F full screen, PageUp / PageDown previous/next playable segment. They work after clicking the play button or the seek bar. Text fields, open dialogs and menus, tables, maps and telemetry charts keep their own keys, and Space presses a button reached with Tab. They also work with the Korean keyboard layout.
+- **Keyboard shortcuts:** Space play/pause, ← / → one frame, F full screen, PageUp / PageDown previous/next playable segment. They keep working after clicking any button, tab, checkbox, chart or table with the mouse. Text fields and open dialogs and menus keep their own keys, and the arrows pan a map after clicking it. On a control reached with Tab, Space presses it and the arrows switch tabs or move along a chart. They also work with the Korean keyboard layout.
 
 Short boundary mismatches are tolerated; real gaps or missing tails are not invented.
 

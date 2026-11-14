@@ -1,6 +1,6 @@
 // Documentation screenshots with the driving video (docs/images): overview, driving-view, wide-camera, replay-map and
-// video-minimap, light (daytime drive) and dark (night drive); there is no daytime wide video, so both wide shots use
-// the night drive. Not a test and not in any CI group; rerun by hand when the replay UI changes.
+// video-minimap, light (daytime drive) and dark (night drive); the light wide shot is a daytime wide video from another
+// (rainy) drive. Not a test and not in any CI group; rerun by hand when the replay UI changes.
 //
 // The video is a still clip of one real frame per scene (docs/tools/docs_video_scenes.json): docs_video_frames.py decodes it
 // from the log's video at the scene time, remasters it and erases the listed licence plates. The app draws 겹쳐 보기

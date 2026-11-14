@@ -53,7 +53,9 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await page.evaluate(()=>{setTime(.1);toggle()});
   await page.mouse.move(box.x+48+.25*(box.width-56),box.y+45);await page.mouse.down();await page.mouse.move(box.x+48+.4*(box.width-56),box.y+45,{steps:4});await page.mouse.up();
   assert.equal(await page.evaluate(()=>playing),true);assert(Math.abs(await page.evaluate(()=>t)-.8)<.06);await page.evaluate(()=>pause());
-  await canvas.focus();await page.keyboard.press('ArrowRight');assert(await page.evaluate(()=>t)>.85);
+  // Reached by keyboard (a key press first, as Tab would be), the chart's arrows scrub 0.1 s; after a mouse click they
+  // are the frame-step shortcuts.
+  await canvas.evaluate(c=>c.blur());await page.keyboard.press('Shift');await canvas.focus();await page.keyboard.press('ArrowRight');assert(await page.evaluate(()=>t)>.85);
   // Control the animation clock to verify intermediate ranges and retargeting without timing races.
   await page.evaluate(()=>{
    pause();setTime(1);const now=performance.now.bind(performance);let clock=now();
@@ -134,6 +136,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-desktop.png'});
   await page.locator('#roadTab').click();await settle(page);assert(await page.locator('#roadView').isVisible());await page.locator('#telemetryTab').click();await settle(page);assert.equal(reads,1,'switching tabs reuses data');
   // Three tabs: arrows cycle, Home/End jump; the choice is remembered.
+  await page.locator('#telemetryTab').evaluate(e=>e.blur());await page.keyboard.press('Shift');  // reached by keyboard: a clicked tab leaves the arrows to frame stepping
   await page.locator('#telemetryTab').focus();await page.keyboard.press('ArrowRight');assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');assert(await page.locator('#bookmarkView').isVisible());
   assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-analysis-tab')),'bookmarks');
   await page.keyboard.press('ArrowRight');assert.equal(await page.locator('#roadTab').getAttribute('aria-selected'),'true');assert(await page.evaluate(()=>document.activeElement.id==='roadTab'));

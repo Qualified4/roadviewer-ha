@@ -21,7 +21,10 @@ at full size from <logs>/<log>/<camera>.mp4 and remastered:
    the ring around the box, Otsu threshold; the convex hull of each part, slightly grown), so the erased area follows
    the plate or sign instead of the box. That shape is filled by OpenCV inpainting from the pixels around it, softened
    and given the grain of its surroundings. {"box": [...], "unlit": true} marks a lit sign: its glow is included and
-   it is filled from the dark surroundings.
+   it is filled from the dark surroundings. {"ink": [[x, y], ...]} keeps the plate, sign or card and takes only its
+   writing off: inside that polygon (drawn inside the plate's border) the plate's own colour is put back (a closing or
+   opening wider than a stroke), so a blank plate, sign or card is left; "writing": "dark" or "light" says which
+   (default: guessed).
 
 Writes <out>/<scene>-<camera>.png, the untouched frame as <out>/raw/<scene>-<camera>.png, the estimated reflection
 layer (x8) as <out>/reflection/<scene>-<camera>.png and, per box, a 4x crop of the result (left with the erased shape outlined) as
@@ -254,7 +257,50 @@ def object_shape(image8, box, unlit):
     return mask
 
 
+def erase_ink(image8, polygon, seed, writing=None):
+    """Take the writing off a plate, sign or card: inside polygon, put back the plate's own colour.
+
+    The plate colour under the writing is a morphological closing (dark writing on a light plate) or opening (light
+    writing on a dark sign) wider than a stroke, smoothed; it replaces the polygon with soft edges and the grain of
+    the plate."""
+    height, width = image8.shape[:2]
+    area = np.zeros((height, width), np.uint8)
+    cv2.fillPoly(area, [np.array(polygon, np.int32)], 255)
+    x, y, w, h = cv2.boundingRect(np.array(polygon, np.int32))
+    pad = 8
+    ox0, oy0, ox1, oy1 = max(0, x - pad), max(0, y - pad), min(width, x + w + pad), min(height, y + h + pad)
+    crop, inside = image8[oy0:oy1, ox0:ox1], area[oy0:oy1, ox0:ox1]
+    pixels = crop.astype(np.float32)
+    luma = pixels.mean(axis=2)
+    dark_writing = writing == 'dark' if writing else luma[inside > 0].mean() < np.median(luma[inside > 0])
+    # Only the plate counts: outside the polygon takes the plate's median so the closing/opening sees no border.
+    plate = pixels.copy()
+    plate[inside == 0] = np.median(pixels[inside > 0], axis=0)
+    size = max(7, int(h * .8) | 1)  # wider than the gaps between characters
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
+    base = cv2.morphologyEx(plate, cv2.MORPH_CLOSE if dark_writing else cv2.MORPH_OPEN, kernel)
+    base = cv2.GaussianBlur(cv2.medianBlur(np.clip(base, 0, 255).astype(np.uint8), 5).astype(np.float32), (0, 0), 1.5)
+    # Grain from the bare plate only (pixels near the plate colour), not from the writing's edges.
+    bare = (inside > 0) & (np.abs(luma - base.mean(axis=2)) < 8)
+    fine = np.abs(luma - cv2.GaussianBlur(luma, (0, 0), 1.2))
+    grain = min(1.4826 * np.median(fine[bare]) * .5 if bare.any() else 0, 2.5)
+    noise = cv2.GaussianBlur(np.random.default_rng(seed).normal(0, 1, luma.shape).astype(np.float32), (0, 0), .7)
+    base += (noise / max(noise.std(), 1e-6) * grain)[..., None]
+    soft = cv2.GaussianBlur(inside.astype(np.float32) / 255, (0, 0), .8)[..., None]
+    image8[oy0:oy1, ox0:ox1] = np.clip(base * soft + pixels * (1 - soft) + .5, 0, 255).astype(np.uint8)
+    return area
+
+
+def entry_box(entry):
+    if isinstance(entry, dict) and 'ink' in entry:
+        x, y, w, h = cv2.boundingRect(np.array(entry['ink'], np.int32))
+        return [x, y, x + w, y + h]
+    return entry['box'] if isinstance(entry, dict) else entry
+
+
 def erase(image8, entry, seed):
+    if isinstance(entry, dict) and 'ink' in entry:
+        return erase_ink(image8, entry['ink'], seed, entry.get('writing'))
     box, unlit = (entry['box'], entry.get('unlit', False)) if isinstance(entry, dict) else (entry, False)
     height, width = image8.shape[:2]
     mask = object_shape(image8, box, unlit)
@@ -310,7 +356,7 @@ def main(scenes_file, logs, out):
             masks = [erase(result, entry, n) for n, entry in enumerate(boxes)]
             write_png(os.path.join(out, f'{name}-{camera}.png'), result)
             for n, (entry, mask) in enumerate(zip(boxes, masks)):
-                x0, y0, x1, y1 = entry['box'] if isinstance(entry, dict) else entry
+                x0, y0, x1, y1 = entry_box(entry)
                 window = (slice(max(0, y0 - 24), y1 + 24), slice(max(0, x0 - 40), x1 + 40))
                 outline = result[window].copy()
                 contours, _ = cv2.findContours(mask[window], cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
