@@ -1246,7 +1246,7 @@ const segmentGesture=(()=>{
   '<div class="sg-card" id="segmentGestureCard"><div class="segment-peek-pic"></div><div class="segment-peek-label"><b></b><span></span></div></div>';
  bar.before(under);bar.after(over);
  const q=s=>over.querySelector(s),card=q('.sg-card'),hint=q('.sg-hint'),title=q('.sg-title');
- let st=null,flat=false,closing=0;
+ let st=null,flat=false,closing=0,frame=0;
  const blockOf=id=>strip.querySelector(`[data-id="${CSS.escape(id)}"]`);
  const opens=b=>!!(b&&!b.disabled&&b.onclick);
  function fill(b){
@@ -1279,11 +1279,11 @@ const segmentGesture=(()=>{
   const lift=open?st.lift:0,p=Math.min(1,lift/ARM),armed=open&&p>=1,lifting=open&&lift>8;
   strip.querySelectorAll('.segment-block.is-target').forEach(x=>x!==b&&x.classList.remove('is-target'));b.classList.toggle('is-target',open);
   q('.sg-dark').style.opacity=open?(.62*p).toFixed(3):'0';
-  const sr=strip.getBoundingClientRect(),br=b.getBoundingClientRect(),w=card.offsetWidth,h=card.offsetHeight,vw=document.documentElement.clientWidth;
-  const left=Math.max(8,Math.min(vw-w-8,br.left+br.width/2-w/2)),rest=sr.top-12-h;
-  const ceiling=title.offsetTop+title.offsetHeight+16,top=rest-Math.min(lift,Math.max(0,rest-ceiling));
-  card.style.left=left+'px';card.style.top=top+'px';card.style.scale=String(1+.04*p);card.classList.toggle('is-armed',armed);
-  hint.style.top=(rest-8-hint.offsetHeight)+'px';
+  // sizes are measured once per gesture (start, resize); per frame only the strip and block positions are read
+  const sr=strip.getBoundingClientRect(),br=b.getBoundingClientRect(),{w,h,ceiling,hintH}=st.size,vw=document.documentElement.clientWidth;
+  const left=Math.max(8,Math.min(vw-w-8,br.left+br.width/2-w/2)),rest=sr.top-12-h,top=rest-Math.min(lift,Math.max(0,rest-ceiling));
+  st.left=left;st.top=top;card.style.transform=`translate3d(${left}px,${top}px,0) scale(${1+.04*p})`;card.classList.toggle('is-armed',armed);
+  hint.style.top=(rest-8-hintH)+'px';
   setFlat(here);hint.classList.toggle('is-note',notReady);q('.sg-note').textContent=notReady?'준비 중인 구간':'';
   hint.classList.toggle('is-gone',lifting);
   title.classList.toggle('is-shown',lifting);q('.sg-sub').classList.toggle('is-armed',armed);
@@ -1292,7 +1292,7 @@ const segmentGesture=(()=>{
  function start(b){
   clearTimeout(closing);card.classList.remove('is-settle','is-fly');
   st={id:b.dataset.id,lift:0,locked:false,armed:false};fill(b);
-  under.classList.add('is-on');over.classList.add('is-on');card.classList.add('is-shown');place();
+  under.classList.add('is-on');over.classList.add('is-on','is-drag');card.classList.add('is-shown');measure();place();
  }
  // a finger at (x, y): the segment follows x until the finger leaves the strip upward; back on the strip it follows again
  function move(x,y){
@@ -1304,11 +1304,14 @@ const segmentGesture=(()=>{
    for(const b of strip.querySelectorAll('.segment-block')){const r=b.getBoundingClientRect(),d=x<r.left?r.left-x:x>r.right?x-r.right:0;if(d<gap){gap=d;best=b}}
    if(best&&best.dataset.id!==st.id){st.id=best.dataset.id;fill(best)}
   }
-  st.lift=lift;place();
+  st.lift=lift;
+  // one layout pass per frame however many touch events arrive
+  if(!frame)frame=requestAnimationFrame(()=>{frame=0;if(st)place()});
  }
+ function measure(){st.size={w:card.offsetWidth,h:card.offsetHeight,ceiling:title.offsetTop+title.offsetHeight+16,hintH:hint.offsetHeight}}
  function close(){
   st=null;setFlat(false);
-  under.classList.remove('is-on');over.classList.remove('is-on');card.classList.remove('is-shown','is-armed');
+  under.classList.remove('is-on');over.classList.remove('is-on','is-drag');card.classList.remove('is-shown','is-armed');
   title.classList.remove('is-shown');q('.sg-sub').classList.remove('is-armed');q('.sg-dark').style.opacity='0';hint.classList.remove('is-gone','is-note');
   strip.querySelectorAll('.segment-block.is-target').forEach(x=>x.classList.remove('is-target'));
  }
@@ -1316,11 +1319,12 @@ const segmentGesture=(()=>{
  function end(letGo){
   if(!st)return;
   const b=blockOf(st.id);
-  if(letGo&&st.armed&&opens(b)){card.classList.add('is-fly');card.style.top=(parseFloat(card.style.top)-30)+'px';const go=b.onclick;close();card.classList.add('is-shown','is-fly');closing=setTimeout(()=>card.classList.remove('is-shown','is-fly'),460);go();return}
+  cancelAnimationFrame(frame);frame=0;over.classList.remove('is-drag');
+  if(letGo&&st.armed&&opens(b)){card.classList.add('is-fly');card.style.transform=`translate3d(${st.left}px,${st.top-30}px,0) scale(1.04)`;const go=b.onclick;close();card.classList.add('is-shown','is-fly');closing=setTimeout(()=>card.classList.remove('is-shown','is-fly'),460);go();return}
   card.classList.add('is-settle');st.lift=0;st.locked=false;place();
   closing=setTimeout(()=>{close();setTimeout(()=>card.classList.remove('is-settle'),500)},380);
  }
- addEventListener('resize',()=>{if(st)place()});
+ addEventListener('resize',()=>{if(st){measure();place()}});
  return {start,move,end,locked:()=>!!st?.locked,active:()=>!!st};
 })();
 {

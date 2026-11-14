@@ -104,7 +104,9 @@ const block=(page,i)=>page.locator('#segmentStrip .segment-block').nth(i).boundi
   await touch('touchEnd');await p.waitForTimeout(500);assert(p.url().endsWith('/view/s0/'),'letting go on the playing segment stays');
   // Pushed up: the segment locks, only the card rises, the rest darkens, the title shows 구간 1 · 밀어서 구간이동.
   await touch('touchStart',x,y);await p.waitForTimeout(550);
-  await touch('touchMove',x,y-30);await p.waitForTimeout(250);s=await g();
+  await touch('touchMove',x,y-30);await p.waitForTimeout(50);
+  {const f=await g();assert(rest-f.top>26,`the card is with the finger a frame later, not easing after it: ${(rest-f.top).toFixed(1)}px of 30`)}
+  await p.waitForTimeout(200);s=await g();
   assert(s.title&&s.num==='구간 1'&&!s.armed,'the title rises with 밀어서');assert(s.hintGone,'the hint fades');assert(s.dark>0,'the screen darkens');assert(s.top<rest-20,'the card follows the finger up');
   {const t=await block(p,2);await touch('touchMove',t.x+t.width/2,y-34);await p.waitForTimeout(80);assert.equal((await g()).label,'구간 1','pushed up, sliding sideways keeps the segment');}
   await touch('touchMove',x,y-100);await p.waitForTimeout(250);s=await g();assert(s.armed,'far enough up: 놓으면 구간이동');assert(s.dark>.5,'darker');

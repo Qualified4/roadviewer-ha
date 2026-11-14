@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.9
+
+- On phones the pushed segment card no longer lags behind the finger: while it moves, the card and the darkening follow it directly; easing is kept only for letting go.
+
 ## 1.3.8
 
 - Mobile segment switching, redesigned: hold a block on the segment strip and its card rises, the screen behind the controls blurs and a looping hint (an arrow pushing "밀어서 구간이동" up) shows. Pushing up locks the segment; only the card follows the finger, the rest darkens and "구간 n" appears at the top. Letting go once it reads "놓으면 구간이동" opens the segment; letting go short of it, on the strip or below it does not. On the playing segment the arrow flattens and the hint stops.
