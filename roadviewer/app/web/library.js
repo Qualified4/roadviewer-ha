@@ -380,19 +380,15 @@ function setThumbnail(box,url){
  const img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='sync';
  img.onload=()=>{if(img.isConnected)box.classList.add('has-thumb')};img.onerror=()=>{img.remove();box.classList.remove('has-thumb')};img.src=url;box.prepend(img);
 }
-// The card shows the drive's best-exposed picture: the ready segment whose thumbnail scored highest (thumbnail.py;
-// a drive starting at night or into the sun often has a dark or washed-out first segment). Until some segment has a
-// score (thumbnails made the older way, still being made again), the lowest-numbered ready segment that has (or will
-// have) a thumbnail. Ties keep the lower segment, whatever order the server lists the segments in.
+// The card shows the drive's first picture: the lowest-numbered ready segment that has (or will have) a thumbnail.
+// Whatever order the server lists the segments in.
 function cardThumbnail(group){
- let first=null,firstSegment=Infinity,best=null,bestScore=-Infinity,bestSegment=Infinity;
+ let first=null,firstSegment=Infinity;
  for(const log of group.logs){
   if(log.status!=='ready'||!thumbnailUrl(log))continue;const n=logRoute(log).segment??Infinity;
   if(n<firstSegment){first=log;firstSegment=n}
-  const score=log.thumbnail&&Number.isFinite(log.thumbnail_score)?log.thumbnail_score:null;
-  if(score!==null&&(score>bestScore||score===bestScore&&n<bestSegment)){best=log;bestScore=score;bestSegment=n}
  }
- return best||first;
+ return first;
 }
 function thumbnailBox(className){const box=document.createElement('div');box.className=className;box.insertAdjacentHTML('beforeend',`<span class="thumb-placeholder">${CAMERA_ICON}</span>`);return box}
 const STATUS_BUCKETS=[['ready','재생 가능'],['processing','처리 중'],['queued','대기 중'],['unconverted','미변환'],['error','변환 실패']];

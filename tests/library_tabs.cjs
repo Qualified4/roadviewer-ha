@@ -104,16 +104,11 @@ const {showTab,waitForSteadyLayout}=require('./browser-helpers.cjs');
   {const made=logs.find(log=>log.id==='041b1');delete made.thumbnail_available;made.thumbnail=true;await page.evaluate(()=>refresh());
    for(let i=0;i<100&&!thumbs.includes('041b1?v=3');i++)await page.waitForTimeout(20);
    assert(thumbs.includes('041b1?v=3'),'a thumbnail made after the first try is fetched again');
-   // Scored thumbnails (made the newer way): the card shows the best-exposed segment, under a URL with the version.
+   // Thumbnails made the newer way: the card still shows the first segment, even when a later one scored higher, under a URL with the version.
    const first=logs.find(log=>log.id==='041b0');Object.assign(first,{thumbnail_version:2,thumbnail_score:4.5});Object.assign(made,{thumbnail_version:2,thumbnail_score:38});
    await page.evaluate(()=>refresh());
-   await page.waitForFunction(()=>document.querySelector('.log-route .route-thumb')?.dataset.src==='api/logs/041b1/thumbnail?v=3&t=2');
-   made.thumbnail_score=4.5;await page.evaluate(()=>refresh());
    await page.waitForFunction(()=>document.querySelector('.log-route .route-thumb')?.dataset.src==='api/logs/041b0/thumbnail?v=3&t=2');
-   // Scored and unscored (still to be made again) segments: only the scored ones compete.
-   delete first.thumbnail_score;delete first.thumbnail_version;await page.evaluate(()=>refresh());
-   await page.waitForFunction(()=>document.querySelector('.log-route .route-thumb')?.dataset.src==='api/logs/041b1/thumbnail?v=3&t=2');
-   delete made.thumbnail_score;delete made.thumbnail_version;
+   delete first.thumbnail_score;delete first.thumbnail_version;delete made.thumbnail_score;delete made.thumbnail_version;
    delete made.thumbnail;made.thumbnail_available=true;await page.evaluate(()=>refresh())}
   assert.equal(await page.locator('.log-route[data-route="00000396--0d0eda17c5"] .route-thumb img').count(),0,'only ready segments show a thumbnail');
   // Refresh must update wording even if the new start equals the old upload time, and keep the tooltip current.
