@@ -2,7 +2,7 @@
 // video-minimap, light (daytime drive) and dark (night drive); there is no daytime wide video, so both wide shots use
 // the night drive. Not a test and not in any CI group; rerun by hand when the replay UI changes.
 //
-// The video is a still clip of one real frame per scene (tests/docs_video_scenes.json): docs_video_frames.py decodes it
+// The video is a still clip of one real frame per scene (docs/tools/docs_video_scenes.json): docs_video_frames.py decodes it
 // from the log's video at the scene time, remasters it and erases the listed licence plates. The app draws 겹쳐 보기
 // (on, default settings) from that log's own replay data and /telemetry at the same time, so the drawing lines up with
 // the picture. Identifiers are replaced (device DEMO-DEVICE, hash 0000000000, example dates) and every GPS or location
@@ -14,9 +14,9 @@
 // RV_DOCS_FRAMES: reuse frames docs_video_frames.py already made there (default: make them in a temporary folder).
 // RV_DOCS_ONLY: comma list of file names (e.g. roadviewer-overview-dark) to capture only those.
 // RV_DOCS_OUT: where the PNGs go (default docs/images). RV_PYTHON: a python with PyAV, numpy and opencv-python-headless.
-// Run from an ASCII path (Node has died silently under the Korean checkout path): node tests/docs_video_shots.cjs
+// Run from an ASCII path (Node has died silently under the Korean checkout path): node docs/tools/docs_video_shots.cjs
 const fs=require('fs'),os=require('os'),path=require('path'),{execFileSync}=require('child_process'),{chromium}=require('playwright');
-const {settleLayout}=require('./browser-helpers.cjs');
+const {settleLayout}=require('../../tests/browser-helpers.cjs');
 const OUT=process.env.RV_DOCS_OUT||'docs/images',LOGS=process.env.RV_DOCS_LOGS,WORK=fs.mkdtempSync(path.join(os.tmpdir(),'rv-docs-'));
 const ONLY=process.env.RV_DOCS_ONLY?process.env.RV_DOCS_ONLY.split(','):null,PYTHON=process.env.RV_PYTHON||'python';
 const OFM='https://tiles.openfreemap.org/',OSRM='https://router.project-osrm.org/';

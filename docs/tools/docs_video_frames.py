@@ -1,6 +1,6 @@
-"""Still pictures for the documentation video shots (tests/docs_video_shots.cjs runs this; not a test).
+"""Still pictures for the documentation video shots (docs/tools/docs_video_shots.cjs runs this; not a test).
 
-For every scene in tests/docs_video_scenes.json and every camera it lists, the frame nearest the scene time is decoded
+For every scene in docs/tools/docs_video_scenes.json and every camera it lists, the frame nearest the scene time is decoded
 at full size from <logs>/<log>/<camera>.mp4 and remastered:
 
 1. Denoise: OpenCV's multi-frame non-local means over the frame and its neighbours (look.denoise = filter strength h,
