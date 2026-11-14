@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.13
+
+- Replay shortcuts (Space play/pause, ←/→ one frame, F full screen, PageUp/PageDown segments) now work in the real app. Inside the app shell the key handler sat on the replay page's root, so with nothing focused (after clicking empty space or on entry) Space scrolled the page and F did nothing; it now listens on the window.
+- With a mouse, the map credit button (ⓘ) in the bottom-right corner is no longer stretched vertically (small map, Map tab, list map).
+
 ## 1.3.12
 
 - In the 차선·도로 (lanes/road) tab's y[0] distance mode, the 차선 1 / 차선 2 values no longer touch or overlap the lane line samples inside their cards: the sample's side keeps a wider inset, and lengths in this panel (lane y[0], road edges, lead distance) carry a small unit, leaving at least 5 px even at phone width.

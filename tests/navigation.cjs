@@ -89,6 +89,14 @@ http.serve_forever()
     await page.locator('#'+id).evaluate(e=>e.closest('details').open=false);
    }
    if(width===1440){
+    // Shortcuts in the real shell with nothing focused (focus on body, outside the page root): Space plays and pauses
+    // without scrolling, F opens full screen. The page's document is a proxy, so its handler must listen on the window.
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0)});const scrolled=await page.evaluate(()=>scrollY);
+    await page.keyboard.press('Space');await page.waitForFunction(()=>!document.getElementById('video').paused);
+    assert.equal(await page.evaluate(()=>scrollY),scrolled,'Space does not scroll the page');
+    await page.keyboard.press('Space');await page.waitForFunction(()=>document.getElementById('video').paused);
+    await page.keyboard.press('f');await page.waitForFunction(()=>document.fullscreenElement);
+    await page.evaluate(()=>document.exitFullscreen());await page.waitForFunction(()=>!document.fullscreenElement);
     await page.evaluate(()=>{window.shellDraws={map:0,overlay:0};window.shellClear=CanvasRenderingContext2D.prototype.clearRect;CanvasRenderingContext2D.prototype.clearRect=function(...args){if(this.canvas.id==='road')shellDraws.map++;if(this.canvas.id==='videoOverlay')shellDraws.overlay++;return shellClear.apply(this,args)}});
     await page.locator('#fullscreenButton').click();await page.waitForFunction(()=>document.fullscreenElement);
     const drawn=await page.evaluate(()=>{shellDraws.map=0;shellDraws.overlay=0;document.getElementById('next').click();return {...shellDraws}});
