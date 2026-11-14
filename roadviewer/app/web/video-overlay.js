@@ -265,20 +265,27 @@
       // Chevrons pointing forward, fixed to the road (distance travelled) so they flow past like lane dashes. They also
       // carry the drive state, each part keyed to data the log has:
       //  - slowing down: the light turns amber from the apex, deeper the harder the car slows (the lead glow's level);
-      //  - longitudinal control not active (from the vehicle data, once loaded): not drawn;
+      //  - longitudinal control not active (from the vehicle data, once loaded): not drawn (switching: see chevronAt);
       //  - standing still: they breathe slowly instead of flowing.
       // They start 5.5 m ahead and run to 30 m, fading from 20 m, ending 1 m short of the lead when it is nearer.
       const step=2.5,end=Math.min(Number.isFinite(cut)?cut-1:Infinity,xs?.at(-1)??0,30),phase=motionAllowed()?(((-(frame.odometer||0)*.4)%step)+step)%step:1.5;  // flowing at 40% of the car's own speed: at full speed it raced
-      const warm=targetBrakeLevel(data.frames,idx),control=window.rvControlAt?.(t)??null,still=Number.isFinite(frame.egoSpeedKph)&&frame.egoSpeedKph<.5;
+      const warm=targetBrakeLevel(data.frames,idx),control=window.rvControlState?.(t)??null,still=Number.isFinite(frame.egoSpeedKph)&&frame.egoSpeedKph<.5;
       const breathe=still&&motionAllowed()?.55+.45*(.5+.5*Math.cos(t*Math.PI*2/2.4)):1;
       const tint=(base,k)=>mixColor(base,'#ffb257',Math.max(0,Math.min(1,k)));
       const radial=(c,r,stops)=>{const g=context.createRadialGradient(c[0],c[1],0,c[0],c[1],r);for(const [at,a,color] of stops)g.addColorStop(at,rgba(color,a));return g};
       // Slowing down tints the whole chevron, strongest at the apex but reaching the wing ends too.
       const fill=tint('#43e7e0',warm*1.5),fillOut=tint('#43e7e0',warm*1.15),edge=tint('#86fff0',warm*1.3),edgeOut=tint('#86fff0',warm*1.05);
       // One chevron at distance d: its outline on the road and how strongly it shows there.
+      // Longitudinal control switching (unknown: drawn). On: they appear one after another from the nearest outwards (a
+      // front moving out at 30 m/s). Off: no new one comes in at the far end; those already on the road flow on and leave
+      // at the near end, each keeping the far fade it had at the switch; what is left fades out after 4 s (standing still).
+      const controlOn=control===null||control.on,since=control?.at==null?Infinity:t-control.at;
+      const draining=!controlOn&&since<4.5,drawn=controlOn||draining;let offRoad=null;  // road place of the near end at the switch
       const chevronAt=d=>{
        const s=pathAt(d);if(!s)return null;
-       let strength=d<end?smooth((d-5.5)/1.2)*smooth(end-d)*smooth((30-d)/10)*breathe:0;
+       if(draining)offRoad??=roadAt(odometerAt(control.at));
+       const far=smooth((30-(draining?d+now-offRoad:d))/10),reveal=controlOn?smooth((5.5+30*since-d)/3):1-smooth((since-4)/.5);
+       let strength=d<end?smooth((d-5.5)/1.2)*smooth(end-d)*far*reveal*breathe:0;
        // As on the concept board: a band of even thickness in a wide shallow V, about 40% of the path's width.
        const row=back=>[-1,0,1].map(u=>ground(s,u*half*.4,-.52*Math.abs(u)-back)),thick=.4,front=row(0),rear=row(thick);
        if(![...front,...rear].every(Boolean))return null;
@@ -306,7 +313,7 @@
       const same=(a,b)=>Math.abs(a-b)<step/2;
       if(picks[0]&&picks[1]){const later=picks[1].start>picks[0].start?1:0,other=picks[1-later];
        if(picks[later].road.some(u=>other.road.some(v=>same(u,v))))picks[later].road=picks[later].road.map(u=>u+3*step)}
-      if(control!==false)slots=picks.map(pick=>pick?pick.road.map((u,i)=>{const d=u-now,landing=pick.back?7+2.5*i:d;return landing<reachable?chevronAt(Math.max(1,d)):null}):[null,null,null]);
+      if(controlOn)slots=picks.map(pick=>pick?pick.road.map((u,i)=>{const d=u-now,landing=pick.back?7+2.5*i:d;return landing<reachable?chevronAt(Math.max(1,d)):null}):[null,null,null]);
       // (landing: roughly where it lands; only used against the lead)
       paintChevron=(front,rear,reach,strength,fill,fillOut,edge,edgeOut)=>{
        // Fill: fainter than the edges. It holds its light from the apex over most of the wings (an eased curve, not a
@@ -322,7 +329,7 @@
        strokeLine(rear,bottom,3,.05*strength);strokeLine(rear,bottom,1.4,.12*strength);strokeLine(rear,bottom,.8,.27*strength);
        for(const k of [0,2]){const end=[front[k],rear[k]];strokeLine(end,top,1.4,.1*strength);strokeLine(end,top,.8,.24*strength)}
       };
-      for(let d=5.5+phase;control!==false&&!transfer&&d<end;d+=step){
+      for(let d=5.5+phase;drawn&&!transfer&&d<end;d+=step){
        const c=chevronAt(d);if(!c||c.strength<=.01)continue;
        // A chevron whose arrow has set off is no longer on the road: it is that arrow now, lifting off in its own light
        // (below). The chevrons that are not one of a side's three fade out as its arrows form and fade back in as they

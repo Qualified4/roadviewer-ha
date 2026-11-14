@@ -34,6 +34,7 @@ const failedVideos=new Set();
 let pendingVideoSeek=null,seekPointer=null,seekReleased=false;
 function pauseVideo(){videoPauseRevision++;v.pause()}
 const LOG_EDGE_TOLERANCE=.1;
+const LEADING_FILL=.25;  // as the vehicle data panel previews a leading sample (telemetry.js current())
 function recordingEndTolerance(cadence){
  return Math.min(.25,Math.max(LOG_EDGE_TOLERANCE,Number.isFinite(cadence)&&cadence>0?cadence*3:0));
 }
@@ -282,6 +283,11 @@ function expandReplayData(replay){
   if(frame.overlay?.geometry){if(v2)expandFlat(frame,frame.overlay.geometry,grid);let source=frame.overlay;Object.defineProperty(frame,'overlay',{configurable:true,enumerable:true,get:()=>frameOverlay(frame,source),set:value=>{source=value;overlayGeometryCache.delete(frame)}});continue}
   for(const marker of frame.overlay?.markers||[])if(!marker.point&&marker.projection){const [a,b,c]=marker.projection;marker.point=[a/c,b/c]}
  }
+ // The first frame often comes before a message's first sample (CCNC lane codes and road signals arrive ~50 ms later):
+ // the opening picture, shown paused before play, would otherwise differ from the one a moment into playback. Frames
+ // in the first LEADING_FILL s take a value they lack from the first frame that has it within that window, never later.
+ const start=replay.frames[0]?.t??0,leading=replay.frames.filter(frame=>frame.t-start<=LEADING_FILL);
+ for(const frame of leading)for(const key of Object.keys(frame))if(frame[key]===null){const source=leading.find(f=>f.t>frame.t&&f[key]!=null);if(source)frame[key]=source[key]}
  return replay;
 }
 const videoLabels={front:'고화질 전방',qcamera:'전방 · 저용량',wide:'와이드'};

@@ -94,7 +94,8 @@
    const result=await readReplayJson(r);if(!result.streams||!Number.isFinite(result.duration))throw Error('차량 정보 형식이 올바르지 않습니다. 로그 목록에서 제거 후 변환해 주세요.');
    if(ticket!==requestId)return;
    payload=result;seriesCache.clear();loadedKey=version;failedKey=null;span=null;start=0;status.textContent='';
-   for(const card of cards.values())card.cache='';renderEvents();
+   // The overlay reads the control state from it: redraw the paused picture too (chevrons on the opening frame).
+   for(const card of cards.values())card.cache='';renderEvents();render();
   }catch(e){if(ticket===requestId){failedKey=version;renderEvents();status.textContent=controller.signal.aborted?'차량 정보 응답이 지연되었습니다. 다시 불러오기를 눌러 주세요.':e.message;$('retryTelemetry').hidden=false}}
   finally{clearTimeout(timeout);if(ticket===requestId){loadingKey=null;update()}}
  }
@@ -118,9 +119,20 @@
  }
  // Event track under the video: green while the system is on, orange where the driver took over (steering, or
  // gas/brake while on) or where the system switched off. Computed from the loaded vehicle data of this segment.
- // Longitudinal control (자동 가감속) active at a time, for the video overlay: true, false, or null while the vehicle data
- // is not loaded or has no sample near that time.
- window.rvControlAt=time=>{if(!payload)return null;const s=series(cc('longActive'));const i=lowerBound(s.times,time+1e-9)-1;return i>=0&&time-s.times[i]<(payload.maxGap||.15)*2?s.values[i]===true:null};
+ // Longitudinal control (자동 가감속) for the video overlay: {on, at}, `at` being when it last switched to that state (null:
+ // that state since the data begins), or null while the vehicle data is not loaded or has no sample near that time.
+ // Before the first sample: the first one when it is within the start tolerance (as the panel previews it).
+ const controlSwitches=new WeakMap();
+ window.rvControlState=time=>{
+  if(!payload)return null;const s=series(cc('longActive'));if(!s.times.length)return null;
+  const on=j=>s.values[j]===true,i=lowerBound(s.times,time+1e-9)-1;
+  if(i<0)return s.times[0]-time<=.25+1e-6&&typeof s.values[0]==='boolean'?{on:on(0),at:null}:null;
+  if(time-s.times[i]>=(payload.maxGap||.15)*2)return null;
+  let switches=controlSwitches.get(s);
+  if(!switches){switches=[];for(let k=1;k<s.times.length;k++)if(on(k)!==on(k-1))switches.push(s.times[k]);controlSwitches.set(s,switches)}
+  const k=lowerBound(switches,time+1e-9)-1;
+  return {on:on(i),at:k>=0?switches[k]:null};
+ };
  function renderEvents(){
   const track=$('eventTrack'),duration=data?.duration;track.replaceChildren();
   if(!payload||!(duration>0)){track.title=failedKey?'차량 정보를 불러오지 못해 자동 제어 구간을 표시할 수 없습니다.':'자동 제어와 운전자 개입 구간';track.setAttribute('aria-label',track.title);return}

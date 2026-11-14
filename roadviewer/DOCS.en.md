@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.3.4**.
+This guide describes **1.3.5**.
 
 [한국어](DOCS.md) · English
 
@@ -281,7 +281,7 @@ Over the video, the ⚙ button beside **겹쳐 보기** opens **겹쳐 보기 �
 
 Every slider has an individual reset button. Settings are remembered. The path width affects video model paths and TARGET, not the road panel's mint ribbon. Rendering preferences do not require log reconversion.
 
-**Road projection.** Video graphics are drawn as light on the road, brighter near the car. Cluster and radar-plan distances (the lead, the target following distance, the LF/FF/RF cars, radar tracks and the radar lead; not the model's leads) are measured from the front radar; they are drawn 1.52m further on (openpilot `RADAR_TO_CAMERA`), since the road coordinates start at the camera. The model path ends at the lead (cluster TARGET) when there is one and otherwise runs to the end of the model path. Chevrons on it flow towards the car at 40% of its speed, from 5.5m ahead up to 30m (fading from 20m), or to 1m short of a nearer lead. They turn amber with deceleration (`carState.aEgo`), and are not drawn when longitudinal control (`carControl.longActive`, read from the vehicle data) is off. While stopped they brighten and dim over 2.4s.
+**Road projection.** Video graphics are drawn as light on the road, brighter near the car. Cluster and radar-plan distances (the lead, the target following distance, the LF/FF/RF cars, radar tracks and the radar lead; not the model's leads) are measured from the front radar; they are drawn 1.52m further on (openpilot `RADAR_TO_CAMERA`), since the road coordinates start at the camera. The model path ends at the lead (cluster TARGET) when there is one and otherwise runs to the end of the model path. Chevrons on it flow towards the car at 40% of its speed, from 5.5m ahead up to 30m (fading from 20m), or to 1m short of a nearer lead. They turn amber with deceleration (`carState.aEgo`), and are not drawn when longitudinal control (`carControl.longActive`, read from the vehicle data) is off. When it switches on they appear one by one from the nearest (about 0.8s); when it switches off no new chevron comes in and those on the road flow out (what is left fades after 4s). Paused before play, the first frame is drawn with the values that arrive in the log's first 0.25s. While stopped they brighten and dim over 2.4s.
 
 | Setting | Default / range |
 |---|---|
