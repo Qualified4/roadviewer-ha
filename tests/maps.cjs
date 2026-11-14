@@ -736,6 +736,8 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
     if(shots){await c.screenshot({path:path.join(shots,`card-hover-${scheme}.png`)})}
     assert.equal(await strip.getAttribute('aria-label'),'주행 지도 열기');
     await strip.click();await page.waitForFunction(()=>document.getElementById('driveMap').open);
+    // With a mouse (pointer:fine) the broad button rule (min-height 36px) must not stretch the map's round ⓘ.
+    {const toggle=page.locator('#driveMap .rv-credit-toggle');await toggle.waitFor();const box=await toggle.boundingBox();assert(Math.abs(box.width-24)<.5&&Math.abs(box.height-24)<.5,'the credit ⓘ stays round with a mouse: '+JSON.stringify(box))}
     assert(!await c.evaluate(e=>e.open),'the strip does not fold the card');
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.getElementById('driveMap').open);
     assert(await strip.evaluate(e=>e===document.activeElement),'focus returns to the strip (it stays open while focused)');

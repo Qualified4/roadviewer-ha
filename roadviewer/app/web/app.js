@@ -445,9 +445,12 @@ for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radar
 // clicked control as soon as a key is pressed, so :focus-visible cannot tell the two apart; keyboardFocused() remembers
 // how focus arrived instead. Keys are matched by code, so the Korean layout works too.
 let focusFromPointer=false,keyboardFocus=null;
-document.addEventListener('pointerdown',()=>{focusFromPointer=true;keyboardFocus=null},true);
-document.addEventListener('keydown',()=>{focusFromPointer=false},true);
-document.addEventListener('focusin',e=>{keyboardFocus=focusFromPointer?null:e.target},true);
+// On the window, not the document: in the app shell a page's document is a proxy whose listeners land on the page
+// root, which never hears keys while focus is on the body. A page script's bare addEventListener is the window's
+// and is removed with the page.
+addEventListener('pointerdown',()=>{focusFromPointer=true;keyboardFocus=null},true);
+addEventListener('keydown',()=>{focusFromPointer=false},true);
+addEventListener('focusin',e=>{keyboardFocus=focusFromPointer?null:e.target},true);
 const keyboardFocused=element=>element===keyboardFocus&&element===document.activeElement;
 const SHORTCUT_KEYS=new Set(['Space','ArrowLeft','ArrowRight','KeyF','PageUp','PageDown']);
 const TEXT_INPUT=/^(text|search|email|url|tel|password|number|date|time|datetime-local|month|week)$/;
@@ -456,7 +459,7 @@ function goToAdjacentSegment(direction){
  if(here<0)return;
  for(let i=here+direction;i>=0&&i<blocks.length;i+=direction)if(!blocks[i].disabled&&blocks[i].onclick){blocks[i].onclick();return}
 }
-document.onkeydown=e=>{
+addEventListener('keydown',e=>{
  if(!SHORTCUT_KEYS.has(e.code)||e.defaultPrevented||e.ctrlKey||e.altKey||e.metaKey)return;
  const target=e.target instanceof Element?e.target:document.body;
  if(document.querySelector('dialog[open]')||target.isContentEditable||target.closest('textarea,select,.replay-menu[open]'))return;
@@ -469,7 +472,7 @@ document.onkeydown=e=>{
  else if(e.code==='ArrowRight'){flash($('next'));step(1)}
  else if(e.code==='KeyF'){const button=$('fullscreenButton');if(!button.hidden)button.onclick()}
  else goToAdjacentSegment(e.code==='PageUp'?-1:1);
-};
+});
 // The road map is not on the video, so its colours follow the screen mode. Dark values equal the original palette;
 // literal colours shared with the video overlay are translated here only.
 const MAP_TONES={'#57d9b0':'lane','#ff5c5c':'edge','#c4a5ff':'path','#81b5ff':'lead','#c5daff':'lead-text','#eee7bc':'selected','#78e9fa':'raw','#4aaaff':'ccnc','#8deeff':'ccnc-ff','#d09aff':'center','#ffda76':'left','#ff91b5':'right','#eef3f8':'white','#8b97a6':'gray','#ff9f43':'orange','#4cd964':'green','#62ed9e':'band','#edf7ff':'band-white','#55b9ff':'blue','#ffa65a':'band-orange','#ff6175':'red','#7be5ff':'target'};
