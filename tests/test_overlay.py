@@ -1,7 +1,7 @@
 import math,sys,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'roadviewer/app'))
-from overlay_reference import OverlayProjector
+from overlay_reference import OverlayProjector,RADAR_TO_CAMERA
 from overlay import project_point,camera_config,projection_coordinates,restore_ccnc_targets
 
 class StoredGeometryTests(unittest.TestCase):
@@ -67,7 +67,9 @@ class OverlayTests(unittest.TestCase):
   marker=out['markers'][2];box=marker['box'];self.assertEqual(len(box),8)
   for i in range(3):self.assertAlmostEqual((box[0][i]+box[1][i])/2,marker['projection'][i])
   config=camera_config('tici','ar0231')
+  # The CCNC car is 10 m from the radar: its box starts RADAR_TO_CAMERA further from the camera.
   for index,point in enumerate([(10,1.1,1.2),(10,2.9,1.2),(14.5,1.1,1.2),(14.5,2.9,1.2),(10,1.1,-.3),(10,2.9,-.3),(14.5,1.1,-.3),(14.5,2.9,-.3)]):
+   point=(point[0]+RADAR_TO_CAMERA,*point[1:])
    for actual,expected in zip(box[index],projection_coordinates(point,[0,0,0],config)):self.assertAlmostEqual(actual,expected)
   self.assertGreater(out['markers'][2]['point'][0],.5)
   self.assertIsNone(OverlayProjector({}).project(100,model,frame))
@@ -85,7 +87,7 @@ class OverlayTests(unittest.TestCase):
    for marker,target in zip(out['markers'],frame['ccncTargets']):
     box=marker['box']
     for k in range(3):self.assertAlmostEqual((box[0][k]+box[1][k])/2,marker['projection'][k],msg='rear anchor must not move')
-    expected=[projection_coordinates((10+dx*fx-dy*fy,target['y']+dx*fy+dy*fx,1.2-up),[0,0,0],config)
+    expected=[projection_coordinates((10+RADAR_TO_CAMERA+dx*fx-dy*fy,target['y']+dx*fy+dy*fx,1.2-up),[0,0,0],config)
               for up in (0,1.5) for dx in (0,4.5) for dy in (-.9,.9)]
     for point,want in zip(box,expected):
      for actual,value in zip(point,want):self.assertAlmostEqual(actual,value)
@@ -106,14 +108,14 @@ class OverlayTests(unittest.TestCase):
     raised=[v+n*1.2 for v,n in zip([uv[0]*depth,uv[1]*depth,depth],out['heightDirection'])]
     expected=project_point((x,y,0),[0,0,0],config)
     for actual,value in zip([raised[0]/raised[2],raised[1]/raised[2]],expected):self.assertAlmostEqual(actual,value,places=5)
-  self.assertEqual(out['targetLine'],[project_point((15,y,1.2),[0,0,0],config) for y in (-.9,.9)])
-  self.assertEqual(len(out['targetSections']),11,'stop at the available 10 m lane boundary')
+  self.assertEqual(out['targetLine'],[project_point((15+RADAR_TO_CAMERA,y,1.2),[0,0,0],config) for y in (-.9,.9)])
+  self.assertEqual(len(out['targetSections']),14,'stop at the available 10 m lane boundary (16.52 m down to 10.02 m)')
   for width in (1,1.8,3):
    for index,section in enumerate(out['targetSections']):
     center,side=section
     for sign in (-1,1):
      q=[v+sign*width/2*w for v,w in zip(center,side)]
-     expected=project_point((15-index*.5,sign*width/2,1.2),[0,0,0],config)
+     expected=project_point((15+RADAR_TO_CAMERA-index*.5,sign*width/2,1.2),[0,0,0],config)
      for actual,value in zip([q[j]/q[2] for j in (0,1)],expected):self.assertAlmostEqual(actual,value,places=5)
   self.assertEqual(p.project(0,model,{'ccncRoad':{'target':0,'distance':15}})['targetSections'],[])
 
