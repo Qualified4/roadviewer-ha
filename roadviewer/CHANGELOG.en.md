@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.12
+
+- In the 차선·도로 (lanes/road) tab's y[0] distance mode, the 차선 1 / 차선 2 values no longer touch or overlap the lane line samples inside their cards: the sample's side keeps a wider inset, and lengths in this panel (lane y[0], road edges, lead distance) carry a small unit, leaving at least 5 px even at phone width.
+- The documentation's lanes/road captures were retaken with the current UI and real drive data, and the y[0] image now has its dark-mode version too.
+
 ## 1.3.11
 
 - Keyboard shortcuts on the replay page work again after clicking buttons, tabs or settings with the mouse. Space used to press the last clicked button again (frame step, overlay and so on) instead of playing, and the arrows switched tabs after a tab was clicked. Now a mouse click leaves the shortcuts on; only a control reached with Tab keeps its own keys.

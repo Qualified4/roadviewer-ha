@@ -2,7 +2,7 @@
 
 한국어 · [English](README.en.md)
 
-현재 기능 안내: **1.3.11**
+현재 기능 안내: **1.3.12**
 
 openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **영상·주행 상황·차량 정보 그래프를 같은 시간축으로 확인하는 Home Assistant 앱**입니다.
 
@@ -137,7 +137,7 @@ openpilot 주행 로그와 전방·와이드 카메라 영상을 올리고, **�
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-boundaries-probability-dark.png"><img src="docs/images/roadviewer-boundaries-probability.png" alt="차선 확률·로드엣지·앞차 거리"></picture>
 
-![같은 레이아웃의 좌우 거리 y[0] 모드](docs/images/roadviewer-boundaries-distance.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-boundaries-distance-dark.png"><img src="docs/images/roadviewer-boundaries-distance.png" alt="같은 레이아웃의 좌우 거리 y[0] 모드"></picture>
 
 ## 주행 경로 지도
 

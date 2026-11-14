@@ -938,20 +938,23 @@ function render(lazy){
  }
  const percent=n=>Number.isFinite(n)?(n*100).toFixed(1)+'%':'—';
  const distance=$('boundaryDistance').getAttribute('aria-pressed')==='true';
- const meters=value=>Number.isFinite(value)?(value>0?'+':'')+value.toFixed(3)+' m':'—';
- ['lane0','left','right','lane3'].forEach((id,i)=>{$(id).textContent=valid?(distance?meters(f.laneY0?.[i]):percent(f.lp[i])):'—'});
+ // Lengths in this panel: the figure with a small muted unit, so the longest lane y[0] (-15.555) fits beside the
+ // line sample and every card reads alike.
+ const length=(el,value,digits,signed)=>{if(!Number.isFinite(value)){el.textContent='—';return}
+  const unit=document.createElement('small');unit.className='unit';unit.textContent='m';el.replaceChildren((signed&&value>0?'+':'')+value.toFixed(digits),unit)};
+ ['lane0','left','right','lane3'].forEach((id,i)=>{if(valid&&distance)length($(id),f.laneY0?.[i],3,true);else $(id).textContent=valid?percent(f.lp[i]):'—'});
  // Cluster lane line type inside the own-lane cards: a short piece of the line (colour, solid/dashed) on the inner
  // edge of 차선 1 and 차선 2, so the two face each other like the lane. Hidden and undocumented codes draw nothing.
  [['laneLineLeft',1],['laneLineRight',2]].forEach(([id,i])=>{const code=valid?laneLineCode(f,i):undefined,style=LANE_LINE_CODES[code],el=$(id);el.hidden=!style||style.type==='hidden';if(el.hidden||el.dataset.code===String(code))return;
   el.dataset.code=code;el.dataset.type=style.type;el.style.setProperty('--lane',style.color);el.title=`${i===1?'왼쪽':'오른쪽'} 차선 · ${style.label} (${i===1?'LANELINE_LEFT':'LANELINE_RIGHT'} ${code})`;el.setAttribute('aria-label',`${i===1?'왼쪽':'오른쪽'} 차선 ${style.label}`)});
- ['edge0','edge1'].forEach((id,i)=>{$(id).textContent=valid?(distance?meters(f.edgeY0?.[i]):Number.isFinite(f.es[i])?f.es[i].toFixed(3)+' m':'—'):'—'});
+ ['edge0','edge1'].forEach((id,i)=>{if(valid)length($(id),distance?f.edgeY0?.[i]:f.es[i],3,distance);else $(id).textContent='—'});
  renderRadarValues(f,valid,rawTargets,rawVisible);
  renderSteering(f);
  $('egoSpeed').textContent=frameAvailable(f)&&Number.isFinite(f.egoSpeedKph)?f.egoSpeedKph.toFixed(1):'—';
  // Following-distance setting (frame.gap, 1..4): four cells over the video's bottom-left corner, as many lit as the level.
  {const chip=$('videoGap'),gap=frameAvailable(f)&&$('gapLevel').checked&&[1,2,3,4].includes(f.gap)?f.gap:0;chip.hidden=!gap;
   if(gap&&chip.dataset.level!==String(gap)){chip.dataset.level=gap;chip.title=`차간 거리 ${gap}단계 (4단계 중)`;chip.setAttribute('aria-label',chip.title);[...chip.children].forEach((cell,i)=>cell.classList.toggle('is-on',i<gap))}}
- $('lead').textContent=valid&&f.selected?f.selected.x.toFixed(1)+' m':'앞차 미감지';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent=frameAvailable(f)?'FRAME '+f.id:'FRAME —';
+ if(valid&&f.selected)length($('lead'),f.selected.x,1,false);else $('lead').textContent='앞차 미감지';$('lead').title=f.selected?(f.selected.radar?'레이더 사용':'비전 기반'):'';$('frame').textContent=frameAvailable(f)?'FRAME '+f.id:'FRAME —';
 }
 // Folded details keep their rows untouched. Open tables retain row/cell identity across model frames.
 function updateValueRows(body,values,empty,columns,colors=[]){

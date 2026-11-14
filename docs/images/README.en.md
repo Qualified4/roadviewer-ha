@@ -41,7 +41,7 @@ The 10 files of the five captures with video (video with vehicle graphs, road vi
 | [roadviewer-bookmarks-timeline.png](roadviewer-bookmarks-timeline.png) | Floating playback bar with bookmark markers | 1.2.1 · fixtures |
 | [roadviewer-overlay-settings.png](roadviewer-overlay-settings.png) | Overlay settings popup (visible top part) | 1.2.1 · fixtures |
 | [roadviewer-camera-info.png](roadviewer-camera-info.png) | Camera installation information popup | 1.2.1 · fixtures |
-| [roadviewer-boundaries-probability.png](roadviewer-boundaries-probability.png) | Analysis panel **차선·도로** (lanes/road) tab: probability mode | 1.2.1 · fixtures |
-| [roadviewer-boundaries-distance.png](roadviewer-boundaries-distance.png) | Analysis panel **차선·도로** tab: y[0] lateral distance mode | 1.2.1 · fixtures |
+| [roadviewer-boundaries-probability.png](roadviewer-boundaries-probability.png) | Analysis panel **차선·도로** (lanes/road) tab: probability mode | 1.3.12 · real drive data (light: daytime drive, dark: night drive at 28 s, green dashed and orange solid lines) |
+| [roadviewer-boundaries-distance.png](roadviewer-boundaries-distance.png) | Analysis panel **차선·도로** tab: y[0] lateral distance mode | 1.3.12 · real drive data (same moments as the probability mode) |
 
 [Main guide](../../README.en.md) · [User guide](../../roadviewer/DOCS.en.md)
