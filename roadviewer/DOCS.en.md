@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.3.9**.
+This guide describes **1.3.10**.
 
 [한국어](DOCS.md) · English
 
@@ -158,7 +158,7 @@ Use the tag filter chips on the Logs tab to show a particular tag or **태그 �
 
 Tags are stored in server-side segment metadata and survive conversion, reconversion and prepared-data removal. Complete deletion removes them with the recording. These are segment tags, not camera-specific tags or timeline bookmarks.
 
-The web UI bundles Pretendard Variable 1.3.9 for Korean text without contacting an external CDN. The initial font transfer is approximately 1.96 MiB; subsequent loads use the browser cache. Its SIL Open Font License is included with the [official release](https://github.com/orioncactus/pretendard/releases/tag/v1.3.9).
+The web UI bundles Pretendard Variable 1.3.10 for Korean text without contacting an external CDN. The initial font transfer is approximately 1.96 MiB; subsequent loads use the browser cache. Its SIL Open Font License is included with the [official release](https://github.com/orioncactus/pretendard/releases/tag/v1.3.10).
 
 ## Scene bookmarks
 

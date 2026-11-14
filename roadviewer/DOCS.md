@@ -1,6 +1,6 @@
 # 설치 및 사용
 
-현재 설명은 **1.3.9**의 기능을 기준으로 합니다.
+현재 설명은 **1.3.10**의 기능을 기준으로 합니다.
 
 한국어 · [English](DOCS.en.md)
 
@@ -191,7 +191,7 @@ Android Home Assistant 앱의 파일 선택창에서 다중 선택이 정상 반
 
 태그는 서버의 구간 메타데이터에 저장됩니다. 변환·재변환·변환 데이터 제거 후에도 유지되며, 구간을 완전 삭제하면 함께 삭제됩니다. 카메라별 태그나 특정 시점의 북마크는 아닙니다.
 
-웹 UI는 앱에 포함된 Pretendard Variable 1.3.9를 사용합니다. 외부 CDN 연결 없이 한글을 표시하며, 최초 폰트 전송량은 약 1.96 MiB이고 이후에는 브라우저 캐시를 사용합니다. [공식 배포](https://github.com/orioncactus/pretendard/releases/tag/v1.3.9)의 SIL Open Font License를 함께 포함합니다.
+웹 UI는 앱에 포함된 Pretendard Variable 1.3.10를 사용합니다. 외부 CDN 연결 없이 한글을 표시하며, 최초 폰트 전송량은 약 1.96 MiB이고 이후에는 브라우저 캐시를 사용합니다. [공식 배포](https://github.com/orioncactus/pretendard/releases/tag/v1.3.10)의 SIL Open Font License를 함께 포함합니다.
 
 ## 장면 북마크
 
