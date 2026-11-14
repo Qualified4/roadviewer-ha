@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.11
+
+- Keyboard shortcuts on the replay page work again after clicking buttons, tabs or settings with the mouse. Space used to press the last clicked button again (frame step, overlay and so on) instead of playing, and the arrows switched tabs after a tab was clicked. Now a mouse click leaves the shortcuts on; only a control reached with Tab keeps its own keys.
+- The light wide-camera image in the documentation now uses a real daytime wide video (dashboard reflection removed, the lead car's plate and the parking contact on the dashboard erased).
+
 ## 1.3.10
 
 - The mobile segment card has its speech-bubble tail again, pointing at the held block; pushed up it slides up into the card and slides back out when the card returns to the strip.

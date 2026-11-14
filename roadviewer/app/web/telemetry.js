@@ -115,7 +115,7 @@
  window.selectAnalysisTab=selectTab;
  for(const [name,[button]] of Object.entries(panes)){
   button.onclick=()=>selectTab(name);
-  button.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const shown=order.filter(name=>!panes[name][0].hidden),i=shown.indexOf(tab),next=e.key==='Home'?shown[0]:e.key==='End'?shown.at(-1):shown[(i+(e.key==='ArrowRight'?1:shown.length-1))%shown.length];selectTab(next);panes[next][0].focus()};
+  button.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)||!keyboardFocused(button))return;e.preventDefault();const shown=order.filter(name=>!panes[name][0].hidden),i=shown.indexOf(tab),next=e.key==='Home'?shown[0]:e.key==='End'?shown.at(-1):shown[(i+(e.key==='ArrowRight'?1:shown.length-1))%shown.length];selectTab(next);panes[next][0].focus()};
  }
  // Event track under the video: green while the system is on, orange where the driver took over (steering, or
  // gas/brake while on) or where the system switched off. Computed from the loaded vehicle data of this segment.
@@ -161,7 +161,7 @@
   canvas.addEventListener('pointermove',e=>{if(!gesture||gesture.canvas!==canvas||gesture.id!==e.pointerId)return;const dx=Math.abs(e.clientX-gesture.x),dy=Math.abs(e.clientY-gesture.y);if(dx>6&&dx>dy)gesture.horizontal=true;if(!gesture.touch||gesture.horizontal)seekFrom(e,canvas,gesture.range)});
   canvas.addEventListener('pointerup',e=>{if(!gesture||gesture.id!==e.pointerId)return;const g=gesture;gesture=null;if(!g.touch||g.horizontal||Math.hypot(e.clientX-g.x,e.clientY-g.y)<6)seekFrom(e,canvas,g.range);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);update()});
   canvas.addEventListener('pointercancel',()=>{gesture=null;update()});canvas.addEventListener('lostpointercapture',()=>{if(gesture?.canvas===canvas){gesture=null;update()}});
-  canvas.addEventListener('keydown',e=>{if(!data||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();e.stopPropagation();const range=domain();setTime(e.key==='Home'?range[0]:e.key==='End'?range[1]:t+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?1:.1));last=performance.now()});
+  canvas.addEventListener('keydown',e=>{if(!data||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)||!keyboardFocused(canvas))return;e.preventDefault();e.stopPropagation();const range=domain();setTime(e.key==='Home'?range[0]:e.key==='End'?range[1]:t+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?1:.1));last=performance.now()});
  }
  function rebuild(){
   scroll.replaceChildren();cards.clear();cardWatch.disconnect();measured=false;

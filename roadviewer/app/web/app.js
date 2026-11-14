@@ -439,11 +439,18 @@ v.addEventListener('canplay',()=>{last=performance.now()});
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error)startWholeVideo();if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();playLabel(true);syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration){pause();playedToEnd()}}};v.onerror=videoError;  // the video can end a moment before the log's clock (after a pause, say): that is playing to the end too
 for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','vehicleBoxes','ccncRoad','laneMarking','gapLevel','gapTarget','boxLabels','boxLabelsBelow','pointLabels','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Shortcuts: Space play/pause, ←/→ one frame, F full screen, PageUp/PageDown the previous/next playable segment.
-// They work wherever a click left focus (the play button, the seek bar, a segment block), and step aside only where the
-// key means something else: text fields, an open dialog or replay menu, scrolling tables, the maps, or a widget that
-// already handled it (the telemetry tabs and charts). Space on a control reached by keyboard (focus ring shown) still
-// presses it; focus left there by a mouse click does not. Keys are matched by code, so the Korean layout works too.
+// They work wherever a mouse click left focus (any button, checkbox, tab, chart, table or the seek bar), and step aside
+// only where the key means something else: text fields, an open dialog or replay menu, the maps' arrow keys, or a
+// control reached by keyboard (Tab), where Space presses it and arrows move within it. Chrome shows the focus ring on a
+// clicked control as soon as a key is pressed, so :focus-visible cannot tell the two apart; keyboardFocused() remembers
+// how focus arrived instead. Keys are matched by code, so the Korean layout works too.
+let focusFromPointer=false,keyboardFocus=null;
+document.addEventListener('pointerdown',()=>{focusFromPointer=true;keyboardFocus=null},true);
+document.addEventListener('keydown',()=>{focusFromPointer=false},true);
+document.addEventListener('focusin',e=>{keyboardFocus=focusFromPointer?null:e.target},true);
+const keyboardFocused=element=>element===keyboardFocus&&element===document.activeElement;
 const SHORTCUT_KEYS=new Set(['Space','ArrowLeft','ArrowRight','KeyF','PageUp','PageDown']);
+const TEXT_INPUT=/^(text|search|email|url|tel|password|number|date|time|datetime-local|month|week)$/;
 function goToAdjacentSegment(direction){
  const blocks=[...$('segmentStrip').querySelectorAll('.segment-block')],here=blocks.findIndex(b=>b.hasAttribute('aria-current'));
  if(here<0)return;
@@ -452,9 +459,10 @@ function goToAdjacentSegment(direction){
 document.onkeydown=e=>{
  if(!SHORTCUT_KEYS.has(e.code)||e.defaultPrevented||e.ctrlKey||e.altKey||e.metaKey)return;
  const target=e.target instanceof Element?e.target:document.body;
- if(document.querySelector('dialog[open]')||target.isContentEditable||target.closest('textarea,select,.replay-menu[open],.table-scroll,.leaflet-container,.maplibregl-map'))return;
- if(target.matches('input')&&target.id!=='seek')return;
- if(e.code==='Space'&&target.matches('button:focus-visible,summary:focus-visible,a:focus-visible'))return;
+ if(document.querySelector('dialog[open]')||target.isContentEditable||target.closest('textarea,select,.replay-menu[open]'))return;
+ if(target.matches('input')&&TEXT_INPUT.test(target.type))return;
+ if(e.code.startsWith('Arrow')&&target.closest('.leaflet-container,.maplibregl-map'))return;
+ if(target!==$('seek')&&keyboardFocused(target)&&(e.code==='Space'||e.code.startsWith('Arrow')||(e.code.startsWith('Page')&&target.closest('.table-scroll'))))return;
  e.preventDefault();
  if(e.code==='Space'){flash($('play'));toggle()}
  else if(e.code==='ArrowLeft'){flash($('prev'));step(-1)}

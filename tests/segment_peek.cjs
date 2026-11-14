@@ -63,6 +63,23 @@ const block=(page,i)=>page.locator('#segmentStrip .segment-block').nth(i).boundi
   let frame=await p.evaluate(()=>idx);await p.keyboard.press('ArrowRight');assert.equal(await p.evaluate(()=>idx),frame+1,'→ steps a frame from the seek bar');
   await p.keyboard.press('ArrowLeft');assert.equal(await p.evaluate(()=>idx),frame,'← steps back');
   assert(!(await p.evaluate(()=>playing)),'stepping leaves it paused');
+  // A control clicked by mouse keeps no claim on the keys (Chrome turns its focus ring on at the first key press, so
+  // this used to replay the click): Space plays instead of pressing #prev again, → steps instead of switching the tab.
+  await p.locator('#prev').click();frame=await p.evaluate(()=>idx);await p.keyboard.press('Space');
+  assert(await p.evaluate(()=>playing),'Space plays after clicking ←');await p.keyboard.press('Space');
+  await p.locator('#laneTab').click();frame=await p.evaluate(()=>idx);await p.keyboard.press('ArrowRight');
+  assert.equal(await p.evaluate(()=>idx),frame+1,'→ steps a frame after clicking a tab');
+  assert.equal(await p.evaluate(()=>document.getElementById('laneTab').getAttribute('aria-selected')),'true','and the tab stays');
+  await p.locator('#roadTab').click();
+  // Reached by Tab, a control keeps its keys: Space presses it, arrows move along the tabs.
+  await p.keyboard.press('Shift');await p.evaluate(()=>{const b=document.getElementById('roadTab');b.blur();b.focus()});
+  frame=await p.evaluate(()=>idx);await p.keyboard.press('ArrowRight');
+  assert.equal(await p.evaluate(()=>document.getElementById('laneTab').getAttribute('aria-selected')),'true','→ on a tab reached by keyboard switches the tab');
+  assert.equal(await p.evaluate(()=>idx),frame,'and does not step');
+  await p.keyboard.press('Shift');await p.evaluate(()=>document.getElementById('prev').focus());frame=await p.evaluate(()=>idx);
+  await p.keyboard.press('Space');assert(!(await p.evaluate(()=>playing)),'Space on a keyboard-focused button presses it, not play');
+  assert.equal(await p.evaluate(()=>idx),Math.max(0,frame-1),'(← stepped back)');
+  await p.locator('#roadTab').click();
   const asked=await p.evaluate(()=>{const b=document.getElementById('fullscreenButton');b.hidden=false;window.fullscreenAsked=0;b.onclick=()=>window.fullscreenAsked++;return true});
   await p.keyboard.press('f');assert.equal(await p.evaluate(()=>window.fullscreenAsked),1,'F asks for full screen');
   await p.keyboard.press('PageUp');await p.waitForTimeout(200);assert(p.url().endsWith('/view/s0/'),'PageUp on the first segment stays');
