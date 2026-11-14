@@ -2,7 +2,7 @@
 
 [한국어](README.md) · English
 
-Feature reference: **1.3.11**
+Feature reference: **1.3.12**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
 
@@ -134,7 +134,7 @@ Lane probability and lateral y[0] distance share the same layout alongside road-
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-boundaries-probability-dark.png"><img src="docs/images/roadviewer-boundaries-probability.png" alt="Lane probabilities and road information"></picture>
 
-![Lateral y[0] values in the same layout](docs/images/roadviewer-boundaries-distance.png)
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/roadviewer-boundaries-distance-dark.png"><img src="docs/images/roadviewer-boundaries-distance.png" alt="Lateral y[0] values in the same layout"></picture>
 
 ## Drive route maps
 

@@ -1,6 +1,7 @@
 // Documentation screenshots with the driving video (docs/images): overview, driving-view, wide-camera, replay-map and
 // video-minimap, light (daytime drive) and dark (night drive); the light wide shot is a daytime wide video from another
-// (rainy) drive. Not a test and not in any CI group; rerun by hand when the replay UI changes.
+// (rainy) drive. The boundaries-probability/-distance files are the 차선·도로 panel alone, from the same logs (dark: the
+// night drive at 28 s, scene night-lanes). Not a test and not in any CI group; rerun by hand when the replay UI changes.
 //
 // The video is a still clip of one real frame per scene (docs/tools/docs_video_scenes.json): docs_video_frames.py decodes it
 // from the log's video at the scene time, remasters it and erases the listed licence plates. The app draws 겹쳐 보기
@@ -108,18 +109,21 @@ function server(videos,track,{telemetry,replay},logs){return async route=>{
  for(const name of new Set(wanted.map(s=>s.scene))){
   data[name]=sceneData(name);videos[name]={};
   for(const camera of Object.keys(scenes[name].cameras)){
-   const out=path.join(WORK,`${name}-${camera}.mp4`);stillVideo(path.join(frames,`${name}-${camera}.png`),data[name].duration,out);
+   const out=path.join(WORK,`${name}-${camera}.mp4`);stillVideo(path.join(frames,`${scenes[name].frame||name}-${camera}.png`),data[name].duration,out);
    videos[name][camera]=fs.readFileSync(out);
   }
   videos[name].front??=videos[name].wide;videos[name].qcamera=videos[name].front;  // a wide-only scene never shows its front video
  }
  const track=await seoulRoute(),browser=await chromium.launch({headless:true});
  // Analysis tab and small map per file; the wide shot selects the wide camera.
+ // [tab, camera, small map, element to capture instead of the page, y[0] distance mode]
  const LAYOUT={'roadviewer-overview':['telemetryTab'],'roadviewer-driving-view':['roadTab'],'roadviewer-wide-camera':['roadTab','wide'],
-  'roadviewer-replay-map':['mapTab'],'roadviewer-video-minimap':['telemetryTab',null,true]};
+  'roadviewer-replay-map':['mapTab'],'roadviewer-video-minimap':['telemetryTab',null,true],
+  'roadviewer-boundaries-probability':['laneTab',null,false,'.boundary-summary'],
+  'roadviewer-boundaries-distance':['laneTab',null,false,'.boundary-summary',true]};
  try{
   for(const {theme,file,scene} of wanted){
-   const [tab,camera,mini]=LAYOUT[file],time=scenes[scene].time,suffix=theme==='dark'?'-dark':'';
+   const [tab,camera,mini,element,distance]=LAYOUT[file],time=scenes[scene].time,suffix=theme==='dark'?'-dark':'';
    const context=await browser.newContext({viewport:{width:1440,height:1000},colorScheme:theme,timezoneId:'Asia/Seoul',locale:'ko-KR',reducedMotion:'reduce'});
    const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
    await page.route('**/*',server(videos[scene],track,data[scene],logsFor(scenes[scene].evening?STARTS.evening:STARTS.day)));
@@ -131,6 +135,7 @@ function server(videos,track,{telemetry,replay},logs){return async route=>{
     await dialog.locator('#videoMiniMap').check();await dialog.locator('#videoMiniMapPlain').check();
     await page.locator('#overlayHeightClose').click();await dialog.waitFor({state:'hidden'});await page.locator('#videoMap .map-car').waitFor();
    }
+   if(distance)await page.locator('#boundaryDistance').click();
    await page.evaluate(t=>{pause();setTime(t)},time);
    await page.waitForFunction(()=>!video.seeking&&video.readyState>=2);
    if(tab==='telemetryTab')await page.locator('.telemetry-chart canvas').first().waitFor();
@@ -141,7 +146,8 @@ function server(videos,track,{telemetry,replay},logs){return async route=>{
    const overlay=await page.locator('#videoOverlayToggle').getAttribute('aria-pressed');
    if(overlay!=='true')throw Error(file+': overlay is off');
    const target=path.join(OUT,file+suffix+'.png');
-   if(mini)await page.locator('#videoStage').screenshot({path:target,animations:'disabled'});
+   if(element)await page.locator(element).screenshot({path:target,animations:'disabled'});
+   else if(mini)await page.locator('#videoStage').screenshot({path:target,animations:'disabled'});
    else await page.screenshot({path:target,animations:'disabled'});
    if(errors.length)throw Error(file+': '+errors.join('; '));
    console.log(`saved ${target} (${scene}, ${scenes[scene].log} at ${time} s)`);await context.close();

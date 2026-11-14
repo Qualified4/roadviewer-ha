@@ -337,6 +337,8 @@ def main(scenes_file, logs, out):
     for folder in ('raw', 'check', 'reflection'):
         os.makedirs(os.path.join(out, folder), exist_ok=True)
     for name, scene in scenes.items():
+        if scene.get('frame'):  # borrows another scene's picture (a panel capture that does not show the video)
+            continue
         for camera, boxes in scene['cameras'].items():
             path = os.path.join(logs, scene['log'], camera + '.mp4')
             near = decode(path, scene['time'])

@@ -41,7 +41,7 @@
 | [roadviewer-bookmarks-timeline.png](roadviewer-bookmarks-timeline.png) | 북마크 표시가 있는 하단 재생 바 | 1.2.1 · 예시 데이터 |
 | [roadviewer-overlay-settings.png](roadviewer-overlay-settings.png) | 겹쳐 보기 설정 팝업 (보이는 상단 영역) | 1.2.1 · 예시 데이터 |
 | [roadviewer-camera-info.png](roadviewer-camera-info.png) | 카메라 설치 정보 팝업 | 1.2.1 · 예시 데이터 |
-| [roadviewer-boundaries-probability.png](roadviewer-boundaries-probability.png) | 분석 패널 **차선·도로** 탭: 확률 모드 | 1.2.1 · 예시 데이터 |
-| [roadviewer-boundaries-distance.png](roadviewer-boundaries-distance.png) | 분석 패널 **차선·도로** 탭: y[0] 좌우 거리 모드 | 1.2.1 · 예시 데이터 |
+| [roadviewer-boundaries-probability.png](roadviewer-boundaries-probability.png) | 분석 패널 **차선·도로** 탭: 확률 모드 | 1.3.12 · 실제 주행 데이터(라이트: 낮 주행, 다크: 밤 주행 28초, 녹색 점선·주황 실선) |
+| [roadviewer-boundaries-distance.png](roadviewer-boundaries-distance.png) | 분석 패널 **차선·도로** 탭: y[0] 좌우 거리 모드 | 1.3.12 · 실제 주행 데이터(확률 모드와 같은 시각) |
 
 [메인 안내](../../README.md) · [사용 설명서](../../roadviewer/DOCS.md)
