@@ -67,14 +67,16 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    const withControl=state=>page.evaluate(state=>{window.rvControlState=()=>state},state);
    await page.evaluate(()=>{window.__control=window.rvControlState});
    await withControl({on:false,at:null});r=await chevrons();assert.equal(r.count,0,'no chevrons while longitudinal control is off');
-   // Switching on: they appear from the nearest outwards. Switching off: none come in, those on the road stay a while.
+   // Switching on: they appear from the nearest outwards. Switching off: they go from the farthest in.
    await withControl({on:true,at:null});const all=(await chevrons()).count;
    const at=await page.evaluate(()=>document.getElementById('video').currentTime);
    await withControl({on:true,at:at-.1});const early=(await chevrons()).count;
    await withControl({on:true,at:at-.4});const later=(await chevrons()).count;
    assert(early>0&&early<later&&later<=all,`switching on: the nearest first (${early} < ${later} <= ${all})`);
-   await withControl({on:false,at:at-.1});assert((await chevrons()).count>0,'just switched off: the chevrons on the road stay');
-   await withControl({on:false,at:at-5});assert.equal((await chevrons()).count,0,'switched off long ago: gone');
+   await withControl({on:false,at:at-.1});const leaving=(await chevrons()).count;
+   await withControl({on:false,at:at-.5});const left=(await chevrons()).count;
+   assert(leaving>left&&leaving<=all,`switching off: the farthest go first (${left} < ${leaving} <= ${all})`);
+   await withControl({on:false,at:at-1.2});assert.equal((await chevrons()).count,0,'switched off a second ago: gone');
    await page.evaluate(()=>{window.rvControlState=window.__control});
    // Slowing down: amber from the apex.
    await page.evaluate(()=>{data.frames[0].roadSignals={acceleration:-3}});r=await chevrons();assert(tinted(r,'255,178,87'),'amber at a hard deceleration');
@@ -82,6 +84,10 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    // Lead well inside the target following distance: still drawn (up to 1 m short of the lead).
    await page.evaluate(()=>{const f=data.frames[0];f.ccncRoad={...f.ccncRoad,target:1,distance:20};f.gapTarget=40;overlayGeometryCache.clear()});  // the lead's distance mark is part of the cached geometryr=await chevrons();assert(r.count>0,'lead inside the target: chevrons');
    await page.evaluate(()=>{data.frames[0].gapTarget=12});r=await chevrons();assert(r.count>0,'lead beyond the target: chevrons');
+   // No cluster TARGET (longitudinal control off) but an FF car: the path (and its chevrons) still end at that car.
+   {const count=async ff=>{await page.evaluate(ff=>{const f=data.frames[0];f.ccncRoad={...f.ccncRoad,target:0,distance:0};f.ccncTargets=ff?[{slot:'FF',x:ff,y:0}]:[];overlayGeometryCache.clear()},ff);return (await chevrons()).count};
+    const open=await count(null),near=await count(8);assert(near>0&&near<open,`FF car without TARGET cuts the path (${near} < ${open})`);
+    await page.evaluate(()=>{const f=data.frames[0];f.ccncRoad={...f.ccncRoad,target:1,distance:20};delete f.ccncTargets;overlayGeometryCache.clear()})}
    await page.evaluate(()=>{const f=data.frames[0];f.ccncRoad={laneLeft:8,laneRight:4};delete f.gapTarget;delete f.roadSignals;overlayGeometryCache.clear();render()});
    // Blinker morph progress: up over 0.9 s after the blinker comes on, back down over 1.2 s after it goes off (a gap under
    // 0.25 s still counts as on); without motion it switches at once. The arrows keep their 6-point outline.
