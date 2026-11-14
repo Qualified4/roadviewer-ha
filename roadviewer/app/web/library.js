@@ -368,8 +368,9 @@ function dayLabel(date){
 }
 const durationText=seconds=>{const s=Math.max(0,Math.round(seconds)),h=Math.floor(s/3600),m=Math.floor(s%3600/60);return h?`${h}:${String(m).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`:`${m}:${String(s%60).padStart(2,'0')}`};
 // A thumbnail not made yet (the backfill makes it from the archive) has its own URL: once the list reports it made,
-// the URL changes and the image is fetched again instead of staying on the failed first try.
-const thumbnailUrl=m=>m&&(m.thumbnail||m.thumbnail_available)?`api/logs/${m.id}/thumbnail?v=${m.conversion_revision??0}${m.thumbnail?'':'&pending=1'}`:null;
+// the URL changes and the image is fetched again instead of staying on the failed first try. A thumbnail made again
+// the newer way (thumbnail_version) changes it too, so the cached old picture is not kept.
+const thumbnailUrl=m=>m&&(m.thumbnail||m.thumbnail_available)?`api/logs/${m.id}/thumbnail?v=${m.conversion_revision??0}${m.thumbnail_version?'&t='+m.thumbnail_version:''}${m.thumbnail?'':'&pending=1'}`:null;
 // The camera placeholder stays underneath; a loaded image covers it and a failed one is removed.
 function setThumbnail(box,url){
  if(box.dataset.src===(url||''))return;box.dataset.src=url||'';
@@ -379,12 +380,19 @@ function setThumbnail(box,url){
  const img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='sync';
  img.onload=()=>{if(img.isConnected)box.classList.add('has-thumb')};img.onerror=()=>{img.remove();box.classList.remove('has-thumb')};img.src=url;box.prepend(img);
 }
-// The card shows the drive's first picture: the lowest-numbered ready segment that has (or will have) a thumbnail,
-// whatever order the server lists the segments in.
+// The card shows the drive's best-exposed picture: the ready segment whose thumbnail scored highest (thumbnail.py;
+// a drive starting at night or into the sun often has a dark or washed-out first segment). Until some segment has a
+// score (thumbnails made the older way, still being made again), the lowest-numbered ready segment that has (or will
+// have) a thumbnail. Ties keep the lower segment, whatever order the server lists the segments in.
 function cardThumbnail(group){
- let best=null,bestSegment=Infinity;
- for(const log of group.logs){if(log.status!=='ready'||!thumbnailUrl(log))continue;const n=logRoute(log).segment??Infinity;if(n<bestSegment){best=log;bestSegment=n}}
- return best;
+ let first=null,firstSegment=Infinity,best=null,bestScore=-Infinity,bestSegment=Infinity;
+ for(const log of group.logs){
+  if(log.status!=='ready'||!thumbnailUrl(log))continue;const n=logRoute(log).segment??Infinity;
+  if(n<firstSegment){first=log;firstSegment=n}
+  const score=log.thumbnail&&Number.isFinite(log.thumbnail_score)?log.thumbnail_score:null;
+  if(score!==null&&(score>bestScore||score===bestScore&&n<bestSegment)){best=log;bestScore=score;bestSegment=n}
+ }
+ return best||first;
 }
 function thumbnailBox(className){const box=document.createElement('div');box.className=className;box.insertAdjacentHTML('beforeend',`<span class="thumb-placeholder">${CAMERA_ICON}</span>`);return box}
 const STATUS_BUCKETS=[['ready','재생 가능'],['processing','처리 중'],['queued','대기 중'],['unconverted','미변환'],['error','변환 실패']];

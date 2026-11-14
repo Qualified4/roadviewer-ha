@@ -149,6 +149,13 @@
   // vanishing point (so they fan in and the line narrows at the top, as paint on the road does), 60% of its height (at
   // half, its 8 px letters snapped unevenly), out to 18 m (squash = camera height / distance = .068). Beyond it the text
   // stands up as it goes, upright and full height by 23 m (.053).
+  // How flat the road looks at d metres from the camera is camera height / d. Labels lie or stand by this, not by the
+  // projected basis: on a bend the road's direction turns sideways and its projection reads far less flat than it is
+  // (a 30 m label lay down), and where the lane lines end short of the lead there is no basis at all (it jumped).
+  const flatAt=(d,basis=null)=>{const h=data.frames[idx]?.cameraInfo?.height;if(!(Number.isFinite(d)&&d>0))return basis;const squash=(Number.isFinite(h)?h:1.22)/d;return basis?[basis[0],basis[1],squash,basis[3]]:[[1,0],[0,1],squash,null]};
+  // Ground label size by distance from the camera: smaller as the car is further, on a log scale so it does not shrink
+  // too fast (on a 900 px picture about 23 px at 6 m, 17 px at 15 m, 12 px from 30 m on; groundLabel scales it by 1.25).
+  const labelSize=d=>Number.isFinite(d)&&d>0?Math.max(9.6,Math.min(18.4,18.4-5.5*Math.log(d/6))):13;
   function groundLabel(text,x,y,color,alpha=1,size=13,basis=null){size*=1.25*Math.max(.62,Math.min(1,vw/900));  // a phone's picture is small: the same text would cover the road
    const font=`700 ${size.toFixed(1)}px "Pretendard Variable", system-ui`;context.save();context.font=font;const width=context.measureText(text).width+10;context.restore();
    for(let i=0;i<4&&placed.some(r=>Math.abs(r[0]-x)<(r[2]+width)/2&&Math.abs(r[1]-y)<size+4);i++)y+=size+4;
@@ -258,13 +265,11 @@
       // Chevrons pointing forward, fixed to the road (distance travelled) so they flow past like lane dashes. They also
       // carry the drive state, each part keyed to data the log has:
       //  - slowing down: the light turns amber from the apex, deeper the harder the car slows (the lead glow's level);
-      //  - target following distance: beyond it they are dim;
       //  - longitudinal control not active (from the vehicle data, once loaded): not drawn;
       //  - standing still: they breathe slowly instead of flowing.
       // They start 5.5 m ahead and run to 30 m, fading from 20 m, ending 1 m short of the lead when it is nearer.
       const step=2.5,end=Math.min(Number.isFinite(cut)?cut-1:Infinity,xs?.at(-1)??0,30),phase=motionAllowed()?(((-(frame.odometer||0)*.4)%step)+step)%step:1.5;  // flowing at 40% of the car's own speed: at full speed it raced
       const warm=targetBrakeLevel(data.frames,idx),control=window.rvControlAt?.(t)??null,still=Number.isFinite(frame.egoSpeedKph)&&frame.egoSpeedKph<.5;
-      const gapAt=on('gapTarget')&&Number.isFinite(frame.gapTarget)&&frame.gapTarget>0?frame.gapTarget+RADAR_TO_CAMERA:null;
       const breathe=still&&motionAllowed()?.55+.45*(.5+.5*Math.cos(t*Math.PI*2/2.4)):1;
       const tint=(base,k)=>mixColor(base,'#ffb257',Math.max(0,Math.min(1,k)));
       const radial=(c,r,stops)=>{const g=context.createRadialGradient(c[0],c[1],0,c[0],c[1],r);for(const [at,a,color] of stops)g.addColorStop(at,rgba(color,a));return g};
@@ -273,7 +278,7 @@
       // One chevron at distance d: its outline on the road and how strongly it shows there.
       const chevronAt=d=>{
        const s=pathAt(d);if(!s)return null;
-       let strength=d<end?smooth((d-5.5)/1.2)*smooth(end-d)*smooth((30-d)/10)*breathe:0;if(gapAt!==null&&d>gapAt)strength*=.35;
+       let strength=d<end?smooth((d-5.5)/1.2)*smooth(end-d)*smooth((30-d)/10)*breathe:0;
        // As on the concept board: a band of even thickness in a wide shallow V, about 40% of the path's width.
        const row=back=>[-1,0,1].map(u=>ground(s,u*half*.4,-.52*Math.abs(u)-back)),thick=.4,front=row(0),rear=row(thick);
        if(![...front,...rear].every(Boolean))return null;
@@ -376,7 +381,7 @@
     leadShape={points:mark.length===MARK?mark:Array.from({length:MARK},(_,i)=>[a[0]+(b[0]-a[0])*i/(MARK-1),a[1]+(b[1]-a[1])*i/(MARK-1)]),color,scale,merge:!!arriving&&!wasLead(arriving.shift.index,arriving.shift.x)};
     if(!leadShape.merge)lightMark(mark,sideFade(mark,color),scale);
     // TARGET 라벨 on: this label names the lead and the same car's FF box label steps aside (off: the FF label shows).
-    targetLabelShown=on('targetLabels');if(targetLabelShown)groundLabel(`TARGET · ${road.distance.toFixed(1)} m`,(a[0]+b[0])/2,Math.max(...mark.map(p=>p[1]))+10+9*scale,color,1,11+6*scale,sections?.[0]?.every(Boolean)&&sections[1]?.every(Boolean)?groundBasis(sections[0][0],sections[0][1],sections[0][0].map((v,k)=>(v-sections[1][0][k])/.5)):null);
+    targetLabelShown=on('targetLabels');if(targetLabelShown)groundLabel(`TARGET · ${road.distance.toFixed(1)} m`,(a[0]+b[0])/2,Math.max(...mark.map(p=>p[1]))+10+9*scale,color,1,labelSize(road.distance+RADAR_TO_CAMERA),sections?.[0]?.every(Boolean)&&sections[1]?.every(Boolean)?flatAt(road.distance+RADAR_TO_CAMERA,groundBasis(sections[0][0],sections[0][1],sections[0][0].map((v,k)=>(v-sections[1][0][k])/.5))):flatAt(road.distance+RADAR_TO_CAMERA));
    }
    context.restore();
   }
@@ -507,7 +512,7 @@
    context.restore();
    const text=label(target),below=!boxes||on('boxLabelsBelow');
    if(on('boxLabels')&&text&&!(targetLabelShown&&sameCar(target))){
-    if(below)groundLabel(`${target.slot} · ${text}`,(corners[0][0]+corners[1][0])/2,Math.max(...(mark.every(Boolean)?mark:corners.slice(0,4)).map(p=>p[1]))+10+9*scale,color,opacity,11+6*scale,groundBasis(b0.map((v,k)=>(v+b1[k])/2),b0.map((v,k)=>(b1[k]-v)/1.8),F));
+    if(below)groundLabel(`${target.slot} · ${text}`,(corners[0][0]+corners[1][0])/2,Math.max(...(mark.every(Boolean)?mark:corners.slice(0,4)).map(p=>p[1]))+10+9*scale,color,opacity,labelSize(target.x+RADAR_TO_CAMERA),flatAt(target.x+RADAR_TO_CAMERA,groundBasis(b0.map((v,k)=>(v+b1[k])/2),b0.map((v,k)=>(b1[k]-v)/1.8),F)));
     else{context.save();context.globalAlpha=opacity;hudLabel(context,`${target.slot} · ${text}`,(corners[4][0]+corners[5][0])/2,Math.min(...corners.slice(4).map(p=>p[1]))-14,color,left+4,left+vw-4,true);context.restore()}
    }
   }

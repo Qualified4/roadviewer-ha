@@ -371,7 +371,7 @@ def prepare(value,route=None):
   if source=='qcamera':return dest/'camera.mp4' if video.suffix=='.ts' else video
   return dest/SOURCES[source][1] if video_inputs[source].suffix=='.hevc' else video_inputs[source]
  try:
-  for name in ('thumbnail.jpg','thumbnail.failed'):(dest/name).unlink(missing_ok=True)
+  for name in ('thumbnail.jpg','thumbnail.json','thumbnail.failed'):(dest/name).unlink(missing_ok=True)
   if videos and save_thumbnail(dest,[playable(source) for source in ('qcamera','front','wide')]) is None:
    (dest/'thumbnail.failed').touch();print('경고: 썸네일을 만들지 못했습니다.',flush=True)
  except Exception as exc:print('경고: 썸네일을 만들지 못했습니다:',exc,flush=True)

@@ -13,7 +13,7 @@ from device_api import DeviceAPI
 from log_transfer import LogTransfer
 from device_network import DeviceNetwork
 from telemetry import drive_summary
-import wall_clock,backfill,gps_track,gap_backfill
+import wall_clock,backfill,gps_track,gap_backfill,thumbnail_meta
 from video_sources import SOURCES,ORIGINALS,DERIVED,VIDEO_KINDS,CAMERA_KINDS,UPLOAD_KINDS,STORED_KINDS,validate_hevc,validate_mp4
 BASE=Path(__file__).resolve().parent
 ROOT=Path(os.environ.get('RV_DATA','/data/roadviewer'));ROOT.mkdir(parents=True,exist_ok=True)
@@ -606,7 +606,11 @@ def build_list_row(p,m,share_state):
  m['warnings']=[w for w in m.get('warnings') or [] if not str(w).startswith(SKIPPED_EVENTS_WARNING)]
  sizes=log_folder_bytes(p)
  row=dict(m,bytes=original_bytes(p,m),video=has_video(p,m),video_download=video_download_kind(p,m),video_downloads=video_downloads(p,m),download_options=download_options(p,m),log_bytes=media_store.media_size(p,m,'rlog.zst',store) if stored(p,m,'rlog.zst') else 0,prepared_bytes=sizes[1])
- if (p/'prepared/thumbnail.jpg').is_file():row['thumbnail']=True
+ if (p/'prepared/thumbnail.jpg').is_file():
+  # The version also changes the picture's URL (library.js), so a remade thumbnail is not taken from the cache.
+  info=thumbnail_meta.read(p/'prepared');row['thumbnail']=True
+  if 'version' in info:row['thumbnail_version']=info['version']
+  if isinstance(info.get('score'),(int,float)):row['thumbnail_score']=info['score']
  elif thumbnail_pending(p,m):row['thumbnail_available']=True
  row.update(recording_summary(p,m))
  share=None

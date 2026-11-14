@@ -17,6 +17,8 @@ a Drive error. Files are never downloaded whole: a NAS file is read in place (on
 a Drive file through ranged downloads of its first PREFIX_BYTES (plus, for an MP4 whose moov box is at the
 end, that box alone, up to MOOV_MAX). Results go where conversion puts them (prepared/thumbnail.jpg,
 summary.json started_at and its start fields) under the server lock and only into the conversion they were made from.
+A thumbnail made the older way (no current prepared/thumbnail.json, thumbnail_meta.py) is made again the same way,
+in the same order and at the same pace; the old picture is kept until the new one replaces it.
 
 Cached as unknown, per conversion: started_at null with start_v (the log was read and has no usable clock; a log
 with no readable rlog keeps its old start, marked 'device') and
@@ -25,7 +27,7 @@ never cached: the log is tried again on a later run.
 """
 import gzip,json,logging,tempfile,threading,time
 from pathlib import Path
-import media_store,wall_clock
+import media_store,thumbnail_meta,wall_clock
 from telemetry import drive_summary
 
 log=logging.getLogger(__name__)
@@ -121,7 +123,10 @@ class Backfill:
   try:summary=json.loads((prepared/'summary.json').read_text())
   except (OSError,ValueError):return set()
   out=set()
-  if not (prepared/'thumbnail.jpg').is_file() and not (prepared/THUMBNAIL_FAILED).exists():out.add('thumbnail')
+  # A thumbnail from an older frame choice (no current thumbnail.json) is made again; the old picture stays shown
+  # until the new one is written. A failed remake is cached like a failed first make (thumbnail.failed), so it is
+  # tried once per conversion, and the old picture stays.
+  if not (prepared/THUMBNAIL_FAILED).exists() and not ((prepared/'thumbnail.jpg').is_file() and thumbnail_meta.current(prepared)):out.add('thumbnail')
   # Starts before start_v 2 came from a device clock that may not have been synced yet: read again (from GPS).
   if summary.get('start_v')!=wall_clock.START_V:out.add('started_at')
   if 'drive_summary' not in summary and self.telemetry_file(p):out.add('drive_summary')
