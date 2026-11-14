@@ -131,23 +131,44 @@
   function lightLine(points,color,alpha=1,range=extent(points),dash=[],halo=true){if(!range)return;const style=fadeStyle(range,color);if(halo){strokeLine(points,style,9,.1*alpha,dash);strokeLine(points,style,3.6,.3*alpha,dash)}strokeLine(points,style,1.6,alpha,dash)}
   // A short mark at one distance (lead line or arc, vehicle mark, target bars): glow, halo and core, scaled by its size on screen.
   function lightMark(points,style,scale,alpha=1,dash=[]){strokeLine(points,style,16*scale,.06*alpha,dash);strokeLine(points,style,9*scale,.12*alpha,dash);strokeLine(points,style,4.5*scale,.3*alpha,dash);strokeLine(points,style,1.4+.8*scale,alpha,dash)}
+  // The same mark with its glow in four even steps: lightMark's wide outer strokes showed as separate rings. The glow
+  // reaches 12 (between lightMark's 9 and 16) and is as bright next to the core (about .42).
+  function softMark(points,color,scale,alpha=1){
+   for(let k=4;k>=1;k--)strokeLine(points,color,(3+9*k/4)*scale,.127*alpha);
+   strokeLine(points,color,1.4+.8*scale,alpha);
+  }
   const sideFade=(points,color)=>{const xs=points.filter(Boolean).map(p=>p[0]),y=points.find(Boolean)?.[1]??0;return targetGradient(context,[Math.min(...xs)-1,y],[Math.max(...xs)+1,y],color)};
   // Ground labels (vehicles, lead distance) step down instead of overlapping each other.
   const placed=[];
-  // Screen directions of the road plane at a ground point: one metre to the right, one metre towards the camera.
+  // Screen directions of the road plane at a ground point: one metre to the right, one metre towards the camera; and how
+  // flat the road looks there (a metre along it on screen over a metre across it: about camera height / distance).
   const groundBasis=(C,S,F)=>{const p=proj(C),r=proj(C.map((v,k)=>v+S[k]*.3)),n=proj(C.map((v,k)=>v-F[k]*.3));if(!p||!r||!n)return null;
-   const unit=(q,axis)=>{const d=[q[0]-p[0],q[1]-p[1]],l=Math.hypot(...d);return l<1e-3?null:d.map(v=>v/l*(d[axis]<0?-1:1))},u=unit(r,0),v=unit(n,1);if(!u||!v)return null;const lean=(d,along,limit)=>{const across=1-along,k=Math.max(-limit,Math.min(limit,d[across]/Math.max(1e-3,d[along]))),l=Math.hypot(1,k),out=[];out[along]=1/l;out[across]=k/l;return out};return [lean(u,0,.2),lean(v,1,.28)]};  // far to the side the plane is nearly edge-on: the lean is limited so the letters stay readable
-  // Text lies on the road: its baseline runs across the lane and its uprights run along it (towards the vanishing point),
-  // flattened as a mark on the ground is. Over one short line of text the road's perspective is close to this affine map.
+   const squash=Math.hypot(n[0]-p[0],n[1]-p[1])/Math.max(1e-3,Math.hypot(r[0]-p[0],r[1]-p[1]));
+   const unit=(q,axis)=>{const d=[q[0]-p[0],q[1]-p[1]],l=Math.hypot(...d);return l<1e-3?null:d.map(v=>v/l*(d[axis]<0?-1:1))},u=unit(r,0),v=unit(n,1);if(!u||!v)return null;const lean=(d,along,limit)=>{const across=1-along,k=Math.max(-limit,Math.min(limit,d[across]/Math.max(1e-3,d[along]))),l=Math.hypot(1,k),out=[];out[along]=1/l;out[across]=k/l;return out};return [lean(u,0,.2),lean(v,1,.28),squash,proj(C.map((v,k)=>v+F[k]*400))]};  // far to the side the plane is nearly edge-on: the lean is limited so the letters stay readable
+  // Near, text lies on the road like a decal: its baseline runs across the lane and each letter's uprights point at the
+  // vanishing point (so they fan in and the line narrows at the top, as paint on the road does), 60% of its height (at
+  // half, its 8 px letters snapped unevenly), out to 18 m (squash = camera height / distance = .068). Beyond it the text
+  // stands up as it goes, upright and full height by 23 m (.053).
   function groundLabel(text,x,y,color,alpha=1,size=13,basis=null){size*=1.25*Math.max(.62,Math.min(1,vw/900));  // a phone's picture is small: the same text would cover the road
    const font=`700 ${size.toFixed(1)}px "Pretendard Variable", system-ui`;context.save();context.font=font;const width=context.measureText(text).width+10;context.restore();
    for(let i=0;i<4&&placed.some(r=>Math.abs(r[0]-x)<(r[2]+width)/2&&Math.abs(r[1]-y)<size+4);i++)y+=size+4;
    x=Math.max(left+4+width/2,Math.min(left+vw-4-width/2,x));placed.push([x,y,width]);
    // Text of light on the road: a faint wide stroke as its glow, then the letters.
-   context.save();context.globalCompositeOperation='lighter';const [u,v]=basis||[[1,0],[0,1]],flat=.86;context.translate(x,y);context.transform(u[0],u[1],v[0]*flat,v[1]*flat,0,0);context.translate(-x,-y);context.font=font;context.textAlign='center';context.textBaseline='middle';context.lineJoin='round';
+   // The line stays level (a tilted baseline read as text climbing to one side); each letter only leans.
+   const [,along,squash,vp]=basis||[[1,0],[0,1],null,null],u=[1,0],lie=Number.isFinite(squash)?smooth((squash-.053)/.015):.3,flat=.95-.35*lie;
+   context.save();context.font=font;context.textAlign='center';context.textBaseline='middle';context.lineJoin='round';
+   const total=context.measureText(text).width,glyphs=[...text].map((ch,i,all)=>{
+    // Where the letter sits in the whole line, kerning included (its right edge is the line's width up to it).
+    const end=context.measureText(all.slice(0,i+1).join('')).width,dx=end-context.measureText(ch).width/2-total/2,P=[x+u[0]*dx,y+u[1]*dx];
+    let a=along;if(vp){const d=[P[0]-vp[0],P[1]-vp[1]];if(d[1]>1){const k=Math.max(-.6,Math.min(.6,d[0]/d[1])),l=Math.hypot(1,k);a=[k/l,1/l]}}
+    // A shear, not a turn: every letter keeps the same height however far it leans.
+    return [ch,P,[a[0]/a[1]*lie,1]];
+   });
+   const each=paint=>{for(const [ch,P,v] of glyphs){context.save();context.translate(...P);context.transform(u[0],u[1],v[0]*flat,v[1]*flat,0,0);paint(ch);context.restore()}};
    // A soft dark edge first: on bright paint or a lit road the light alone does not stand out.
-   context.globalCompositeOperation='source-over';context.strokeStyle='rgba(3,9,16,.55)';context.lineWidth=size*.26;context.globalAlpha=alpha;context.strokeText(text,x,y);context.globalCompositeOperation='lighter';
-   context.strokeStyle=color;context.lineWidth=size*.32;context.globalAlpha=.14*alpha;context.strokeText(text,x,y);context.fillStyle=color;context.globalAlpha=alpha;context.fillText(text,x,y);context.restore();
+   context.globalCompositeOperation='source-over';context.strokeStyle='rgba(3,9,16,.55)';context.lineWidth=size*.26;context.globalAlpha=alpha;each(ch=>context.strokeText(ch,0,0));
+   context.globalCompositeOperation='lighter';context.strokeStyle=color;context.lineWidth=size*.32;context.globalAlpha=.14*alpha;each(ch=>context.strokeText(ch,0,0));
+   context.fillStyle=color;context.globalAlpha=alpha;each(ch=>context.fillText(ch,0,0));context.restore();
   }
   // Where the lead mark (앞차거리) was drawn this frame: the FF vehicle at that distance is the same car, so its own ground
   // mark is left out and only one distance text is written (the vehicle's, when vehicle labels are on).
@@ -182,7 +203,7 @@
    for(const to of [0,1]){const from=1-to,still=morph[from]>0||slow[from].progress>0,formed=settling[from]||slow[from].settling||morph[from]>=1;
     if(on('ccncRoad')&&lit[to]&&!lit[from]&&morph[to]>0&&!settling[to]&&still&&formed){
      transfer={from,to};states[from]={progress:0,settling:false,start:null};morph[from]=0;settling[from]=false}}}
-  let leadMarkAt=null,paintChevron=null;const sameCar=t=>t?.slot==='FF'&&leadMarkAt!==null&&Math.abs((t.x||0)-leadMarkAt)<3;
+  let leadMarkAt=null,paintChevron=null,targetLabelShown=false;const sameCar=t=>t?.slot==='FF'&&leadMarkAt!==null&&Math.abs((t.x||0)-leadMarkAt)<3;
   const road=on('ccncRoad')?frame.ccncRoad:null,o=frame.overlay,smooth=v=>{const c=Math.max(0,Math.min(1,v));return c*c*(3-2*c)};
   if(frame.valid){
    context.save();context.globalCompositeOperation='lighter';
@@ -214,7 +235,7 @@
    if(on('modelPath')){
     if(P?.length){
      // With a lead shown the carpet stops at it instead of running through the car.
-     const cut=lead!==null&&xs?lead:Infinity,samples=[];
+     const cut=lead!==null&&xs?lead+RADAR_TO_CAMERA:Infinity,samples=[];
      P.forEach((c,i)=>{if(c&&N?.[i]&&(!xs||xs[i]<cut))samples.push({c,n:N[i]})});
      if(Number.isFinite(cut)){const s=pathAt(cut);if(s)samples.push(s)}
      const sides=[-1,1].map(sign=>samples.map(s=>ground(s,sign*half))),full=extent(P.map(proj)),range=extent(sides[0].concat(sides[1]));
@@ -237,13 +258,13 @@
       // Chevrons pointing forward, fixed to the road (distance travelled) so they flow past like lane dashes. They also
       // carry the drive state, each part keyed to data the log has:
       //  - slowing down: the light turns amber from the apex, deeper the harder the car slows (the lead glow's level);
-      //  - target following distance: beyond it they are dim; with the lead well inside it they are not drawn at all;
+      //  - target following distance: beyond it they are dim;
       //  - longitudinal control not active (from the vehicle data, once loaded): not drawn;
       //  - standing still: they breathe slowly instead of flowing.
-      // With a lead they end 3 m short of it and fade out by 17 m; with none they run to 30 m, fading from 20 m.
-      const farthest=Number.isFinite(cut)?17:30,step=2.5,end=Math.min(Number.isFinite(cut)?cut-3:Infinity,xs?.at(-1)??0,farthest),phase=motionAllowed()?(((-(frame.odometer||0)*.4)%step)+step)%step:1.5;  // flowing at 40% of the car's own speed: at full speed it raced
+      // They start 5.5 m ahead and run to 30 m, fading from 20 m, ending 1 m short of the lead when it is nearer.
+      const step=2.5,end=Math.min(Number.isFinite(cut)?cut-1:Infinity,xs?.at(-1)??0,30),phase=motionAllowed()?(((-(frame.odometer||0)*.4)%step)+step)%step:1.5;  // flowing at 40% of the car's own speed: at full speed it raced
       const warm=targetBrakeLevel(data.frames,idx),control=window.rvControlAt?.(t)??null,still=Number.isFinite(frame.egoSpeedKph)&&frame.egoSpeedKph<.5;
-      const gapAt=on('gapTarget')&&Number.isFinite(frame.gapTarget)&&frame.gapTarget>0?frame.gapTarget:null,crowded=gapAt!==null&&lead!==null&&lead<.85*gapAt;
+      const gapAt=on('gapTarget')&&Number.isFinite(frame.gapTarget)&&frame.gapTarget>0?frame.gapTarget+RADAR_TO_CAMERA:null;
       const breathe=still&&motionAllowed()?.55+.45*(.5+.5*Math.cos(t*Math.PI*2/2.4)):1;
       const tint=(base,k)=>mixColor(base,'#ffb257',Math.max(0,Math.min(1,k)));
       const radial=(c,r,stops)=>{const g=context.createRadialGradient(c[0],c[1],0,c[0],c[1],r);for(const [at,a,color] of stops)g.addColorStop(at,rgba(color,a));return g};
@@ -252,7 +273,7 @@
       // One chevron at distance d: its outline on the road and how strongly it shows there.
       const chevronAt=d=>{
        const s=pathAt(d);if(!s)return null;
-       let strength=d<end?smooth((d-5.5)/1.2)*smooth(end-d)*smooth((farthest-d)/(farthest===17?6:10))*breathe:0;if(gapAt!==null&&d>gapAt)strength*=.35;
+       let strength=d<end?smooth((d-5.5)/1.2)*smooth(end-d)*smooth((30-d)/10)*breathe:0;if(gapAt!==null&&d>gapAt)strength*=.35;
        // As on the concept board: a band of even thickness in a wide shallow V, about 40% of the path's width.
        const row=back=>[-1,0,1].map(u=>ground(s,u*half*.4,-.52*Math.abs(u)-back)),thick=.4,front=row(0),rear=row(thick);
        if(![...front,...rear].every(Boolean))return null;
@@ -280,7 +301,7 @@
       const same=(a,b)=>Math.abs(a-b)<step/2;
       if(picks[0]&&picks[1]){const later=picks[1].start>picks[0].start?1:0,other=picks[1-later];
        if(picks[later].road.some(u=>other.road.some(v=>same(u,v))))picks[later].road=picks[later].road.map(u=>u+3*step)}
-      if(!crowded&&control!==false)slots=picks.map(pick=>pick?pick.road.map((u,i)=>{const d=u-now,landing=pick.back?7+2.5*i:d;return landing<reachable?chevronAt(Math.max(1,d)):null}):[null,null,null]);
+      if(control!==false)slots=picks.map(pick=>pick?pick.road.map((u,i)=>{const d=u-now,landing=pick.back?7+2.5*i:d;return landing<reachable?chevronAt(Math.max(1,d)):null}):[null,null,null]);
       // (landing: roughly where it lands; only used against the lead)
       paintChevron=(front,rear,reach,strength,fill,fillOut,edge,edgeOut)=>{
        // Fill: fainter than the edges. It holds its light from the apex over most of the wings (an eased curve, not a
@@ -296,7 +317,7 @@
        strokeLine(rear,bottom,3,.05*strength);strokeLine(rear,bottom,1.4,.12*strength);strokeLine(rear,bottom,.8,.27*strength);
        for(const k of [0,2]){const end=[front[k],rear[k]];strokeLine(end,top,1.4,.1*strength);strokeLine(end,top,.8,.24*strength)}
       };
-      for(let d=5.5+phase;!crowded&&control!==false&&!transfer&&d<end;d+=step){
+      for(let d=5.5+phase;control!==false&&!transfer&&d<end;d+=step){
        const c=chevronAt(d);if(!c||c.strength<=.01)continue;
        // A chevron whose arrow has set off is no longer on the road: it is that arrow now, lifting off in its own light
        // (below). The chevrons that are not one of a side's three fade out as its arrows form and fade back in as they
@@ -342,27 +363,26 @@
       context.beginPath();[p,q,r,s].forEach((v,k)=>k?context.lineTo(...v):context.moveTo(...v));context.closePath();context.fill();
      }
     }
-    // Target following distance: amber bars reaching in from both path edges and a faint dotted arc between them.
+    // Target following distance: amber bars reaching in from both path edges.
     if(gapShown&&!tooClose){
-     const s=pathAt(frame.gapTarget),l=s&&ground(s,-half),r=s&&ground(s,half);
+     const s=pathAt(frame.gapTarget+RADAR_TO_CAMERA),l=s&&ground(s,-half),r=s&&ground(s,half);
      if(l&&r){
       const k=Math.max(.45,Math.min(1.25,Math.abs(r[0]-l[0])/220)),bar=(p,q)=>[p,[p[0]+(q[0]-p[0])*.17,p[1]+(q[1]-p[1])*.17]];
-      for(const pts of [bar(l,r),bar(r,l)])lightMark(pts,'#ffcc75',k);
-      const dots=Array.from({length:13},(_,i)=>{const u=(i/6-1)*.62;return ground(s,u*half,-Math.max(.6,.2*frame.gapTarget)*u*u)});
-      if(dots.every(Boolean))strokeLine(dots,'#ffcc75',1.1*k,.45,[2,5]);
+      for(const pts of [bar(l,r),bar(r,l)])softMark(pts,'#ffcc75',k);
      }
     }
     leadMarkAt=road.distance;
     const arriving=ccncEntries.find(e=>e.shift&&sameCar(e.target));
     leadShape={points:mark.length===MARK?mark:Array.from({length:MARK},(_,i)=>[a[0]+(b[0]-a[0])*i/(MARK-1),a[1]+(b[1]-a[1])*i/(MARK-1)]),color,scale,merge:!!arriving&&!wasLead(arriving.shift.index,arriving.shift.x)};
     if(!leadShape.merge)lightMark(mark,sideFade(mark,color),scale);
-    if(on('targetLabels')&&!(on('ccncTargets')&&on('boxLabels')&&(frame.ccncTargets||[]).some(sameCar)))groundLabel(`TARGET · ${road.distance.toFixed(1)} m`,(a[0]+b[0])/2,Math.max(...mark.map(p=>p[1]))+10+9*scale,color,1,11+6*scale,sections?.[0]?.every(Boolean)&&sections[1]?.every(Boolean)?groundBasis(sections[0][0],sections[0][1],sections[0][0].map((v,k)=>(v-sections[1][0][k])/.5)):null);
+    // TARGET 라벨 on: this label names the lead and the same car's FF box label steps aside (off: the FF label shows).
+    targetLabelShown=on('targetLabels');if(targetLabelShown)groundLabel(`TARGET · ${road.distance.toFixed(1)} m`,(a[0]+b[0])/2,Math.max(...mark.map(p=>p[1]))+10+9*scale,color,1,11+6*scale,sections?.[0]?.every(Boolean)&&sections[1]?.every(Boolean)?groundBasis(sections[0][0],sections[0][1],sections[0][0].map((v,k)=>(v-sections[1][0][k])/.5)):null);
    }
    context.restore();
   }
   if(frame.valid&&on('bsdWalls')&&bsdHeight>0&&frame.overlay.heightDirection){
    // A lead car (the cluster TARGET) ends the wall at its distance; without one it runs as far as the lane line is sampled.
-   const leadRoad=frame.ccncRoad,leadAt=[1,3].includes(leadRoad?.target)&&leadRoad.distance>0&&leadRoad.distance<204.6?leadRoad.distance:Infinity;
+   const leadRoad=frame.ccncRoad,leadAt=[1,3].includes(leadRoad?.target)&&leadRoad.distance>0&&leadRoad.distance<204.6?leadRoad.distance+RADAR_TO_CAMERA:Infinity;
    blindspotLevels(data.frames,idx,frame.t).forEach((amount,i)=>{
     if(!amount)return;
     const bottom=[],upper=[],direction=frame.overlay.heightDirection,xs=frame.overlay.blindspotX?.[i];
@@ -486,7 +506,7 @@
    }
    context.restore();
    const text=label(target),below=!boxes||on('boxLabelsBelow');
-   if(on('boxLabels')&&text){
+   if(on('boxLabels')&&text&&!(targetLabelShown&&sameCar(target))){
     if(below)groundLabel(`${target.slot} · ${text}`,(corners[0][0]+corners[1][0])/2,Math.max(...(mark.every(Boolean)?mark:corners.slice(0,4)).map(p=>p[1]))+10+9*scale,color,opacity,11+6*scale,groundBasis(b0.map((v,k)=>(v+b1[k])/2),b0.map((v,k)=>(b1[k]-v)/1.8),F));
     else{context.save();context.globalAlpha=opacity;hudLabel(context,`${target.slot} · ${text}`,(corners[4][0]+corners[5][0])/2,Math.min(...corners.slice(4).map(p=>p[1]))-14,color,left+4,left+vw-4,true);context.restore()}
    }
@@ -497,6 +517,11 @@
    boxAnimating=boxes.some(entry=>entry.animated);
    for(const entry of boxes)drawBox(entry.marker,entry.color,entry.target,entry.height,entry.alpha,entry.shift);
   }
+  // A detection on a drawn LF/FF/RF car (from its rear to its front, within its width and a little more: the radar often
+  // sees the near corner) is that car: only a short tick on the ground where it is, no marker of its own.
+  const cars=on('ccncTargets')?ccncEntries.map(entry=>entry.target).filter(t=>Number.isFinite(t?.x)&&Number.isFinite(t?.y)):[];
+  const onCar=(target,kind)=>{const x=target.x-(kind==='model'?RADAR_TO_CAMERA:0),y=target.y??-target.yRel;return cars.some(car=>x>car.x-1&&x<car.x+4.5&&Math.abs(y-car.y)<1.3)};
+  context.font='10px "Pretendard Variable", system-ui';
   for(const marker of frame.overlay.markers){
    if(marker.kind==='ccnc')continue;
    let target,color='#81b5ff',shape='circle';
@@ -517,6 +542,10 @@
     }
    }
    if(!target)continue;
+   if(onCar(target,marker.kind)){
+    if(!marker.point)continue;const [gx,gy]=xy(marker.point);if(gx<left||gx>left+vw||gy<top||gy>top+vh)continue;
+    context.globalAlpha=target.p<.5?.45:.9;context.strokeStyle=color;context.lineWidth=2;context.beginPath();context.moveTo(gx,gy+2);context.lineTo(gx,gy-5);context.stroke();context.globalAlpha=1;continue;
+   }
    let point=marker.point;
    if(height>0){
     if(!marker.projection||!frame.overlay.heightDirection)continue;
@@ -534,8 +563,9 @@
    else context.arc(x,y-5,5,0,Math.PI*2);
    context.stroke();
    if(height>0){const [gx,gy]=xy(marker.point);context.beginPath();context.moveTo(x,y);context.lineTo(gx,gy);context.stroke()}
-   if(marker.kind!=='raw'||on('liveTrackLabels')){
-    const text=label(target);if(text){context.lineWidth=3;context.strokeStyle='#000c';context.strokeText(text,x,y-15);context.fillStyle=color;context.fillText(text,x,y-15)}
+   // Labels: small, beside the marker; radar and model points only with 감지점 라벨, liveTracks with their own switch.
+   if(marker.kind==='raw'?on('liveTrackLabels'):on('pointLabels')){
+    const text=label(target);if(text){context.textAlign='left';context.lineWidth=3;context.strokeStyle='#000c';context.strokeText(text,x+9,y-3);context.fillStyle=color;context.fillText(text,x+9,y-3)}
    }
    context.globalAlpha=1;
   }
