@@ -234,7 +234,7 @@
    // The cluster TARGET (앞차거리): today's line, an arc on the ground, or nothing (setting 'leadMark', app.js).
    const sections=o.targetSections,trail=sections?.map(section=>targetSectionPoints(section))||[],target=sections?trail[0]:horizontalTargetLine(o.targetLine);
    const lead=[1,3].includes(road?.target)&&road.distance>0&&road.distance<204.6&&target?.length===2&&target.every(Boolean)?road.distance:null;
-   const leadDrawn=lead!==null&&leadMark!=='off',gapShown=leadDrawn&&on('gapTarget')&&Number.isFinite(frame.gapTarget)&&frame.gapTarget>0,tooClose=gapShown&&lead<.85*frame.gapTarget;
+   const leadDrawn=lead!==null&&leadMark!=='off',gapValue=on('gapTarget')&&Number.isFinite(frame.gapTarget)&&frame.gapTarget>0,tooClose=leadDrawn&&gapValue&&lead<.85*frame.gapTarget;
    // Model path: projective samples, so any distance along it (lead cut, chevrons, target marks) is exact.
    const xs=o.pathX,P=o.pathProjection,N=o.pathSides,half=modelPathWidth/2;
    const pathAt=d=>{if(!xs||!P)return null;for(let i=1;i<xs.length;i++){if(!(xs[i-1]<=d&&d<=xs[i]&&xs[i]>xs[i-1])||!P[i-1]||!P[i]||!N?.[i-1]||!N[i])continue;const r=(d-xs[i-1])/(xs[i]-xs[i-1]),mix=(a,b)=>a.map((v,k)=>v+(b[k]-v)*r);return {c:mix(P[i-1],P[i]),n:mix(N[i-1],N[i]),f:P[i].map((v,k)=>(v-P[i-1][k])/(xs[i]-xs[i-1]))}}return null};
@@ -342,6 +342,17 @@
      }
     }else if(o.path?.length)lightLine(o.path.map(p=>p?xy(p):null),'#58b4ff');
    }
+   // Target following distance: amber bars reaching in from both path edges, whenever longitudinal control is on (with
+   // or without a lead, nearer or farther than it; unknown control: drawn). Off: none. They fade over 0.3 s as it switches.
+   const gapControl=window.rvControlState?.(t)??null,gapSince=gapControl?.at==null?Infinity:t-gapControl.at;
+   const gapAlpha=gapControl===null?1:gapControl.on?smooth(gapSince/.3):1-smooth(gapSince/.3);
+   if(gapValue&&gapAlpha>.01){
+    const s=pathAt(frame.gapTarget+RADAR_TO_CAMERA),l=s&&ground(s,-half),r=s&&ground(s,half);
+    if(l&&r){
+     const k=Math.max(.45,Math.min(1.25,Math.abs(r[0]-l[0])/220)),bar=(p,q)=>[p,[p[0]+(q[0]-p[0])*.17,p[1]+(q[1]-p[1])*.17]];
+     for(const pts of [bar(l,r),bar(r,l)])softMark(pts,'#ffcc75',k,gapAlpha);
+    }
+   }
    if(leadDrawn){
     const color=tooClose?'#ff5f5f':road.target===3?'#edf7ff':'#7be5ff',length=8*targetBrakeLevel(data.frames,idx),a=xy(target[0]),b=xy(target[1]);
     const scale=Math.max(.45,Math.min(1.25,Math.abs(b[0]-a[0])/220));
@@ -373,14 +384,6 @@
       context.fillStyle=targetGradient(context,[(p[0]+s[0])/2,(p[1]+s[1])/2],[(q[0]+r[0])/2,(q[1]+r[1])/2],color);
       context.globalAlpha=.4*(1-(start+end)/2/length)**2;
       context.beginPath();[p,q,r,s].forEach((v,k)=>k?context.lineTo(...v):context.moveTo(...v));context.closePath();context.fill();
-     }
-    }
-    // Target following distance: amber bars reaching in from both path edges.
-    if(gapShown&&!tooClose){
-     const s=pathAt(frame.gapTarget+RADAR_TO_CAMERA),l=s&&ground(s,-half),r=s&&ground(s,half);
-     if(l&&r){
-      const k=Math.max(.45,Math.min(1.25,Math.abs(r[0]-l[0])/220)),bar=(p,q)=>[p,[p[0]+(q[0]-p[0])*.17,p[1]+(q[1]-p[1])*.17]];
-      for(const pts of [bar(l,r),bar(r,l)])softMark(pts,'#ffcc75',k);
      }
     }
     leadMarkAt=road.distance;

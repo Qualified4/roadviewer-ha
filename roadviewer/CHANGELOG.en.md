@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.7
+
+- The target following distance bars are drawn whenever longitudinal control is on (with no lead, a lead nearer than the target, or the lead mark off), not while it is off, fading over 0.3s as it switches.
+
 ## 1.3.6
 
 - When longitudinal control switches off, path chevrons fade one by one from the farthest (about 0.8s) instead of staying until they flow out.

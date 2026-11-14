@@ -301,15 +301,22 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    await page.evaluate(()=>{data.frames[0].roadSignals.acceleration=-3});const off=await mark('off');assert.equal(off,0,'끄기 draws neither the mark nor the deceleration glow');assert.deepEqual(await labelsOf(),[],'nor its text');
    await page.evaluate(()=>{data.frames[0].roadSignals.acceleration=0});
    assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('#leadMark button')].map(b=>b.getAttribute('aria-pressed'))),['true','false','false']);await mark('arc');
-   // Target following distance: amber marks at the path edges while the lead is drawn; red lead when closer than 85 %.
+   // Target following distance: amber marks at the path edges whenever longitudinal control is on (lead or not); red lead when closer than 85 %.
    const amber=()=>page.evaluate(()=>{const c=document.getElementById('videoOverlay'),d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;let n=0,red=0;for(let i=0;i<d.length;i+=4){if(d[i+3]>40&&d[i]>200&&d[i+1]>150&&d[i+2]<d[i+1]-40)n++;if(d[i+3]>40&&d[i]>200&&d[i+1]<150&&d[i+2]<150)red++}return {n,red}});
    const color=()=>renderedLabels().then(rows=>rows.find(row=>row.canvas==='videoOverlay'&&row.text.startsWith('TARGET'))?.color);
    await page.evaluate(()=>{const f=data.frames[0];f.overlay.pathX=[0,10,20,30,40];f.overlay.pathProjection=f.overlay.pathX.map(x=>[.5,.7+.3*10/(x+10),1]);f.overlay.pathSides=f.overlay.pathX.map(x=>[.06*10/(x+10),0,0]);f.gapTarget=15;render()});
    const shown=await amber();assert(shown.n>0,'amber target marks drawn');assert.equal(shown.red,0);assert.equal(await color(),'#7be5ff');
    await page.evaluate(()=>document.getElementById('gapTarget').click());assert.equal((await amber()).n,0,'목표 차간 거리 switch hides them');await page.evaluate(()=>document.getElementById('gapTarget').click());
    await page.evaluate(()=>{data.frames[0].gapTarget=null;render()});assert.equal((await amber()).n,0,'no value (older logs): no marks');
-   await page.evaluate(()=>{data.frames[0].gapTarget=30;render()});const close=await amber();assert.equal(close.n,0,'too close: amber marks not drawn');assert(close.red>0,'too close: the lead mark turns red');assert.equal(await color(),'#ff5f5f','and its text');
-   await mark('off');assert.deepEqual(await amber(),{n:0,red:0},'target marks only with the lead mark');await mark('arc');
+   await page.evaluate(()=>{data.frames[0].gapTarget=30;render()});const close=await amber();assert(close.n>0,'too close: amber marks still drawn');assert(close.red>0,'too close: the lead mark turns red');assert.equal(await color(),'#ff5f5f','and its text');
+   await mark('off');{const r=await amber();assert(r.n>0&&r.red===0,'lead mark off: target marks stay')}await mark('arc');
+   await page.evaluate(()=>{const f=data.frames[0];f.gapTarget=15;f.__road=f.ccncRoad;f.ccncRoad={...f.ccncRoad,target:0,distance:0};render()});assert((await amber()).n>0,'no lead: target marks drawn');
+   {const withControl=state=>page.evaluate(state=>{window.rvControlState=()=>state;render()},state),now=await page.evaluate(()=>document.getElementById('video').currentTime);
+    await page.evaluate(()=>{window.__control=window.rvControlState});
+    await withControl({on:false,at:null});assert.equal((await amber()).n,0,'longitudinal control off: no target marks');
+    await withControl({on:true,at:null});const full=(await amber()).n;assert(full>0,'control on: drawn');
+    await withControl({on:true,at:now-.03});const easing=(await amber()).n;assert(easing<full,`just switched on: fading in (${easing} < ${full})`);
+    await page.evaluate(()=>{window.rvControlState=window.__control;const f=data.frames[0];f.ccncRoad=f.__road;delete f.__road;render()})}
    await page.evaluate(()=>{const f=data.frames[0];f.gapTarget=null;delete f.overlay.pathX;delete f.overlay.pathProjection;delete f.overlay.pathSides;render()});}
   const noBrake=await targetStats();
   await page.evaluate(()=>{data.frames[0].roadSignals.acceleration=-1.5});const lightBrake=await targetStats();
