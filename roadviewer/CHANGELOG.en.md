@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.10
+
+- The mobile segment card has its speech-bubble tail again, pointing at the held block; pushed up it slides up into the card and slides back out when the card returns to the strip.
+- The green ring shown at "놓으면 구간이동" now glows.
+
 ## 1.3.9
 
 - On phones the pushed segment card no longer lags behind the finger: while it moves, the card and the darkening follow it directly; easing is kept only for letting go.

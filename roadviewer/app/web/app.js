@@ -1283,6 +1283,7 @@ const segmentGesture=(()=>{
   const sr=strip.getBoundingClientRect(),br=b.getBoundingClientRect(),{w,h,ceiling,hintH}=st.size,vw=document.documentElement.clientWidth;
   const left=Math.max(8,Math.min(vw-w-8,br.left+br.width/2-w/2)),rest=sr.top-12-h,top=rest-Math.min(lift,Math.max(0,rest-ceiling));
   st.left=left;st.top=top;card.style.transform=`translate3d(${left}px,${top}px,0) scale(${1+.04*p})`;card.classList.toggle('is-armed',armed);
+  card.style.setProperty('--tx',Math.max(14,Math.min(w-14,br.left+br.width/2-left))+'px');card.classList.toggle('is-lifted',top<rest-6);
   hint.style.top=(rest-8-hintH)+'px';
   setFlat(here);hint.classList.toggle('is-note',notReady);q('.sg-note').textContent=notReady?'준비 중인 구간':'';
   hint.classList.toggle('is-gone',lifting);
@@ -1311,7 +1312,7 @@ const segmentGesture=(()=>{
  function measure(){st.size={w:card.offsetWidth,h:card.offsetHeight,ceiling:title.offsetTop+title.offsetHeight+16,hintH:hint.offsetHeight}}
  function close(){
   st=null;setFlat(false);
-  under.classList.remove('is-on');over.classList.remove('is-on','is-drag');card.classList.remove('is-shown','is-armed');
+  under.classList.remove('is-on');over.classList.remove('is-on','is-drag');card.classList.remove('is-shown','is-armed','is-lifted');
   title.classList.remove('is-shown');q('.sg-sub').classList.remove('is-armed');q('.sg-dark').style.opacity='0';hint.classList.remove('is-gone','is-note');
   strip.querySelectorAll('.segment-block.is-target').forEach(x=>x.classList.remove('is-target'));
  }
