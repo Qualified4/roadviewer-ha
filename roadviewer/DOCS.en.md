@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.3.2**.
+This guide describes **1.3.3**.
 
 [한국어](DOCS.md) · English
 
@@ -97,7 +97,7 @@ Choose **다운로드** (Download) in the segment's ⋯ menu to select files and
 
 ### Thumbnails and start time
 
-Thumbnails (a frame of the smallest front video) and the start time are generated during conversion. Logs converted before this feature, and logs archived to a NAS or Google Drive, are backfilled in the background one at a time. Local and NAS files are read in place (only their first part); Drive files are read with ranged requests for only the first ~2 MB, never downloaded whole. Backfill pauses while an upload is being received, a conversion is running, or a video (local or Drive) is being played; it runs alongside archiving. An unreachable archive or Drive error is retried later. Logs without a readable clock show the upload time; logs without a decodable frame show a placeholder. No reconversion is needed.
+Thumbnails and the start time are generated during conversion. A thumbnail is the best-exposed of the frames at 1-5 s of the smallest front video, with its brightness levelled (right after the start the camera's exposure is often still settling and dark); a route card shows the best-looking thumbnail among its segments. Thumbnails made the older way are made again once in the background, and the old one stays shown until the new one is ready. Logs converted before this feature, and logs archived to a NAS or Google Drive, are backfilled in the background one at a time. Local and NAS files are read in place (only their first part); Drive files are read with ranged requests for only the first ~2 MB, never downloaded whole. Backfill pauses while an upload is being received, a conversion is running, or a video (local or Drive) is being played; it runs alongside archiving. An unreachable archive or Drive error is retried later. Logs without a readable clock show the upload time; logs without a decodable frame show a placeholder. No reconversion is needed.
 
 ### Conversion and storage settings
 
@@ -275,13 +275,13 @@ Over the video, the ⚙ button beside **겹쳐 보기** opens **겹쳐 보기 �
 | BSD wall height | 0.80m / 0–3m; zero hides the video wall |
 | Marker height | 60cm / 0–200cm; connects markers to ground |
 | Box, BSD and TARGET labels | Independently enabled; with the TARGET label on, the lead shows it and its FF box label is hidden (off: the FF label shows) |
-| Ground labels (TARGET; LF/FF/RF under their boxes) | Near, they lie on the road like a decal (60% height, each letter leaning to the vanishing point) out to 18m; further away they stand up, upright from 23m |
+| Ground labels (TARGET; LF/FF/RF under their boxes) | Near, they lie on the road like a decal (60% height, each letter leaning to the vanishing point) out to 18m; further away they stand up, upright from 23m; their size shrinks with distance (about 23px at 6m, 17px at 15m, 12px from 30m on a 900px picture) |
 | 감지점 라벨 (point labels) | Off; radar and model points show their value (the 정보 표시 mode) small beside them. A point on a drawn LF/FF/RF car is only a short tick on the ground |
 | Labels below boxes | Optional text below the box without background/border |
 
 Every slider has an individual reset button. Settings are remembered. The path width affects video model paths and TARGET, not the road panel's mint ribbon. Rendering preferences do not require log reconversion.
 
-**Road projection.** Video graphics are drawn as light on the road, brighter near the car. Cluster and radar-plan distances (the lead, the target following distance, the LF/FF/RF cars, radar tracks and the radar lead; not the model's leads) are measured from the front radar; they are drawn 1.52m further on (openpilot `RADAR_TO_CAMERA`), since the road coordinates start at the camera. The model path ends at the lead (cluster TARGET) when there is one and otherwise runs to the end of the model path. Chevrons on it flow towards the car at 40% of its speed, from 5.5m ahead up to 30m (fading from 20m), or to 1m short of a nearer lead. They turn amber with deceleration (`carState.aEgo`), dim beyond the target following distance, and are not drawn when longitudinal control (`carControl.longActive`, read from the vehicle data) is off. While stopped they brighten and dim over 2.4s.
+**Road projection.** Video graphics are drawn as light on the road, brighter near the car. Cluster and radar-plan distances (the lead, the target following distance, the LF/FF/RF cars, radar tracks and the radar lead; not the model's leads) are measured from the front radar; they are drawn 1.52m further on (openpilot `RADAR_TO_CAMERA`), since the road coordinates start at the camera. The model path ends at the lead (cluster TARGET) when there is one and otherwise runs to the end of the model path. Chevrons on it flow towards the car at 40% of its speed, from 5.5m ahead up to 30m (fading from 20m), or to 1m short of a nearer lead. They turn amber with deceleration (`carState.aEgo`), and are not drawn when longitudinal control (`carControl.longActive`, read from the vehicle data) is off. While stopped they brighten and dim over 2.4s.
 
 | Setting | Default / range |
 |---|---|

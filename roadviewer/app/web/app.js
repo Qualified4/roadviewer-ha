@@ -1182,7 +1182,7 @@ function renderSegmentStrip(segments,current,active){
 // Segment preview: a mouse over a block, or a finger held on one, shows that segment's thumbnail (the log list's
 // picture) above the strip; letting go hides it. Pictures are kept for the page, so each is fetched once.
 const segmentPeekItems=new Map(),segmentPeekPictures=new Map();let segmentPeekShown=null;
-const segmentThumbUrl=log=>log.status==='ready'&&(log.thumbnail||log.thumbnail_available)?`../../api/logs/${encodeURIComponent(log.id)}/thumbnail?v=${log.conversion_revision??0}${log.thumbnail?'':'&pending=1'}`:null;
+const segmentThumbUrl=log=>log.status==='ready'&&(log.thumbnail||log.thumbnail_available)?`../../api/logs/${encodeURIComponent(log.id)}/thumbnail?v=${log.conversion_revision??0}${log.thumbnail_version?'&t='+log.thumbnail_version:''}${log.thumbnail?'':'&pending=1'}`:null;
 function segmentPeekPicture(url){
  let img=segmentPeekPictures.get(url);
  if(!img){img=new Image();img.alt='';img.decoding='async';img.onerror=()=>img.remove();img.src=url;segmentPeekPictures.set(url,img)}

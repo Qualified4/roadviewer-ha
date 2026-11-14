@@ -4,6 +4,13 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.3
+
+- Log list thumbnails are no longer black: each segment's thumbnail is the best-exposed frame of its first 5 s (avoiding the camera's exposure ramp right after the start), brightened when dark. A drive card shows its best-looking segment instead of the first. Existing thumbnails are remade in the background after the update (the old ones show meanwhile).
+- Path chevrons no longer dim beyond the target following distance: their brightness switched at the bars, and with no lead at a point not shown at all.
+- Ground labels no longer stand up suddenly on bends: how far they lie is set by the distance alone.
+- Ground label text shrinks with distance (about 23px at 6m, 17px at 15m, 12px from 30m on a 900px picture).
+
 ## 1.3.2
 
 - The lead arc, target following distance, path end, chevron end and blind-spot wall end are drawn 1.52 m further on, the gap between the radar (front bumper) and the camera: until now they sat short of a near lead. The LF/FF/RF boxes, radar points and raw tracks are corrected the same way. The distances shown on screen are unchanged.

@@ -57,6 +57,22 @@ class NasBackfillTests(unittest.TestCase):
   with av.open(str(p/'prepared/thumbnail.jpg')) as image:self.assertEqual(image.streams.video[0].width,320)
   self.assertFalse(any(self.root.glob('.thumbnail-*')))
   self.assertEqual(self.worker.run_once(),(0,False)) # Nothing left to do.
+ def test_old_thumbnail_made_again_once_and_kept_until_then(self):
+  with tempfile.TemporaryDirectory() as temp:ts=video(Path(temp)/'qcamera.ts',format='mpegts')
+  p=self.log('d'*32,{'rlog.zst':rlog(),'qcamera.ts':ts});old=p/'prepared/thumbnail.jpg';old.write_bytes(b'\xff\xd8old')
+  self.assertEqual(self.worker.needs(p,server.read_meta(p)),{'thumbnail','started_at'})
+  # Made the older way (no thumbnail.json): the old picture is shown until it is replaced.
+  with patch.object(self.store,'available',return_value=False):self.assertEqual(self.worker.run_once(),(0,True))
+  self.assertEqual(old.read_bytes(),b'\xff\xd8old')
+  self.worker.deferred.clear();self.worker.backoff=0;self.worker.retry_at=0
+  self.assertEqual(self.worker.run_once(),(1,False))
+  self.assertNotEqual(old.read_bytes(),b'\xff\xd8old');self.assertEqual(json.loads((p/'prepared/thumbnail.json').read_text())['version'],2)
+  with patch('thumbnail.make_thumbnail',side_effect=AssertionError('made again')):self.assertEqual(self.worker.run_once(),(0,False))
+  # A remake that finds nothing decodable keeps the old picture and is not tried again for this conversion.
+  q=self.log('e'*32,{'rlog.zst':rlog(),'qcamera.ts':b'not a video'});old=q/'prepared/thumbnail.jpg';old.write_bytes(b'\xff\xd8old')
+  self.assertEqual(self.worker.run_once(),(1,False))
+  self.assertEqual(old.read_bytes(),b'\xff\xd8old');self.assertTrue((q/'prepared/thumbnail.failed').exists())
+  with patch('thumbnail.make_thumbnail',side_effect=AssertionError('made again')):self.assertEqual(self.worker.run_once(),(0,False))
  def test_failures_cached_per_conversion_and_unreachable_share_not(self):
   p=self.log('b'*32,{'rlog.zst':rlog(start=None),'qcamera.ts':b'not a video'})
   self.assertEqual(self.worker.run_once(),(1,False))

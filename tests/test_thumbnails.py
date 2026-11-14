@@ -31,7 +31,66 @@ def multi_camera_log(root):
  source=root/'rlog.zst';source.write_bytes(zstandard.ZstdCompressor().compress(b''.join(messages)))
  return source
 
+def ramp_video(path,luma,seconds=6,rate=20):
+ # luma(t) -> (low, high): a horizontal gradient between them, so each frame has a known mean and contrast.
+ with av.open(str(path),'w') as out:
+  stream=out.add_stream('libx264',rate=rate);stream.width=160;stream.height=96;stream.pix_fmt='yuv420p'
+  stream.options={'preset':'ultrafast','crf':'0'}
+  for i in range(seconds*rate):
+   low,high=luma(i/rate);frame=av.VideoFrame(160,96,'yuv420p')
+   y=frame.planes[0];row=bytes(round(low+(high-low)*x/159) for x in range(160))+bytes(y.line_size-160)
+   y.update(row*96)
+   for plane in frame.planes[1:]:plane.update(bytes([128])*plane.buffer_size)
+   for packet in stream.encode(frame):out.mux(packet)
+  for packet in stream.encode():out.mux(packet)
+ return path
+
+def jpeg_luma(data):
+ import thumbnail
+ with tempfile.TemporaryDirectory() as temp:
+  path=Path(temp)/'t.jpg';path.write_bytes(data)
+  with av.open(str(path)) as image:frame=next(image.decode(video=0))
+ return thumbnail.stats(frame.reformat(format='yuvj420p'))
+
 class ThumbnailTests(unittest.TestCase):
+ def test_best_exposed_frame_of_the_first_seconds_is_chosen(self):
+  import thumbnail
+  with tempfile.TemporaryDirectory() as temp:
+   # Exposure still settling: dark for the first 2.5 s, then a normal picture.
+   source=ramp_video(Path(temp)/'camera.mp4',lambda t:(5,30) if t<2.5 else (40,220))
+   thumb=thumbnail.make_thumbnail([source])
+  self.assertGreaterEqual(thumb.second,3);self.assertGreater(thumb.score,30)
+  self.assertTrue(thumb.jpeg.startswith(b'\xff\xd8'))
+  with tempfile.TemporaryDirectory() as temp:
+   # Already well exposed at 1 s and darker later: the earlier frame stays.
+   source=ramp_video(Path(temp)/'camera.mp4',lambda t:(40,220) if t<1.5 else (5,30))
+   self.assertEqual(thumbnail.make_thumbnail([source]).second,1)
+
+ def test_a_dark_picture_is_levelled_and_stays_a_valid_jpeg(self):
+  import thumbnail
+  with tempfile.TemporaryDirectory() as temp:
+   source=ramp_video(Path(temp)/'camera.mp4',lambda t:(8,48),seconds=2)
+   thumb=thumbnail.make_thumbnail([source])
+   with av.open(str(source)) as video:before=thumbnail.stats(thumbnail.small(next(video.decode(video=0))))
+  mean,std,low,high=jpeg_luma(thumb.jpeg)
+  self.assertLess(before[0],35)
+  self.assertGreater(mean,70);self.assertGreater(std,before[1]*2) # Stretched (at most 3x) and lifted by the gamma.
+  self.assertLessEqual(low,before[2]+3)
+  # A well exposed picture is only stretched, not lifted: its mean stays near the middle.
+  with tempfile.TemporaryDirectory() as temp:
+   thumb=thumbnail.make_thumbnail([ramp_video(Path(temp)/'camera.mp4',lambda t:(20,235),seconds=2)])
+  self.assertLess(abs(jpeg_luma(thumb.jpeg)[0]-127),12)
+
+ def test_score_written_beside_the_thumbnail(self):
+  import thumbnail_meta
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp);save_thumbnail(root,[FIXTURE])
+   info=json.loads((root/'thumbnail.json').read_text())
+   self.assertEqual(info['version'],thumbnail_meta.VERSION);self.assertIsInstance(info['score'],float)
+   self.assertTrue(thumbnail_meta.current(root));self.assertFalse(any(root.glob('*.tmp')))
+   (root/'thumbnail.json').write_text('{"version":1}');self.assertFalse(thumbnail_meta.current(root))
+   (root/'thumbnail.json').write_text('broken');self.assertEqual(thumbnail_meta.read(root),{})
+
  def test_scaled_jpeg_and_fallback_to_the_next_source(self):
   with tempfile.TemporaryDirectory() as temp:
    root=Path(temp);broken=root/'camera.mp4';broken.write_bytes(b'not a video')
@@ -48,13 +107,14 @@ class ThumbnailTests(unittest.TestCase):
    source=multi_camera_log(Path(temp))
    dest,data=decoder.prepare(source)
    self.assertEqual(jpeg_size(dest/'thumbnail.jpg'),(320,192)) # From the prepared front HEVC (160x96).
+   self.assertEqual(json.loads((dest/'thumbnail.json').read_text())['version'],2)
    summary=json.loads((dest/'summary.json').read_text())
    self.assertEqual(summary['drive_summary']['takeovers'],1)
    self.assertGreater(summary['drive_summary']['engaged_ratio'],0);self.assertLess(summary['drive_summary']['engaged_ratio'],1)
    # A thumbnail that cannot be made never fails the conversion, nor does a drive summary error.
    with patch.object(decoder,'save_thumbnail',side_effect=RuntimeError('boom')),patch.object(decoder,'drive_summary',side_effect=ValueError('bad')):
     dest,again=decoder.prepare(source)
-   self.assertFalse((dest/'thumbnail.jpg').exists())
+   self.assertFalse((dest/'thumbnail.jpg').exists());self.assertFalse((dest/'thumbnail.json').exists())
    self.assertEqual(again['videos'],data['videos']);self.assertEqual(again['warnings'],data['warnings'])
    self.assertIsNone(json.loads((dest/'summary.json').read_text())['drive_summary'])
    self.assertFalse((dest/'thumbnail.failed').exists()) # An exception may be transient: tried again on demand.
@@ -105,7 +165,7 @@ class ServerTests(ServerCase):
   self.assertEqual(response.status_code,200);self.assertEqual(response.mimetype,'image/jpeg')
   self.assertEqual(response.headers['Cache-Control'],'private, max-age=86400')
   self.assertEqual(response.data,(self.prepared/'thumbnail.jpg').read_bytes());response.close()
-  self.assertIs(self.row()['thumbnail'],True)
+  row=self.row();self.assertIs(row['thumbnail'],True);self.assertEqual(row['thumbnail_version'],2);self.assertIsInstance(row['thumbnail_score'],float)
   self.assertEqual(self.client.get(url).status_code,403) # Ingress only, like every other route.
   self.assertEqual(self.client.get('/api/logs/'+'b'*32+'/thumbnail',environ_overrides=PEER).status_code,404)
   # Archiving handles only the media kinds; the thumbnail stays with the local converted data.
@@ -185,7 +245,7 @@ class LazyThumbnailTests(ServerCase):
   response=self.get();self.assertEqual(response.status_code,200);self.assertEqual(response.mimetype,'image/jpeg')
   self.assertEqual(response.headers['Cache-Control'],'private, max-age=86400')
   self.assertEqual(jpeg_size(self.prepared/'thumbnail.jpg'),(320,180))
-  row=self.row();self.assertIs(row['thumbnail'],True);self.assertNotIn('thumbnail_available',row)
+  row=self.row();self.assertIs(row['thumbnail'],True);self.assertNotIn('thumbnail_available',row);self.assertEqual(row['thumbnail_version'],2)
   with patch('thumbnail.make_thumbnail',side_effect=AssertionError('decoded again')):self.assertEqual(self.get().status_code,200)
  def test_busy_failed_remote_and_not_ready_answer_404_without_decoding(self):
   (self.path/'camera.mp4').write_bytes(FIXTURE.read_bytes())
