@@ -4,6 +4,10 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.4
+
+- Drive cards show the first segment's thumbnail again (1.3.3 picked the best-looking segment). First segments get the new levelled thumbnails too, and the background remake does each drive's first segment first, so cards change once and stay.
+
 ## 1.3.3
 
 - Log list thumbnails are no longer black: each segment's thumbnail is the best-exposed frame of its first 5 s (avoiding the camera's exposure ramp right after the start), brightened when dark. A drive card shows its best-looking segment instead of the first. Existing thumbnails are remade in the background after the update (the old ones show meanwhile).

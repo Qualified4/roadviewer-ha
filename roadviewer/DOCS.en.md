@@ -1,6 +1,6 @@
 # Installation and use
 
-This guide describes **1.3.3**.
+This guide describes **1.3.4**.
 
 [한국어](DOCS.md) · English
 
@@ -97,7 +97,7 @@ Choose **다운로드** (Download) in the segment's ⋯ menu to select files and
 
 ### Thumbnails and start time
 
-Thumbnails and the start time are generated during conversion. A thumbnail is the best-exposed of the frames at 1-5 s of the smallest front video, with its brightness levelled (right after the start the camera's exposure is often still settling and dark); a route card shows the best-looking thumbnail among its segments. Thumbnails made the older way are made again once in the background, and the old one stays shown until the new one is ready. Logs converted before this feature, and logs archived to a NAS or Google Drive, are backfilled in the background one at a time. Local and NAS files are read in place (only their first part); Drive files are read with ranged requests for only the first ~2 MB, never downloaded whole. Backfill pauses while an upload is being received, a conversion is running, or a video (local or Drive) is being played; it runs alongside archiving. An unreachable archive or Drive error is retried later. Logs without a readable clock show the upload time; logs without a decodable frame show a placeholder. No reconversion is needed.
+Thumbnails and the start time are generated during conversion. A thumbnail is the best-exposed of the frames at 1-5 s of the smallest front video, with its brightness levelled (right after the start the camera's exposure is often still settling and dark); a route card shows its first segment's thumbnail. Thumbnails made the older way are made again once in the background, and the old one stays shown until the new one is ready. Logs converted before this feature, and logs archived to a NAS or Google Drive, are backfilled in the background one at a time. Local and NAS files are read in place (only their first part); Drive files are read with ranged requests for only the first ~2 MB, never downloaded whole. Backfill pauses while an upload is being received, a conversion is running, or a video (local or Drive) is being played; it runs alongside archiving. An unreachable archive or Drive error is retried later. Logs without a readable clock show the upload time; logs without a decodable frame show a placeholder. No reconversion is needed.
 
 ### Conversion and storage settings
 
