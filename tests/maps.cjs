@@ -342,6 +342,18 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    await card.getByRole('button',{name:'목록에서 보기'}).tap();
    await page.locator('#list').waitFor();assert(await page.locator('#logMap').isHidden());
    {const id=shownRoute.split('/').filter(Boolean).at(-1);await page.waitForFunction(id=>{const r=document.querySelector(`#list .log-row[data-id="${id}"]`).closest('.log-route').getBoundingClientRect();return r.top>=0&&r.top<innerHeight},id)}
+   // A separate stopped-start response: leave the moving fixture intact for smooth-following checks.
+   {const stopped=routeA[1].map(p=>[...p]);stopped.slice(0,3).forEach(p=>{p[1]=stopped[0][1];p[2]=stopped[0][2];p[3]=0;p[4]=null});
+    const trackUrl=`**/api/logs/${withVideo}/track`,stoppedTrack=async route=>{const response=await route.fetch(),value=await response.json();value.segments.find(s=>s.id===withVideo).points=stopped;await route.fulfill({response,json:value})};
+    await page.route(trackUrl,stoppedTrack);
+    await page.goto(base+`view/${withVideo}/`);await page.locator('#mapTab').waitFor();await page.locator('#mapTab').tap();
+    const car=page.locator('#routeMapView .map-car-body');await car.waitFor();
+    const first=stopped[0],next=stopped[3],expected=(Math.atan2((next[2]-first[2])*Math.cos(first[1]*Math.PI/180),next[1]-first[1])*180/Math.PI+360)%360;
+    const angle=await car.evaluate(e=>Number(e.style.transform.match(/rotate\(([-.\d]+)deg\)/)?.[1]));
+    assert(Math.abs(angle-expected)<.02,'the stopped start faces its first movement before playing');
+    assert.notEqual(await page.locator('#play').getAttribute('data-playing'),'true','direction is set before playback');
+    await page.unroute(trackUrl,stoppedTrack);
+   }
    // ③ The replay's 주행 상황 | 지도: the whole drive, this log's segment solid and the others faded, a car marker following playback.
    await page.goto(base+`view/${withVideo}/`);await page.waitForFunction(()=>!!document.getElementById('play')&&!document.getElementById('play').disabled);
    // The 지도 tab sits right after 주행 상황 and shows only for a segment with a track; the tab row stays one row.
@@ -352,6 +364,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    await mapTab.tap();await page.locator('#mapView').waitFor();await page.locator('#routeMapView .map-car').waitFor();await shot('map-tab');
    // The road-view vehicle is the default; changing the icon keeps its bearing and location intact.
    {const car=page.locator('#routeMapView .map-car-body');assert.equal(await car.getAttribute('data-car-icon'),'vehicle');
+    assert.equal(await car.evaluate(e=>e.getBoundingClientRect().width>=44),true,'larger vehicle marker');
     assert.equal(await car.locator('.map-vehicle-shell').count(),1);
     const bearing=await car.evaluate(e=>e.style.transform.match(/rotate\(([^)]+)\)/)?.[1]);
     await page.locator('#routeMapView .rv-map-options-button').click();
@@ -524,6 +537,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
     assert(g.hudOnMap&&g.titleClear&&g.trackInside,label+' '+JSON.stringify(g));assert.deepEqual(g.covers,[],label+' '+JSON.stringify(g));
    };
    await small('portrait');
+   assert.equal(await mini.locator('.map-car-body').evaluate(e=>getComputedStyle(e).width),'24px','compact mobile minimap uses the smaller vehicle');
    // The car (smaller here than on the big map) sits on the current segment's line: its body centred on the marker's anchor.
    {const d=await mini.evaluate(m=>{const b=m.querySelector('.map-car-body').getBoundingClientRect(),c=[b.left+b.width/2,b.top+b.height/2];
      return window.rvTestNearLine(m,c)});

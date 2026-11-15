@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.16
+
+- Enlarged vehicle markers: 44px on the main map, 32px on the video minimap, and 24px on compact mobile minimaps.
+- Before playback, repeated starting GPS fixes without a reported bearing use the first movement direction. Stopped endings retain the previous movement direction; reported bearings remain authoritative.
+
 ## 1.3.15
 
 - Maps now use the road-view vehicle silhouette for the current position. Choose the vehicle or the direction arrow in map display options or the video minimap settings. The choice is remembered in this browser without changing the position or heading.
