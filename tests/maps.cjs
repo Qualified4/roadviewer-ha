@@ -46,8 +46,6 @@ const hookMaps=()=>{window.rvTestNearLine=(root,at)=>Math.min(Infinity,...[...ro
  // Segment 1 (the one with video): its bearing climbs 3° a second through north (350° … 359°, 2° …), and its sample
  // at 31 s holds the fix of 30 s (a GPS hold while moving).
  routeA[1].forEach((p,i)=>{p[4]=(350+3*i)%360});routeA[1][31][1]=routeA[1][30][1];routeA[1][31][2]=routeA[1][30][2];
- // Start stopped, with no reported heading; the first three positions repeat the same fix.
- routeA[1].slice(0,3).forEach(p=>{p[1]=routeA[1][0][1];p[2]=routeA[1][0][2];p[3]=0;p[4]=null});
  const hex=k=>'0123456789'[k];
  const logs=[
   ...routeA.map((points,k)=>({id:hex(k).repeat(32),name:`00000395--0d0eda17c5 / 구간 ${k}`,uploaded:30+k,points,tags:k===0?[{name:'출근',color:'blue'}]:[],video:k===1})),
@@ -344,6 +342,18 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    await card.getByRole('button',{name:'목록에서 보기'}).tap();
    await page.locator('#list').waitFor();assert(await page.locator('#logMap').isHidden());
    {const id=shownRoute.split('/').filter(Boolean).at(-1);await page.waitForFunction(id=>{const r=document.querySelector(`#list .log-row[data-id="${id}"]`).closest('.log-route').getBoundingClientRect();return r.top>=0&&r.top<innerHeight},id)}
+   // A separate stopped-start response: leave the moving fixture intact for smooth-following checks.
+   {const stopped=routeA[1].map(p=>[...p]);stopped.slice(0,3).forEach(p=>{p[1]=stopped[0][1];p[2]=stopped[0][2];p[3]=0;p[4]=null});
+    const trackUrl=`**/api/logs/${withVideo}/track`,stoppedTrack=async route=>{const response=await route.fetch(),value=await response.json();value.segments.find(s=>s.id===withVideo).points=stopped;await route.fulfill({response,json:value})};
+    await page.route(trackUrl,stoppedTrack);
+    await page.goto(base+`view/${withVideo}/`);await page.locator('#mapTab').waitFor();await page.locator('#mapTab').tap();
+    const car=page.locator('#routeMapView .map-car-body');await car.waitFor();
+    const first=stopped[0],next=stopped[3],expected=(Math.atan2((next[2]-first[2])*Math.cos(first[1]*Math.PI/180),next[1]-first[1])*180/Math.PI+360)%360;
+    const angle=await car.evaluate(e=>Number(e.style.transform.match(/rotate\(([-.\d]+)deg\)/)?.[1]));
+    assert(Math.abs(angle-expected)<.02,'the stopped start faces its first movement before playing');
+    assert.notEqual(await page.locator('#play').getAttribute('data-playing'),'true','direction is set before playback');
+    await page.unroute(trackUrl,stoppedTrack);
+   }
    // ③ The replay's 주행 상황 | 지도: the whole drive, this log's segment solid and the others faded, a car marker following playback.
    await page.goto(base+`view/${withVideo}/`);await page.waitForFunction(()=>!!document.getElementById('play')&&!document.getElementById('play').disabled);
    // The 지도 tab sits right after 주행 상황 and shows only for a segment with a track; the tab row stays one row.
@@ -355,9 +365,6 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    // The road-view vehicle is the default; changing the icon keeps its bearing and location intact.
    {const car=page.locator('#routeMapView .map-car-body');assert.equal(await car.getAttribute('data-car-icon'),'vehicle');
     assert.equal(await car.evaluate(e=>e.getBoundingClientRect().width>=44),true,'larger vehicle marker');
-    const first=routeA[1][0],next=routeA[1][3],expected=(Math.atan2((next[2]-first[2])*Math.cos(first[1]*Math.PI/180),next[1]-first[1])*180/Math.PI+360)%360;
-    const angle=await car.evaluate(e=>Number(e.style.transform.match(/rotate\(([-.\d]+)deg\)/)?.[1]));
-    assert(Math.abs(angle-expected)<.02,'the stopped start faces its first movement before playing');
     assert.equal(await car.locator('.map-vehicle-shell').count(),1);
     const bearing=await car.evaluate(e=>e.style.transform.match(/rotate\(([^)]+)\)/)?.[1]);
     await page.locator('#routeMapView .rv-map-options-button').click();
