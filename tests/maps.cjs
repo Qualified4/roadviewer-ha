@@ -46,6 +46,8 @@ const hookMaps=()=>{window.rvTestNearLine=(root,at)=>Math.min(Infinity,...[...ro
  // Segment 1 (the one with video): its bearing climbs 3° a second through north (350° … 359°, 2° …), and its sample
  // at 31 s holds the fix of 30 s (a GPS hold while moving).
  routeA[1].forEach((p,i)=>{p[4]=(350+3*i)%360});routeA[1][31][1]=routeA[1][30][1];routeA[1][31][2]=routeA[1][30][2];
+ // Start stopped, with no reported heading; the first three positions repeat the same fix.
+ routeA[1].slice(0,3).forEach(p=>{p[1]=routeA[1][0][1];p[2]=routeA[1][0][2];p[3]=0;p[4]=null});
  const hex=k=>'0123456789'[k];
  const logs=[
   ...routeA.map((points,k)=>({id:hex(k).repeat(32),name:`00000395--0d0eda17c5 / 구간 ${k}`,uploaded:30+k,points,tags:k===0?[{name:'출근',color:'blue'}]:[],video:k===1})),
@@ -352,6 +354,10 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    await mapTab.tap();await page.locator('#mapView').waitFor();await page.locator('#routeMapView .map-car').waitFor();await shot('map-tab');
    // The road-view vehicle is the default; changing the icon keeps its bearing and location intact.
    {const car=page.locator('#routeMapView .map-car-body');assert.equal(await car.getAttribute('data-car-icon'),'vehicle');
+    assert.equal(await car.evaluate(e=>e.getBoundingClientRect().width>=44),true,'larger vehicle marker');
+    const first=routeA[1][0],next=routeA[1][3],expected=(Math.atan2((next[2]-first[2])*Math.cos(first[1]*Math.PI/180),next[1]-first[1])*180/Math.PI+360)%360;
+    const angle=await car.evaluate(e=>Number(e.style.transform.match(/rotate\(([-.\d]+)deg\)/)?.[1]));
+    assert(Math.abs(angle-expected)<.02,'the stopped start faces its first movement before playing');
     assert.equal(await car.locator('.map-vehicle-shell').count(),1);
     const bearing=await car.evaluate(e=>e.style.transform.match(/rotate\(([^)]+)\)/)?.[1]);
     await page.locator('#routeMapView .rv-map-options-button').click();
@@ -524,6 +530,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
     assert(g.hudOnMap&&g.titleClear&&g.trackInside,label+' '+JSON.stringify(g));assert.deepEqual(g.covers,[],label+' '+JSON.stringify(g));
    };
    await small('portrait');
+   assert.equal(await mini.locator('.map-car-body').evaluate(e=>getComputedStyle(e).width),'24px','compact mobile minimap uses the smaller vehicle');
    // The car (smaller here than on the big map) sits on the current segment's line: its body centred on the marker's anchor.
    {const d=await mini.evaluate(m=>{const b=m.querySelector('.map-car-body').getBoundingClientRect(),c=[b.left+b.width/2,b.top+b.height/2];
      return window.rvTestNearLine(m,c)});

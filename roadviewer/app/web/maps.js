@@ -28,7 +28,7 @@
  const TONE_KEY='roadviewer-map-tone';let mapTone='auto';try{const saved=localStorage.getItem(TONE_KEY);if(saved==='light'||saved==='dark')mapTone=saved}catch{}
  // The same vehicle silhouette as the road view (12 × 22, with a front windshield).
  const CAR_KEY='roadviewer-map-car-icon';let mapCar='vehicle';try{if(localStorage.getItem(CAR_KEY)==='arrow')mapCar='arrow'}catch{}
- const carArt=kind=>kind==='arrow'?'<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3 19 20 12 16 5 20Z"/></svg>':'<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><rect class="map-vehicle-shell" x="6" y="1" width="12" height="22" rx="3"/><rect class="map-vehicle-glass" x="8" y="4" width="8" height="3" rx="1"/></svg>';
+ const carArt=kind=>kind==='arrow'?'<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3 19 20 12 16 5 20Z"/></svg>':'<svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true"><rect class="map-vehicle-shell" x="6" y="1" width="12" height="22" rx="3"/><rect class="map-vehicle-glass" x="8" y="4" width="8" height="3" rx="1"/></svg>';
  function showCarChoice(root){for(const choice of root.querySelectorAll('button[data-map-car]'))choice.setAttribute('aria-pressed',String(choice.dataset.mapCar===mapCar))}
  function setMapCar(kind){
   if(!['vehicle','arrow'].includes(kind)||kind===mapCar)return;mapCar=kind;try{localStorage.setItem(CAR_KEY,kind)}catch{}
@@ -815,7 +815,11 @@
   const held=(points,j)=>j>0&&j<points.length-1&&same(points[j-1],points[j])&&!same(points[j-2],points[j-1])&&!same(points[j],points[j+1])&&!(Number.isFinite(points[j][3])&&points[j][3]<.5);
   function heading(points,j){
    const p=points[j];if(Number.isFinite(p[4]))return p[4];
-   const [from,to]=j<points.length-1&&!same(p,points[j+1])?[p,points[j+1]]:[points[Math.max(0,j-1)],p];
+   // A stopped start may repeat one fix for seconds: orient before playback, using the first distinct fix.
+   let next=j+1,previous=j-1;
+   while(next<points.length&&same(p,points[next]))next++;
+   while(previous>=0&&same(p,points[previous]))previous--;
+   const [from,to]=next<points.length?[p,points[next]]:previous>=0?[points[previous],p]:[p,p];
    return same(from,to)?null:Math.atan2((to[2]-from[2])*Math.cos(p[1]*Math.PI/180),to[1]-from[1])*180/Math.PI;
   }
   function position(time){
@@ -828,7 +832,7 @@
    const bearing=ha!==null&&hb!==null?ha+(((hb-ha)%360+540)%360-180)*k:ha??hb??0;
    return {latlng:[lat,lon],bearing:Number.isFinite(bearing)?(bearing%360+360)%360:0,index:i,k,from,to};
   }
-  const carIcon=L=>L.divIcon({className:'map-car',html:`<span class="map-car-body" data-car-icon="${mapCar}">${carArt(mapCar)}</span>`,iconSize:[28,28],iconAnchor:[14,14]});
+  const carIcon=(L,bearing)=>L.divIcon({className:'map-car',html:`<span class="map-car-body" data-car-icon="${mapCar}" style="transform:rotate(${bearing.toFixed(2)}deg)">${carArt(mapCar)}</span>`,iconSize:[44,44],iconAnchor:[22,22]});
   // The drive's lines: this log's segment solid, the drive's other segments faded. Only the large map seeks on a tap
   // (interactive).
   function layers(L,map,interactive=true){
@@ -842,7 +846,8 @@
    // points are the samples and never change under the car.
    lines.current=L.polyline([],{noClip:true,smoothFactor:0,lineCap:'round',lineJoin:'round',interactive,color:shown,weight:6,opacity:.95,className:'map-current'}).addTo(map);
    if(interactive)lines.current.on('click',e=>seekTo(e.latlng));
-   lines.car=L.marker([0,0],{icon:carIcon(L),interactive:false,keyboard:false}).addTo(map);
+   const initial=position(typeof t==='number'?t:0);
+   lines.car=L.marker(initial.latlng,{icon:carIcon(L,initial.bearing),interactive:false,keyboard:false}).addTo(map);
    return lines;
   }
   async function ensureBig(){
