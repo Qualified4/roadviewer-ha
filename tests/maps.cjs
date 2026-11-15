@@ -343,13 +343,29 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    await page.locator('#list').waitFor();assert(await page.locator('#logMap').isHidden());
    {const id=shownRoute.split('/').filter(Boolean).at(-1);await page.waitForFunction(id=>{const r=document.querySelector(`#list .log-row[data-id="${id}"]`).closest('.log-route').getBoundingClientRect();return r.top>=0&&r.top<innerHeight},id)}
    // ③ The replay's 주행 상황 | 지도: the whole drive, this log's segment solid and the others faded, a car marker following playback.
-   await page.goto(base+`view/${withVideo}/`);await page.waitForFunction(()=>!document.getElementById('play').disabled);
+   await page.goto(base+`view/${withVideo}/`);await page.waitForFunction(()=>!!document.getElementById('play')&&!document.getElementById('play').disabled);
    // The 지도 tab sits right after 주행 상황 and shows only for a segment with a track; the tab row stays one row.
    const mapTab=page.locator('#mapTab');await mapTab.waitFor();
    assert.deepEqual((await page.locator('.vehicle-tabs [role=tab]').allTextContents()).map(t=>t.replace(/\d+$/,'').trim()),['주행 상황','지도','차선·도로','차량 정보','북마크']);
    {const tops=await page.locator('.vehicle-tabs [role=tab]').evaluateAll(tabs=>tabs.map(t=>Math.round(t.getBoundingClientRect().top)));assert.equal(new Set(tops).size,1,'one tab row '+tops)}
    assert.equal(await page.locator('#roadMode').count(),0,'no 주행 상황 | 지도 switch any more');
    await mapTab.tap();await page.locator('#mapView').waitFor();await page.locator('#routeMapView .map-car').waitFor();await shot('map-tab');
+   // The road-view vehicle is the default; changing the icon keeps its bearing and location intact.
+   {const car=page.locator('#routeMapView .map-car-body');assert.equal(await car.getAttribute('data-car-icon'),'vehicle');
+    assert.equal(await car.locator('.map-vehicle-shell').count(),1);
+    const bearing=await car.evaluate(e=>e.style.transform.match(/rotate\(([^)]+)\)/)?.[1]);
+    await page.locator('#routeMapView .rv-map-options-button').click();
+    const choices=page.locator('.rv-map-options:not([hidden])');
+    await choices.locator('[data-map-car="arrow"]').click();
+    assert.equal(await car.getAttribute('data-car-icon'),'arrow');assert.equal(await car.locator('svg path').count(),1);
+    assert.equal(await car.evaluate(e=>e.style.transform.match(/rotate\(([^)]+)\)/)?.[1]),bearing,'switching icons preserves the heading');
+    assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-car-icon')),'arrow');
+    assert.equal(await page.locator('#mapCarIcon [data-map-car="arrow"]').getAttribute('aria-pressed'),'true','small map settings share the choice');
+    await choices.locator('[data-map-car="vehicle"]').click();
+    assert.equal(await car.getAttribute('data-car-icon'),'vehicle');assert.equal(await car.locator('.map-vehicle-shell').count(),1);
+    assert.equal(await choices.locator('[data-map-car="vehicle"]').getAttribute('aria-pressed'),'true');
+    await page.keyboard.press('Escape');
+   }
    // This log's segment is the one solid line, whole (not only up to the car); the drive's other segments, before and after it, are faded.
    {const lines=await page.locator('#routeMapView .leaflet-overlay-pane path').evaluateAll(ps=>ps.map(p=>({current:p.classList.contains('map-current'),solid:Number(p.getAttribute('stroke-opacity'))>.5,dash:p.style.strokeDasharray||p.getAttribute('stroke-dasharray')||''})));
     assert(lines.filter(l=>l.solid).length===1&&lines.find(l=>l.solid)?.current&&!lines.find(l=>l.current).dash&&lines.filter(l=>!l.current).length>=1&&lines.filter(l=>!l.current).every(l=>!l.solid),'only the current segment is highlighted: '+JSON.stringify(lines))}
@@ -668,13 +684,13 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    {const lines=page.locator('#routeMapView .leaflet-overlay-pane path.leaflet-interactive');assert(await lines.count()>=2);
     await seek(0);await page.waitForTimeout(100);
     const first=lines.first();await first.evaluate(p=>p.closest('.leaflet-container').scrollIntoView({block:'center'}));await tapLine(first,.85);
-    await page.waitForURL(new RegExp(`view/${logs[0].id}/$`));await page.waitForFunction(()=>!document.getElementById('play').disabled&&Number(document.getElementById('seek').value)>0)}
+    await page.waitForURL(new RegExp(`view/${logs[0].id}/$`));await page.waitForFunction(()=>!!document.getElementById('play')&&!document.getElementById('play').disabled&&Number(document.getElementById('seek').value)>0)}
    assert(await page.locator('#videoMiniMap').isChecked(),'the small map setting is kept');
    // A segment with GPS but no video: the panel's map only, no small map over the picture.
    await page.waitForTimeout(400);assert(await page.locator('#mapTab').isVisible());assert.equal(await page.locator('#mapTab').getAttribute('aria-selected'),'true','the 지도 tab is kept');assert(await page.locator('#videoMap').isHidden());
    assert.equal(await page.locator('#videoStage.has-video-map').count(),0);
    // A segment without GPS has neither the switch nor the small map.
-   await page.goto(base+`view/${logs.at(-1).id}/`);await page.waitForFunction(()=>!document.getElementById('play').disabled);await page.waitForTimeout(300);
+   await page.goto(base+`view/${logs.at(-1).id}/`);await page.waitForFunction(()=>!!document.getElementById('play')&&!document.getElementById('play').disabled);await page.waitForTimeout(300);
    assert(await page.locator('#mapTab').isHidden());assert(await page.locator('#videoMap').isHidden());
    assert.deepEqual(errors,[]);
    await context.close();
@@ -682,7 +698,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    // size back after a reload.
    if(scheme==='dark'){const desk=await browser.newContext({viewport:{width:1280,height:800},colorScheme:scheme,reducedMotion:'reduce'}),dp=await desk.newPage(),derrors=[];
     dp.on('pageerror',error=>derrors.push(error.message));await desk.route(`**/api/logs/${withVideo}/video**`,route=>route.fulfill({body:video,contentType:'video/mp4'}));
-    await dp.goto(base+`view/${withVideo}/`);await dp.waitForFunction(()=>!document.getElementById('play').disabled);
+    await dp.goto(base+`view/${withVideo}/`);await dp.waitForFunction(()=>!!document.getElementById('play')&&!document.getElementById('play').disabled);
     await dp.locator('#overlayHeightSettings').click();await dp.locator('#overlayHeightDialog').waitFor();await dp.getByLabel('영상 위 작은 지도').check();await dp.locator('#overlayHeightClose').click();
     const dm=dp.locator('#videoMap');await dm.locator('.map-car').waitFor();await settleLayout(dp);await dp.waitForTimeout(150);
     const b0=await dm.boundingBox();await dm.hover();await dp.waitForTimeout(300);const g=await dm.locator('.video-map-grip').boundingBox();
@@ -694,7 +710,7 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
     if(shots){await dp.waitForTimeout(REAL?3000:150);await dp.screenshot({path:path.join(shots,'minimap-resized-desktop-dark.png')})}
     {const g1=await dm.locator('.video-map-grip').boundingBox();await dp.mouse.move(g1.x+g1.width/2,g1.y+g1.height/2);await dp.mouse.down();await dp.mouse.move(g1.x+600,g1.y-400,{steps:8});await dp.mouse.up();await dp.waitForTimeout(150)}
     const b2=await dm.boundingBox();assert(b2.width>=103.5&&b2.width<b1.width,'mouse: smaller, not below the least size '+JSON.stringify(b2));
-    await dp.reload();await dp.waitForFunction(()=>!document.getElementById('play').disabled);await dm.locator('.map-car').waitFor();await settleLayout(dp);await dp.waitForTimeout(150);
+    await dp.reload();await dp.waitForFunction(()=>!!document.getElementById('play')&&!document.getElementById('play').disabled);await dm.locator('.map-car').waitFor();await settleLayout(dp);await dp.waitForTimeout(150);
     {const b3=await dm.boundingBox(),info=await dp.evaluate(()=>({f:localStorage.getItem('roadviewer-minimap-size'),v:document.getElementById('videoStage').style.getPropertyValue('--vmap-f'),min:document.getElementById('videoStage').style.getPropertyValue('--vmap-min-w'),sized:document.getElementById('videoStage').classList.contains('vmap-sized'),w:document.getElementById('videoStage').getBoundingClientRect().width}));assert(Math.abs(b3.width-Math.max(b2.width,parseFloat(info.min)))<=1.5&&info.sized,'kept after a reload (never narrower than the speed) '+JSON.stringify([b1,b2,b3,info]))}
     assert.deepEqual(derrors,[]);await desk.close()}
   }
