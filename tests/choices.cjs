@@ -62,7 +62,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    assert.equal(await page.locator('#range').inputValue(),'80');
    await page.locator('#rangeChoice').click();await page.keyboard.press('Escape');
    await page.waitForFunction(()=>!document.querySelector('.rv-choice-dialog').open);
-   assert.equal(await page.evaluate(()=>document.activeElement.id),'rangeChoice');
+   assert(await page.evaluate(()=>document.activeElement===document.body),'closing hands focus to nothing');
    assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
    await page.locator('#logSegmentChoice').click();
    assert(await page.getByRole('option',{name:'구간 14 · 준비 중'}).isDisabled());

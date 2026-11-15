@@ -32,15 +32,15 @@ const {showTab,waitForSteadyLayout}=require('./browser-helpers.cjs');
    return route.fulfill({body:fs.readFileSync('roadviewer/app/web/'+name),contentType:name.endsWith('.html')?'text/html':name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'image/svg+xml'});
   });
   await page.goto('https://rv.test/');await page.locator('.log-row').first().waitFor();  // openRouteGroups unfolds every drive.
-  // Tabs: 로그 by default; one tab stop with arrow keys; only the selected panel is shown.
+  // Tabs: 로그 by default; only the selected panel is shown.
   assert.deepEqual(await page.getByRole('tab').allTextContents(),['로그','업로드','저장공간','장치','설정']);
   assert.equal(await page.locator('[role=tab][tabindex="0"]').count(),1);
-  await page.locator('#tab-logs').focus();await page.keyboard.press('ArrowRight');
-  assert.equal(await page.evaluate(()=>[document.activeElement.id,location.hash,sessionStorage.getItem('roadviewer-library-tab')].join()),'tab-upload,#upload,upload');
+  await page.locator('#tab-upload').click();
+  assert.equal(await page.evaluate(()=>[location.hash,sessionStorage.getItem('roadviewer-library-tab')].join()),'#upload,upload');
   assert(await page.locator('#panel-upload').isVisible());assert(await page.locator('#panel-logs').isHidden());
-  await page.keyboard.press('End');assert.equal(await page.evaluate(()=>document.activeElement.id),'tab-settings');
+  await page.locator('#tab-settings').click();
   assert(await page.locator('#themeControl .theme-switch').isVisible(),'screen mode sits in 설정');
-  await page.keyboard.press('Home');assert(await page.locator('#panel-logs').isVisible());
+  await page.locator('#tab-logs').click();assert(await page.locator('#panel-logs').isVisible());
   // A hash change (typed address or link) switches the tab without reloading.
   await page.evaluate(()=>{window.sameDocument=true;location.hash='#devices'});await page.waitForFunction(()=>!document.getElementById('deviceSettings').hidden);
   assert(await page.evaluate(()=>window.sameDocument));

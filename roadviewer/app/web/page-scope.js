@@ -23,7 +23,8 @@ export function pageScope(root,url,navigate){
    if(key==='hidden')return !active||target.hidden;
    if(key==='getElementById')return id=>root.querySelector('#'+CSS.escape(id));
    if(key==='querySelector'||key==='querySelectorAll')return root[key].bind(root);
-   if(key==='addEventListener')return (type,...args)=>listen(type==='visibilitychange'?document:root,type,...args);
+   // Keys go to the real document: focus stays on the body (nothing keeps it), outside the page root.
+   if(key==='addEventListener')return (type,...args)=>listen(type==='visibilitychange'||type.startsWith('key')?document:root,type,...args);
    const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
   },
   set(target,key,value){if(String(key).startsWith('on'))root[key]=value;return true}

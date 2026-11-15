@@ -34,7 +34,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    await page.evaluate(()=>{data.frames[0].cameraInfo.height=1.8;render()});
    assert.equal(await values.textContent(),text,'dialog must retain its opening snapshot');
    await page.keyboard.press('Escape');await dialog.waitFor({state:'hidden'});
-   assert(await menuButton.evaluate(el=>el===document.activeElement));
+   assert(await page.evaluate(()=>document.activeElement===document.body),'closing hands focus to nothing');
    await button.click();assert((await values.textContent()).includes('1.80 m'));
    await page.locator('#cameraInfoClose').click();await dialog.waitFor({state:'hidden'});
    await page.evaluate(()=>{data.frames[0].cameraInfo.height=1.22;data.frames[0].cameraInfo.heightDefault=true;data.frames[0].cameraInfo.calibrationStatus='uncalibrated'});

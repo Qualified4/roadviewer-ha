@@ -79,3 +79,19 @@
   if(el&&el===document.activeElement){const box=el.getBoundingClientRect();const release=spawn(el,box.width/2,box.height/2);setTimeout(()=>release?.(),120)}
  },true);
 })();
+// No element keeps focus outside text fields and open dialogs. The app is driven by hover, press and drag, and keys are
+// global shortcuts that act the same wherever focus is; a control that kept focus (clicked, or handed it back by a
+// closing dialog) showed a focus ring and could answer Space or arrows itself. A press keeps focus until it ends, so a
+// dragged seek bar or map is not cut off mid-drag. Released right after the event, not on a timer: timers wait in a
+// background tab, and the next press then found the control still focused.
+(()=>{
+ if(window.rvFocusRelease)return;window.rvFocusRelease=true;
+ const TEXT_INPUT=/^(text|search|email|url|tel|password|number|date|time|datetime-local|month|week)$/;
+ const keeps=element=>element.isContentEditable||element.matches('textarea,select')||(element.matches('input')&&TEXT_INPUT.test(element.type))||!!element.closest('dialog[open]');
+ let pressing=false;
+ const release=()=>{const element=document.activeElement;if(!pressing&&element instanceof HTMLElement&&element!==document.body&&!keeps(element))element.blur()};
+ const ended=()=>{pressing=false;queueMicrotask(release)};
+ document.addEventListener('pointerdown',()=>{pressing=true},true);
+ document.addEventListener('pointerup',ended,true);document.addEventListener('pointercancel',ended,true);window.addEventListener('blur',()=>{pressing=false});
+ document.addEventListener('focusin',()=>queueMicrotask(release),true);
+})();

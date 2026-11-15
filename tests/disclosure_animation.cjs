@@ -94,9 +94,9 @@ const {settleLayout}=require('./browser-helpers.cjs');
   await settled(page);
   assert.equal(await more.evaluate(e=>e.open||e.classList.contains('is-closing')),false,'Escape during the fade wins');
 
-  // Keyboard activation goes through the same animation.
+  // Folding again from 설정 goes through the same animation.
   await page.locator('#tab-settings').click();
-  await summary.focus();await page.keyboard.press('Enter');
+  await summary.click();
   await settled(page);assert.equal(await page.locator(guide).evaluate(e=>e.open),false);
   assert.deepEqual(errors,[]);
   await page.close();
@@ -106,6 +106,6 @@ const {settleLayout}=require('./browser-helpers.cjs');
   await quiet.page.locator(guide+'>summary').click();
   assert.equal(await quiet.page.locator(guide).evaluate(e=>e.open||e.getAnimations().length>0),false);
   assert.deepEqual(quiet.errors,[]);
-  console.log('PASS: animated details height, reversible folds, immediate labels, toggle events, menu fade, keyboard and reduced motion');
+  console.log('PASS: animated details height, reversible folds, immediate labels, toggle events, menu fade and reduced motion');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

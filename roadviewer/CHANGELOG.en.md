@@ -4,6 +4,12 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.14
+
+- Controls no longer use focus. Buttons, tabs, the seek bar, charts and maps keep no focus after a press or drag, and closing a dialog or moving to another segment hands focus to nothing. The shortcuts (Space, ←/→, F, PageUp/PageDown) do the same thing wherever you clicked; only text fields and open dialogs are exempt.
+- Fixed Space scrolling the page instead of playing right after PageUp/PageDown moved to another segment.
+- Removed the keyboard-focus-only behaviors (arrows switching tabs on a focused tab, arrows moving along a focused chart).
+
 ## 1.3.13
 
 - Replay shortcuts (Space play/pause, ←/→ one frame, F full screen, PageUp/PageDown segments) now work in the real app. Inside the app shell the key handler sat on the replay page's root, so with nothing focused (after clicking empty space or on entry) Space scrolled the page and F did nothing; it now listens on the window.

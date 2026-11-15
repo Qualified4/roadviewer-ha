@@ -313,13 +313,10 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
     await shot('list-map-hidden');
     {const toggle=page.locator('#logMap .rv-credit-toggle'),credit=page.locator('#logMap .leaflet-control-attribution');
      assert(await creditFree(),'nothing covers the ⓘ');await toggle.tap();await credit.waitFor();await toggle.tap();await credit.waitFor({state:'hidden'})}
-    // A tap (or Enter) folds and unfolds: hidden -> the middle height (the card leaves), shown -> hidden (it is back).
+    // A tap folds and unfolds: hidden -> the middle height (the card leaves), shown -> hidden (it is back).
     await handle.tap();await page.waitForTimeout(400);{const g=await sheetState();assert(!g.hidden&&Math.abs(g.share-.54)<.02,JSON.stringify(g))}
     assert(await mapCard.isHidden(),'the card leaves while the cards show');
     await handle.tap();await page.waitForTimeout(150);assert((await sheetState()).hidden,'a tap hides it');await mapCard.waitFor();
-    await handle.focus();await page.keyboard.press('Enter');await page.waitForTimeout(150);assert(!(await sheetState()).hidden,'Enter brings it back');
-    await page.keyboard.press('Enter');await page.waitForTimeout(150);assert((await sheetState()).hidden,'Enter hides it');
-    await page.evaluate(()=>document.activeElement.blur());
     // Shown again, the map starts like the drive map: every drive fitted, the sheet at the middle height.
     await switcher.getByRole('button',{name:'목록'}).tap();await page.locator('#list').waitFor();await switcher.getByRole('button',{name:'지도'}).tap();
     await page.waitForFunction(()=>document.querySelectorAll('#logMap .leaflet-overlay-pane path.leaflet-interactive').length===2);await page.locator('#logMap').scrollIntoViewIfNeeded();await page.waitForTimeout(150);
@@ -740,8 +737,8 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
     {const toggle=page.locator('#driveMap .rv-credit-toggle');await toggle.waitFor();const box=await toggle.boundingBox();assert(Math.abs(box.width-24)<.5&&Math.abs(box.height-24)<.5,'the credit ⓘ stays round with a mouse: '+JSON.stringify(box))}
     assert(!await c.evaluate(e=>e.open),'the strip does not fold the card');
     await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.getElementById('driveMap').open);
-    assert(await strip.evaluate(e=>e===document.activeElement),'focus returns to the strip (it stays open while focused)');
-    await page.evaluate(()=>document.activeElement.blur());await page.mouse.move(640,5);await page.waitForTimeout(400);assert.equal((await rect('.route-strip')).w,0,'folds back')}
+    assert(await page.evaluate(()=>document.activeElement===document.body),'closing hands focus to nothing');
+    await page.mouse.move(640,5);await page.waitForTimeout(400);assert.equal((await rect('.route-strip')).w,0,'folds back')}
    await page.locator('#logView').getByRole('button',{name:'지도'}).click();
    const rows=page.locator('#logMapRows .map-list-row'),fold=page.locator('#logMap>.map-fold');
    await page.waitForFunction(n=>document.querySelectorAll('#logMapRows .map-list-row').length===n&&document.querySelectorAll('#logMap .leaflet-overlay-pane path.leaflet-interactive').length===n,drives,{timeout:20000});

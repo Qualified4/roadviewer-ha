@@ -70,16 +70,15 @@ http.serve_forever()
    assert(await page.evaluate(()=>pageMotions.every(a=>a.root==='none'&&a.background==='rgba(0, 0, 0, 0)')),'morphing excludes the full-page snapshot and opaque overlay');
    await page.waitForFunction(()=>!document.documentElement.classList.contains('rv-navigation-transition'));
    assert(await page.evaluate(()=>documentToken===originalToken),'document persists');
-   // The replay page has its own app bar instead of the brand header; focus lands on its title.
-   assert(await page.evaluate(()=>!document.querySelector('.app-brand')&&document.activeElement.tagName==='H1'&&document.activeElement.closest('.video-title')),'replay app bar replaces the brand and takes focus');
+   // The replay page has its own app bar instead of the brand header; nothing keeps focus.
+   assert(await page.evaluate(()=>!document.querySelector('.app-brand')&&document.activeElement===document.body),'replay app bar replaces the brand and leaves focus on the page');
    // Opened from the list the page is prepared hidden: the stacked video must still take the room it has (it used to keep
-   // the 320px fallback height), and the focused title shows no focus ring.
+   // the 320px fallback height).
    const stackedVideo=await page.evaluate(()=>{const page=document.querySelector('.replay-page'),panel=document.querySelector('.camera-panel'),style=getComputedStyle(panel),wrap=document.getElementById('videoStage').getBoundingClientRect();
     const room=panel.clientWidth-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),ratio=parseFloat(getComputedStyle(page).getPropertyValue('--video-ar'))||1.594;
     const tall=(innerHeight-document.querySelector('.app-bar').offsetHeight-document.querySelector('.playback').offsetHeight-60)*ratio;
-    return {compact:page.classList.contains('compact-media'),width:wrap.width,expected:Math.max(160,Math.min(room,tall)),outline:getComputedStyle(document.activeElement).outlineStyle}});
+    return {compact:page.classList.contains('compact-media'),width:wrap.width,expected:Math.max(160,Math.min(room,tall))}});
    if(stackedVideo.compact)assert(Math.abs(stackedVideo.width-stackedVideo.expected)<2,`stacked video takes its room after list entry at ${width}: ${JSON.stringify(stackedVideo)}`);
-   assert.equal(stackedVideo.outline,'none','the focused replay title shows no focus ring');
    assert.equal(await page.locator('#navigationStatus').textContent(),'','successful navigation has no top loading notice');
    // Use real DOM events inside the SPA: its document/window are proxies, unlike direct index.html tests.
    for(const [id,columns] of [['radarRows',6],['rawRows',7]]){
@@ -187,6 +186,16 @@ http.serve_forever()
    // Direct replay entry and refresh still load a working shell.
    await page.goto(base+'view/'+ids[1]+'/');await page.waitForFunction(()=>document.getElementById('play')&&!document.getElementById('play').disabled);
    await page.reload();await page.waitForFunction(()=>document.getElementById('play')&&!document.getElementById('play').disabled);
+   if(width===1440){
+    // PageUp moves to the other segment, and Space plays there at once (the shell used to focus the new title, which took Space as page scroll).
+    await page.evaluate(()=>{document.activeElement?.blur();scrollTo(0,0)});
+    await page.keyboard.press('PageUp');await page.waitForURL(base+'view/'+ids[0]+'/');
+    await page.waitForFunction(()=>document.getElementById('play')&&!document.getElementById('play').disabled&&document.activeElement===document.body);
+    const top=await page.evaluate(()=>scrollY);
+    await page.keyboard.press('Space');await page.waitForFunction(()=>!document.getElementById('video').paused);
+    assert.equal(await page.evaluate(()=>scrollY),top,'Space after PageUp plays without scrolling');
+    await page.keyboard.press('Space');await page.waitForFunction(()=>document.getElementById('video').paused);
+   }
    if(width===390){
     // A quarter-turned full screen (orientation lock refused) left by moving to another segment: the next page is upright,
     // its dialogs are not turned and touches on its seek bar map along the bar's real width.

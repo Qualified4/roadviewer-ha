@@ -109,7 +109,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
    assert(await p.locator('#videoQualityDialog').evaluate(d=>d.open));assert(!(await p.locator('.rv-choice-dialog').evaluate(d=>d.open)));
    assert.equal(await p.locator('#videoQualityNetwork').textContent(),note);
    await p.locator(`input[name="${group}"][value="${value}"]`).check();await p.locator('#videoQualityClose').click();
-   assert(await p.locator('#videoSourceChoice').evaluate(e=>e===document.activeElement),'focus returns to the camera choice');
+   assert(await p.evaluate(()=>document.activeElement===document.body),'closing hands focus to nothing');
   };
   for(const viewport of [{width:390,height:844},{width:1024,height:1366}]){
    const context=await browser.newContext({hasTouch:true,isMobile:true,viewport});
