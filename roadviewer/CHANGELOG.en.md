@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.17
+
+- Choose automatic, white, mint, blue, cyan, violet, rose, amber, or red for map vehicle icons. The main map and video minimap share the choice, which is remembered in this browser.
+- Direction-arrow markers also use the selected color. Automatic retains the mint background and white arrow; explicit colors keep the arrow, windshield, and outline distinguishable.
+
 ## 1.3.16
 
 - Enlarged vehicle markers: 44px on the main map, 32px on the video minimap, and 24px on compact mobile minimaps.

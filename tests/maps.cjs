@@ -374,6 +374,13 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
     assert.equal(await car.evaluate(e=>e.style.transform.match(/rotate\(([^)]+)\)/)?.[1]),bearing,'switching icons preserves the heading');
     assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-car-icon')),'arrow');
     assert.equal(await page.locator('#mapCarIcon [data-map-car="arrow"]').getAttribute('aria-pressed'),'true','small map settings share the choice');
+    await choices.locator('[data-map-color="blue"]').click();
+    assert.equal(await car.getAttribute('data-car-color'),'blue');
+    assert.equal(await car.evaluate(e=>e.style.getPropertyValue('--map-car-color')),'#8cbcff');
+    assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-car-color')),'blue');
+    assert.equal(await page.locator('#mapCarColors [data-map-color="blue"]').getAttribute('aria-pressed'),'true');
+    await choices.locator('[data-map-color="auto"]').click();
+    assert.equal(await car.evaluate(e=>e.style.getPropertyValue('--map-car-color')),'','automatic colour restores theme defaults');
     await choices.locator('[data-map-car="vehicle"]').click();
     assert.equal(await car.getAttribute('data-car-icon'),'vehicle');assert.equal(await car.locator('.map-vehicle-shell').count(),1);
     assert.equal(await choices.locator('[data-map-car="vehicle"]').getAttribute('aria-pressed'),'true');

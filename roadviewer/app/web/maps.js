@@ -28,13 +28,23 @@
  const TONE_KEY='roadviewer-map-tone';let mapTone='auto';try{const saved=localStorage.getItem(TONE_KEY);if(saved==='light'||saved==='dark')mapTone=saved}catch{}
  // The same vehicle silhouette as the road view (12 × 22, with a front windshield).
  const CAR_KEY='roadviewer-map-car-icon';let mapCar='vehicle';try{if(localStorage.getItem(CAR_KEY)==='arrow')mapCar='arrow'}catch{}
+ const CAR_COLORS={auto:'자동',white:'흰색',mint:'민트',blue:'파랑',cyan:'하늘',violet:'보라',rose:'분홍',amber:'주황',red:'빨강'};
+ const CAR_COLOR_KEY='roadviewer-map-car-color';let mapCarColor='auto';try{const saved=localStorage.getItem(CAR_COLOR_KEY);if(Object.hasOwn(CAR_COLORS,saved))mapCarColor=saved}catch{}
+ const carColorHex=()=>mapCarColor==='white'?'#fff':PASTEL[mapCarColor];
+ const carColorStyle=()=>mapCarColor==='auto'?'':`--map-car-color:${carColorHex()};`;
+ const carColorControl=()=>'<span>차량 아이콘 색상</span><div class="map-car-colors" role="group" aria-label="차량 아이콘 색상">'+Object.entries(CAR_COLORS).map(([key,name])=>`<button type="button" data-map-color="${key}" aria-pressed="false" title="${name}"${key==='auto'?'':` style="--swatch:${key==='white'?'#fff':PASTEL[key]}"`}><i aria-hidden="true"></i><span>${name}</span></button>`).join('')+'</div>';
+ function syncCarChoices(){for(const wrap of simpleButtons)showCarChoice(wrap.rvPop);for(const id of ['mapCarIcon','mapCarColors']){const root=document.getElementById(id);if(root)showCarChoice(root)}}
+ function setMapCarColor(color){
+  if(!Object.hasOwn(CAR_COLORS,color)||color===mapCarColor)return;mapCarColor=color;try{localStorage.setItem(CAR_COLOR_KEY,color)}catch{}
+  for(const body of document.querySelectorAll('.map-car-body')){body.dataset.carColor=color;if(color==='auto')body.style.removeProperty('--map-car-color');else body.style.setProperty('--map-car-color',carColorHex())}
+  syncCarChoices();
+ }
  const carArt=kind=>kind==='arrow'?'<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 3 19 20 12 16 5 20Z"/></svg>':'<svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true"><rect class="map-vehicle-shell" x="6" y="1" width="12" height="22" rx="3"/><rect class="map-vehicle-glass" x="8" y="4" width="8" height="3" rx="1"/></svg>';
- function showCarChoice(root){for(const choice of root.querySelectorAll('button[data-map-car]'))choice.setAttribute('aria-pressed',String(choice.dataset.mapCar===mapCar))}
+ function showCarChoice(root){for(const choice of root.querySelectorAll('button[data-map-car]'))choice.setAttribute('aria-pressed',String(choice.dataset.mapCar===mapCar));for(const choice of root.querySelectorAll('button[data-map-color]'))choice.setAttribute('aria-pressed',String(choice.dataset.mapColor===mapCarColor))}
  function setMapCar(kind){
   if(!['vehicle','arrow'].includes(kind)||kind===mapCar)return;mapCar=kind;try{localStorage.setItem(CAR_KEY,kind)}catch{}
   for(const body of document.querySelectorAll('.map-car-body')){body.dataset.carIcon=kind;body.innerHTML=carArt(kind)}
-  for(const wrap of simpleButtons)showCarChoice(wrap.rvPop);
-  const choices=document.getElementById('mapCarIcon');if(choices)showCarChoice(choices);
+  syncCarChoices();
  }
  const link=(href,text)=>`<a href="${href}" target="_blank" rel="noopener">${text}</a>`;
  const ATTRIBUTION=`${link('https://openfreemap.org','OpenFreeMap')} ${link('https://www.openmaptiles.org/','© OpenMapTiles')} Data from ${link('https://www.openstreetmap.org/copyright','OpenStreetMap')}`;
@@ -154,6 +164,8 @@
    pop.innerHTML='<p class="rv-map-options-title">지도 표시</p><div class="rv-map-tone"><span>지도 테마</span><div class="view-switch view-switch-3" role="group" aria-label="지도 테마">'
     +[['auto','자동'],['light','라이트'],['dark','다크']].map(([tone,text])=>`<button type="button" data-tone="${tone}" aria-pressed="false">${text}</button>`).join('')+'</div></div>'+[['labels','글자 숨기기','지명·도로 이름·아이콘·화살표를 숨깁니다. 지도 색은 그대로입니다.'],['grey','회색 지도','차분한 회색 지도로 바꾸고 3D 건물·아이콘을 뺍니다.']]
     .map(([kind,title,note])=>`<label><input type="checkbox" data-kind="${kind}"><span><b>${title}</b><small>${note}</small></span></label>`).join('')+ '<div class="rv-map-tone rv-map-car-choice"><span>차량 아이콘</span><div class="view-switch" role="group" aria-label="차량 아이콘"><button type="button" data-map-car="vehicle" aria-pressed="false">내 차량</button><button type="button" data-map-car="arrow" aria-pressed="false">방향 화살표</button></div></div>';
+   const colors=L.DomUtil.create('div','map-car-color-setting',pop);colors.innerHTML=carColorControl();
+   for(const choice of colors.querySelectorAll('[data-map-color]'))choice.addEventListener('click',()=>setMapCarColor(choice.dataset.mapColor));
    L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(pop);wrap.rvPop=pop;
    // Open, the popover leaves the map for the page (the open dialog, or the body) at a fixed place beside the button:
    // inside the map it was drawn under whatever lies over the map (주행 지도's segment cards on a phone). Closed, it
@@ -832,7 +844,7 @@
    const bearing=ha!==null&&hb!==null?ha+(((hb-ha)%360+540)%360-180)*k:ha??hb??0;
    return {latlng:[lat,lon],bearing:Number.isFinite(bearing)?(bearing%360+360)%360:0,index:i,k,from,to};
   }
-  const carIcon=(L,bearing)=>L.divIcon({className:'map-car',html:`<span class="map-car-body" data-car-icon="${mapCar}" style="transform:rotate(${bearing.toFixed(2)}deg)">${carArt(mapCar)}</span>`,iconSize:[44,44],iconAnchor:[22,22]});
+  const carIcon=(L,bearing)=>L.divIcon({className:'map-car',html:`<span class="map-car-body" data-car-icon="${mapCar}" data-car-color="${mapCarColor}" style="${carColorStyle()}transform:rotate(${bearing.toFixed(2)}deg)">${carArt(mapCar)}</span>`,iconSize:[44,44],iconAnchor:[22,22]});
   // The drive's lines: this log's segment solid, the drive's other segments faded. Only the large map seeks on a tap
   // (interactive).
   function layers(L,map,interactive=true){
@@ -993,7 +1005,11 @@
    else{try{sessionStorage.setItem('rv-map-seek',JSON.stringify({id:route[best.s].id,t:best.t}))}catch{}goToLog({id:route[best.s].id})}
   }
   const carChoices=document.getElementById('mapCarIcon');
-  if(carChoices){showCarChoice(carChoices);for(const choice of carChoices.querySelectorAll('button[data-map-car]'))choice.addEventListener('click',()=>setMapCar(choice.dataset.mapCar))}
+  if(carChoices){
+   showCarChoice(carChoices);for(const choice of carChoices.querySelectorAll('button[data-map-car]'))choice.addEventListener('click',()=>setMapCar(choice.dataset.mapCar));
+   const colors=document.createElement('div');colors.id='mapCarColors';colors.className='map-car-color-setting sub';colors.innerHTML=carColorControl();carChoices.parentElement.after(colors);showCarChoice(colors);
+   for(const choice of colors.querySelectorAll('[data-map-color]'))choice.addEventListener('click',()=>setMapCarColor(choice.dataset.mapColor));
+  }
   // ④ 영상 위 작은 지도: off by default, kept with the other display preferences. It sits in the video's top-right
   // corner under the speed and the wheel (drawn on top of it, unchanged), only in a segment with video (the panel's
   // map covers the others). A tap enlarges it to the picture between the top and bottom control rows, its top-left
