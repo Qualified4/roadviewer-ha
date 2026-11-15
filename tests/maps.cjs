@@ -350,6 +350,22 @@ return {hidden:b.classList.contains('is-sheet-hidden'),now:h.getAttribute('aria-
    {const tops=await page.locator('.vehicle-tabs [role=tab]').evaluateAll(tabs=>tabs.map(t=>Math.round(t.getBoundingClientRect().top)));assert.equal(new Set(tops).size,1,'one tab row '+tops)}
    assert.equal(await page.locator('#roadMode').count(),0,'no 주행 상황 | 지도 switch any more');
    await mapTab.tap();await page.locator('#mapView').waitFor();await page.locator('#routeMapView .map-car').waitFor();await shot('map-tab');
+   // The road-view vehicle is the default; changing the icon keeps its bearing and location intact.
+   {const car=page.locator('#routeMapView .map-car-body');assert.equal(await car.getAttribute('data-car-icon'),'vehicle');
+    assert.equal(await car.locator('.map-vehicle-shell').count(),1);
+    const bearing=await car.evaluate(e=>e.style.transform.match(/rotate\(([^)]+)\)/)?.[1]);
+    await page.locator('#routeMapView .rv-map-options-button').click();
+    const choices=page.locator('.rv-map-options:not([hidden])');
+    await choices.locator('[data-map-car="arrow"]').click();
+    assert.equal(await car.getAttribute('data-car-icon'),'arrow');assert.equal(await car.locator('svg path').count(),1);
+    assert.equal(await car.evaluate(e=>e.style.transform.match(/rotate\(([^)]+)\)/)?.[1]),bearing,'switching icons preserves the heading');
+    assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-map-car-icon')),'arrow');
+    assert.equal(await page.locator('#mapCarIcon [data-map-car="arrow"]').getAttribute('aria-pressed'),'true','small map settings share the choice');
+    await choices.locator('[data-map-car="vehicle"]').click();
+    assert.equal(await car.getAttribute('data-car-icon'),'vehicle');assert.equal(await car.locator('.map-vehicle-shell').count(),1);
+    assert.equal(await choices.locator('[data-map-car="vehicle"]').getAttribute('aria-pressed'),'true');
+    await page.keyboard.press('Escape');
+   }
    // This log's segment is the one solid line, whole (not only up to the car); the drive's other segments, before and after it, are faded.
    {const lines=await page.locator('#routeMapView .leaflet-overlay-pane path').evaluateAll(ps=>ps.map(p=>({current:p.classList.contains('map-current'),solid:Number(p.getAttribute('stroke-opacity'))>.5,dash:p.style.strokeDasharray||p.getAttribute('stroke-dasharray')||''})));
     assert(lines.filter(l=>l.solid).length===1&&lines.find(l=>l.solid)?.current&&!lines.find(l=>l.current).dash&&lines.filter(l=>!l.current).length>=1&&lines.filter(l=>!l.current).every(l=>!l.solid),'only the current segment is highlighted: '+JSON.stringify(lines))}
