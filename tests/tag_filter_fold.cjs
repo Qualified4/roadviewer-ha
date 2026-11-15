@@ -28,10 +28,8 @@ const logs=Array.from({length:50},(_,i)=>({id:'s'+i,name:`0000041b--a1b2c3d4e5 /
    assert(s.hidden>0&&s.more===`+${s.hidden}개 더보기`,'the more chip counts the folded tags: '+JSON.stringify(s));
    await page.locator('.chip-more').click();s=await state();
    assert.equal(s.hidden,0,'더보기 shows every tag');assert(s.rows>2);assert.equal(s.more,'접기');assert.equal(s.expanded,'true');
-   // Keyboard: the toggle keeps focus across the rebuild.
-   await page.locator('.chip-more').focus();await page.keyboard.press('Enter');assert.equal((await state()).more,`+${(await state()).hidden}개 더보기`);
-   assert(await page.locator('.chip-more').evaluate(e=>e===document.activeElement),'focus stays on the toggle');
-   await page.keyboard.press('Enter');assert.equal((await state()).more,'접기');
+   await page.locator('.chip-more').click();assert.equal((await state()).more,`+${(await state()).hidden}개 더보기`);
+   await page.locator('.chip-more').click();assert.equal((await state()).more,'접기');
    // Picking a tag from the unfolded rows, then folding: the selected tag moves to the front and stays visible.
    await page.locator('.filter-chip[data-filter="tag:tag:태그45"]').click();
    await page.locator('.chip-more').click();s=await state();assert.equal(s.rows,2);

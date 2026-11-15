@@ -69,11 +69,11 @@ const replay={route:'test',key:'k',duration:1,warnings:[],video:null,frames:[{t:
   await page.setViewportSize({width:320,height:800});
   await page.waitForFunction(()=>window.__narrowed);
   const narrow=await page.locator('#replayDownloadMenu').boundingBox();assert(narrow.x>=0&&narrow.x+narrow.width<=320,'menu fits 320px');
-  // Escape and outside taps close the menu; Space on the button does not start playback.
+  // Escape and outside taps close the menu; focus goes nowhere, so Space then plays.
   await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.getElementById('replayDownload').open);
-  assert(await summary.evaluate(e=>e===document.activeElement),'focus returns to the button');
-  await page.keyboard.press('Space');await page.waitForFunction(()=>document.getElementById('replayDownload').open);
-  assert.equal(await page.evaluate(()=>playing),false,'Space opens the menu instead of playing');
+  assert(await page.evaluate(()=>document.activeElement===document.body),'closing hands focus to nothing');
+  await page.keyboard.press('Space');await page.waitForFunction(()=>playing);await page.keyboard.press('Space');await page.waitForFunction(()=>!playing);
+  await summary.click();await page.waitForFunction(()=>document.getElementById('replayDownload').open);
   await page.mouse.click(5,700);await page.waitForFunction(()=>!document.getElementById('replayDownload').open);
   // One video: a single entry through the existing endpoint. No video: only the log.
   await open('single');await summary.click();

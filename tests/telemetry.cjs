@@ -53,9 +53,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await page.evaluate(()=>{setTime(.1);toggle()});
   await page.mouse.move(box.x+48+.25*(box.width-56),box.y+45);await page.mouse.down();await page.mouse.move(box.x+48+.4*(box.width-56),box.y+45,{steps:4});await page.mouse.up();
   assert.equal(await page.evaluate(()=>playing),true);assert(Math.abs(await page.evaluate(()=>t)-.8)<.06);await page.evaluate(()=>pause());
-  // Reached by keyboard (a key press first, as Tab would be), the chart's arrows scrub 0.1 s; after a mouse click they
-  // are the frame-step shortcuts.
-  await canvas.evaluate(c=>c.blur());await page.keyboard.press('Shift');await canvas.focus();await page.keyboard.press('ArrowRight');assert(await page.evaluate(()=>t)>.85);
+  assert(await page.evaluate(()=>document.activeElement===document.body),'a clicked chart keeps no focus');
   // Control the animation clock to verify intermediate ranges and retargeting without timing races.
   await page.evaluate(()=>{
    pause();setTime(1);const now=performance.now.bind(performance);let clock=now();
@@ -123,7 +121,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await page.locator('#chooseGraphs').click();assert.equal((await graphOrder())[0],'acceleration');
   await page.locator('#graphOptions input[value="acceleration"]').uncheck();await page.locator('#graphOptions input[value="acceleration"]').check();
   assert.equal(await page.locator('.telemetry-chart').first().getAttribute('data-graph'),'acceleration');
-  await page.keyboard.press('Escape');await page.locator('#graphDialog').waitFor({state:'hidden'});assert(await page.locator('#chooseGraphs').evaluate(e=>e===document.activeElement));assert.equal(await page.locator('.telemetry-chart').count(),24);
+  await page.keyboard.press('Escape');await page.locator('#graphDialog').waitFor({state:'hidden'});assert(await page.evaluate(()=>document.activeElement===document.body),'closing the dialog hands focus to nothing');assert.equal(await page.locator('.telemetry-chart').count(),24);
   await page.evaluate(()=>setTime(.1));
   for(const [id,value] of [['ccncVisible','FF: 표시 중'],['ccncVisible','LF: 표시 안 함'],['ccncDistance','FF: 9.25'],['ccncLateral','LF_LATERAL: 0.70'],['ccncLateral','FF_LATERAL: -0.50'],['ccncLateral','RF_LATERAL: 0.80'],['ccncYRel','FF yRel: -1.87'],['ccncYRel','LF yRel: —'],['ccncYRel','RF yRel: —'],['angle','목표: 3.00'],['autoPedals','가스 출력: 25.00'],['accelPlan','제어 목표: 0.30'],['jerk','요청: 0.40'],['accelRequest','감속 요청: 켜짐'],['longState','속도 제어: 해당'],['longState','비활성: 아님'],['curvature','요청: 0.00123'],['lateralAccel','목표: 1.20'],['rpm','기록값: 1500.00']])assert((await page.locator(`[data-graph="${id}"] .telemetry-legend`).textContent()).includes(value),id+' should show logged data');
   assert((await page.locator('[data-graph="pedals"] .telemetry-source-note').textContent()).includes('기록값이 모두 0'));
@@ -135,14 +133,9 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await page.locator('#telemetryGraphs').evaluate(e=>e.scrollTop=0);
   if(process.env.RV_SCREENSHOTS)await page.screenshot({path:process.env.RV_SCREENSHOTS+'/telemetry-desktop.png'});
   await page.locator('#roadTab').click();await settle(page);assert(await page.locator('#roadView').isVisible());await page.locator('#telemetryTab').click();await settle(page);assert.equal(reads,1,'switching tabs reuses data');
-  // Three tabs: arrows cycle, Home/End jump; the choice is remembered.
-  await page.locator('#telemetryTab').evaluate(e=>e.blur());await page.keyboard.press('Shift');  // reached by keyboard: a clicked tab leaves the arrows to frame stepping
-  await page.locator('#telemetryTab').focus();await page.keyboard.press('ArrowRight');assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');assert(await page.locator('#bookmarkView').isVisible());
+  // Three tabs; the choice is remembered.
+  await page.locator('#bookmarkTab').click();assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');assert(await page.locator('#bookmarkView').isVisible());
   assert.equal(await page.evaluate(()=>localStorage.getItem('roadviewer-analysis-tab')),'bookmarks');
-  await page.keyboard.press('ArrowRight');assert.equal(await page.locator('#roadTab').getAttribute('aria-selected'),'true');assert(await page.evaluate(()=>document.activeElement.id==='roadTab'));
-  await page.keyboard.press('End');assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');
-  await page.keyboard.press('Home');assert.equal(await page.locator('#roadTab').getAttribute('aria-selected'),'true');
-  await page.keyboard.press('ArrowLeft');assert.equal(await page.locator('#bookmarkTab').getAttribute('aria-selected'),'true');
   // Every tab is remembered, 차선·도로 included.
   await page.locator('#laneTab').click();await page.reload();await page.locator('#laneTab[aria-selected=true]').waitFor();assert(await page.locator('#laneView').isVisible());
   await page.locator('#telemetryTab').click();await settle(page);
@@ -211,6 +204,6 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
   await reloadAtStart();await page.evaluate(()=>setTime(2));assert.equal(await page.locator('#telemetrySummary strong').first().textContent(),'—','missing tail samples must not be held');
   telemetry.streams.carState={times:[],values:{}};
   await reloadAtStart();assert.deepEqual(await page.locator('#telemetrySummary strong').allTextContents(),['—','—','—','확인 불가'],'missing streams stay unavailable');
-  assert.deepEqual(errors,[]);console.log('PASS: telemetry tabs (3-way keyboard), background loading for the event track, raw timing, gaps, synchronized seeking/playback, popup choices, persistence, scrolling, mouse/touch reordering, saved order, start-boundary readouts, centered zoom playback/drag and retry');
+  assert.deepEqual(errors,[]);console.log('PASS: telemetry tabs (three, clicked), background loading for the event track, raw timing, gaps, synchronized seeking/playback, popup choices, persistence, scrolling, mouse/touch reordering, saved order, start-boundary readouts, centered zoom playback/drag and retry');
  }finally{await browser.close()}
 })().catch(e=>{console.error(e);process.exitCode=1});

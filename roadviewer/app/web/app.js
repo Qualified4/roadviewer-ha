@@ -439,21 +439,14 @@ v.addEventListener('canplay',()=>{last=performance.now()});
 v.onloadedmetadata=()=>{if(!data||v.error)return;v.playbackRate=Number($('speed').value);setTime(t)};v.oncanplay=()=>{if(data?.video&&!v.error)startWholeVideo();if(data?.video&&!v.error&&videoReadyPending){videoReadyPending=false;storageRetries=0;setPlaybackState(true,'재생 준비 완료');if(resumeAfterVideo){resumeAfterVideo=false;playing=true;last=performance.now();playLabel(true);syncVideo(true)}}};v.onended=()=>{if(playing&&data?.video&&seekPointer===null&&pendingVideoSeek===null&&!v.seeking){setTime(Math.max(t,data.video.start+data.video.duration),false);last=performance.now();if(t>=data.duration){pause();playedToEnd()}}};v.onerror=videoError;  // the video can end a moment before the log's clock (after a pause, say): that is playing to the end too
 for(const id of ['range','rearView','lanes','edges','leads','radarCenter','radarLeft','radarRight','liveTracks','ccncTargets','ccncMotion','vehicleBoxes','ccncRoad','laneMarking','gapLevel','gapTarget','boxLabels','boxLabelsBelow','pointLabels','bsdLabels','targetLabels','bsdWalls','hideScc','trackLabels','yRelLabels','distanceLabels','liveTrackLabels','speedLabels','relativeSpeedLabels','hideLabels'])$(id).onchange=render;
 // Shortcuts: Space play/pause, ←/→ one frame, F full screen, PageUp/PageDown the previous/next playable segment.
-// They work wherever a mouse click left focus (any button, checkbox, tab, chart, table or the seek bar), and step aside
-// only where the key means something else: text fields, an open dialog or replay menu, the maps' arrow keys, or a
-// control reached by keyboard (Tab), where Space presses it and arrows move within it. Chrome shows the focus ring on a
-// clicked control as soon as a key is pressed, so :focus-visible cannot tell the two apart; keyboardFocused() remembers
-// how focus arrived instead. Keys are matched by code, so the Korean layout works too.
-let focusFromPointer=false,keyboardFocus=null;
-// On the window, not the document: in the app shell a page's document is a proxy whose listeners land on the page
-// root, which never hears keys while focus is on the body. A page script's bare addEventListener is the window's
-// and is removed with the page.
-addEventListener('pointerdown',()=>{focusFromPointer=true;keyboardFocus=null},true);
-addEventListener('keydown',()=>{focusFromPointer=false},true);
-addEventListener('focusin',e=>{keyboardFocus=focusFromPointer?null:e.target},true);
-const keyboardFocused=element=>element===keyboardFocus&&element===document.activeElement;
+// They win wherever focus is (a clicked button, tab, chart, the seek bar, the title the shell focuses after a page
+// change) and step aside only for text fields and an open dialog or replay menu. Keys are matched by code, so the
+// Korean layout works too. On the window, in its capture phase: in the app shell a page's document is a proxy whose
+// listeners land on the page root, which never hears keys while focus is on the body; a page script's bare
+// addEventListener is the window's and is removed with the page.
 const SHORTCUT_KEYS=new Set(['Space','ArrowLeft','ArrowRight','KeyF','PageUp','PageDown']);
 const TEXT_INPUT=/^(text|search|email|url|tel|password|number|date|time|datetime-local|month|week)$/;
+const takesKeys=element=>element.isContentEditable||element.matches('textarea,select')||(element.matches('input')&&TEXT_INPUT.test(element.type))||!!element.closest('dialog[open],.replay-menu[open]');
 function goToAdjacentSegment(direction){
  const blocks=[...$('segmentStrip').querySelectorAll('.segment-block')],here=blocks.findIndex(b=>b.hasAttribute('aria-current'));
  if(here<0)return;
@@ -462,17 +455,14 @@ function goToAdjacentSegment(direction){
 addEventListener('keydown',e=>{
  if(!SHORTCUT_KEYS.has(e.code)||e.defaultPrevented||e.ctrlKey||e.altKey||e.metaKey)return;
  const target=e.target instanceof Element?e.target:document.body;
- if(document.querySelector('dialog[open]')||target.isContentEditable||target.closest('textarea,select,.replay-menu[open]'))return;
- if(target.matches('input')&&TEXT_INPUT.test(target.type))return;
- if(e.code.startsWith('Arrow')&&target.closest('.leaflet-container,.maplibregl-map'))return;
- if(target!==$('seek')&&keyboardFocused(target)&&(e.code==='Space'||e.code.startsWith('Arrow')||(e.code.startsWith('Page')&&target.closest('.table-scroll'))))return;
- e.preventDefault();
+ if(document.querySelector('dialog[open]')||takesKeys(target))return;
+ e.preventDefault();e.stopPropagation();
  if(e.code==='Space'){flash($('play'));toggle()}
  else if(e.code==='ArrowLeft'){flash($('prev'));step(-1)}
  else if(e.code==='ArrowRight'){flash($('next'));step(1)}
  else if(e.code==='KeyF'){const button=$('fullscreenButton');if(!button.hidden)button.onclick()}
  else goToAdjacentSegment(e.code==='PageUp'?-1:1);
-});
+},true);
 // The road map is not on the video, so its colours follow the screen mode. Dark values equal the original palette;
 // literal colours shared with the video overlay are translated here only.
 const MAP_TONES={'#57d9b0':'lane','#ff5c5c':'edge','#c4a5ff':'path','#81b5ff':'lead','#c5daff':'lead-text','#eee7bc':'selected','#78e9fa':'raw','#4aaaff':'ccnc','#8deeff':'ccnc-ff','#d09aff':'center','#ffda76':'left','#ff91b5':'right','#eef3f8':'white','#8b97a6':'gray','#ff9f43':'orange','#4cd964':'green','#62ed9e':'band','#edf7ff':'band-white','#55b9ff':'blue','#ffa65a':'band-orange','#ff6175':'red','#7be5ff':'target'};

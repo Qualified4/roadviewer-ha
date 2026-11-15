@@ -71,7 +71,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   logs[1].status='processing';await page.evaluate(()=>refresh());
   assert(await page.evaluate(()=>originalHeaderButtons===document.querySelector('.log-route-actions .actions')),'another segment changing status does not replace the header buttons');
   logs[1].status='ready';await page.evaluate(()=>refresh());
-  await summary.focus();await page.keyboard.press('Enter');
+  await summary.click();
   await page.waitForFunction(()=>!document.querySelector('.log-route').open);
   assert(await group.locator('.log-row').first().isHidden());
   assert(await page.evaluate(()=>originalHeaderButtons===document.querySelector('.log-route-actions .actions')),'folding never destroys the header buttons');

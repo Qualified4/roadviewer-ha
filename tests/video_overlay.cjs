@@ -74,7 +74,7 @@ const fs=require('fs'),assert=require('node:assert/strict'),{chromium}=require('
   await setHeight(200);assert.equal(await page.locator('#overlayHeightValue').textContent(),'200 cm');
   await page.locator('#overlayHeightReset').click();assert.equal(await page.locator('#overlayHeightRange').inputValue(),'60');
   await setHeight(75);await page.keyboard.press('Escape');await page.locator('#overlayHeightDialog').waitFor({state:'hidden'});
-  assert(await page.locator('#overlayHeightSettings').evaluate(e=>e===document.activeElement));
+  assert(await page.evaluate(()=>document.activeElement===document.body),'closing hands focus to nothing');
   // CCNC display commands have their own toggle; unknown TrackID/speed are never invented.
   assert.equal(await page.locator('#ccncTargets').isChecked(),true);
   await settingAction('#ccncTargets','uncheck');

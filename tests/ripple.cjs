@@ -42,10 +42,6 @@ const replay={route:'ripple',key:'ripple',duration:1,warnings:[],video:null,fram
    assert.equal(seen.left,false,'ripple is removed afterwards');assert.equal(seen.after,seen.overflow,'host overflow untouched');
    await page.locator('.bookmark-close').click();await page.locator('.bookmark-dialog').waitFor({state:'hidden'});
    await page.waitForFunction(()=>document.body.style.overflow!=='hidden');
-   // Keyboard: ripple from the centre.
-   await page.locator('#roadTab').focus();pending=await watch('#roadTab');await page.keyboard.press('Enter');seen=await (await pending)();
-   if(!reduced){const b=await page.locator('#roadTab').boundingBox();assert(Math.abs(seen.wave.centre[0]-b.width/2)<1.5&&Math.abs(seen.wave.centre[1]-b.height/2)<1.5,'keyboard ripple starts at the centre')}
-   assert.equal(seen.left,false);
    // Transport buttons glow instead of rippling: lit at once while pressed, fading out after release; keys light them too.
    const glow=sel=>page.evaluate(sel=>new Promise(done=>{const el=document.querySelector(sel),seen={lit:false,filter:'none',wave:false};
     const o=new MutationObserver(()=>{if(el.classList.contains('is-lit')&&!seen.lit){seen.lit=true;requestAnimationFrame(()=>requestAnimationFrame(()=>seen.filter=getComputedStyle(el).filter))}seen.wave||=!!el.querySelector('.rv-ripple')});

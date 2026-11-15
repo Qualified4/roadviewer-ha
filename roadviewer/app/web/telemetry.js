@@ -115,7 +115,6 @@
  window.selectAnalysisTab=selectTab;
  for(const [name,[button]] of Object.entries(panes)){
   button.onclick=()=>selectTab(name);
-  button.onkeydown=e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)||!keyboardFocused(button))return;e.preventDefault();const shown=order.filter(name=>!panes[name][0].hidden),i=shown.indexOf(tab),next=e.key==='Home'?shown[0]:e.key==='End'?shown.at(-1):shown[(i+(e.key==='ArrowRight'?1:shown.length-1))%shown.length];selectTab(next);panes[next][0].focus()};
  }
  // Event track under the video: green while the system is on, orange where the driver took over (steering, or
  // gas/brake while on) or where the system switched off. Computed from the loaded vehicle data of this segment.
@@ -161,7 +160,6 @@
   canvas.addEventListener('pointermove',e=>{if(!gesture||gesture.canvas!==canvas||gesture.id!==e.pointerId)return;const dx=Math.abs(e.clientX-gesture.x),dy=Math.abs(e.clientY-gesture.y);if(dx>6&&dx>dy)gesture.horizontal=true;if(!gesture.touch||gesture.horizontal)seekFrom(e,canvas,gesture.range)});
   canvas.addEventListener('pointerup',e=>{if(!gesture||gesture.id!==e.pointerId)return;const g=gesture;gesture=null;if(!g.touch||g.horizontal||Math.hypot(e.clientX-g.x,e.clientY-g.y)<6)seekFrom(e,canvas,g.range);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);update()});
   canvas.addEventListener('pointercancel',()=>{gesture=null;update()});canvas.addEventListener('lostpointercapture',()=>{if(gesture?.canvas===canvas){gesture=null;update()}});
-  canvas.addEventListener('keydown',e=>{if(!data||!['ArrowLeft','ArrowRight','Home','End'].includes(e.key)||!keyboardFocused(canvas))return;e.preventDefault();e.stopPropagation();const range=domain();setTime(e.key==='Home'?range[0]:e.key==='End'?range[1]:t+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?1:.1));last=performance.now()});
  }
  function rebuild(){
   scroll.replaceChildren();cards.clear();cardWatch.disconnect();measured=false;
@@ -169,7 +167,7 @@
    const card=document.createElement('section');card.className='telemetry-chart';card.dataset.graph=graph.id;
    const title=document.createElement('h3');title.textContent=graph.title+(graph.unit?' · '+graph.unit:'');
    const legend=document.createElement('div');legend.className='telemetry-legend';const labels=graph.lines.map((s,i)=>{const label=document.createElement('span');label.style.color=`var(--chart-${i%colors.length+1})`;legend.append(label);return label});
-   const plot=document.createElement('div');plot.className='telemetry-plot';const canvas=document.createElement('canvas');canvas.tabIndex=0;canvas.setAttribute('role','img');canvas.setAttribute('aria-label',graph.title+' 시간축 그래프. 클릭 또는 좌우 방향키로 재생 위치 이동');
+   const plot=document.createElement('div');plot.className='telemetry-plot';const canvas=document.createElement('canvas');canvas.setAttribute('role','img');canvas.setAttribute('aria-label',graph.title+' 시간축 그래프. 클릭해서 재생 위치 이동');
    const cursor=document.createElement('div');cursor.className='telemetry-cursor';cursor.setAttribute('aria-hidden','true');plot.append(canvas,cursor);const note=document.createElement('p');note.className='telemetry-source-note';note.hidden=true;card.append(title,legend,plot,note);scroll.append(card);cards.set(graph.id,{graph,card,canvas,cursor,labels,note,noteKey:null,cache:''});installSeeking(canvas);cardWatch.observe(card);
   }
   if(!selected.size){const empty=document.createElement('p');empty.textContent='선택된 그래프가 없습니다. 그래프 선택에서 항목을 켜 주세요.';scroll.append(empty)}

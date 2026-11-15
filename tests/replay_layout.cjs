@@ -330,7 +330,7 @@ const {settleLayout:settle}=require('./browser-helpers.cjs');
    assert.equal(await page.evaluate(()=>localStorage.getItem(widthProfile().key)),await slider.inputValue());
    await page.keyboard.press('Escape');await page.waitForFunction(()=>!document.getElementById('layoutWidthDialog').open&&document.body.style.overflow==='');
    await page.locator('#layoutWidthDialog').waitFor({state:'hidden'});
-   assert(await page.locator(menu+'>summary').evaluate(e=>e===document.activeElement),'focus returns to the menu button');
+   assert(await page.evaluate(()=>document.activeElement===document.body),'closing hands focus to nothing');
    assert.equal(await page.evaluate(()=>document.body.style.overflow),'');
   }
   // The app bar's content lines up with the page content at every saved width.

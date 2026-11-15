@@ -58,7 +58,6 @@ async function navigate(to,{replace=false,pop=false,pressed=0}={}){
   host.replaceChildren(root);root.hidden=false;libraryStyle.disabled=kind!=='library';current={url,scope,api};
   document.title=html.title;notice.textContent='';
   scrollTo(0,pop?(history.state?.rvScroll||0):kind==='library'?libraryScroll:0);
-  if(previous){const title=root.querySelector('h1');title.tabIndex=-1;title.focus({preventScroll:true})}
   dispatchEvent(new Event('pageshow'));busy(false);
   if(kind==='replay')prefetchLibrary();
 
