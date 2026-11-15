@@ -1017,11 +1017,21 @@ select,.rv-choice-trigger{font-weight:500}
 .map-follow:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 @media(pointer:coarse){.map-follow{min-height:40px}}
 .leaflet-marker-icon.map-car{display:grid;place-items:center;background:none;border:0}  /* the body (smaller on the small map) centred on the icon's anchor */
-.map-car-body{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;box-shadow:0 0 0 2.5px #fff,0 2px 8px rgba(0,0,0,.4)}  /* turned and placed every frame by maps.js: no transition */
+.map-car-body{display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--map-car-color,var(--accent));color:var(--map-car-ink,#fff);box-shadow:0 0 0 2.5px #fff,0 2px 8px rgba(0,0,0,.4)}  /* turned and placed every frame by maps.js: no transition */
 .map-car-body svg path{fill:currentColor}
-.map-car-body[data-car-icon=vehicle]{width:44px;height:44px;background:none;border-radius:0;box-shadow:none;color:var(--map-ego)}
-.map-vehicle-shell{fill:currentColor;fill-opacity:.75;stroke:currentColor;stroke-width:1}
-.map-vehicle-glass{fill:var(--map-label);fill-opacity:.65}
+.map-car-body[data-car-icon=vehicle]{width:44px;height:44px;background:none;border-radius:0;box-shadow:none;color:var(--map-car-color,var(--map-ego))}
+.map-vehicle-shell{fill:currentColor;fill-opacity:.75;stroke:var(--map-car-outline,currentColor);stroke-width:1}
+.map-vehicle-glass{fill:var(--map-car-ink,var(--map-label));fill-opacity:.65}
+.map-car-body[data-car-color]:not([data-car-color=auto]){--map-car-ink:#17212b;--map-car-outline:#17212b}
+.map-car-color-setting{display:grid;gap:8px;padding:10px;margin-top:4px;border-top:1px solid var(--line)}
+.map-car-color-setting>span{font-weight:600;font-size:12px}
+.map-car-colors{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.map-car-colors>button{display:flex;align-items:center;justify-content:center;gap:5px;min-width:0;min-height:44px!important;padding:5px 3px;border:1px solid transparent;border-radius:9px;background:transparent;color:var(--text);box-shadow:none;font-size:11px}
+.map-car-colors i{position:relative;flex:none;width:18px;height:18px;border-radius:50%;background:var(--swatch,conic-gradient(#e9ebee 0 50%,#14171c 50%));border:1px solid color-mix(in srgb,var(--text) 35%,transparent)}
+.map-car-colors>button[aria-pressed=true]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.map-car-colors>button[aria-pressed=true] i::after{content:'';position:absolute;inset:5px;border-radius:50%;background:#17212b;box-shadow:0 0 0 1px #fff}
+.map-car-colors>button:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
+.rv-map-options{max-height:calc(100dvh - 16px);overflow-y:auto}
 .rv-map-car-choice{flex-direction:column;align-items:stretch;gap:6px;margin-top:4px;padding-top:10px;border-top:1px solid var(--line)}
 .rv-map-car-choice>span{white-space:nowrap}.rv-map-car-choice .view-switch>button{flex:1}.view-switch>button[data-map-car]{min-height:44px!important}
 
