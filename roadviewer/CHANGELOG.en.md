@@ -4,6 +4,11 @@
 
 These are the English release notes from 0.13.0 on. Earlier release entries remain in the [original Korean history](CHANGELOG.md); they describe behavior at their release date, not necessarily current behavior. See the [current user guide](DOCS.en.md) for present settings and policies.
 
+## 1.3.18
+
+- The vehicle-shaped map car icon draws its body and windows without transparency.
+- Pushing a held segment card up: the "구간 n · 밀어서/놓으면 구간이동" title no longer hugs the top of the screen; it sits a quarter of the way down to the resting card, at least 20 px below the app bar. The card rises to just under it and grows as it goes, to 1.3× at the top.
+
 ## 1.3.17
 
 - Choose automatic, white, mint, blue, cyan, violet, rose, amber, or red for map vehicle icons. The main map and video minimap share the choice, which is remembered in this browser.
