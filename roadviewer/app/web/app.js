@@ -1237,11 +1237,12 @@ function hideSegmentPeek(){$('segmentPeek').classList.remove('is-shown');segment
 // Touch: a block held 0.4 s rises out of the strip. The screen behind the controls blurs, the segment's card shows
 // above its block and a looping hint (an arrow pushing 밀어서 구간이동 up) invites pushing it; sliding along the strip
 // changes the segment. Pushed up off the strip, the segment is locked and only the card follows the finger: the rest
-// darkens, the hint fades and the title (구간 n · 밀어서 구간이동) rises at the top; past ARM px 밀어서 turns to 놓으면 and
+// darkens, the hint fades and the title (구간 n · 밀어서 구간이동) rises above it; the card grows as it rises, to GROW at the
+// top of its travel (just under the title); past ARM px 밀어서 turns to 놓으면 and
 // letting go opens it. Coming back down undoes each step; let go short of it and the card settles back and closes. On the
 // segment already playing the arrow flattens and the hint stops; one that is not ready says so.
 const segmentGesture=(()=>{
- const ARM=56,strip=$('segmentStrip'),panel=document.querySelector('.camera-panel'),bar=panel.querySelector('.playback');
+ const ARM=56,GROW=1.3,strip=$('segmentStrip'),panel=document.querySelector('.camera-panel'),bar=panel.querySelector('.playback');
  const under=document.createElement('div'),over=document.createElement('div');
  under.className='segment-gesture-under';over.className='segment-gesture-over';under.setAttribute('aria-hidden','true');over.setAttribute('aria-hidden','true');
  under.innerHTML='<div class="sg-blur"></div>';
@@ -1285,8 +1286,11 @@ const segmentGesture=(()=>{
   q('.sg-dark').style.opacity=open?(.62*p).toFixed(3):'0';
   // sizes are measured once per gesture (start, resize); per frame only the strip and block positions are read
   const sr=strip.getBoundingClientRect(),br=b.getBoundingClientRect(),{w,h,ceiling,hintH}=st.size,vw=document.documentElement.clientWidth;
-  const left=Math.max(8,Math.min(vw-w-8,br.left+br.width/2-w/2)),rest=sr.top-12-h,top=rest-Math.min(lift,Math.max(0,rest-ceiling));
-  st.left=left;st.top=top;card.style.transform=`translate3d(${left}px,${top}px,0) scale(${1+.04*p})`;card.classList.toggle('is-armed',armed);
+  // grows from its bottom edge, so the room it needs to reach GROW is kept below the ceiling
+  const rest=sr.top-12-h,room=Math.max(0,rest-ceiling),grow=Math.min(GROW,1+Math.max(0,room-ARM)/h),travel=Math.max(0,room-h*(grow-1));
+  const rise=Math.min(lift,travel),scale=travel?1+(grow-1)*rise/travel:1,spread=w*(scale-1)/2;
+  const left=Math.max(8+spread,Math.min(vw-w-8-spread,br.left+br.width/2-w/2)),top=rest-rise;
+  st.left=left;st.top=top;st.scale=scale;card.style.transform=`translate3d(${left}px,${top}px,0) scale(${scale})`;card.classList.toggle('is-armed',armed);
   card.style.setProperty('--tx',Math.max(14,Math.min(w-14,br.left+br.width/2-left))+'px');card.classList.toggle('is-lifted',top<rest-6);
   hint.style.top=(rest-8-hintH)+'px';
   setFlat(here);hint.classList.toggle('is-note',notReady);q('.sg-note').textContent=notReady?'준비 중인 구간':'';
@@ -1313,7 +1317,13 @@ const segmentGesture=(()=>{
   // one layout pass per frame however many touch events arrive
   if(!frame)frame=requestAnimationFrame(()=>{frame=0;if(st)place()});
  }
- function measure(){st.size={w:card.offsetWidth,h:card.offsetHeight,ceiling:title.offsetTop+title.offsetHeight+16,hintH:hint.offsetHeight}}
+ // The title sits a quarter of the way from the top down to the resting card (clear of the app bar), the card stops
+ // 16 px under it.
+ function measure(){
+  const h=card.offsetHeight,rest=strip.getBoundingClientRect().top-12-h,barBottom=document.fullscreenElement?0:Math.max(0,document.querySelector('.app-bar')?.getBoundingClientRect().bottom||0);
+  title.style.top=Math.round(Math.max(barBottom+20,rest*.25))+'px';
+  st.size={w:card.offsetWidth,h,ceiling:title.offsetTop+title.offsetHeight+16,hintH:hint.offsetHeight};
+ }
  function close(){
   st=null;setFlat(false);
   under.classList.remove('is-on');over.classList.remove('is-on','is-drag');card.classList.remove('is-shown','is-armed','is-lifted');
@@ -1325,7 +1335,7 @@ const segmentGesture=(()=>{
   if(!st)return;
   const b=blockOf(st.id);
   cancelAnimationFrame(frame);frame=0;over.classList.remove('is-drag');
-  if(letGo&&st.armed&&opens(b)){card.classList.add('is-fly');card.style.transform=`translate3d(${st.left}px,${st.top-30}px,0) scale(1.04)`;const go=b.onclick;close();card.classList.add('is-shown','is-fly');closing=setTimeout(()=>card.classList.remove('is-shown','is-fly'),460);go();return}
+  if(letGo&&st.armed&&opens(b)){card.classList.add('is-fly');card.style.transform=`translate3d(${st.left}px,${st.top-30}px,0) scale(${st.scale})`;const go=b.onclick;close();card.classList.add('is-shown','is-fly');closing=setTimeout(()=>card.classList.remove('is-shown','is-fly'),460);go();return}
   card.classList.add('is-settle');st.lift=0;st.locked=false;place();
   closing=setTimeout(()=>{close();setTimeout(()=>card.classList.remove('is-settle'),500)},380);
  }

@@ -121,6 +121,18 @@ const block=(page,i)=>page.locator('#segmentStrip .segment-block').nth(i).boundi
   assert(s.title&&s.num==='구간 1'&&!s.armed,'the title rises with 밀어서');assert(s.hintGone,'the hint fades');assert(s.dark>0,'the screen darkens');assert(s.top<rest-20,'the card follows the finger up');
   {const t=await block(p,2);await touch('touchMove',t.x+t.width/2,y-34);await p.waitForTimeout(80);assert.equal((await g()).label,'구간 1','pushed up, sliding sideways keeps the segment');}
   await touch('touchMove',x,y-100);await p.waitForTimeout(250);s=await g();assert(s.armed,'far enough up: 놓으면 구간이동');assert(s.dark>.5,'darker');
+  // The card grows as it rises; pushed to the top it is 1.3× and stops under the title, which sits a quarter of the
+  // way down to the resting card and clear of the app bar.
+  {const mid=await p.evaluate(()=>document.getElementById('segmentGestureCard').getBoundingClientRect().width);
+   await touch('touchMove',x,10);await p.waitForTimeout(250);
+   const top=await p.evaluate(()=>{const c=document.getElementById('segmentGestureCard').getBoundingClientRect(),t=document.querySelector('.sg-title').getBoundingClientRect(),bar=document.querySelector('.app-bar').getBoundingClientRect();
+    return {card:[c.left,c.top,c.right,c.width],title:[t.top,t.bottom],bar:bar.bottom,vw:document.documentElement.clientWidth,base:document.getElementById('segmentGestureCard').offsetWidth}});
+   assert(Math.abs(top.card[3]/top.base-1.3)<.01,'pushed to the top the card is 1.3×: '+JSON.stringify(top));
+   assert(mid>top.base*1.02&&mid<top.card[3]-4,`it grows on the way up: ${mid} between ${top.base} and ${top.card[3]}`);
+   assert(top.card[1]>=top.title[1]+15,'the card stops under the title: '+JSON.stringify(top));
+   assert(top.card[0]>=7.5&&top.card[2]<=top.vw-7.5,'the grown card stays on screen: '+JSON.stringify(top));
+   assert(top.title[0]>=top.bar+19.5,'the title is clear of the app bar: '+JSON.stringify(top));
+   assert(top.title[0]>=(rest-top.bar)*.2,'the title is well below the top: '+JSON.stringify({top,rest}))}
   await touch('touchMove',x,y-30);await p.waitForTimeout(150);assert(!(await g()).armed,'back down: 밀어서 again');
   await touch('touchMove',x,y);await p.waitForTimeout(150);s=await g();assert(!s.title&&!s.hintGone,'back on the strip: the hint returns, the title goes');
   {const t=await block(p,2);await touch('touchMove',t.x+t.width/2,y);await p.waitForTimeout(80);assert.equal((await g()).label,'구간 2','back on the strip it scrubs again');}
