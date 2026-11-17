@@ -2,6 +2,13 @@
 
 [한국어](README.md) · English
 
+> [!WARNING]
+> **This repository (Python Road Viewer 1.x) is deprecated and no longer developed.** Its successor is Road Viewer 2.x, rewritten in Rust and developed and published at [Qualified4/roadviewer-hars](https://github.com/Qualified4/roadviewer-hars).
+>
+> - No new features, fixes or releases will be made here. 1.3.18 is the last version.
+> - Existing releases, the changelog and the Git history stay as they are.
+> - 2.x installs as a separate app. To move over, see the [cutover guide](https://github.com/Qualified4/roadviewer-hars/blob/main/docs/hars/CUTOVER.md) and the [2.x changelog](https://github.com/Qualified4/roadviewer-hars/blob/main/roadviewer_hars/CHANGELOG.md).
+
 Feature reference: **1.3.18**
 
 Upload openpilot driving logs and front/wide camera recordings to **replay video, road views and vehicle information graphs on the same timeline inside Home Assistant**.
