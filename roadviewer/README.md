@@ -2,6 +2,13 @@
 
 한국어 · [English](README.en.md)
 
+> [!WARNING]
+> **이 저장소(Python Road Viewer 1.x)는 더 이상 개발하지 않습니다(Deprecated).** 후속 버전은 Rust로 다시 구현한 Road Viewer 2.x이며 [Qualified4/roadviewer-hars](https://github.com/Qualified4/roadviewer-hars)에서 개발·배포합니다.
+>
+> - 새 기능과 수정, 새 버전 배포는 이 저장소에서 더 이상 하지 않습니다. 1.3.18이 마지막 버전입니다.
+> - 기존 릴리스, 변경 이력, Git 이력은 그대로 남아 있습니다.
+> - 2.x는 별도 앱으로 설치합니다. 옮기는 방법은 [전환 안내](https://github.com/Qualified4/roadviewer-hars/blob/main/docs/hars/CUTOVER.md)와 [2.x 변경 이력](https://github.com/Qualified4/roadviewer-hars/blob/main/roadviewer_hars/CHANGELOG.md)을 보세요.
+
 현재 기능 안내: **1.3.18**
 
 openpilot 로그와 전방·와이드 카메라 영상을 Home Assistant 안에서 함께 재생하고 분석하는 앱입니다.
